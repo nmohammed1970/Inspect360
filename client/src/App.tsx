@@ -11,6 +11,10 @@ import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Properties from "@/pages/Properties";
 import Credits from "@/pages/Credits";
+import Inspections from "@/pages/Inspections";
+import Compliance from "@/pages/Compliance";
+import Maintenance from "@/pages/Maintenance";
+import Comparisons from "@/pages/Comparisons";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 
@@ -27,6 +31,10 @@ function Router() {
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/properties" component={Properties} />
           <Route path="/credits" component={Credits} />
+          <Route path="/inspections" component={Inspections} />
+          <Route path="/compliance" component={Compliance} />
+          <Route path="/maintenance" component={Maintenance} />
+          <Route path="/comparisons" component={Comparisons} />
         </>
       )}
       <Route component={NotFound} />

@@ -13,12 +13,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2024-12-18.acacia",
 });
 
-// Initialize OpenAI using Replit AI Integrations
+// Initialize OpenAI using Replit AI Integrations (lazy initialization)
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
-});
+let openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!openai) {
+    if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+      throw new Error("OpenAI integration not configured. Please set up the AI Integrations.");
+    }
+    openai = new OpenAI({
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
+    });
+  }
+  return openai;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -288,7 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Call OpenAI Vision API
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: "gpt-5",
         messages: [
           {
@@ -364,7 +373,7 @@ Check-out items: ${JSON.stringify(checkOutItems.map(i => ({ category: i.category
 
 Provide a structured comparison highlighting differences in condition ratings and any notable changes.`;
 
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAI().chat.completions.create({
         model: "gpt-5",
         messages: [
           {

@@ -1,14 +1,33 @@
-import { Link } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ClipboardCheck } from "lucide-react";
 
-export default function NotFound() {
+export default function Inspections() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen">
-      <h1 className="text-4xl font-bold mb-4">404 - Page Not Found</h1>
-      <p className="text-muted-foreground mb-8">The page you're looking for doesn't exist.</p>
-      <Link href="/">
-        <Button>Go Home</Button>
-      </Link>
+    <div className="p-8 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-foreground">Inspections</h1>
+        <p className="text-muted-foreground">Manage property inspections</p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ClipboardCheck className="w-5 h-5 text-primary" />
+            Inspection Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground mb-4">
+            This page will allow you to create and manage inspections for your properties.
+            Features include check-in, check-out, routine, and maintenance inspections with
+            photo capture and AI analysis.
+          </p>
+          <Button className="bg-accent hover:bg-accent/90" data-testid="button-create-inspection">
+            Create New Inspection
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
