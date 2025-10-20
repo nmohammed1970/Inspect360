@@ -6,7 +6,7 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 
 ## Project Status
 
-**Current Implementation:**
+**Current Implementation (MVP Complete):**
 - ✅ Complete PostgreSQL database schema with all tables
 - ✅ Storage interface with full CRUD operations
 - ✅ Replit Auth with role-based middleware (Owner, Clerk, Compliance, Tenant)
@@ -16,17 +16,17 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 - ✅ Stripe integration for credit purchases
 - ✅ Design system with Navy/Green/Deep Blue brand colors
 - ✅ Sidebar navigation with role-aware menu items
-- ✅ Owner Dashboard with KPIs and credit alerts
+- ✅ Owner Dashboard with real KPIs (properties, units, inspections, credits)
 - ✅ Properties management page with CRUD operations
 - ✅ Units management with property association
 - ✅ Credits management with Stripe checkout flow
-- ✅ Compliance document management with expiry tracking
-- ✅ Maintenance tracking with status workflow
+- ✅ Compliance dashboard with expiry tracking and role-based access
+- ✅ Maintenance tracking with status workflow and tenant portal
 - ✅ Comparison reports UI with side-by-side inspection viewing
 - ✅ Organization onboarding flow for new users
-- ✅ Team management page for viewing and managing team member roles
-- 🚧 Inspection detail with photo upload - planned for next iteration
-- 🚧 Real dashboard data aggregation - planned for next iteration
+- ✅ Team management page with role updates
+- ✅ Inspection detail page with photo upload and AI analysis
+- ✅ Tenant portal with secure unit filtering and maintenance requests
 - 🚧 PWA manifest and service worker - planned for next iteration
 
 ## Tech Stack
@@ -89,8 +89,10 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 
 **Tenant:**
 - View comparison reports for their unit
-- Submit maintenance requests
-- Access tenant portal
+- Submit maintenance requests (only for their assigned units)
+- Track their own maintenance requests
+- Access tenant-specific dashboard
+- Secure unit filtering (can only see/select their own units)
 
 ### Credit System
 
@@ -261,6 +263,13 @@ npm run db:studio
 
 ## Recent Changes
 
+- 2025-10-20: **MVP COMPLETE** - All core features implemented and production-ready
+  - Inspection detail page with photo upload and AI analysis
+  - Real dashboard data aggregation for all roles
+  - Compliance dashboard with expiry tracking
+  - Tenant portal with secure unit filtering and maintenance requests
+  - Backend security: tenant unit ownership validation
+  - Frontend security: role-based UI filtering
 - 2025-01-XX: Initial project setup with complete backend infrastructure
 - 2025-01-XX: Frontend implementation with Dashboard, Properties, and Credits pages
 - 2025-01-XX: Integrated OpenAI Vision API for photo analysis
