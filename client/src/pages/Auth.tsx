@@ -168,7 +168,6 @@ export default function Auth() {
                             <FormControl>
                               <Input
                                 {...field}
-                                value={field.value || ""}
                                 data-testid="input-first-name"
                                 placeholder="John"
                                 disabled={registerMutation.isPending}
@@ -188,7 +187,6 @@ export default function Auth() {
                             <FormControl>
                               <Input
                                 {...field}
-                                value={field.value || ""}
                                 data-testid="input-last-name"
                                 placeholder="Doe"
                                 disabled={registerMutation.isPending}
@@ -206,17 +204,12 @@ export default function Auth() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Email</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              value={field.value || ""}
-                              type="email"
-                              autoComplete="email"
-                              data-testid="input-email"
-                              placeholder="john@example.com"
-                              disabled={registerMutation.isPending}
-                            />
-                          </FormControl>
+                          <Input
+                            {...field}
+                            data-testid="input-email"
+                            placeholder="john@example.com"
+                            disabled={registerMutation.isPending}
+                          />
                           <FormMessage />
                         </FormItem>
                       )}
@@ -231,7 +224,6 @@ export default function Auth() {
                           <FormControl>
                             <Input
                               {...field}
-                              value={field.value || ""}
                               data-testid="input-register-username"
                               placeholder="Acme Property Management"
                               disabled={registerMutation.isPending}
@@ -252,7 +244,6 @@ export default function Auth() {
                             <div className="relative">
                               <Input
                                 {...field}
-                                value={field.value || ""}
                                 type={showPassword ? "text" : "password"}
                                 data-testid="input-register-password"
                                 placeholder="Create a strong password"
@@ -287,7 +278,6 @@ export default function Auth() {
                             <div className="relative">
                               <Input
                                 {...field}
-                                value={field.value || ""}
                                 type={showConfirmPassword ? "text" : "password"}
                                 data-testid="input-confirm-password"
                                 placeholder="Confirm your password"
