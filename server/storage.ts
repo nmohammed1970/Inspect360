@@ -49,7 +49,7 @@ import {
   type InsertWorkLog,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sql, gte, lte, ne } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -120,6 +120,7 @@ export interface IStorage {
   // Block operations
   createBlock(block: InsertBlock): Promise<Block>;
   getBlocksByOrganization(organizationId: string): Promise<Block[]>;
+  getBlocksWithStats(organizationId: string): Promise<any[]>;
   getBlock(id: string): Promise<Block | undefined>;
   updateBlock(id: string, updates: Partial<InsertBlock>): Promise<Block>;
   deleteBlock(id: string): Promise<void>;
@@ -588,6 +589,139 @@ export class DatabaseStorage implements IStorage {
       .from(blocks)
       .where(eq(blocks.organizationId, organizationId))
       .orderBy(blocks.name);
+  }
+
+  async getBlocksWithStats(organizationId: string): Promise<any[]> {
+    const allBlocks = await this.getBlocksByOrganization(organizationId);
+    
+    if (allBlocks.length === 0) {
+      return [];
+    }
+    
+    const blockIds = allBlocks.map(b => b.id);
+    
+    // Batch fetch all properties for all blocks at once
+    const allProperties = await db
+      .select()
+      .from(properties)
+      .where(and(
+        eq(properties.organizationId, organizationId),
+        sql`${properties.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`
+      ));
+    
+    // Group properties by block
+    const propertiesByBlock = new Map<string, typeof allProperties>();
+    allProperties.forEach(prop => {
+      if (prop.blockId) {
+        if (!propertiesByBlock.has(prop.blockId)) {
+          propertiesByBlock.set(prop.blockId, []);
+        }
+        propertiesByBlock.get(prop.blockId)!.push(prop);
+      }
+    });
+    
+    // Batch fetch all units for all properties at once
+    const propertyIds = allProperties.map(p => p.id);
+    let allUnits: any[] = [];
+    if (propertyIds.length > 0) {
+      allUnits = await db
+        .select()
+        .from(units)
+        .where(sql`${units.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`);
+    }
+    
+    // Group units by property
+    const unitsByProperty = new Map<string, typeof allUnits>();
+    allUnits.forEach(unit => {
+      if (!unitsByProperty.has(unit.propertyId)) {
+        unitsByProperty.set(unit.propertyId, []);
+      }
+      unitsByProperty.get(unit.propertyId)!.push(unit);
+    });
+    
+    // Batch fetch all inspections for all units at once
+    const unitIds = allUnits.map(u => u.id);
+    let allInspections: any[] = [];
+    if (unitIds.length > 0) {
+      allInspections = await db
+        .select()
+        .from(inspections)
+        .where(sql`${inspections.unitId} IN (${sql.join(unitIds.map(id => sql`${id}`), sql`, `)})`);
+    }
+    
+    // Group inspections by unit
+    const inspectionsByUnit = new Map<string, typeof allInspections>();
+    allInspections.forEach(inspection => {
+      if (!inspectionsByUnit.has(inspection.unitId)) {
+        inspectionsByUnit.set(inspection.unitId, []);
+      }
+      inspectionsByUnit.get(inspection.unitId)!.push(inspection);
+    });
+    
+    // Calculate date ranges once
+    const now = new Date();
+    const thirtyDaysFromNow = new Date();
+    thirtyDaysFromNow.setDate(now.getDate() + 30);
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(now.getDate() - 90);
+    
+    // Build stats for each block
+    const blocksWithStats = allBlocks.map(block => {
+      const blockProperties = propertiesByBlock.get(block.id) || [];
+      const blockPropertyIds = blockProperties.map(p => p.id);
+      
+      // Get all units for this block's properties
+      const blockUnits = blockPropertyIds.flatMap(propId => unitsByProperty.get(propId) || []);
+      const totalUnits = blockUnits.length;
+      const occupiedUnits = blockUnits.filter(u => u.status === 'occupied').length;
+      const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+      
+      // Get all inspections for this block's units
+      const blockUnitIds = blockUnits.map(u => u.id);
+      const blockInspections = blockUnitIds.flatMap(unitId => inspectionsByUnit.get(unitId) || []);
+      
+      // Count inspections due in next 30 days
+      const inspectionsDue = blockInspections.filter(insp => {
+        const scheduledDate = new Date(insp.scheduledDate);
+        return scheduledDate >= now && 
+               scheduledDate <= thirtyDaysFromNow && 
+               insp.status !== 'completed';
+      }).length;
+      
+      // Count overdue inspections
+      const overdueInspections = blockInspections.filter(insp => {
+        const scheduledDate = new Date(insp.scheduledDate);
+        return scheduledDate < now && insp.status !== 'completed';
+      }).length;
+      
+      // Calculate compliance rate (units with recent completed inspections)
+      let complianceRate = 0;
+      if (totalUnits > 0) {
+        const unitsWithRecentInspections = new Set<string>();
+        blockInspections.forEach(insp => {
+          const scheduledDate = new Date(insp.scheduledDate);
+          if (scheduledDate >= ninetyDaysAgo && insp.status === 'completed') {
+            unitsWithRecentInspections.add(insp.unitId);
+          }
+        });
+        complianceRate = Math.round((unitsWithRecentInspections.size / totalUnits) * 100);
+      }
+      
+      return {
+        ...block,
+        stats: {
+          totalProperties: blockProperties.length,
+          totalUnits,
+          occupiedUnits,
+          occupancyRate,
+          complianceRate,
+          inspectionsDue,
+          overdueInspections,
+        },
+      };
+    });
+    
+    return blocksWithStats;
   }
 
   async getBlock(id: string): Promise<Block | undefined> {

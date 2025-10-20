@@ -873,7 +873,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== BLOCK ROUTES ====================
   
-  app.post("/api/blocks", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+  app.post("/api/blocks", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -906,7 +906,7 @@ Provide a structured comparison highlighting differences in condition ratings an
         return res.status(403).json({ error: "No organization found" });
       }
 
-      const blocks = await storage.getBlocksByOrganization(user.organizationId);
+      const blocks = await storage.getBlocksWithStats(user.organizationId);
       res.json(blocks);
     } catch (error) {
       console.error("Error fetching blocks:", error);
@@ -939,7 +939,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.patch("/api/blocks/:id", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+  app.patch("/api/blocks/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -970,7 +970,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.delete("/api/blocks/:id", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+  app.delete("/api/blocks/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -997,7 +997,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== INVENTORY TEMPLATE ROUTES ====================
   
-  app.post("/api/inventory-templates", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/inventory-templates", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1061,7 +1061,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.patch("/api/inventory-templates/:id", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.patch("/api/inventory-templates/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1090,7 +1090,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.delete("/api/inventory-templates/:id", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.delete("/api/inventory-templates/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1116,7 +1116,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== INVENTORY ROUTES ====================
   
-  app.post("/api/inventories", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/inventories", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1192,7 +1192,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== INVENTORY ITEM ROUTES ====================
   
-  app.post("/api/inventory-items", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/inventory-items", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1241,7 +1241,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.patch("/api/inventory-items/:id", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.patch("/api/inventory-items/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1266,7 +1266,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== WORK ORDER ROUTES ====================
   
-  app.post("/api/work-orders", isAuthenticated, requireRole(["owner", "contractor"]), async (req: any, res) => {
+  app.post("/api/work-orders", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1371,7 +1371,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireRole(["owner", "contractor"]), async (req: any, res) => {
+  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1404,7 +1404,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== WORK LOG ROUTES ====================
   
-  app.post("/api/work-logs", isAuthenticated, requireRole(["owner", "contractor"]), async (req: any, res) => {
+  app.post("/api/work-logs", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);

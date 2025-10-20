@@ -8,7 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building, Pencil, Trash2 } from "lucide-react";
+import { Plus, Building, Pencil, Trash2, Users, CheckCircle2, Calendar, AlertTriangle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+
+interface BlockStats {
+  totalProperties: number;
+  totalUnits: number;
+  occupiedUnits: number;
+  occupancyRate: number;
+  complianceRate: number;
+  inspectionsDue: number;
+  overdueInspections: number;
+}
 
 interface Block {
   id: string;
@@ -18,6 +29,7 @@ interface Block {
   notes?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  stats?: BlockStats;
 }
 
 export default function Blocks() {
@@ -116,9 +128,18 @@ export default function Blocks() {
     }
 
     if (editingBlock) {
-      updateBlockMutation.mutate({ id: editingBlock.id, name, address, notes });
+      updateBlockMutation.mutate({ 
+        id: editingBlock.id, 
+        name, 
+        address, 
+        notes: notes || undefined 
+      });
     } else {
-      createBlockMutation.mutate({ name, address, notes });
+      createBlockMutation.mutate({ 
+        name, 
+        address, 
+        notes: notes || undefined 
+      });
     }
   };
 
@@ -188,11 +209,68 @@ export default function Blocks() {
                 </div>
                 <CardDescription className="line-clamp-2">{block.address}</CardDescription>
               </CardHeader>
-              {block.notes && (
-                <CardContent>
-                  <p className="text-sm text-muted-foreground line-clamp-3">{block.notes}</p>
-                </CardContent>
-              )}
+              <CardContent className="space-y-3">
+                {/* Occupancy Level */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Occupancy</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" data-testid={`badge-occupancy-${block.id}`}>
+                      {block.stats?.occupancyRate || 0}%
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {block.stats?.occupiedUnits || 0}/{block.stats?.totalUnits || 0}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Compliance Status */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Compliance</span>
+                  </div>
+                  <Badge 
+                    variant={(block.stats?.complianceRate || 0) >= 80 ? "default" : "destructive"}
+                    data-testid={`badge-compliance-${block.id}`}
+                  >
+                    {block.stats?.complianceRate || 0}%
+                  </Badge>
+                </div>
+
+                {/* Inspections Due */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Due Soon</span>
+                  </div>
+                  <Badge variant="secondary" data-testid={`badge-due-${block.id}`}>
+                    {block.stats?.inspectionsDue || 0}
+                  </Badge>
+                </div>
+
+                {/* Overdue Inspections */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Overdue</span>
+                  </div>
+                  <Badge 
+                    variant={(block.stats?.overdueInspections || 0) > 0 ? "destructive" : "secondary"}
+                    data-testid={`badge-overdue-${block.id}`}
+                  >
+                    {block.stats?.overdueInspections || 0}
+                  </Badge>
+                </div>
+
+                {block.notes && (
+                  <div className="pt-2 border-t">
+                    <p className="text-xs text-muted-foreground line-clamp-2">{block.notes}</p>
+                  </div>
+                )}
+              </CardContent>
             </Card>
           ))}
         </div>
