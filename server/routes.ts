@@ -96,6 +96,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/organizations/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const organizationId = req.params.id;
+      
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const organization = await storage.getOrganization(organizationId);
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      res.json(organization);
+    } catch (error) {
+      console.error("Error fetching organization:", error);
+      res.status(500).json({ message: "Failed to fetch organization" });
+    }
+  });
+
   // ==================== TEAM MANAGEMENT ROUTES ====================
   
   app.get("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {

@@ -7,6 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Building2, ClipboardCheck, FileText, CreditCard, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
+import type { Property, Inspection, ComplianceDocument, MaintenanceRequest, Unit } from "@shared/schema";
+
+// Extended inspection type with nested unit and property
+type InspectionWithDetails = Inspection & {
+  unit?: Unit & { propertyId: string };
+  property?: Property;
+  clerk?: { firstName: string | null; lastName: string | null };
+};
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -26,24 +34,43 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, isLoading, toast]);
 
-  const { data: properties = [] } = useQuery({
+  const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
     enabled: isAuthenticated,
   });
 
-  const { data: inspections = [] } = useQuery({
+  const { data: inspections = [] } = useQuery<InspectionWithDetails[]>({
     queryKey: ["/api/inspections/my"],
     enabled: isAuthenticated,
   });
 
-  const { data: compliance = [] } = useQuery({
+  // Fetch all units for all properties to calculate total
+  const { data: allUnits = [] } = useQuery<any[]>({
+    queryKey: ["/api/units"],
+    enabled: isAuthenticated && properties.length > 0,
+  });
+
+  const totalUnits = allUnits.length;
+
+  const { data: compliance = [] } = useQuery<ComplianceDocument[]>({
     queryKey: ["/api/compliance/expiring", { days: 90 }],
     enabled: isAuthenticated && (user?.role === "owner" || user?.role === "compliance"),
   });
 
-  const { data: maintenance = [] } = useQuery({
+  const { data: maintenance = [] } = useQuery<MaintenanceRequest[]>({
     queryKey: ["/api/maintenance"],
     enabled: isAuthenticated && (user?.role === "owner" || user?.role === "clerk"),
+  });
+
+  // Fetch organization data for credits
+  const { data: organization } = useQuery<{creditsRemaining: number | null}>({
+    queryKey: ["/api/organizations", user?.organizationId],
+    queryFn: async () => {
+      const res = await fetch(`/api/organizations/${user?.organizationId}`);
+      if (!res.ok) throw new Error("Failed to fetch organization");
+      return res.json();
+    },
+    enabled: isAuthenticated && !!user?.organizationId && user?.role === "owner",
   });
 
   if (isLoading) {
@@ -54,7 +81,7 @@ export default function Dashboard() {
     );
   }
 
-  const creditsRemaining = user?.organization?.creditsRemaining || 0;
+  const creditsRemaining = organization?.creditsRemaining ?? 0;
   const creditsLow = creditsRemaining < 5;
 
   return (
@@ -89,18 +116,29 @@ export default function Dashboard() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Properties</CardTitle>
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-properties-count">{properties.length}</div>
-            <p className="text-xs text-muted-foreground">Total managed properties</p>
+            <p className="text-xs text-muted-foreground">Total managed buildings</p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Units</CardTitle>
+            <Building2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-units-count">{totalUnits}</div>
+            <p className="text-xs text-muted-foreground">Total apartments/units</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Inspections</CardTitle>
             <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -112,22 +150,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {(user?.role === "owner" || user?.role === "compliance") && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-expiring-count">{compliance.length}</div>
-              <p className="text-xs text-muted-foreground">Compliance documents</p>
-            </CardContent>
-          </Card>
-        )}
-
         {user?.role === "owner" && (
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Credits</CardTitle>
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
@@ -139,26 +164,92 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
+
+        {user?.role === "compliance" && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold" data-testid="text-expiring-count">{compliance.length}</div>
+              <p className="text-xs text-muted-foreground">Compliance documents</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {user?.role === "clerk" && (
         <Card>
           <CardHeader>
-            <CardTitle>My Inspections Today</CardTitle>
+            <CardTitle>My Inspections</CardTitle>
           </CardHeader>
           <CardContent>
             {inspections.length === 0 ? (
-              <p className="text-muted-foreground">No inspections scheduled today.</p>
+              <p className="text-muted-foreground">No inspections assigned to you.</p>
             ) : (
-              <div className="space-y-4">
-                {inspections.slice(0, 5).map((inspection: any) => (
+              <div className="space-y-3">
+                {inspections.slice(0, 5).map((inspection) => (
+                  <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
+                    <div
+                      className="flex items-center justify-between gap-2 p-4 border rounded-md hover-elevate cursor-pointer"
+                      data-testid={`card-inspection-${inspection.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{inspection.type} Inspection</p>
+                        <p className="text-sm text-muted-foreground truncate">
+                          {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
+                        </p>
+                        {inspection.scheduledDate && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {new Date(inspection.scheduledDate).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <Badge
+                        variant={
+                          inspection.status === "completed"
+                            ? "default"
+                            : inspection.status === "in_progress"
+                            ? "secondary"
+                            : "outline"
+                        }
+                        data-testid={`badge-status-${inspection.id}`}
+                      >
+                        {inspection.status}
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {user?.role === "owner" && inspections.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Inspections</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {inspections.slice(0, 5).map((inspection) => (
+                <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
                   <div
-                    key={inspection.id}
-                    className="flex items-center justify-between p-4 border rounded-md hover-elevate"
+                    className="flex items-center justify-between gap-2 p-4 border rounded-md hover-elevate cursor-pointer"
+                    data-testid={`card-inspection-${inspection.id}`}
                   >
-                    <div>
-                      <p className="font-medium">Unit {inspection.unitId}</p>
-                      <p className="text-sm text-muted-foreground">{inspection.type}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{inspection.type} Inspection</p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
+                      </p>
+                      {inspection.scheduledDate && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {new Date(inspection.scheduledDate).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
                     <Badge
                       variant={
@@ -168,13 +259,14 @@ export default function Dashboard() {
                           ? "secondary"
                           : "outline"
                       }
+                      data-testid={`badge-status-${inspection.id}`}
                     >
                       {inspection.status}
                     </Badge>
                   </div>
-                ))}
-              </div>
-            )}
+                </Link>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -185,30 +277,33 @@ export default function Dashboard() {
             <CardTitle>Recent Maintenance Requests</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {maintenance.slice(0, 5).map((request: any) => (
-                <div
-                  key={request.id}
-                  className="flex items-center justify-between p-4 border rounded-md"
-                >
-                  <div>
-                    <p className="font-medium">{request.title}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Priority: {request.priority}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={
-                      request.status === "completed"
-                        ? "default"
-                        : request.status === "in_progress"
-                        ? "secondary"
-                        : "outline"
-                    }
+            <div className="space-y-3">
+              {maintenance.slice(0, 5).map((request) => (
+                <Link key={request.id} href="/maintenance">
+                  <div
+                    className="flex items-center justify-between gap-2 p-4 border rounded-md hover-elevate cursor-pointer"
+                    data-testid={`card-maintenance-${request.id}`}
                   >
-                    {request.status}
-                  </Badge>
-                </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{request.title}</p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        Priority: {request.priority}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        request.status === "completed"
+                          ? "default"
+                          : request.status === "in_progress"
+                          ? "secondary"
+                          : "outline"
+                      }
+                      data-testid={`badge-status-${request.id}`}
+                    >
+                      {request.status}
+                    </Badge>
+                  </div>
+                </Link>
               ))}
             </div>
           </CardContent>
