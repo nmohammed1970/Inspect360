@@ -199,6 +199,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/units", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user?.organizationId) {
+        return res.json([]);
+      }
+
+      const units = await storage.getUnitsByOrganization(user.organizationId);
+      res.json(units);
+    } catch (error) {
+      console.error("Error fetching units:", error);
+      res.status(500).json({ message: "Failed to fetch units" });
+    }
+  });
+
   app.get("/api/properties/:propertyId/units", isAuthenticated, async (req, res) => {
     try {
       const { propertyId } = req.params;

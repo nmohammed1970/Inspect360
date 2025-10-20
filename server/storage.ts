@@ -53,6 +53,7 @@ export interface IStorage {
   // Unit operations
   createUnit(unit: InsertUnit): Promise<Unit>;
   getUnitsByProperty(propertyId: string): Promise<Unit[]>;
+  getUnitsByOrganization(organizationId: string): Promise<Unit[]>;
   getUnit(id: string): Promise<Unit | undefined>;
   updateUnitTenant(id: string, tenantId: string | null): Promise<Unit>;
   
@@ -183,6 +184,22 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(units)
       .where(eq(units.propertyId, propertyId))
+      .orderBy(units.unitNumber);
+  }
+
+  async getUnitsByOrganization(organizationId: string): Promise<Unit[]> {
+    return await db
+      .select({
+        id: units.id,
+        propertyId: units.propertyId,
+        unitNumber: units.unitNumber,
+        tenantId: units.tenantId,
+        createdAt: units.createdAt,
+        updatedAt: units.updatedAt,
+      })
+      .from(units)
+      .innerJoin(properties, eq(units.propertyId, properties.id))
+      .where(eq(properties.organizationId, organizationId))
       .orderBy(units.unitNumber);
   }
 
