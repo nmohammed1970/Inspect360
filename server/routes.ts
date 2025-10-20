@@ -2,7 +2,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, requireRole } from "./replitAuth";
+import { setupAuth, isAuthenticated, requireRole } from "./auth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import Stripe from "stripe";
@@ -37,7 +37,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -60,7 +60,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.post("/api/organizations", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { name } = req.body;
       
       if (!name) {
@@ -98,7 +98,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/organizations/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const organizationId = req.params.id;
       
       const user = await storage.getUser(userId);
@@ -157,7 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Prevent changing own role
-      if (userId === req.user.claims.sub) {
+      if (userId === req.user.id) {
         return res.status(400).json({ message: "Cannot change your own role" });
       }
 
@@ -199,7 +199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/properties", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       
       if (!user?.organizationId) {
@@ -234,7 +234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get("/api/users/clerks", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       
       if (!user?.organizationId) {
@@ -274,7 +274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/units", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -302,7 +302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.post("/api/inspections", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
       const { unitId, type, scheduledDate, notes, clerkId } = req.body;
       
@@ -343,7 +343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/inspections/my", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       
       if (!user?.organizationId) {
@@ -407,7 +407,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.post("/api/inspection-items", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { inspectionId, category, itemName, photoUrl, conditionRating, notes } = req.body;
       
       if (!inspectionId || !category || !itemName) {
@@ -448,7 +448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get user and verify organization membership
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -543,7 +543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check credits
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -625,7 +625,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   
   app.post("/api/compliance", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       const { documentType, documentUrl, expiryDate, propertyId } = req.body;
       
@@ -651,7 +651,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   app.get("/api/compliance", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -666,7 +666,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   app.get("/api/compliance/expiring", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -684,7 +684,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   
   app.post("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { unitId, title, description, priority, photoUrl } = req.body;
       
       if (!unitId || !title) {
@@ -726,7 +726,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   app.get("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -756,7 +756,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   
   app.get("/api/credits/transactions", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -773,7 +773,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   
   app.post("/api/stripe/create-checkout", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }

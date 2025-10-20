@@ -34,12 +34,18 @@ import { db } from "./db";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
-  // User operations (required for Replit Auth)
+  // User operations
   getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: UpsertUser): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   getUsersByOrganization(organizationId: string): Promise<User[]>;
   getUsersByOrganizationAndRole(organizationId: string, role: string): Promise<User[]>;
   updateUserRole(id: string, role: string): Promise<User>;
+  updatePassword(id: string, hashedPassword: string): Promise<User>;
+  setResetToken(id: string, token: string, expiry: Date): Promise<User>;
+  clearResetToken(id: string): Promise<User>;
   
   // Organization operations
   createOrganization(org: InsertOrganization): Promise<Organization>;
@@ -95,9 +101,24 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User operations (required for Replit Auth)
+  // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(userData).returning();
     return user;
   }
 
@@ -135,6 +156,33 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db
       .update(users)
       .set({ role: role as any, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async updatePassword(id: string, hashedPassword: string): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ password: hashedPassword, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async setResetToken(id: string, token: string, expiry: Date): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async clearResetToken(id: string): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
     return user;
