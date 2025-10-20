@@ -73,6 +73,11 @@ export default function Maintenance() {
     enabled: properties.length > 0,
   });
 
+  // Filter units for tenants - they can only see/select their own units
+  const availableUnits = user?.role === "tenant" 
+    ? allUnits.filter(unit => unit.tenantId === user.id)
+    : allUnits;
+
   // Fetch organization clerks (for assignment)
   const { data: clerks = [] } = useQuery<User[]>({
     queryKey: ["/api/users/clerks"],
@@ -159,9 +164,15 @@ export default function Maintenance() {
     return <Badge variant={config.variant} data-testid={`badge-status-${status}`}>{config.label}</Badge>;
   };
 
-  const filteredRequests = selectedStatus === "all" 
+  // Filter by status and tenant (if tenant user)
+  let filteredRequests = selectedStatus === "all" 
     ? requests 
     : requests.filter(r => r.status === selectedStatus);
+  
+  // Tenants should only see their own requests
+  if (user?.role === "tenant") {
+    filteredRequests = filteredRequests.filter(r => r.reportedBy === user.id);
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -169,7 +180,11 @@ export default function Maintenance() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold" data-testid="heading-maintenance">Maintenance Requests</h1>
-          <p className="text-muted-foreground">Manage internal maintenance work orders</p>
+          <p className="text-muted-foreground">
+            {user?.role === "tenant" 
+              ? "Submit and track your maintenance requests" 
+              : "Manage internal maintenance work orders"}
+          </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
@@ -217,7 +232,7 @@ export default function Maintenance() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {allUnits.map((unit) => (
+                          {availableUnits.map((unit) => (
                             <SelectItem key={unit.id} value={unit.id} data-testid={`option-unit-${unit.id}`}>
                               Unit {unit.unitNumber}
                             </SelectItem>
@@ -282,20 +297,22 @@ export default function Maintenance() {
         </Dialog>
       </div>
 
-      {/* Status Filter */}
-      <div className="flex gap-2">
-        {["all", "open", "assigned", "in-progress", "completed"].map((status) => (
-          <Button
-            key={status}
-            variant={selectedStatus === status ? "default" : "outline"}
-            size="sm"
-            onClick={() => setSelectedStatus(status)}
-            data-testid={`button-filter-${status}`}
-          >
-            {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
-          </Button>
-        ))}
-      </div>
+      {/* Status Filter (hidden for tenants) */}
+      {user?.role !== "tenant" && (
+        <div className="flex gap-2">
+          {["all", "open", "assigned", "in-progress", "completed"].map((status) => (
+            <Button
+              key={status}
+              variant={selectedStatus === status ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedStatus(status)}
+              data-testid={`button-filter-${status}`}
+            >
+              {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {/* Maintenance Requests List */}
       <div className="grid gap-4">

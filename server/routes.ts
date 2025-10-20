@@ -691,6 +691,23 @@ Provide a structured comparison highlighting differences in condition ratings an
         return res.status(400).json({ message: "Unit ID and title are required" });
       }
 
+      // Get user to check role
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // If tenant, verify they own the unit
+      if (user.role === "tenant") {
+        const unit = await storage.getUnit(unitId);
+        if (!unit) {
+          return res.status(404).json({ message: "Unit not found" });
+        }
+        if (unit.tenantId !== userId) {
+          return res.status(403).json({ message: "Access denied: You can only create requests for your own unit" });
+        }
+      }
+
       const request = await storage.createMaintenanceRequest({
         unitId,
         reportedBy: userId,
