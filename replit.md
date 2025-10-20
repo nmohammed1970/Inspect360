@@ -9,7 +9,7 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 **Current Implementation (MVP Complete):**
 - ✅ Complete PostgreSQL database schema with all tables
 - ✅ Storage interface with full CRUD operations
-- ✅ Replit Auth with role-based middleware (Owner, Clerk, Compliance, Tenant)
+- ✅ Custom username/password authentication with Passport.js (migrated from Replit Auth)
 - ✅ Object Storage configured with ACL policies for inspection photos
 - ✅ Backend API routes for all major features
 - ✅ OpenAI Vision API integration for photo analysis and comparisons
@@ -44,7 +44,8 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 - Express.js
 - PostgreSQL (Neon)
 - Drizzle ORM
-- Replit Auth (OpenID Connect)
+- Passport.js with Local Strategy (username/password authentication)
+- Express-session with PostgreSQL store
 - OpenAI Vision API (via Replit AI Integrations)
 - Stripe (payments)
 - Google Cloud Storage (object storage)
@@ -64,7 +65,7 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 - `maintenance_requests` - Internal maintenance work orders
 - `comparison_reports` - AI-generated comparison reports
 - `credit_transactions` - Credit purchase and usage history
-- `sessions` - User session storage (required for Replit Auth)
+- `sessions` - User session storage (required for Passport.js session management)
 
 ### Role-Based Access
 
@@ -119,9 +120,11 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 ## API Routes
 
 **Authentication:**
-- `GET /api/login` - Initiate login flow
-- `GET /api/logout` - Logout user
-- `GET /api/auth/user` - Get current user
+- `POST /api/register` - Register new user (auto-login)
+- `POST /api/login` - Login with username/password
+- `POST /api/logout` - Logout user
+- `POST /api/forgot-password` - Request password reset
+- `GET /api/auth/user` - Get current authenticated user
 
 **Organizations:**
 - `POST /api/organizations` - Create organization
@@ -181,10 +184,8 @@ Inspect360 is a comprehensive PWA-first building inspection platform designed fo
 - `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` - Individual DB credentials
 
 **Auth:**
-- `REPLIT_DOMAINS` - Comma-separated list of domains
-- `ISSUER_URL` - OIDC issuer URL
-- `REPL_ID` - Replit application ID
-- `SESSION_SECRET` - Session encryption secret
+- `SESSION_SECRET` - Session encryption secret (required for Passport.js)
+- `NODE_ENV` - Environment (development/production) - affects cookie security settings
 
 **AI:**
 - `AI_INTEGRATIONS_OPENAI_BASE_URL` - OpenAI API base URL (Replit AI Integrations)
@@ -239,18 +240,21 @@ npm run db:studio
 ## Key Files
 
 **Backend:**
-- `shared/schema.ts` - Database schema and types
+- `shared/schema.ts` - Database schema and types (includes users with username/password)
 - `server/db.ts` - Database connection
 - `server/storage.ts` - Storage interface and implementation
-- `server/replitAuth.ts` - Authentication middleware
+- `server/auth.ts` - Passport.js authentication middleware and endpoints
 - `server/objectStorage.ts` - Object storage service
-- `server/routes.ts` - API routes
+- `server/routes.ts` - API routes (uses req.user.id from Passport)
 
 **Frontend:**
-- `client/src/App.tsx` - Main application component
+- `client/src/App.tsx` - Main application with auth routing
 - `client/src/components/app-sidebar.tsx` - Sidebar navigation
-- `client/src/pages/` - Page components
-- `client/src/hooks/useAuth.ts` - Authentication hook
+- `client/src/pages/Auth.tsx` - Login/registration page
+- `client/src/pages/ForgotPassword.tsx` - Password reset page
+- `client/src/pages/OrganizationSetup.tsx` - Onboarding page
+- `client/src/pages/Landing.tsx` - Public landing page
+- `client/src/hooks/useAuth.ts` - Authentication hook with mutations
 - `client/src/index.css` - Design system colors
 
 ## User Preferences
@@ -263,6 +267,17 @@ npm run db:studio
 
 ## Recent Changes
 
+- 2025-10-20: **AUTHENTICATION MIGRATION COMPLETE** - Custom username/password auth system
+  - Migrated from Replit Auth to Passport.js with local strategy
+  - Password hashing with scrypt (built-in Node.js crypto)
+  - Session management with express-session + PostgreSQL store
+  - Backend endpoints: /api/register, /api/login, /api/logout, /api/forgot-password
+  - Frontend pages: Auth.tsx (login/register toggle), ForgotPassword.tsx
+  - Updated all 19 API routes to use req.user.id instead of req.user.claims.sub
+  - Fixed session cookie security (conditional based on NODE_ENV)
+  - Fixed organization creation to preserve user data
+  - Complete E2E auth flow tested successfully
+  - Database schema: Added username and password fields to users table
 - 2025-10-20: **MVP COMPLETE** - All core features implemented and production-ready
   - Inspection detail page with photo upload and AI analysis
   - Real dashboard data aggregation for all roles
