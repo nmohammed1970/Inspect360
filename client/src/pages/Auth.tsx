@@ -6,22 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Loader2, Building2, Shield, Eye, EyeOff, FileCheck } from "lucide-react";
 import { useLocation } from "wouter";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { registerUserSchema, loginUserSchema, type RegisterUser, type LoginUser } from "@shared/schema";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-// Extended registration schema with password confirmation
-const registerFormSchema = registerUserSchema.extend({
-  confirmPassword: z.string().min(1, "Please confirm your password"),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-});
-
-type RegisterFormData = z.infer<typeof registerFormSchema>;
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -29,39 +15,83 @@ export default function Auth() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { loginMutation, registerMutation, user } = useAuth();
   const [, navigate] = useLocation();
+  const { toast } = useToast();
 
-  const loginForm = useForm<LoginUser>({
-    resolver: zodResolver(loginUserSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
+  // Login form state
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
-  const registerForm = useForm<RegisterFormData>({
-    resolver: zodResolver(registerFormSchema),
-    defaultValues: {
-      username: "",
-      password: "",
-      confirmPassword: "",
-      email: "",
-      firstName: "",
-      lastName: "",
-      role: "clerk",
-    },
-  });
+  // Registration form state
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [role, setRole] = useState("clerk");
 
-  async function handleLogin(data: LoginUser) {
-    const result = await loginMutation.mutateAsync(data);
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    
+    if (!loginEmail || !loginPassword) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please fill in all fields",
+      });
+      return;
+    }
+
+    const result = await loginMutation.mutateAsync({
+      email: loginEmail,
+      password: loginPassword,
+    });
+    
     if (result) {
       navigate("/dashboard");
     }
   }
 
-  async function handleRegister(data: RegisterFormData) {
-    // Remove confirmPassword before sending to API
-    const { confirmPassword, ...registerData } = data;
-    const result = await registerMutation.mutateAsync(registerData);
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
+
+    // Validation
+    if (!firstName || !lastName || !email || !username || !password || !confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please fill in all fields",
+      });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Passwords don't match",
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Password must be at least 6 characters",
+      });
+      return;
+    }
+
+    const result = await registerMutation.mutateAsync({
+      firstName,
+      lastName,
+      email,
+      username,
+      password,
+      role: role as "owner" | "clerk" | "compliance" | "tenant",
+    });
+
     if (result) {
       navigate("/onboarding");
     }
@@ -90,259 +120,193 @@ export default function Auth() {
             </CardHeader>
             <CardContent className="space-y-4">
               {isLogin ? (
-                <Form {...loginForm}>
-                  <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
-                    <FormField
-                      control={loginForm.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email Address</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              type="email"
-                              autoComplete="email"
-                              data-testid="input-email"
-                              placeholder="Enter your email address"
-                              disabled={loginMutation.isPending}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="login-email">Email Address</Label>
+                    <Input
+                      id="login-email"
+                      type="email"
+                      placeholder="Enter your email address"
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      disabled={loginMutation.isPending}
+                      data-testid="input-email"
                     />
+                  </div>
 
-                    <FormField
-                      control={loginForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Password</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              type="password"
-                              data-testid="input-password"
-                              placeholder="Enter your password"
-                              disabled={loginMutation.isPending}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                  <div className="space-y-2">
+                    <Label htmlFor="login-password">Password</Label>
+                    <Input
+                      id="login-password"
+                      type="password"
+                      placeholder="Enter your password"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      disabled={loginMutation.isPending}
+                      data-testid="input-password"
                     />
+                  </div>
 
-                    <div className="flex items-center justify-end">
+                  <div className="flex items-center justify-end">
+                    <button
+                      type="button"
+                      className="text-sm text-primary hover:underline"
+                      onClick={() => navigate("/forgot-password")}
+                      data-testid="button-forgot-password"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={loginMutation.isPending}
+                    data-testid="button-login"
+                  >
+                    {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Sign in
+                  </Button>
+                </form>
+              ) : (
+                <form onSubmit={handleRegister} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="first-name">First name</Label>
+                      <Input
+                        id="first-name"
+                        type="text"
+                        placeholder="John"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-first-name"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="last-name">Last name</Label>
+                      <Input
+                        id="last-name"
+                        type="text"
+                        placeholder="Doe"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-last-name"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="register-email">Email</Label>
+                    <Input
+                      id="register-email"
+                      type="email"
+                      placeholder="john@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={registerMutation.isPending}
+                      data-testid="input-email"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="company-name">Company Name</Label>
+                    <Input
+                      id="company-name"
+                      type="text"
+                      placeholder="Acme Property Management"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      disabled={registerMutation.isPending}
+                      data-testid="input-register-username"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="register-password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="register-password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Create a strong password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-register-password"
+                      />
                       <button
                         type="button"
-                        className="text-sm text-primary hover:underline"
-                        onClick={() => navigate("/forgot-password")}
-                        data-testid="button-forgot-password"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        data-testid="button-toggle-password"
                       >
-                        Forgot password?
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </button>
                     </div>
+                  </div>
 
-                    <Button
-                      type="submit"
-                      className="w-full"
-                      disabled={loginMutation.isPending}
-                      data-testid="button-login"
-                    >
-                      {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Sign in
-                    </Button>
-                  </form>
-                </Form>
-              ) : (
-                <Form {...registerForm}>
-                  <form onSubmit={registerForm.handleSubmit(handleRegister)} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField
-                        control={registerForm.control}
-                        name="firstName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>First name</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                data-testid="input-first-name"
-                                placeholder="John"
-                                disabled={registerMutation.isPending}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirm-password"
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="Confirm your password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-confirm-password"
                       />
-
-                      <FormField
-                        control={registerForm.control}
-                        name="lastName"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Last name</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                data-testid="input-last-name"
-                                placeholder="Doe"
-                                disabled={registerMutation.isPending}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        data-testid="button-toggle-confirm-password"
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
                         )}
-                      />
+                      </button>
                     </div>
+                  </div>
 
-                    <FormField
-                      control={registerForm.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              data-testid="input-email"
-                              placeholder="john@example.com"
-                              disabled={registerMutation.isPending}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={registerForm.control}
-                      name="username"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Company Name</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              data-testid="input-register-username"
-                              placeholder="Acme Property Management"
-                              disabled={registerMutation.isPending}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={registerForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Password</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Input
-                                {...field}
-                                type={showPassword ? "text" : "password"}
-                                data-testid="input-register-password"
-                                placeholder="Create a strong password"
-                                disabled={registerMutation.isPending}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                data-testid="button-toggle-password"
-                              >
-                                {showPassword ? (
-                                  <EyeOff className="h-4 w-4" />
-                                ) : (
-                                  <Eye className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={registerForm.control}
-                      name="confirmPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Confirm Password</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Input
-                                {...field}
-                                type={showConfirmPassword ? "text" : "password"}
-                                data-testid="input-confirm-password"
-                                placeholder="Confirm your password"
-                                disabled={registerMutation.isPending}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                data-testid="button-toggle-confirm-password"
-                              >
-                                {showConfirmPassword ? (
-                                  <EyeOff className="h-4 w-4" />
-                                ) : (
-                                  <Eye className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={registerForm.control}
-                      name="role"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Role</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                            disabled={registerMutation.isPending}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-role">
-                                <SelectValue placeholder="Select your role" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="owner">Owner Operator</SelectItem>
-                              <SelectItem value="clerk">Inventory Clerk</SelectItem>
-                              <SelectItem value="compliance">Compliance Officer</SelectItem>
-                              <SelectItem value="tenant">Tenant</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <Button
-                      type="submit"
-                      className="w-full"
+                  <div className="space-y-2">
+                    <Label htmlFor="role">Role</Label>
+                    <Select
+                      value={role}
+                      onValueChange={setRole}
                       disabled={registerMutation.isPending}
-                      data-testid="button-register"
                     >
-                      {registerMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Create account
-                    </Button>
-                  </form>
-                </Form>
+                      <SelectTrigger id="role" data-testid="select-role">
+                        <SelectValue placeholder="Select your role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="owner">Owner Operator</SelectItem>
+                        <SelectItem value="clerk">Inventory Clerk</SelectItem>
+                        <SelectItem value="compliance">Compliance Officer</SelectItem>
+                        <SelectItem value="tenant">Tenant</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={registerMutation.isPending}
+                    data-testid="button-register"
+                  >
+                    {registerMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Create account
+                  </Button>
+                </form>
               )}
 
               <div className="text-center text-sm">
