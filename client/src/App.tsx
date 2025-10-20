@@ -13,6 +13,7 @@ import Properties from "@/pages/Properties";
 import PropertyDetail from "@/pages/PropertyDetail";
 import Credits from "@/pages/Credits";
 import Inspections from "@/pages/Inspections";
+import InspectionDetail from "@/pages/InspectionDetail";
 import Compliance from "@/pages/Compliance";
 import Maintenance from "@/pages/Maintenance";
 import Comparisons from "@/pages/Comparisons";
@@ -34,6 +35,7 @@ function Router() {
           <Route path="/properties/:id" component={PropertyDetail} />
           <Route path="/credits" component={Credits} />
           <Route path="/inspections" component={Inspections} />
+          <Route path="/inspections/:id" component={InspectionDetail} />
           <Route path="/compliance" component={Compliance} />
           <Route path="/maintenance" component={Maintenance} />
           <Route path="/comparisons" component={Comparisons} />
