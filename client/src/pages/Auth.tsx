@@ -204,12 +204,14 @@ export default function Auth() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Email</FormLabel>
-                          <Input
-                            {...field}
-                            data-testid="input-email"
-                            placeholder="john@example.com"
-                            disabled={registerMutation.isPending}
-                          />
+                          <FormControl>
+                            <Input
+                              {...field}
+                              data-testid="input-email"
+                              placeholder="john@example.com"
+                              disabled={registerMutation.isPending}
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
