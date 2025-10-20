@@ -22,7 +22,7 @@ export default function Maintenance() {
             Create and track internal maintenance work orders for your properties.
             Manage priorities, assignments, and completion status.
           </p>
-          <Button className="bg-accent hover:bg-accent/90" data-testid="button-create-request">
+          <Button className="bg-accent" data-testid="button-create-request">
             Create Maintenance Request
           </Button>
         </CardContent>

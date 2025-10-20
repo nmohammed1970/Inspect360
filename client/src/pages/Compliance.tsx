@@ -22,7 +22,7 @@ export default function Compliance() {
             Track compliance documents, certificates, and licenses with expiry alerts.
             Upload and manage important regulatory documentation for your properties.
           </p>
-          <Button className="bg-accent hover:bg-accent/90" data-testid="button-upload-document">
+          <Button className="bg-accent" data-testid="button-upload-document">
             Upload Document
           </Button>
         </CardContent>

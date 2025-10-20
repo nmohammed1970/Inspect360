@@ -14,7 +14,7 @@ export default function Landing() {
           <Button
             size="lg"
             onClick={() => (window.location.href = "/api/login")}
-            className="bg-accent hover:bg-accent/90"
+            className="bg-accent"
             data-testid="button-login"
           >
             Get Started

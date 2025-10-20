@@ -22,7 +22,7 @@ export default function Comparisons() {
             Generate AI-powered comparison reports between check-in and check-out inspections.
             Identify changes in condition, damage, and cleanliness to support security deposit decisions.
           </p>
-          <Button className="bg-accent hover:bg-accent/90" data-testid="button-generate-comparison">
+          <Button className="bg-accent" data-testid="button-generate-comparison">
             Generate Comparison Report
           </Button>
         </CardContent>

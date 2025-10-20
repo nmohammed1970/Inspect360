@@ -23,7 +23,7 @@ export default function Inspections() {
             Features include check-in, check-out, routine, and maintenance inspections with
             photo capture and AI analysis.
           </p>
-          <Button className="bg-accent hover:bg-accent/90" data-testid="button-create-inspection">
+          <Button className="bg-accent" data-testid="button-create-inspection">
             Create New Inspection
           </Button>
         </CardContent>
