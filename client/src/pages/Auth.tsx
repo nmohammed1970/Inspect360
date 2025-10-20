@@ -102,6 +102,7 @@ export default function Auth() {
                             <Input
                               {...field}
                               type="email"
+                              autoComplete="email"
                               data-testid="input-email"
                               placeholder="Enter your email address"
                               disabled={loginMutation.isPending}
@@ -207,12 +208,15 @@ export default function Auth() {
                           <FormLabel>Email</FormLabel>
                           <FormControl>
                             <Input
-                              {...field}
-                              value={field.value || ""}
                               type="email"
+                              autoComplete="email"
                               data-testid="input-email"
                               placeholder="john@example.com"
                               disabled={registerMutation.isPending}
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              onBlur={field.onBlur}
+                              name={field.name}
                             />
                           </FormControl>
                           <FormMessage />
