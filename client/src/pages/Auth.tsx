@@ -4,16 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Building2, Shield, Eye, FileCheck } from "lucide-react";
+import { Loader2, Building2, Shield, Eye, EyeOff, FileCheck } from "lucide-react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { registerUserSchema, loginUserSchema, type RegisterUser, type LoginUser } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// Extended registration schema with password confirmation
+const registerFormSchema = registerUserSchema.extend({
+  confirmPassword: z.string().min(1, "Please confirm your password"),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+
+type RegisterFormData = z.infer<typeof registerFormSchema>;
+
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { loginMutation, registerMutation, user } = useAuth();
   const [, navigate] = useLocation();
 
@@ -25,11 +38,12 @@ export default function Auth() {
     },
   });
 
-  const registerForm = useForm<RegisterUser>({
-    resolver: zodResolver(registerUserSchema),
+  const registerForm = useForm<RegisterFormData>({
+    resolver: zodResolver(registerFormSchema),
     defaultValues: {
       username: "",
       password: "",
+      confirmPassword: "",
       email: "",
       firstName: "",
       lastName: "",
@@ -44,8 +58,10 @@ export default function Auth() {
     }
   }
 
-  async function handleRegister(data: RegisterUser) {
-    const result = await registerMutation.mutateAsync(data);
+  async function handleRegister(data: RegisterFormData) {
+    // Remove confirmPassword before sending to API
+    const { confirmPassword, ...registerData } = data;
+    const result = await registerMutation.mutateAsync(registerData);
     if (result) {
       navigate("/onboarding");
     }
@@ -191,6 +207,7 @@ export default function Auth() {
                           <FormControl>
                             <Input
                               {...field}
+                              value={field.value || ""}
                               type="email"
                               data-testid="input-email"
                               placeholder="john@example.com"
@@ -207,12 +224,13 @@ export default function Auth() {
                       name="username"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Username</FormLabel>
+                          <FormLabel>Company Name</FormLabel>
                           <FormControl>
                             <Input
                               {...field}
+                              value={field.value || ""}
                               data-testid="input-register-username"
-                              placeholder="johndoe"
+                              placeholder="Acme Property Management"
                               disabled={registerMutation.isPending}
                             />
                           </FormControl>
@@ -228,13 +246,63 @@ export default function Auth() {
                         <FormItem>
                           <FormLabel>Password</FormLabel>
                           <FormControl>
-                            <Input
-                              {...field}
-                              type="password"
-                              data-testid="input-register-password"
-                              placeholder="Create a strong password"
-                              disabled={registerMutation.isPending}
-                            />
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                value={field.value || ""}
+                                type={showPassword ? "text" : "password"}
+                                data-testid="input-register-password"
+                                placeholder="Create a strong password"
+                                disabled={registerMutation.isPending}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                data-testid="button-toggle-password"
+                              >
+                                {showPassword ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={registerForm.control}
+                      name="confirmPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Confirm Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                value={field.value || ""}
+                                type={showConfirmPassword ? "text" : "password"}
+                                data-testid="input-confirm-password"
+                                placeholder="Confirm your password"
+                                disabled={registerMutation.isPending}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                data-testid="button-toggle-confirm-password"
+                              >
+                                {showConfirmPassword ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
                           </FormControl>
                           <FormMessage />
                         </FormItem>
