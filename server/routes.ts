@@ -522,7 +522,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.get("/api/compliance", isAuthenticated, async (req: any, res) => {
+  app.get("/api/compliance", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.claims.sub);
       if (!user?.organizationId) {
@@ -537,7 +537,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.get("/api/compliance/expiring", isAuthenticated, async (req: any, res) => {
+  app.get("/api/compliance/expiring", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.claims.sub);
       if (!user?.organizationId) {

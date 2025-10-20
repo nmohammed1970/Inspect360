@@ -2,9 +2,9 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
-import "@uppy/core/dist/style.min.css";
-import "@uppy/dashboard/dist/style.min.css";
 import AwsS3 from "@uppy/aws-s3";
+// NOTE: Uppy CSS imports removed due to Vite bundling issues
+// The upload modal will be functional but may not have full styling
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
 
