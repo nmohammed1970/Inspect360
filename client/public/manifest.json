@@ -1,0 +1,42 @@
+{
+  "name": "Inspect360 - AI Building Inspections",
+  "short_name": "Inspect360",
+  "description": "AI-powered building inspection platform for Build-to-Rent operations",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#003764",
+  "background_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your dashboard",
+      "url": "/dashboard",
+      "icons": []
+    },
+    {
+      "name": "New Inspection",
+      "short_name": "Inspect",
+      "description": "Start a new inspection",
+      "url": "/inspections",
+      "icons": []
+    }
+  ]
+}

@@ -8,6 +8,8 @@ import {
   Wrench,
   Users,
   CreditCard,
+  Boxes,
+  Clipboard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,7 +33,13 @@ export function AppSidebar() {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
-      roles: ["owner", "clerk", "compliance", "tenant"],
+      roles: ["owner", "clerk", "compliance", "tenant", "contractor"],
+    },
+    {
+      title: "Blocks",
+      url: "/blocks",
+      icon: Boxes,
+      roles: ["owner", "compliance"],
     },
     {
       title: "Properties",
@@ -56,6 +64,12 @@ export function AppSidebar() {
       url: "/maintenance",
       icon: Wrench,
       roles: ["owner", "clerk", "tenant"],
+    },
+    {
+      title: "Work Orders",
+      url: "/work-orders",
+      icon: Clipboard,
+      roles: ["owner", "contractor"],
     },
     {
       title: "Comparisons",

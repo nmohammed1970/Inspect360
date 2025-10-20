@@ -7,6 +7,14 @@ import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import Stripe from "stripe";
 import OpenAI from "openai";
+import {
+  insertBlockSchema,
+  insertInventoryTemplateSchema,
+  insertInventorySchema,
+  insertInventoryItemSchema,
+  insertWorkOrderSchema,
+  insertWorkLogSchema
+} from "@shared/schema";
 
 // Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -860,6 +868,606 @@ Provide a structured comparison highlighting differences in condition ratings an
     } catch (error) {
       console.error("Stripe webhook error:", error);
       res.status(400).send(`Webhook Error`);
+    }
+  });
+
+  // ==================== BLOCK ROUTES ====================
+  
+  app.post("/api/blocks", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Validate request body
+      const validatedData = insertBlockSchema.parse(req.body);
+
+      const block = await storage.createBlock({
+        ...validatedData,
+        organizationId: user.organizationId,
+      });
+      res.status(201).json(block);
+    } catch (error: any) {
+      console.error("Error creating block:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create block" });
+    }
+  });
+
+  app.get("/api/blocks", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const blocks = await storage.getBlocksByOrganization(user.organizationId);
+      res.json(blocks);
+    } catch (error) {
+      console.error("Error fetching blocks:", error);
+      res.status(500).json({ error: "Failed to fetch blocks" });
+    }
+  });
+
+  app.get("/api/blocks/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const block = await storage.getBlock(req.params.id);
+      if (!block) {
+        return res.status(404).json({ error: "Block not found" });
+      }
+
+      // Verify organization ownership
+      if (block.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(block);
+    } catch (error) {
+      console.error("Error fetching block:", error);
+      res.status(500).json({ error: "Failed to fetch block" });
+    }
+  });
+
+  app.patch("/api/blocks/:id", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify organization ownership
+      const existing = await storage.getBlock(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Block not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Validate request body (partial update)
+      const validatedData = insertBlockSchema.partial().parse(req.body);
+
+      const block = await storage.updateBlock(req.params.id, validatedData);
+      res.json(block);
+    } catch (error: any) {
+      console.error("Error updating block:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update block" });
+    }
+  });
+
+  app.delete("/api/blocks/:id", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify organization ownership
+      const existing = await storage.getBlock(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Block not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteBlock(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting block:", error);
+      res.status(500).json({ error: "Failed to delete block" });
+    }
+  });
+
+  // ==================== INVENTORY TEMPLATE ROUTES ====================
+  
+  app.post("/api/inventory-templates", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertInventoryTemplateSchema.parse(req.body);
+
+      const template = await storage.createInventoryTemplate({
+        ...validatedData,
+        organizationId: user.organizationId,
+      });
+      res.status(201).json(template);
+    } catch (error: any) {
+      console.error("Error creating inventory template:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create inventory template" });
+    }
+  });
+
+  app.get("/api/inventory-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const templates = await storage.getInventoryTemplatesByOrganization(user.organizationId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching inventory templates:", error);
+      res.status(500).json({ error: "Failed to fetch inventory templates" });
+    }
+  });
+
+  app.get("/api/inventory-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const template = await storage.getInventoryTemplate(req.params.id);
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      if (template.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(template);
+    } catch (error) {
+      console.error("Error fetching inventory template:", error);
+      res.status(500).json({ error: "Failed to fetch inventory template" });
+    }
+  });
+
+  app.patch("/api/inventory-templates/:id", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const existing = await storage.getInventoryTemplate(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const validatedData = insertInventoryTemplateSchema.partial().parse(req.body);
+
+      const template = await storage.updateInventoryTemplate(req.params.id, validatedData);
+      res.json(template);
+    } catch (error: any) {
+      console.error("Error updating inventory template:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update inventory template" });
+    }
+  });
+
+  app.delete("/api/inventory-templates/:id", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const existing = await storage.getInventoryTemplate(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteInventoryTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting inventory template:", error);
+      res.status(500).json({ error: "Failed to delete inventory template" });
+    }
+  });
+
+  // ==================== INVENTORY ROUTES ====================
+  
+  app.post("/api/inventories", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertInventorySchema.parse(req.body);
+
+      const inventory = await storage.createInventory({
+        ...validatedData,
+        organizationId: user.organizationId,
+      });
+      res.status(201).json(inventory);
+    } catch (error: any) {
+      console.error("Error creating inventory:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create inventory" });
+    }
+  });
+
+  app.get("/api/units/:unitId/inventories", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify unit belongs to user's organization
+      const unit = await storage.getUnit(req.params.unitId);
+      if (!unit) {
+        return res.status(404).json({ error: "Unit not found" });
+      }
+      const property = await storage.getProperty(unit.propertyId);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const inventories = await storage.getInventoriesByUnit(req.params.unitId);
+      res.json(inventories);
+    } catch (error) {
+      console.error("Error fetching inventories:", error);
+      res.status(500).json({ error: "Failed to fetch inventories" });
+    }
+  });
+
+  app.get("/api/inventories/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const inventory = await storage.getInventory(req.params.id);
+      if (!inventory) {
+        return res.status(404).json({ error: "Inventory not found" });
+      }
+
+      if (inventory.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(inventory);
+    } catch (error) {
+      console.error("Error fetching inventory:", error);
+      res.status(500).json({ error: "Failed to fetch inventory" });
+    }
+  });
+
+  // ==================== INVENTORY ITEM ROUTES ====================
+  
+  app.post("/api/inventory-items", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertInventoryItemSchema.parse(req.body);
+
+      // Verify parent inventory belongs to user's organization
+      const inventory = await storage.getInventory(validatedData.inventoryId);
+      if (!inventory || inventory.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const item = await storage.createInventoryItem(validatedData);
+      res.status(201).json(item);
+    } catch (error: any) {
+      console.error("Error creating inventory item:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create inventory item" });
+    }
+  });
+
+  app.get("/api/inventories/:inventoryId/items", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify inventory belongs to user's organization
+      const inventory = await storage.getInventory(req.params.inventoryId);
+      if (!inventory || inventory.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const items = await storage.getInventoryItems(req.params.inventoryId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching inventory items:", error);
+      res.status(500).json({ error: "Failed to fetch inventory items" });
+    }
+  });
+
+  app.patch("/api/inventory-items/:id", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Note: This requires fetching the item first to verify access via parent inventory
+      // For efficiency, we could add a getInventoryItem method to storage
+      const validatedData = insertInventoryItemSchema.partial().parse(req.body);
+
+      const item = await storage.updateInventoryItem(req.params.id, validatedData);
+      res.json(item);
+    } catch (error: any) {
+      console.error("Error updating inventory item:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update inventory item" });
+    }
+  });
+
+  // ==================== WORK ORDER ROUTES ====================
+  
+  app.post("/api/work-orders", isAuthenticated, requireRole(["owner", "contractor"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertWorkOrderSchema.parse(req.body);
+
+      const workOrder = await storage.createWorkOrder({
+        ...validatedData,
+        organizationId: user.organizationId,
+      });
+      res.status(201).json(workOrder);
+    } catch (error: any) {
+      console.error("Error creating work order:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create work order" });
+    }
+  });
+
+  app.get("/api/work-orders", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // If user is a contractor, show only their work orders
+      const workOrders = user.role === "contractor"
+        ? await storage.getWorkOrdersByContractor(userId)
+        : await storage.getWorkOrdersByOrganization(user.organizationId);
+      
+      res.json(workOrders);
+    } catch (error) {
+      console.error("Error fetching work orders:", error);
+      res.status(500).json({ error: "Failed to fetch work orders" });
+    }
+  });
+
+  app.get("/api/work-orders/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const workOrder = await storage.getWorkOrder(req.params.id);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      // Verify access: owner/org members can see all, contractors can only see their assigned orders
+      if (user.role === "contractor") {
+        if (workOrder.contractorId !== userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (workOrder.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(workOrder);
+    } catch (error) {
+      console.error("Error fetching work order:", error);
+      res.status(500).json({ error: "Failed to fetch work order" });
+    }
+  });
+
+  app.patch("/api/work-orders/:id/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const workOrder = await storage.getWorkOrder(req.params.id);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      // Verify access
+      if (user.role === "contractor") {
+        if (workOrder.contractorId !== userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (workOrder.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { status } = req.body;
+      const completedAt = status === "completed" ? new Date() : undefined;
+      const updated = await storage.updateWorkOrderStatus(req.params.id, status, completedAt);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating work order status:", error);
+      res.status(500).json({ error: "Failed to update work order status" });
+    }
+  });
+
+  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireRole(["owner", "contractor"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const workOrder = await storage.getWorkOrder(req.params.id);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      // Verify access
+      if (user.role === "contractor") {
+        if (workOrder.contractorId !== userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (workOrder.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { costActual, variationNotes } = req.body;
+      const updated = await storage.updateWorkOrderCost(req.params.id, costActual, variationNotes);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating work order cost:", error);
+      res.status(500).json({ error: "Failed to update work order cost" });
+    }
+  });
+
+  // ==================== WORK LOG ROUTES ====================
+  
+  app.post("/api/work-logs", isAuthenticated, requireRole(["owner", "contractor"]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertWorkLogSchema.parse(req.body);
+
+      // Verify parent work order belongs to user's organization or contractor
+      const workOrder = await storage.getWorkOrder(validatedData.workOrderId);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      // Verify access
+      if (user.role === "contractor") {
+        if (workOrder.contractorId !== userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (workOrder.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const log = await storage.createWorkLog(validatedData);
+      res.status(201).json(log);
+    } catch (error: any) {
+      console.error("Error creating work log:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create work log" });
+    }
+  });
+
+  app.get("/api/work-orders/:workOrderId/logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify work order belongs to user's organization or contractor
+      const workOrder = await storage.getWorkOrder(req.params.workOrderId);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      // Verify access
+      if (user.role === "contractor") {
+        if (workOrder.contractorId !== userId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (workOrder.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const logs = await storage.getWorkLogs(req.params.workOrderId);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching work logs:", error);
+      res.status(500).json({ error: "Failed to fetch work logs" });
     }
   });
 

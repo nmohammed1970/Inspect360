@@ -21,6 +21,8 @@ import Maintenance from "@/pages/Maintenance";
 import Comparisons from "@/pages/Comparisons";
 import OrganizationSetup from "@/pages/OrganizationSetup";
 import Team from "@/pages/Team";
+import Blocks from "@/pages/Blocks";
+import WorkOrders from "@/pages/WorkOrders";
 import { Button } from "@/components/ui/button";
 import { LogOut, Loader2 } from "lucide-react";
 
@@ -84,6 +86,7 @@ function AppContent() {
               <Switch>
                 <Route path="/" component={Dashboard} />
                 <Route path="/dashboard" component={Dashboard} />
+                <Route path="/blocks" component={Blocks} />
                 <Route path="/properties" component={Properties} />
                 <Route path="/properties/:id" component={PropertyDetail} />
                 <Route path="/credits" component={Credits} />
@@ -91,6 +94,7 @@ function AppContent() {
                 <Route path="/inspections/:id" component={InspectionDetail} />
                 <Route path="/compliance" component={Compliance} />
                 <Route path="/maintenance" component={Maintenance} />
+                <Route path="/work-orders" component={WorkOrders} />
                 <Route path="/comparisons" component={Comparisons} />
                 <Route path="/team" component={Team} />
                 <Route component={NotFound} />

@@ -269,6 +269,19 @@ npm run db:studio
 
 ## Recent Changes
 
+- 2025-10-20: **BLOCKS, WORK ORDERS & PWA COMPLETE** - Extended features and PWA foundation
+  - Database: Added blocks, inventory_templates, inventories, inventory_items, work_orders, work_logs tables
+  - Database: Added contractor role to userRoleEnum; enhanced units table with bedrooms, bathrooms, floor, sqft, status
+  - Backend: Full CRUD operations for blocks, inventory management, work orders, work logs
+  - Backend: Comprehensive security - organization scoping, Zod validation, role-based access control
+  - Backend: Contractor-specific access control (contractors see only their assigned work orders)
+  - Frontend: Blocks management page with CRUD operations
+  - Frontend: Work Orders management with contractor assignment and status tracking
+  - PWA: Created manifest.json with offline config, icons, shortcuts
+  - PWA: Implemented service worker with cache-first strategy for app shell and runtime caching
+  - PWA: Updated index.html with manifest link and service worker registration
+  - Navigation: Updated routing and sidebar for Blocks and Work Orders
+  - Auth: Added Contractor role to registration form
 - 2025-10-20: **AUTHENTICATION MIGRATION COMPLETE** - Custom username/password auth system
   - Migrated from Replit Auth to Passport.js with local strategy
   - Password hashing with scrypt (built-in Node.js crypto)

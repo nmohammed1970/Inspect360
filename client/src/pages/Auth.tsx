@@ -292,6 +292,7 @@ export default function Auth() {
                         <SelectItem value="owner">Owner Operator</SelectItem>
                         <SelectItem value="clerk">Inventory Clerk</SelectItem>
                         <SelectItem value="compliance">Compliance Officer</SelectItem>
+                        <SelectItem value="contractor">Contractor</SelectItem>
                         <SelectItem value="tenant">Tenant</SelectItem>
                       </SelectContent>
                     </Select>

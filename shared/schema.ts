@@ -26,12 +26,14 @@ export const sessions = pgTable(
 );
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant"]);
+export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant", "contractor"]);
 export const inspectionStatusEnum = pgEnum("inspection_status", ["scheduled", "in_progress", "completed", "reviewed"]);
 export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_out", "routine", "maintenance"]);
 export const complianceStatusEnum = pgEnum("compliance_status", ["current", "expiring_soon", "expired"]);
 export const maintenanceStatusEnum = pgEnum("maintenance_status", ["open", "in_progress", "completed", "closed"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "inactive", "cancelled"]);
+export const unitStatusEnum = pgEnum("unit_status", ["occupied", "vacant"]);
+export const workOrderStatusEnum = pgEnum("work_order_status", ["assigned", "in_progress", "waiting_parts", "completed", "rejected"]);
 
 // User storage table
 export const users = pgTable("users", {
@@ -101,10 +103,31 @@ export const insertOrganizationSchema = createInsertSchema(organizations).omit({
 export type Organization = typeof organizations.$inferSelect;
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 
+// Blocks (Buildings/Complexes)
+export const blocks = pgTable("blocks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  name: varchar("name").notNull(),
+  address: text("address").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBlockSchema = createInsertSchema(blocks).omit({
+  id: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type Block = typeof blocks.$inferSelect;
+export type InsertBlock = z.infer<typeof insertBlockSchema>;
+
 // Properties (Buildings/Blocks)
 export const properties = pgTable("properties", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id").notNull(),
+  blockId: varchar("block_id"), // Optional: properties can be grouped into blocks
   name: varchar("name").notNull(),
   address: text("address").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -124,6 +147,11 @@ export const units = pgTable("units", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   propertyId: varchar("property_id").notNull(),
   unitNumber: varchar("unit_number").notNull(),
+  bedrooms: integer("bedrooms"),
+  bathrooms: integer("bathrooms"),
+  floor: integer("floor"),
+  sqft: integer("sqft"),
+  status: unitStatusEnum("status").default("vacant"),
   tenantId: varchar("tenant_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -261,6 +289,110 @@ export const insertCreditTransactionSchema = createInsertSchema(creditTransactio
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
 export type InsertCreditTransaction = z.infer<typeof insertCreditTransactionSchema>;
 
+// Inventory Templates (Predefined room/item structures)
+export const inventoryTemplates = pgTable("inventory_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  name: varchar("name").notNull(), // e.g., "Studio", "1-bed", "2-bed"
+  description: text("description"),
+  schema: jsonb("schema").notNull(), // JSON structure defining rooms and items
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInventoryTemplateSchema = createInsertSchema(inventoryTemplates).omit({
+  id: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InventoryTemplate = typeof inventoryTemplates.$inferSelect;
+export type InsertInventoryTemplate = z.infer<typeof insertInventoryTemplateSchema>;
+
+// Inventories (Active inventory instances for units)
+export const inventories = pgTable("inventories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  unitId: varchar("unit_id").notNull(),
+  templateId: varchar("template_id"),
+  version: integer("version").default(1),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInventorySchema = createInsertSchema(inventories).omit({
+  id: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type Inventory = typeof inventories.$inferSelect;
+export type InsertInventory = z.infer<typeof insertInventorySchema>;
+
+// Inventory Items (Individual items within an inventory)
+export const inventoryItems = pgTable("inventory_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  inventoryId: varchar("inventory_id").notNull(),
+  path: text("path").notNull(), // e.g., "Kitchen > Appliances > Refrigerator"
+  itemName: varchar("item_name").notNull(),
+  baselineCondition: integer("baseline_condition"), // 1-5 rating
+  baselineCleanliness: integer("baseline_cleanliness"), // 1-5 rating
+  baselinePhotos: text("baseline_photos").array(), // Array of photo URLs
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+
+// Work Orders (Contractor assignments linked to maintenance requests)
+export const workOrders = pgTable("work_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  maintenanceRequestId: varchar("maintenance_request_id").notNull(),
+  contractorId: varchar("contractor_id").notNull(), // User with contractor role
+  status: workOrderStatusEnum("status").notNull().default("assigned"),
+  slaDue: timestamp("sla_due"), // Service Level Agreement deadline
+  costEstimate: integer("cost_estimate"), // In cents
+  costActual: integer("cost_actual"), // In cents
+  variationNotes: text("variation_notes"), // Notes on cost variations
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({
+  id: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type WorkOrder = typeof workOrders.$inferSelect;
+export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+
+// Work Logs (Activity logs for work orders)
+export const workLogs = pgTable("work_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workOrderId: varchar("work_order_id").notNull(),
+  note: text("note").notNull(),
+  photos: text("photos").array(), // Array of photo URLs
+  timeSpentMinutes: integer("time_spent_minutes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertWorkLogSchema = createInsertSchema(workLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type WorkLog = typeof workLogs.$inferSelect;
+export type InsertWorkLog = z.infer<typeof insertWorkLogSchema>;
+
 // Relations
 export const usersRelations = relations(users, ({ one }) => ({
   organization: one(organizations, {
@@ -270,15 +402,30 @@ export const usersRelations = relations(users, ({ one }) => ({
 }));
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
+  blocks: many(blocks),
   properties: many(properties),
   complianceDocuments: many(complianceDocuments),
   creditTransactions: many(creditTransactions),
+  inventoryTemplates: many(inventoryTemplates),
+  workOrders: many(workOrders),
+}));
+
+export const blocksRelations = relations(blocks, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [blocks.organizationId],
+    references: [organizations.id],
+  }),
+  properties: many(properties),
 }));
 
 export const propertiesRelations = relations(properties, ({ one, many }) => ({
   organization: one(organizations, {
     fields: [properties.organizationId],
     references: [organizations.id],
+  }),
+  block: one(blocks, {
+    fields: [properties.blockId],
+    references: [blocks.id],
   }),
   units: many(units),
 }));
@@ -290,6 +437,7 @@ export const unitsRelations = relations(units, ({ one, many }) => ({
   }),
   inspections: many(inspections),
   maintenanceRequests: many(maintenanceRequests),
+  inventories: many(inventories),
 }));
 
 export const inspectionsRelations = relations(inspections, ({ one, many }) => ({
@@ -304,5 +452,63 @@ export const inspectionItemsRelations = relations(inspectionItems, ({ one }) => 
   inspection: one(inspections, {
     fields: [inspectionItems.inspectionId],
     references: [inspections.id],
+  }),
+}));
+
+export const inventoryTemplatesRelations = relations(inventoryTemplates, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [inventoryTemplates.organizationId],
+    references: [organizations.id],
+  }),
+  inventories: many(inventories),
+}));
+
+export const inventoriesRelations = relations(inventories, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [inventories.organizationId],
+    references: [organizations.id],
+  }),
+  unit: one(units, {
+    fields: [inventories.unitId],
+    references: [units.id],
+  }),
+  template: one(inventoryTemplates, {
+    fields: [inventories.templateId],
+    references: [inventoryTemplates.id],
+  }),
+  items: many(inventoryItems),
+}));
+
+export const inventoryItemsRelations = relations(inventoryItems, ({ one }) => ({
+  inventory: one(inventories, {
+    fields: [inventoryItems.inventoryId],
+    references: [inventories.id],
+  }),
+}));
+
+export const maintenanceRequestsRelations = relations(maintenanceRequests, ({ one, many }) => ({
+  unit: one(units, {
+    fields: [maintenanceRequests.unitId],
+    references: [units.id],
+  }),
+  workOrders: many(workOrders),
+}));
+
+export const workOrdersRelations = relations(workOrders, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [workOrders.organizationId],
+    references: [organizations.id],
+  }),
+  maintenanceRequest: one(maintenanceRequests, {
+    fields: [workOrders.maintenanceRequestId],
+    references: [maintenanceRequests.id],
+  }),
+  logs: many(workLogs),
+}));
+
+export const workLogsRelations = relations(workLogs, ({ one }) => ({
+  workOrder: one(workOrders, {
+    fields: [workLogs.workOrderId],
+    references: [workOrders.id],
   }),
 }));

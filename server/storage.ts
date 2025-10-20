@@ -1,6 +1,7 @@
 import {
   users,
   organizations,
+  blocks,
   properties,
   units,
   inspections,
@@ -9,10 +10,17 @@ import {
   maintenanceRequests,
   comparisonReports,
   creditTransactions,
+  inventoryTemplates,
+  inventories,
+  inventoryItems,
+  workOrders,
+  workLogs,
   type User,
   type UpsertUser,
   type Organization,
   type InsertOrganization,
+  type Block,
+  type InsertBlock,
   type Property,
   type InsertProperty,
   type Unit,
@@ -29,6 +37,16 @@ import {
   type InsertComparisonReport,
   type CreditTransaction,
   type InsertCreditTransaction,
+  type InventoryTemplate,
+  type InsertInventoryTemplate,
+  type Inventory,
+  type InsertInventory,
+  type InventoryItem,
+  type InsertInventoryItem,
+  type WorkOrder,
+  type InsertWorkOrder,
+  type WorkLog,
+  type InsertWorkLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
@@ -98,6 +116,43 @@ export interface IStorage {
   // Credit Transaction operations
   createCreditTransaction(transaction: InsertCreditTransaction): Promise<CreditTransaction>;
   getCreditTransactions(organizationId: string): Promise<CreditTransaction[]>;
+
+  // Block operations
+  createBlock(block: InsertBlock): Promise<Block>;
+  getBlocksByOrganization(organizationId: string): Promise<Block[]>;
+  getBlock(id: string): Promise<Block | undefined>;
+  updateBlock(id: string, updates: Partial<InsertBlock>): Promise<Block>;
+  deleteBlock(id: string): Promise<void>;
+
+  // Inventory Template operations
+  createInventoryTemplate(template: InsertInventoryTemplate): Promise<InventoryTemplate>;
+  getInventoryTemplatesByOrganization(organizationId: string): Promise<InventoryTemplate[]>;
+  getInventoryTemplate(id: string): Promise<InventoryTemplate | undefined>;
+  updateInventoryTemplate(id: string, updates: Partial<InsertInventoryTemplate>): Promise<InventoryTemplate>;
+  deleteInventoryTemplate(id: string): Promise<void>;
+
+  // Inventory operations
+  createInventory(inventory: InsertInventory): Promise<Inventory>;
+  getInventoriesByUnit(unitId: string): Promise<Inventory[]>;
+  getInventoriesByOrganization(organizationId: string): Promise<Inventory[]>;
+  getInventory(id: string): Promise<Inventory | undefined>;
+
+  // Inventory Item operations
+  createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
+  getInventoryItems(inventoryId: string): Promise<InventoryItem[]>;
+  updateInventoryItem(id: string, updates: Partial<InsertInventoryItem>): Promise<InventoryItem>;
+
+  // Work Order operations
+  createWorkOrder(workOrder: InsertWorkOrder): Promise<WorkOrder>;
+  getWorkOrdersByOrganization(organizationId: string): Promise<any[]>; // Returns with related data
+  getWorkOrdersByContractor(contractorId: string): Promise<any[]>; // Returns with related data
+  getWorkOrder(id: string): Promise<WorkOrder | undefined>;
+  updateWorkOrderStatus(id: string, status: string, completedAt?: Date): Promise<WorkOrder>;
+  updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder>;
+
+  // Work Log operations
+  createWorkLog(log: InsertWorkLog): Promise<WorkLog>;
+  getWorkLogs(workOrderId: string): Promise<WorkLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -260,6 +315,11 @@ export class DatabaseStorage implements IStorage {
         id: units.id,
         propertyId: units.propertyId,
         unitNumber: units.unitNumber,
+        bedrooms: units.bedrooms,
+        bathrooms: units.bathrooms,
+        floor: units.floor,
+        sqft: units.sqft,
+        status: units.status,
         tenantId: units.tenantId,
         createdAt: units.createdAt,
         updatedAt: units.updatedAt,
@@ -514,6 +574,238 @@ export class DatabaseStorage implements IStorage {
       .from(creditTransactions)
       .where(eq(creditTransactions.organizationId, organizationId))
       .orderBy(desc(creditTransactions.createdAt));
+  }
+
+  // Block operations
+  async createBlock(blockData: InsertBlock): Promise<Block> {
+    const [block] = await db.insert(blocks).values(blockData).returning();
+    return block;
+  }
+
+  async getBlocksByOrganization(organizationId: string): Promise<Block[]> {
+    return await db
+      .select()
+      .from(blocks)
+      .where(eq(blocks.organizationId, organizationId))
+      .orderBy(blocks.name);
+  }
+
+  async getBlock(id: string): Promise<Block | undefined> {
+    const [block] = await db.select().from(blocks).where(eq(blocks.id, id));
+    return block;
+  }
+
+  async updateBlock(id: string, updates: Partial<InsertBlock>): Promise<Block> {
+    const [block] = await db
+      .update(blocks)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(blocks.id, id))
+      .returning();
+    return block;
+  }
+
+  async deleteBlock(id: string): Promise<void> {
+    await db.delete(blocks).where(eq(blocks.id, id));
+  }
+
+  // Inventory Template operations
+  async createInventoryTemplate(templateData: InsertInventoryTemplate): Promise<InventoryTemplate> {
+    const [template] = await db.insert(inventoryTemplates).values(templateData).returning();
+    return template;
+  }
+
+  async getInventoryTemplatesByOrganization(organizationId: string): Promise<InventoryTemplate[]> {
+    return await db
+      .select()
+      .from(inventoryTemplates)
+      .where(eq(inventoryTemplates.organizationId, organizationId))
+      .orderBy(inventoryTemplates.name);
+  }
+
+  async getInventoryTemplate(id: string): Promise<InventoryTemplate | undefined> {
+    const [template] = await db.select().from(inventoryTemplates).where(eq(inventoryTemplates.id, id));
+    return template;
+  }
+
+  async updateInventoryTemplate(id: string, updates: Partial<InsertInventoryTemplate>): Promise<InventoryTemplate> {
+    const [template] = await db
+      .update(inventoryTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(inventoryTemplates.id, id))
+      .returning();
+    return template;
+  }
+
+  async deleteInventoryTemplate(id: string): Promise<void> {
+    await db.delete(inventoryTemplates).where(eq(inventoryTemplates.id, id));
+  }
+
+  // Inventory operations
+  async createInventory(inventoryData: InsertInventory): Promise<Inventory> {
+    const [inventory] = await db.insert(inventories).values(inventoryData).returning();
+    return inventory;
+  }
+
+  async getInventoriesByUnit(unitId: string): Promise<Inventory[]> {
+    return await db
+      .select()
+      .from(inventories)
+      .where(eq(inventories.unitId, unitId))
+      .orderBy(desc(inventories.version));
+  }
+
+  async getInventoriesByOrganization(organizationId: string): Promise<Inventory[]> {
+    return await db
+      .select()
+      .from(inventories)
+      .where(eq(inventories.organizationId, organizationId))
+      .orderBy(desc(inventories.createdAt));
+  }
+
+  async getInventory(id: string): Promise<Inventory | undefined> {
+    const [inventory] = await db.select().from(inventories).where(eq(inventories.id, id));
+    return inventory;
+  }
+
+  // Inventory Item operations
+  async createInventoryItem(itemData: InsertInventoryItem): Promise<InventoryItem> {
+    const [item] = await db.insert(inventoryItems).values(itemData).returning();
+    return item;
+  }
+
+  async getInventoryItems(inventoryId: string): Promise<InventoryItem[]> {
+    return await db
+      .select()
+      .from(inventoryItems)
+      .where(eq(inventoryItems.inventoryId, inventoryId))
+      .orderBy(inventoryItems.path);
+  }
+
+  async updateInventoryItem(id: string, updates: Partial<InsertInventoryItem>): Promise<InventoryItem> {
+    const [item] = await db
+      .update(inventoryItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(inventoryItems.id, id))
+      .returning();
+    return item;
+  }
+
+  // Work Order operations
+  async createWorkOrder(workOrderData: InsertWorkOrder): Promise<WorkOrder> {
+    const [workOrder] = await db.insert(workOrders).values(workOrderData).returning();
+    return workOrder;
+  }
+
+  async getWorkOrdersByOrganization(organizationId: string): Promise<any[]> {
+    return await db
+      .select({
+        id: workOrders.id,
+        organizationId: workOrders.organizationId,
+        maintenanceRequestId: workOrders.maintenanceRequestId,
+        contractorId: workOrders.contractorId,
+        status: workOrders.status,
+        slaDue: workOrders.slaDue,
+        costEstimate: workOrders.costEstimate,
+        costActual: workOrders.costActual,
+        variationNotes: workOrders.variationNotes,
+        completedAt: workOrders.completedAt,
+        createdAt: workOrders.createdAt,
+        updatedAt: workOrders.updatedAt,
+        maintenanceRequest: {
+          id: maintenanceRequests.id,
+          title: maintenanceRequests.title,
+          description: maintenanceRequests.description,
+          priority: maintenanceRequests.priority,
+          unitId: maintenanceRequests.unitId,
+        },
+        contractor: {
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          email: users.email,
+        },
+      })
+      .from(workOrders)
+      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
+      .innerJoin(users, eq(workOrders.contractorId, users.id))
+      .where(eq(workOrders.organizationId, organizationId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getWorkOrdersByContractor(contractorId: string): Promise<any[]> {
+    return await db
+      .select({
+        id: workOrders.id,
+        organizationId: workOrders.organizationId,
+        maintenanceRequestId: workOrders.maintenanceRequestId,
+        contractorId: workOrders.contractorId,
+        status: workOrders.status,
+        slaDue: workOrders.slaDue,
+        costEstimate: workOrders.costEstimate,
+        costActual: workOrders.costActual,
+        variationNotes: workOrders.variationNotes,
+        completedAt: workOrders.completedAt,
+        createdAt: workOrders.createdAt,
+        updatedAt: workOrders.updatedAt,
+        maintenanceRequest: {
+          id: maintenanceRequests.id,
+          title: maintenanceRequests.title,
+          description: maintenanceRequests.description,
+          priority: maintenanceRequests.priority,
+          unitId: maintenanceRequests.unitId,
+        },
+      })
+      .from(workOrders)
+      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
+      .where(eq(workOrders.contractorId, contractorId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getWorkOrder(id: string): Promise<WorkOrder | undefined> {
+    const [workOrder] = await db.select().from(workOrders).where(eq(workOrders.id, id));
+    return workOrder;
+  }
+
+  async updateWorkOrderStatus(id: string, status: string, completedAt?: Date): Promise<WorkOrder> {
+    const updateData: any = { status: status as any, updatedAt: new Date() };
+    if (completedAt !== undefined) {
+      updateData.completedAt = completedAt;
+    }
+    
+    const [workOrder] = await db
+      .update(workOrders)
+      .set(updateData)
+      .where(eq(workOrders.id, id))
+      .returning();
+    return workOrder;
+  }
+
+  async updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder> {
+    const updateData: any = { costActual, updatedAt: new Date() };
+    if (variationNotes !== undefined) {
+      updateData.variationNotes = variationNotes;
+    }
+    
+    const [workOrder] = await db
+      .update(workOrders)
+      .set(updateData)
+      .where(eq(workOrders.id, id))
+      .returning();
+    return workOrder;
+  }
+
+  // Work Log operations
+  async createWorkLog(logData: InsertWorkLog): Promise<WorkLog> {
+    const [log] = await db.insert(workLogs).values(logData).returning();
+    return log;
+  }
+
+  async getWorkLogs(workOrderId: string): Promise<WorkLog[]> {
+    return await db
+      .select()
+      .from(workLogs)
+      .where(eq(workLogs.workOrderId, workOrderId))
+      .orderBy(desc(workLogs.createdAt));
   }
 }
 
