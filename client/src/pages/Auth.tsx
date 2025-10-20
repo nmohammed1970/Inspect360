@@ -33,7 +33,7 @@ export default function Auth() {
   const loginForm = useForm<LoginUser>({
     resolver: zodResolver(loginUserSchema),
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
     },
   });
@@ -94,15 +94,16 @@ export default function Auth() {
                   <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
                     <FormField
                       control={loginForm.control}
-                      name="username"
+                      name="email"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Username</FormLabel>
+                          <FormLabel>Email Address</FormLabel>
                           <FormControl>
                             <Input
                               {...field}
-                              data-testid="input-username"
-                              placeholder="Enter your username"
+                              type="email"
+                              data-testid="input-email"
+                              placeholder="Enter your email address"
                               disabled={loginMutation.isPending}
                             />
                           </FormControl>

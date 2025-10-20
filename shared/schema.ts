@@ -71,7 +71,7 @@ export const registerUserSchema = insertUserSchema.pick({
 });
 
 export const loginUserSchema = z.object({
-  username: z.string().min(1),
+  email: z.string().email("Invalid email address"),
   password: z.string().min(1),
 });
 

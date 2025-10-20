@@ -63,25 +63,28 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Configure passport-local strategy
+  // Configure passport-local strategy to use email instead of username
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
-      try {
-        const user = await storage.getUserByUsername(username);
-        if (!user) {
-          return done(null, false, { message: "Invalid username or password" });
+    new LocalStrategy(
+      { usernameField: 'email' },
+      async (email, password, done) => {
+        try {
+          const user = await storage.getUserByEmail(email);
+          if (!user) {
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          
+          const isValid = await comparePasswords(password, user.password);
+          if (!isValid) {
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          
+          return done(null, user);
+        } catch (error) {
+          return done(error);
         }
-        
-        const isValid = await comparePasswords(password, user.password);
-        if (!isValid) {
-          return done(null, false, { message: "Invalid username or password" });
-        }
-        
-        return done(null, user);
-      } catch (error) {
-        return done(error);
       }
-    })
+    )
   );
 
   passport.serializeUser((user, done) => {
@@ -154,7 +157,7 @@ export async function setupAuth(app: Express) {
         }
         if (!user) {
           return res.status(401).json({ 
-            message: info?.message || "Invalid username or password" 
+            message: info?.message || "Invalid email or password" 
           });
         }
         
