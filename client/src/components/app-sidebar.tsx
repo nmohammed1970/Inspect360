@@ -11,6 +11,7 @@ import {
   Boxes,
   Clipboard,
   Package,
+  List,
 } from "lucide-react";
 import {
   Sidebar,
@@ -53,6 +54,12 @@ export function AppSidebar() {
       url: "/inspections",
       icon: ClipboardCheck,
       roles: ["owner", "clerk"],
+    },
+    {
+      title: "Inspection Templates",
+      url: "/inspection-templates",
+      icon: List,
+      roles: ["owner", "compliance"],
     },
     {
       title: "Compliance",
