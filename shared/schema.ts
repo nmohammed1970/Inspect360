@@ -123,13 +123,22 @@ export const insertBlockSchema = createInsertSchema(blocks).omit({
 export type Block = typeof blocks.$inferSelect;
 export type InsertBlock = z.infer<typeof insertBlockSchema>;
 
-// Properties (Buildings/Blocks)
+// Properties (Individual units/apartments - merged with units)
+// Properties can optionally belong to blocks for organizational hierarchy
 export const properties = pgTable("properties", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id").notNull(),
   blockId: varchar("block_id"), // Optional: properties can be grouped into blocks
   name: varchar("name").notNull(),
   address: text("address").notNull(),
+  // Unit-specific fields (merged from units table)
+  unitNumber: varchar("unit_number"),
+  bedrooms: integer("bedrooms"),
+  bathrooms: integer("bathrooms"),
+  floor: integer("floor"),
+  sqft: integer("sqft"),
+  status: unitStatusEnum("status").default("vacant"),
+  tenantId: varchar("tenant_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -142,33 +151,32 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
 
-// Units (Individual apartments/units)
-export const units = pgTable("units", {
+// Inspection Categories
+export const inspectionCategories = pgTable("inspection_categories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  propertyId: varchar("property_id").notNull(),
-  unitNumber: varchar("unit_number").notNull(),
-  bedrooms: integer("bedrooms"),
-  bathrooms: integer("bathrooms"),
-  floor: integer("floor"),
-  sqft: integer("sqft"),
-  status: unitStatusEnum("status").default("vacant"),
-  tenantId: varchar("tenant_id"),
+  organizationId: varchar("organization_id").notNull(),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").default(0),
+  isDefault: boolean("is_default").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertUnitSchema = createInsertSchema(units).omit({
+export const insertInspectionCategorySchema = createInsertSchema(inspectionCategories).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 });
-export type Unit = typeof units.$inferSelect;
-export type InsertUnit = z.infer<typeof insertUnitSchema>;
+export type InspectionCategory = typeof inspectionCategories.$inferSelect;
+export type InsertInspectionCategory = z.infer<typeof insertInspectionCategorySchema>;
 
-// Inspections
+// Inspections (can be on blocks OR properties)
 export const inspections = pgTable("inspections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  unitId: varchar("unit_id").notNull(),
+  // Inspection can be on either a block or a property (at least one must be set)
+  blockId: varchar("block_id"),
+  propertyId: varchar("property_id"),
   inspectorId: varchar("inspector_id").notNull(),
   type: inspectionTypeEnum("type").notNull(),
   status: inspectionStatusEnum("status").notNull().default("scheduled"),
@@ -183,7 +191,10 @@ export const insertInspectionSchema = createInsertSchema(inspections).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
-});
+}).refine(
+  (data) => data.blockId || data.propertyId,
+  { message: "Either blockId or propertyId must be provided" }
+);
 export type Inspection = typeof inspections.$inferSelect;
 export type InsertInspection = z.infer<typeof insertInspectionSchema>;
 
@@ -191,7 +202,8 @@ export type InsertInspection = z.infer<typeof insertInspectionSchema>;
 export const inspectionItems = pgTable("inspection_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   inspectionId: varchar("inspection_id").notNull(),
-  category: varchar("category").notNull(), // e.g., "Kitchen", "Bathroom", "Living Room"
+  categoryId: varchar("category_id"), // Optional: reference to inspection_categories
+  category: varchar("category").notNull(), // e.g., "Kitchen", "Bathroom", "Living Room" (for backward compat)
   itemName: varchar("item_name").notNull(), // e.g., "Walls", "Floors", "Appliances"
   photoUrl: text("photo_url"),
   conditionRating: integer("condition_rating"), // 1-5 slider
@@ -232,7 +244,7 @@ export type InsertComplianceDocument = z.infer<typeof insertComplianceDocumentSc
 // Maintenance Requests (Internal tracking)
 export const maintenanceRequests = pgTable("maintenance_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  unitId: varchar("unit_id").notNull(),
+  propertyId: varchar("property_id").notNull(),
   reportedBy: varchar("reported_by").notNull(),
   assignedTo: varchar("assigned_to"),
   title: varchar("title").notNull(),
@@ -255,7 +267,7 @@ export type InsertMaintenanceRequest = z.infer<typeof insertMaintenanceRequestSc
 // Comparison Reports (AI-generated comparison between check-in and check-out)
 export const comparisonReports = pgTable("comparison_reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  unitId: varchar("unit_id").notNull(),
+  propertyId: varchar("property_id").notNull(),
   checkInInspectionId: varchar("check_in_inspection_id").notNull(),
   checkOutInspectionId: varchar("check_out_inspection_id").notNull(),
   aiSummary: text("ai_summary"), // Overall AI-generated comparison
@@ -309,11 +321,11 @@ export const insertInventoryTemplateSchema = createInsertSchema(inventoryTemplat
 export type InventoryTemplate = typeof inventoryTemplates.$inferSelect;
 export type InsertInventoryTemplate = z.infer<typeof insertInventoryTemplateSchema>;
 
-// Inventories (Active inventory instances for units)
+// Inventories (Active inventory instances for properties)
 export const inventories = pgTable("inventories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id").notNull(),
-  unitId: varchar("unit_id").notNull(),
+  propertyId: varchar("property_id").notNull(),
   templateId: varchar("template_id"),
   version: integer("version").default(1),
   isActive: boolean("is_active").default(true),
@@ -404,6 +416,7 @@ export const usersRelations = relations(users, ({ one }) => ({
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   blocks: many(blocks),
   properties: many(properties),
+  inspectionCategories: many(inspectionCategories),
   complianceDocuments: many(complianceDocuments),
   creditTransactions: many(creditTransactions),
   inventoryTemplates: many(inventoryTemplates),
@@ -427,23 +440,28 @@ export const propertiesRelations = relations(properties, ({ one, many }) => ({
     fields: [properties.blockId],
     references: [blocks.id],
   }),
-  units: many(units),
-}));
-
-export const unitsRelations = relations(units, ({ one, many }) => ({
-  property: one(properties, {
-    fields: [units.propertyId],
-    references: [properties.id],
-  }),
   inspections: many(inspections),
   maintenanceRequests: many(maintenanceRequests),
   inventories: many(inventories),
+  comparisonReports: many(comparisonReports),
+}));
+
+export const inspectionCategoriesRelations = relations(inspectionCategories, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [inspectionCategories.organizationId],
+    references: [organizations.id],
+  }),
+  items: many(inspectionItems),
 }));
 
 export const inspectionsRelations = relations(inspections, ({ one, many }) => ({
-  unit: one(units, {
-    fields: [inspections.unitId],
-    references: [units.id],
+  block: one(blocks, {
+    fields: [inspections.blockId],
+    references: [blocks.id],
+  }),
+  property: one(properties, {
+    fields: [inspections.propertyId],
+    references: [properties.id],
   }),
   items: many(inspectionItems),
 }));
@@ -452,6 +470,10 @@ export const inspectionItemsRelations = relations(inspectionItems, ({ one }) => 
   inspection: one(inspections, {
     fields: [inspectionItems.inspectionId],
     references: [inspections.id],
+  }),
+  category: one(inspectionCategories, {
+    fields: [inspectionItems.categoryId],
+    references: [inspectionCategories.id],
   }),
 }));
 
@@ -468,9 +490,9 @@ export const inventoriesRelations = relations(inventories, ({ one, many }) => ({
     fields: [inventories.organizationId],
     references: [organizations.id],
   }),
-  unit: one(units, {
-    fields: [inventories.unitId],
-    references: [units.id],
+  property: one(properties, {
+    fields: [inventories.propertyId],
+    references: [properties.id],
   }),
   template: one(inventoryTemplates, {
     fields: [inventories.templateId],
@@ -487,9 +509,9 @@ export const inventoryItemsRelations = relations(inventoryItems, ({ one }) => ({
 }));
 
 export const maintenanceRequestsRelations = relations(maintenanceRequests, ({ one, many }) => ({
-  unit: one(units, {
-    fields: [maintenanceRequests.unitId],
-    references: [units.id],
+  property: one(properties, {
+    fields: [maintenanceRequests.propertyId],
+    references: [properties.id],
   }),
   workOrders: many(workOrders),
 }));
