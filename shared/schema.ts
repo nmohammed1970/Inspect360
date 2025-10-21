@@ -35,6 +35,9 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "
 export const unitStatusEnum = pgEnum("unit_status", ["occupied", "vacant"]);
 export const workOrderStatusEnum = pgEnum("work_order_status", ["assigned", "in_progress", "waiting_parts", "completed", "rejected"]);
 export const assetConditionEnum = pgEnum("asset_condition", ["excellent", "good", "fair", "poor", "needs_replacement"]);
+export const inspectionPointDataTypeEnum = pgEnum("inspection_point_data_type", ["text", "number", "checkbox", "photo", "rating"]);
+export const conditionRatingEnum = pgEnum("condition_rating", ["excellent", "good", "fair", "poor", "not_applicable"]);
+export const cleanlinessRatingEnum = pgEnum("cleanliness_rating", ["very_clean", "clean", "acceptable", "needs_cleaning", "not_applicable"]);
 
 // User storage table
 export const users = pgTable("users", {
@@ -171,9 +174,51 @@ export const insertInspectionCategorySchema = createInsertSchema(inspectionCateg
 export type InspectionCategory = typeof inspectionCategories.$inferSelect;
 export type InsertInspectionCategory = z.infer<typeof insertInspectionCategorySchema>;
 
+// Inspection Templates
+export const inspectionTemplates = pgTable("inspection_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInspectionTemplateSchema = createInsertSchema(inspectionTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InspectionTemplate = typeof inspectionTemplates.$inferSelect;
+export type InsertInspectionTemplate = z.infer<typeof insertInspectionTemplateSchema>;
+
+// Inspection Template Points (the items to inspect within a template)
+export const inspectionTemplatePoints = pgTable("inspection_template_points", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").notNull(),
+  categoryId: varchar("category_id"), // Link to inspection_categories
+  name: varchar("name").notNull(), // e.g., "Kitchen Sink", "Living Room Walls"
+  description: text("description"),
+  dataType: inspectionPointDataTypeEnum("data_type").notNull().default("text"),
+  requiresConditionRating: boolean("requires_condition_rating").default(true),
+  requiresCleanlinessRating: boolean("requires_cleanliness_rating").default(true),
+  requiresPhoto: boolean("requires_photo").default(false),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInspectionTemplatePointSchema = createInsertSchema(inspectionTemplatePoints).omit({
+  id: true,
+  createdAt: true,
+});
+export type InspectionTemplatePoint = typeof inspectionTemplatePoints.$inferSelect;
+export type InsertInspectionTemplatePoint = z.infer<typeof insertInspectionTemplatePointSchema>;
+
 // Inspections (can be on blocks OR properties)
 export const inspections = pgTable("inspections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id"), // Link to inspection template (optional for backward compatibility)
   // Inspection can be on either a block or a property (at least one must be set)
   blockId: varchar("block_id"),
   propertyId: varchar("property_id"),
@@ -218,6 +263,32 @@ export const insertInspectionItemSchema = createInsertSchema(inspectionItems).om
 });
 export type InspectionItem = typeof inspectionItems.$inferSelect;
 export type InsertInspectionItem = z.infer<typeof insertInspectionItemSchema>;
+
+// Inspection Responses (for template-based inspections)
+export const inspectionResponses = pgTable("inspection_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  inspectionId: varchar("inspection_id").notNull(),
+  templatePointId: varchar("template_point_id").notNull(), // Links to inspection_template_points
+  assetInventoryId: varchar("asset_inventory_id"), // Optional: link to asset being inspected
+  conditionRating: conditionRatingEnum("condition_rating"),
+  cleanlinessRating: cleanlinessRatingEnum("cleanliness_rating"),
+  textValue: text("text_value"), // For text data type
+  numberValue: integer("number_value"), // For number data type
+  checkboxValue: boolean("checkbox_value"), // For checkbox data type
+  photoUrl: text("photo_url"), // For photo data type
+  notes: text("notes"),
+  aiAnalysis: text("ai_analysis"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertInspectionResponseSchema = createInsertSchema(inspectionResponses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InspectionResponse = typeof inspectionResponses.$inferSelect;
+export type InsertInspectionResponse = z.infer<typeof insertInspectionResponseSchema>;
 
 // Compliance Documents
 export const complianceDocuments = pgTable("compliance_documents", {
