@@ -328,7 +328,7 @@ export default function InspectionTemplates() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Templates List */}
-        <Card className="backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border-white/20 shadow-2xl rounded-2xl">
+        <Card className="shadow-sm rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5" />
@@ -413,7 +413,7 @@ export default function InspectionTemplates() {
         </Card>
 
         {/* Inspection Points */}
-        <Card className="backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border-white/20 shadow-2xl rounded-2xl">
+        <Card className="shadow-sm rounded-xl">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>

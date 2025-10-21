@@ -1,235 +1,186 @@
 # Inspect360 Design Guidelines
 
 ## Design Approach
-**Custom Enterprise Design System** inspired by Linear's precision, Apple HIG's clarity, and modern enterprise standards. Brand-driven color palette with glassmorphic depth, generous spacing, and refined micro-interactions. Optimized for PWA, mobile-first inspection workflows, and seamless light/dark mode switching.
+**Modern SaaS Design System** inspired by Linear's clarity, Notion's airiness, and contemporary dashboard aesthetics. Sky blue brand palette with clean white surfaces, soft shadows, and generous breathing room. PWA-optimized for mobile-first inspection workflows with seamless light/dark mode transitions. Professional, calming, and effortlessly modern.
 
-## Brand Color System
+## Color System
 
-### Light Mode
-- **Navy Primary:** 0 100% 20% (brand primary - headers, primary buttons, navigation)
-- **Fresh Green:** 145 45% 54% (success states, CTAs, positive indicators)
-- **Deep Blue:** 240 100% 29% (data accents, badges, links)
-- **Black:** 0 0% 0% (primary text)
-- **Surface Base:** 0 0% 100% (main backgrounds)
-- **Surface Elevated:** 210 33% 99% (cards, modals)
-- **Surface Muted:** 210 17% 98% (subtle backgrounds, disabled states)
-- **Border Subtle:** 210 16% 93% (dividers, card borders)
+### Light Mode (Primary)
+- **Sky Blue Primary:** 199 79% 63% (#5AB5E8 - brand primary, CTAs, primary buttons)
+- **Cobalt Accent:** 214 100% 50% (links, interactive elements, data highlights)
+- **Powder Blue Background:** 199 40% 97% (subtle surface tints, hover states)
+- **White Surface:** 0 0% 100% (main backgrounds, cards)
+- **Warm Gray 50:** 30 10% 98% (alternative surface, subtle sections)
+- **Warm Gray 200:** 30 8% 90% (borders, dividers)
+- **Warm Gray 600:** 30 5% 45% (secondary text)
+- **Warm Gray 900:** 30 8% 15% (primary text, headings)
 
 ### Dark Mode
-- **Navy Primary:** 206 100% 92% (inverted for dark - headers, primary actions)
-- **Fresh Green:** 145 45% 65% (adjusted for dark contrast - success, CTAs)
-- **Deep Blue:** 240 100% 75% (links, accents on dark)
-- **White:** 0 0% 98% (primary text on dark)
-- **Surface Base:** 220 13% 9% (main dark background)
-- **Surface Elevated:** 220 13% 13% (cards, modals with elevation)
-- **Surface Muted:** 220 9% 16% (secondary backgrounds)
-- **Border Subtle:** 220 9% 23% (dividers on dark)
+- **Sky Blue Primary:** 199 79% 68% (adjusted brightness for dark contrast)
+- **Cobalt Accent:** 214 100% 65% (links, accents on dark)
+- **Dark Surface Base:** 220 15% 12% (main background)
+- **Dark Surface Elevated:** 220 13% 16% (cards, modals)
+- **Dark Surface Subtle:** 220 10% 20% (hover states, sections)
+- **Dark Border:** 220 10% 25% (dividers)
+- **Gray 400:** 30 5% 70% (secondary text on dark)
+- **Gray 50:** 0 0% 98% (primary text on dark)
 
-## Glassmorphic Design Language
+## Typography
 
-**Glass Cards:** Semi-transparent backgrounds with backdrop blur, subtle border highlights, layered depth
-- Light: `bg-white/80 backdrop-blur-xl border border-white/20`
-- Dark: `bg-surface-elevated/40 backdrop-blur-xl border border-white/10`
+**Font:** Inter, system-ui, sans-serif
 
-**Floating Elements:** Navigation bars, action sheets, modals use elevated glass with stronger blur
-- Shadow layering: Combine soft shadows with glow effects for depth
-- Light: `shadow-[0_8px_32px_rgba(0,55,100,0.08)]`
-- Dark: `shadow-[0_8px_32px_rgba(0,0,0,0.4)]`
-
-**Gradient Accents:** Subtle, sophisticated overlays - never garish
-- Navy to Deep Blue: `from-[hsl(206_100%_20%)] to-[hsl(240_100%_29%)]` at 15% opacity
-- Success glow: Soft green radial gradients behind CTAs and success states
-- Apply gradients sparingly: Hero sections, feature highlights, CTAs only
-
-## Typography Scale
-
-**Font Stack:** `Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`
-
-**Hierarchy:**
-- **Display (Hero):** 48px/1.1, weight 700, tight letter-spacing -0.02em
-- **H1:** 36px/1.2, weight 700
+**Scale:**
+- **Display:** 48px/1.1, weight 600, -0.02em tracking
+- **H1:** 36px/1.2, weight 600
 - **H2:** 28px/1.3, weight 600
 - **H3:** 22px/1.4, weight 600
-- **H4:** 18px/1.5, weight 600
+- **H4:** 18px/1.5, weight 500
 - **Body Large:** 16px/1.6, weight 400
-- **Body:** 14px/1.6, weight 400
-- **Small:** 13px/1.5, weight 400
-- **Caption:** 12px/1.4, weight 500
-
-**Interactive Text:** Medium weight (500) for buttons, links, labels
+- **Body:** 15px/1.6, weight 400
+- **Small:** 14px/1.5, weight 400
+- **Caption:** 13px/1.4, weight 500
 
 ## Layout System
 
-**Spacing Primitives:** Use Tailwind units of 3, 4, 6, 8, 12, 16, 20, 24 for generous, breathable layouts
+**Spacing Primitives:** Tailwind units 3, 4, 6, 8, 12, 16, 20, 24
 - Card padding: p-6 (mobile), p-8 (desktop)
-- Section spacing: py-16 (mobile), py-24 (desktop)
-- Component gaps: gap-6 (standard), gap-8 (generous)
-- Grid gaps: gap-4 (tight data), gap-6 (cards)
+- Section spacing: py-12 (mobile), py-20 (desktop)
+- Component gaps: gap-6 standard, gap-8 generous
+- Grid gaps: gap-4 (compact), gap-6 (relaxed)
 
-**Container System:**
-- Max-width: 1280px (desktop)
-- Padding: px-4 (mobile), px-6 (tablet), px-8 (desktop)
-- Content grids: 12-column with 4/6/12 span cards
+**Container:** Max 1280px, px-4 (mobile), px-6 (tablet), px-8 (desktop)
 
 **Navigation:**
-- Desktop: Persistent left rail (256px), glassmorphic, role-aware menu
-- Mobile: Bottom tab bar (PWA), glass effect with blur, 4-5 core actions
-- Top bar: Search, quick "New Inspection" CTA, org switcher, avatar menu
+- Desktop: Left sidebar 256px, clean white with sky blue active states
+- Mobile: Bottom tab bar (PWA), sky blue icons for active
+- Top bar: Search, "New Inspection" CTA, org switcher, avatar
 
 ## Component Design
 
 ### Cards
-- Glass background with backdrop blur
-- Rounded corners: 16px (relaxed, modern)
-- Soft shadows with subtle border glow
-- Hover: Lift effect with increased shadow depth
-- Interactive cards: Scale transform (1.02) + shadow expansion on press
+- White background (light) / Dark elevated (dark)
+- Border radius: 0.75rem (12px)
+- Soft shadow: `shadow-[0_2px_8px_rgba(0,0,0,0.04)]` (light), `shadow-[0_2px_12px_rgba(0,0,0,0.3)]` (dark)
+- Border: 1px warm-gray-200 (light) / dark-border (dark)
+- Hover: Lift shadow `shadow-[0_4px_16px_rgba(0,0,0,0.08)]`, translate -1px
 
 ### Buttons
-**Primary (Navy):**
-- Navy background in light, Fresh Green in dark (maintains brand hierarchy)
-- White text, medium weight
-- Rounded: 12px
+**Primary (Sky Blue):**
+- Sky blue background, white text, weight 500
+- Pill-shaped: `rounded-full`
 - Padding: px-6 py-3 (desktop), px-5 py-2.5 (mobile)
-- Hover: Darken 8%, subtle scale (1.01)
-- Active: Scale (0.98), instant feedback
+- Hover: Darken to `199 79% 56%`, no scale
+- Active: Darken further to `199 79% 50%`
 
-**CTA (Fresh Green):**
-- Green background both modes (adjusted saturation for dark)
-- White text, semibold weight
-- Glow effect: Soft green shadow on hover
-- Prominent placement: "Start Inspection", "Create Request"
+**Secondary:**
+- Cobalt text, transparent background, cobalt border (1px)
+- Pill-shaped, same padding
+- Hover: Powder blue background fill
 
-**Secondary/Ghost:**
-- Transparent with border (navy or deep blue)
-- Hover: Fill with 10% tint
-- On images: Glassmorphic background with blur (`bg-white/10 backdrop-blur-md border-white/30`)
+**Ghost on Images:**
+- White/10 background, white text, white/30 border
+- Backdrop blur: `backdrop-blur-md`
+- No custom hover states (inherits Button defaults)
 
-**Icon Buttons:**
-- 40x40px hit area minimum
-- Hover: Background tint appears
-- Feedback: Ripple effect on press
+**Icon Buttons:** 44x44px minimum, circular, hover fills with powder blue
 
-### Inputs & Forms
-- Large touch targets: 48px minimum height
-- Floating labels that stay visible on focus
-- Helper text below in muted color
-- Focus: Green ring (2px) with subtle glow
-- Glass styling for floating forms (modals, sheets)
+### Inputs
+- 48px height minimum (touch-friendly)
+- Rounded: 0.75rem (matches cards)
+- Border: warm-gray-200, focus ring sky blue (2px)
+- Floating labels, permanent visibility on focus
+- Helper text: warm-gray-600
 
-### Badges & Status
-- Rounded-full with glass background
-- Deep Blue: Info/pending
-- Green: Success/completed
-- Amber: Warnings/expiring
-- Red: Critical/overdue
-- Subtle icon + text, semibold weight
+### Badges
+- Pill-shaped (`rounded-full`), px-3 py-1
+- Sky blue: General info/pending
+- Cobalt: Links, clickable
+- Green (145 60% 50%): Success/completed
+- Amber (35 90% 55%): Warnings
+- Red (0 80% 55%): Critical
 
-### Data Visualization
-- Deep Blue primary data color
-- Green for positive trends/highlights
-- Subtle grid lines (low opacity)
-- Glass card containers for chart groups
-- Tooltips: Glass effect with blur
+### Data Displays
+- Charts: Cobalt primary, sky blue secondary
+- Tables: Alternating row tint (powder blue/5%)
+- Minimal grid lines (warm-gray-200)
 
-## Micro-Interactions
+## Visual Language
 
-**Timing:** Fast and snappy (150-250ms) - enterprise users value efficiency
-- Hover states: 150ms ease-out
-- Button press: 100ms ease-in-out
-- Card expand: 200ms ease-out
-- Modal entry: 250ms with subtle fade + scale
+**Shadows:** Soft, layered depth
+- Resting cards: 0_2px_8px_rgba(0,0,0,0.04)
+- Hover cards: 0_4px_16px_rgba(0,0,0,0.08)
+- Modals: 0_8px_32px_rgba(0,0,0,0.12)
+- Floating elements: 0_12px_48px_rgba(0,0,0,0.15)
 
-**Effects (Applied Sparingly):**
-- Button ripple on click
-- Card lift on hover (2-4px elevation increase)
-- Skeleton loaders with shimmer for data fetching
-- Success animations: Checkmark draw + subtle scale
-- Photo capture: Flash effect + haptic feedback (PWA)
+**Spacing Philosophy:** Generous whitespace, never cramped
+- Minimum 24px between major sections
+- Card groups: gap-6 default
+- Dense data tables: Tighter spacing acceptable (gap-3)
 
-**Navigation Transitions:**
-- Slide transitions between major views (300ms)
-- Fade for modal overlays (200ms)
-- Bottom sheet: Spring animation from bottom (350ms)
+**Micro-Interactions:**
+- Fast, subtle: 150ms transitions
+- Button press: No scale transforms (clean, direct)
+- Card hover: Subtle lift only
+- Loading: Skeleton shimmer (sky blue tint)
+- Success: Checkmark draw + green badge fade-in
 
-## Key Screen Patterns
+## Key Screens
 
-### Owner Dashboard
-- Hero KPI cards in 3-column grid (desktop), stacked (mobile)
-- Glass cards with gradient overlays for key metrics
-- Credits remaining: Prominent with warning states at thresholds
-- Charts use glass containers with subtle depth
-- Quick actions: Floating action button (mobile) + top bar (desktop)
+### Dashboard (Owner)
+- Hero: Full-width image (60vh) of modern BTR property, soft gradient overlay (white to transparent), centered white text with shadow
+- KPI cards: 3-column grid (desktop), white cards with sky blue accent bars on left edge
+- Credits widget: Prominent sky blue card with cobalt badge for count
+- Charts: Cobalt lines/bars in white card containers
 
-### Clerk "My Day" (PWA)
-- Full-screen card stack for assigned inspections
-- Swipe gestures: Dismiss completed, defer later
-- Large touch zones for photo capture
-- Offline indicator: Glass banner at top when disconnected
-- One-tap inspection start with haptic confirmation
+### Clerk Mobile (PWA)
+- Full-screen card stack for inspections
+- Large sky blue "Start Inspection" pill button
+- Swipe gestures for completion
+- Photo capture: White overlay controls with backdrop blur
+- Offline banner: Sky blue with white text
 
 ### Compliance Center
-- Timeline view with expiring documents
-- Color-coded urgency (30/60/90 days)
-- Upload modal: Glass sheet from bottom (mobile), centered (desktop)
-- Document preview: Full-bleed with glass controls overlay
+- Timeline: Vertical with cobalt connecting line
+- Document cards: White with colored left border (green=ok, amber=soon, red=overdue)
+- Upload modal: Bottom sheet (mobile), centered modal (desktop), white with soft shadow
 
 ### Tenant Portal
-- Request form: Multi-step with progress indicator
-- Comparison viewer: Side-by-side cards with glass divider
-- Comment threads: WhatsApp-style bubbles with glass background
-- Status tracker: Vertical timeline with green progress line
+- Multi-step form: Sky blue progress dots
+- Comparison viewer: Side-by-side white cards, cobalt divider
+- Comments: WhatsApp-style bubbles, sky blue for user, warm-gray-50 for others
 
 ## Images
 
-**Hero Sections:** Professional building inspection imagery
-- Marketing pages: Modern BTR facilities, inspection tools, clean property interiors
-- Dashboard hero (optional): Subtle background image at 40% opacity with gradient overlay
-- Empty states: Illustration-style graphics (not photos) for warmth
+**Placement:**
+- Landing hero: Full-bleed professional building photo (60vh), white text overlay, gradient fade to white
+- Feature sections: Alternating layout, rounded 0.75rem images
+- Dashboard: Optional subtle background pattern (10% opacity max)
+- Empty states: Simple line illustrations in sky blue/cobalt
+- Mobile: Minimize decorative images, functional clarity prioritized
 
-**Placement Strategy:**
-- Landing page: Full-bleed hero image (60vh) with centered text overlay
-- Feature sections: Alternating image-text layout with rounded corners
-- Dashboard: Background patterns only - prioritize data visibility
-- Mobile: Minimize decorative images, focus on functional clarity
+**Style:** Clean, bright professional photography of modern buildings, inspection tools, well-maintained interiors
 
-## Accessibility & PWA
+## Accessibility
 
-**Contrast:** All text meets WCAG AA (4.5:1), critical actions meet AAA (7:1)
-- Navy on white: 8.9:1 ✓
-- Green on white: 3.2:1 (use for backgrounds only, white text on green: 4.3:1) ✓
-- Test dark mode combinations independently
+**Contrast:** WCAG AA minimum
+- Sky blue on white: 3.1:1 (backgrounds only, use white text on sky blue: 4.8:1)
+- Cobalt on white: 4.5:1 ✓
+- Warm-gray-900 on white: 12:1 ✓
 
-**Focus Management:**
-- Green focus rings (2px, offset 2px)
-- Keyboard navigation: Visible skip links, logical tab order
-- Screen readers: Semantic HTML, ARIA labels for icons/status
+**Focus:** Sky blue ring (2px), offset 2px, visible on all interactive elements
 
-**PWA Optimizations:**
-- Offline banner: Glass notification with retry action
-- Install prompt: Bottom sheet with brand benefits
-- Splash screen: Navy gradient with white logo
-- App icon: Simplified logo on green gradient
+**PWA:** 
+- Offline banner at top (sky blue)
+- Install prompt: Bottom sheet with sky blue CTA
+- Splash: White background, sky blue logo
+- App icon: Sky blue gradient
 
-**Performance:**
-- Lazy load images below fold
-- Preload critical fonts (Inter)
-- Use CSS transforms for animations (GPU acceleration)
-- Minimize backdrop-blur usage (expensive on mobile)
+## Voice & Microcopy
 
-## UI Voice & Microcopy
+**CTAs:** "Start Inspection", "Create Comparison", "Upload Documents", "Invite Team"
 
-**Primary CTAs:** Action-oriented, confident
-- "Start Inspection", "Create Comparison", "Log Maintenance", "Invite Team"
+**Empty:** "No inspections scheduled—create one to get started."
 
-**Empty States:** Friendly, contextual
-- "No inspections today—enjoy the calm or schedule one ahead."
-- "Invite clerks to get started with mobile inspections."
+**Alerts:** "12 credits remaining—consider upgrading to avoid interruption."
 
-**Alerts & Warnings:**
-- "Inspection credits low (12 remaining)—upgrade to avoid disruption."
-- "3 documents expire in 15 days—upload renewals to stay compliant."
-
-**Success Messages:**
-- "Inspection completed! Data syncing..."
-- "Tenant notified—they can view comparison now."
+**Success:** "Inspection complete! Syncing data..."

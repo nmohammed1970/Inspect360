@@ -5,8 +5,8 @@ Inspect360 is a PWA-first building inspection platform for Build-to-Rent (BTR) o
 
 ## User Preferences
 - Prioritize PWA-first mobile experience
-- Navy/Green/Deep Blue brand color scheme
-- Clean, accessible enterprise UI
+- Light, airy Sky Blue/Cobalt brand color scheme (clean modern SaaS aesthetic)
+- Clean, accessible enterprise UI with generous white space
 - Role-based feature access
 - Offline support for field inspections
 
@@ -14,18 +14,18 @@ Inspect360 is a PWA-first building inspection platform for Build-to-Rent (BTR) o
 The platform follows a PWA-first approach with a robust web architecture.
 
 ### UI/UX Decisions
-- **Modern Design System (October 2025)**:
-  - **Typography**: Inter font system with bold headers (text-4xl/5xl) and clear hierarchy
-  - **Glassmorphic Cards**: Backdrop-blur effects with semi-transparent backgrounds for depth
-  - **Shadows**: Refined shadow system (8px-32px blur, 0.04-0.60 opacity) for subtle elevation
-  - **Border Radius**: Modern 1rem (16px) for cards, 0.75rem (12px) for smaller elements
-  - **Transitions**: Smooth 150-250ms transitions for all interactive elements
-  - **Spacing**: Generous spacing with p-8/p-12 containers and gap-6/gap-8 grids
-  - **Visual Feedback**: Color-coded icons with background circles, hover lift effects
-  - **Loading States**: Modern animated spinners and skeleton loaders with shimmer
-- **Color Scheme**: Navy (#003764) for primary surfaces, Fresh Green (#59B677) for accents/CTAs, and Deep Blue (#000092) for secondary accents/badges.
-- **Components**: Glassmorphic cards with backdrop blur, modern icon badges, elevated hover states.
-- **Layout**: Left sidebar navigation with role-aware menu items, top bar with toggle and logout, responsive grid layout with generous spacing.
+- **Modern Clean Design System (October 2025)**:
+  - **Typography**: Inter font system with semibold headers (weight 600) and clear hierarchy
+  - **Clean Cards**: White backgrounds with soft shadows (shadow-sm: 0 2px 8px rgba(0,0,0,0.04))
+  - **Shadows**: Soft, subtle shadow system for gentle elevation without heavy effects
+  - **Border Radius**: Modern 0.75rem (12px) for cards and components
+  - **Transitions**: Fast, direct 150ms transitions for all interactive elements
+  - **Spacing**: Generous spacing with p-6/p-8 containers and gap-6/gap-8 grids
+  - **Visual Feedback**: Subtle hover lift effects, no background tints on hover
+  - **Loading States**: Skeleton loaders with sky blue shimmer animation
+- **Color Scheme**: Sky Blue (#5AB5E8 / 199 79% 63%) for primary CTAs, Cobalt Blue (214 100% 50%) for accents/links, Clean white backgrounds with warm gray neutrals for text/borders.
+- **Components**: Clean white cards with soft borders, pill-shaped buttons (rounded-full), minimal elevation.
+- **Layout**: Left sidebar navigation with role-aware menu items, top bar with logout, responsive grid layout with generous white space.
 
 ### Technical Implementations
 - **Frontend**: React with TypeScript, Vite, Wouter for routing, TanStack Query for data fetching, Shadcn UI components, Tailwind CSS for styling, and Uppy for file uploads.
