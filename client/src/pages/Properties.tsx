@@ -6,13 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2 } from "lucide-react";
+import { Plus, Building2, MapPin } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -22,13 +29,18 @@ export default function Properties() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [blockId, setBlockId] = useState<string | undefined>();
 
-  const { data: properties = [], isLoading } = useQuery({
+  const { data: properties = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/properties"],
   });
 
+  const { data: blocks = [] } = useQuery<any[]>({
+    queryKey: ["/api/blocks"],
+  });
+
   const createProperty = useMutation({
-    mutationFn: async (data: { name: string; address: string }) => {
+    mutationFn: async (data: { name: string; address: string; blockId?: string }) => {
       return await apiRequest("POST", "/api/properties", data);
     },
     onSuccess: () => {
@@ -40,6 +52,7 @@ export default function Properties() {
       setDialogOpen(false);
       setName("");
       setAddress("");
+      setBlockId(undefined);
     },
     onError: () => {
       toast({
@@ -55,12 +68,14 @@ export default function Properties() {
     if (!name || !address) {
       toast({
         title: "Validation Error",
-        description: "Please fill in all fields",
+        description: "Please fill in all required fields",
         variant: "destructive",
       });
       return;
     }
-    createProperty.mutate({ name, address });
+    // Don't send blockId if "none" or undefined
+    const finalBlockId = blockId === "none" ? undefined : blockId;
+    createProperty.mutate({ name, address, blockId: finalBlockId });
   };
 
   if (isLoading) {
@@ -92,24 +107,45 @@ export default function Properties() {
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="name">Property Name</Label>
+                <Label htmlFor="name">Property Name *</Label>
                 <Input
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Riverside Apartments"
+                  placeholder="e.g., Flat 12, Unit 5B"
                   data-testid="input-property-name"
+                  required
                 />
               </div>
               <div>
-                <Label htmlFor="address">Address</Label>
+                <Label htmlFor="address">Address *</Label>
                 <Textarea
                   id="address"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="123 Main St, City, State ZIP"
                   data-testid="input-property-address"
+                  required
                 />
+              </div>
+              <div>
+                <Label htmlFor="block">Block (Optional)</Label>
+                <Select value={blockId} onValueChange={setBlockId}>
+                  <SelectTrigger data-testid="select-block">
+                    <SelectValue placeholder="Select a block" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Block</SelectItem>
+                    {blocks.map((block: any) => (
+                      <SelectItem key={block.id} value={block.id}>
+                        {block.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Assign this property to a building/block for better organization
+                </p>
               </div>
               <Button
                 type="submit"
@@ -134,21 +170,30 @@ export default function Properties() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {properties.map((property: any) => (
-            <Link key={property.id} href={`/properties/${property.id}`}>
-              <Card className="hover-elevate cursor-pointer" data-testid={`card-property-${property.id}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Building2 className="w-5 h-5 text-primary" />
-                    {property.name}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{property.address}</p>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+          {properties.map((property: any) => {
+            const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
+            return (
+              <Link key={property.id} href={`/properties/${property.id}`}>
+                <Card className="hover-elevate cursor-pointer" data-testid={`card-property-${property.id}`}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Building2 className="w-5 h-5 text-primary" />
+                      {property.name}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <p className="text-sm text-muted-foreground">{property.address}</p>
+                    {propertyBlock && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {propertyBlock.name}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

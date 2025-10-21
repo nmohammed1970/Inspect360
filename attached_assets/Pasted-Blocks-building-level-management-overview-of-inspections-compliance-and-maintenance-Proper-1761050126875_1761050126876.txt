@@ -1,0 +1,77 @@
+Blocks = building-level management (overview of inspections, compliance, and maintenance).
+
+Properties = unit-level management (detailed data about tenants, inventory, and issues).
+
+Both need dashboards, search/filter, document uploads, and PDF reporting.
+
+Data must sync offline via the PWA, especially for inspectors viewing assigned properties in the field.
+
+A Block represents a building or group of units — for example:
+
+“Block A – Riverside Apartments” or “Tower 2 – City Heights.”
+
+Each Block helps organise multiple properties (units) under one address or complex.
+
+What Data Each Block Stores
+Data	Description
+Block Name	e.g. “Block A”, “Building 1”, “The Oaks”
+Address	Street, city, postcode, and GPS (optional)
+Description / Notes	General notes about the building
+Number of Units	Auto-count of properties linked to it
+Compliance Summary	Number of documents valid/expired
+Inspection Summary	Number of inspections completed this month
+Maintenance Summary	Active maintenance issues for this block
+
+What Users Can Do
+User Action	Description
+Add / Edit / Delete Blocks	Create or modify building info
+View Summary Dashboard	See compliance, inspection, and maintenance stats per block
+Upload Documents	Upload building-level compliance (e.g. Fire Safety, Lift Cert)
+View All Properties	See list of all flats/units under that block
+Assign Inspectors	Schedule inspections for all properties in a block
+Export Block Report	One-click report of inspections + compliance for the entire block
+
+Properties
+What It Is
+
+A Property is an individual unit inside a block, like:
+
+“Flat 12, Block A” or “Unit 5B, Tower 2.”
+
+This is where all inspection, inventory, tenant, and maintenance data lives.
+
+What Data Each Property Stores
+Data	Description
+Property Reference	e.g. “Flat 12”
+Linked Block	Which building this belongs to
+Address	Full property address
+Floor / Sqft / Type	Useful info for quick reference
+Current Tenant	Who’s living there now
+Inventory Template	Which inventory setup it uses (e.g. 1-bed, 2-bed)
+Inspections	All past and scheduled inspections
+Comparison Reports	AI reports comparing check-in vs check-out
+Maintenance Requests	List of open/closed issues
+Compliance Docs	Gas Safety, EICR, Fire Alarm, etc.
+Tags	e.g. “VIP Tenant,” “High Risk,” “Student Let”
+
+What Users Can Do
+User Action	Description
+Add / Edit Properties	Create or update property details
+Assign Tenant	Link tenant to the property (and give them portal access)
+Schedule Inspection	Choose type (Check-in, Check-out, Routine) and assign inspector
+View Inspection History	Timeline of all inspections with AI insights
+Generate Comparison Report	Run AI comparison between two inspections
+Log Maintenance	Create new requests or view open jobs
+Upload Compliance Docs	Store property-level certificates
+Export Property Report	Produce full inspection + compliance summary PDF
+
+
+Relationship Between Them
+
+One Block can have many Properties.
+
+Each Property belongs to only one Block.
+
+Data flows upward:
+
+Property inspections, maintenance, and compliance all roll up to the Block dashboard.
