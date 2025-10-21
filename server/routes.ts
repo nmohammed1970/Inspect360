@@ -272,52 +272,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== UNIT ROUTES ====================
+  // ==================== UNIT ROUTES (Properties ARE units) ====================
   
-  app.post("/api/units", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  // Get properties/units by block
+  app.get("/api/blocks/:blockId/properties", isAuthenticated, async (req, res) => {
     try {
-      const { propertyId, unitNumber, tenantId } = req.body;
-      
-      if (!propertyId || !unitNumber) {
-        return res.status(400).json({ message: "Property ID and unit number are required" });
-      }
-
-      const unit = await storage.createUnit({
-        propertyId,
-        unitNumber,
-        tenantId: tenantId || null,
-      });
-
-      res.json(unit);
+      const { blockId } = req.params;
+      const properties = await storage.getPropertiesByBlock(blockId);
+      res.json(properties);
     } catch (error) {
-      console.error("Error creating unit:", error);
-      res.status(500).json({ message: "Failed to create unit" });
-    }
-  });
-
-  app.get("/api/units", isAuthenticated, async (req: any, res) => {
-    try {
-      const user = await storage.getUser(req.user.id);
-      if (!user?.organizationId) {
-        return res.json([]);
-      }
-
-      const units = await storage.getUnitsByOrganization(user.organizationId);
-      res.json(units);
-    } catch (error) {
-      console.error("Error fetching units:", error);
-      res.status(500).json({ message: "Failed to fetch units" });
-    }
-  });
-
-  app.get("/api/properties/:propertyId/units", isAuthenticated, async (req, res) => {
-    try {
-      const { propertyId } = req.params;
-      const units = await storage.getUnitsByProperty(propertyId);
-      res.json(units);
-    } catch (error) {
-      console.error("Error fetching units:", error);
-      res.status(500).json({ message: "Failed to fetch units" });
+      console.error("Error fetching properties for block:", error);
+      res.status(500).json({ message: "Failed to fetch properties" });
     }
   });
 
@@ -327,10 +292,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
-      const { unitId, type, scheduledDate, notes, clerkId } = req.body;
+      const { propertyId, blockId, type, scheduledDate, notes, clerkId } = req.body;
       
-      if (!unitId || !type) {
-        return res.status(400).json({ message: "Unit ID and type are required" });
+      // Must specify either propertyId OR blockId (not both)
+      if ((!propertyId && !blockId) || (propertyId && blockId)) {
+        return res.status(400).json({ message: "Must specify either propertyId OR blockId (not both)" });
+      }
+      
+      if (!type) {
+        return res.status(400).json({ message: "Inspection type is required" });
       }
 
       if (!currentUser?.organizationId) {
@@ -350,7 +320,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const inspection = await storage.createInspection({
-        unitId,
+        propertyId: propertyId || null,
+        blockId: blockId || null,
         inspectorId,
         type,
         scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
@@ -477,24 +448,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify the inspection item belongs to the user's organization
-      // Get the inspection, then the unit, then the property to check ownership
       const inspection = await storage.getInspection(item.inspectionId);
       if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
       }
 
-      const unit = await storage.getUnit(inspection.unitId);
-      if (!unit) {
-        return res.status(404).json({ message: "Unit not found" });
+      // Check ownership via property OR block
+      let ownerOrgId: string | null = null;
+      
+      if (inspection.propertyId) {
+        const property = await storage.getProperty(inspection.propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+        ownerOrgId = property.organizationId;
+      } else if (inspection.blockId) {
+        const block = await storage.getBlock(inspection.blockId);
+        if (!block) {
+          return res.status(404).json({ message: "Block not found" });
+        }
+        ownerOrgId = block.organizationId;
+      } else {
+        return res.status(400).json({ message: "Inspection has no property or block assigned" });
       }
 
-      const property = await storage.getProperty(unit.propertyId);
-      if (!property) {
-        return res.status(404).json({ message: "Property not found" });
-      }
-
-      // Verify property belongs to user's organization
-      if (property.organizationId !== user.organizationId) {
+      // Verify organization ownership
+      if (ownerOrgId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied: Inspection item does not belong to your organization" });
       }
 
@@ -559,10 +538,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/ai/generate-comparison", isAuthenticated, async (req: any, res) => {
     try {
-      const { unitId, checkInInspectionId, checkOutInspectionId } = req.body;
+      const { propertyId, checkInInspectionId, checkOutInspectionId } = req.body;
       
-      if (!unitId || !checkInInspectionId || !checkOutInspectionId) {
-        return res.status(400).json({ message: "Unit ID and both inspection IDs are required" });
+      if (!propertyId || !checkInInspectionId || !checkOutInspectionId) {
+        return res.status(400).json({ message: "Property ID and both inspection IDs are required" });
       }
 
       // Check credits
@@ -604,7 +583,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
       // Create comparison report
       const report = await storage.createComparisonReport({
-        unitId,
+        propertyId,
         checkInInspectionId,
         checkOutInspectionId,
         aiSummary,
@@ -633,10 +612,10 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.get("/api/comparisons/:unitId", isAuthenticated, async (req, res) => {
+  app.get("/api/comparisons/:propertyId", isAuthenticated, async (req, res) => {
     try {
-      const { unitId } = req.params;
-      const reports = await storage.getComparisonReportsByUnit(unitId);
+      const { propertyId } = req.params;
+      const reports = await storage.getComparisonReportsByProperty(propertyId);
       res.json(reports);
     } catch (error) {
       console.error("Error fetching comparisons:", error);
@@ -708,10 +687,10 @@ Provide a structured comparison highlighting differences in condition ratings an
   app.post("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { unitId, title, description, priority, photoUrl } = req.body;
+      const { propertyId, title, description, priority, photoUrl } = req.body;
       
-      if (!unitId || !title) {
-        return res.status(400).json({ message: "Unit ID and title are required" });
+      if (!propertyId || !title) {
+        return res.status(400).json({ message: "Property ID and title are required" });
       }
 
       // Get user to check role
@@ -720,19 +699,19 @@ Provide a structured comparison highlighting differences in condition ratings an
         return res.status(404).json({ message: "User not found" });
       }
 
-      // If tenant, verify they own the unit
+      // If tenant, verify they own the property (unit)
       if (user.role === "tenant") {
-        const unit = await storage.getUnit(unitId);
-        if (!unit) {
-          return res.status(404).json({ message: "Unit not found" });
+        const property = await storage.getProperty(propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
         }
-        if (unit.tenantId !== userId) {
-          return res.status(403).json({ message: "Access denied: You can only create requests for your own unit" });
+        if (property.tenantId !== userId) {
+          return res.status(403).json({ message: "Access denied: You can only create requests for your own property" });
         }
       }
 
       const request = await storage.createMaintenanceRequest({
-        unitId,
+        propertyId,
         reportedBy: userId,
         title,
         description: description || null,
@@ -1179,7 +1158,7 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
-  app.get("/api/units/:unitId/inventories", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:propertyId/inventories", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1187,17 +1166,16 @@ Provide a structured comparison highlighting differences in condition ratings an
         return res.status(403).json({ error: "No organization found" });
       }
 
-      // Verify unit belongs to user's organization
-      const unit = await storage.getUnit(req.params.unitId);
-      if (!unit) {
-        return res.status(404).json({ error: "Unit not found" });
+      // Verify property belongs to user's organization
+      const property = await storage.getProperty(req.params.propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
       }
-      const property = await storage.getProperty(unit.propertyId);
-      if (!property || property.organizationId !== user.organizationId) {
+      if (property.organizationId !== user.organizationId) {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const inventories = await storage.getInventoriesByUnit(req.params.unitId);
+      const inventories = await storage.getInventoriesByProperty(req.params.propertyId);
       res.json(inventories);
     } catch (error) {
       console.error("Error fetching inventories:", error);

@@ -89,6 +89,12 @@ export function AppSidebar() {
       icon: CreditCard,
       roles: ["owner"],
     },
+    {
+      title: "Settings",
+      url: "/settings",
+      icon: Settings,
+      roles: ["owner"],
+    },
   ];
 
   const filteredMenuItems = menuItems.filter((item) =>

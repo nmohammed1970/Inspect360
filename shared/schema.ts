@@ -116,7 +116,6 @@ export const blocks = pgTable("blocks", {
 
 export const insertBlockSchema = createInsertSchema(blocks).omit({
   id: true,
-  organizationId: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -314,7 +313,6 @@ export const inventoryTemplates = pgTable("inventory_templates", {
 
 export const insertInventoryTemplateSchema = createInsertSchema(inventoryTemplates).omit({
   id: true,
-  organizationId: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -335,7 +333,6 @@ export const inventories = pgTable("inventories", {
 
 export const insertInventorySchema = createInsertSchema(inventories).omit({
   id: true,
-  organizationId: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -381,7 +378,6 @@ export const workOrders = pgTable("work_orders", {
 
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({
   id: true,
-  organizationId: true,
   createdAt: true,
   updatedAt: true,
 });

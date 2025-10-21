@@ -3,9 +3,9 @@ import {
   organizations,
   blocks,
   properties,
-  units,
   inspections,
   inspectionItems,
+  inspectionCategories,
   complianceDocuments,
   maintenanceRequests,
   comparisonReports,
@@ -23,12 +23,12 @@ import {
   type InsertBlock,
   type Property,
   type InsertProperty,
-  type Unit,
-  type InsertUnit,
   type Inspection,
   type InsertInspection,
   type InspectionItem,
   type InsertInspectionItem,
+  type InspectionCategory,
+  type InsertInspectionCategory,
   type ComplianceDocument,
   type InsertComplianceDocument,
   type MaintenanceRequest,
@@ -71,25 +71,29 @@ export interface IStorage {
   updateOrganizationCredits(id: string, credits: number): Promise<Organization>;
   updateOrganizationStripe(id: string, customerId: string, status: string): Promise<Organization>;
   
-  // Property operations
+  // Property operations (Properties ARE units in the new schema)
   createProperty(property: InsertProperty): Promise<Property>;
   getPropertiesByOrganization(organizationId: string): Promise<Property[]>;
+  getPropertiesByBlock(blockId: string): Promise<Property[]>;
   getProperty(id: string): Promise<Property | undefined>;
+  updateProperty(id: string, updates: Partial<InsertProperty>): Promise<Property>;
+  updatePropertyTenant(id: string, tenantId: string | null): Promise<Property>;
   
-  // Unit operations
-  createUnit(unit: InsertUnit): Promise<Unit>;
-  getUnitsByProperty(propertyId: string): Promise<Unit[]>;
-  getUnitsByOrganization(organizationId: string): Promise<Unit[]>;
-  getUnit(id: string): Promise<Unit | undefined>;
-  updateUnitTenant(id: string, tenantId: string | null): Promise<Unit>;
-  
-  // Inspection operations
+  // Inspection operations (Inspections can be on blocks OR properties)
   createInspection(inspection: InsertInspection): Promise<Inspection>;
-  getInspectionsByUnit(unitId: string): Promise<Inspection[]>;
-  getInspectionsByInspector(inspectorId: string): Promise<any[]>; // Returns inspections with unit and property
-  getInspectionsByOrganization(organizationId: string): Promise<any[]>; // Returns inspections with unit and property
+  getInspectionsByProperty(propertyId: string): Promise<Inspection[]>;
+  getInspectionsByBlock(blockId: string): Promise<Inspection[]>;
+  getInspectionsByInspector(inspectorId: string): Promise<any[]>; // Returns inspections with property/block
+  getInspectionsByOrganization(organizationId: string): Promise<any[]>; // Returns inspections with property/block
   getInspection(id: string): Promise<Inspection | undefined>;
   updateInspectionStatus(id: string, status: string, completedDate?: Date): Promise<Inspection>;
+  
+  // Inspection Category operations
+  createInspectionCategory(category: InsertInspectionCategory): Promise<InspectionCategory>;
+  getInspectionCategories(organizationId: string): Promise<InspectionCategory[]>;
+  getInspectionCategory(id: string): Promise<InspectionCategory | undefined>;
+  updateInspectionCategory(id: string, updates: Partial<InsertInspectionCategory>): Promise<InspectionCategory>;
+  deleteInspectionCategory(id: string): Promise<void>;
   
   // Inspection Item operations
   createInspectionItem(item: InsertInspectionItem): Promise<InspectionItem>;
@@ -104,13 +108,13 @@ export interface IStorage {
   
   // Maintenance operations
   createMaintenanceRequest(request: InsertMaintenanceRequest): Promise<MaintenanceRequest>;
-  getMaintenanceRequests(unitId: string): Promise<MaintenanceRequest[]>;
+  getMaintenanceRequestsByProperty(propertyId: string): Promise<MaintenanceRequest[]>;
   getMaintenanceByOrganization(organizationId: string): Promise<MaintenanceRequest[]>;
   updateMaintenanceStatus(id: string, status: string, assignedTo?: string): Promise<MaintenanceRequest>;
   
   // Comparison Report operations
   createComparisonReport(report: InsertComparisonReport): Promise<ComparisonReport>;
-  getComparisonReportsByUnit(unitId: string): Promise<ComparisonReport[]>;
+  getComparisonReportsByProperty(propertyId: string): Promise<ComparisonReport[]>;
   getComparisonReport(id: string): Promise<ComparisonReport | undefined>;
   
   // Credit Transaction operations
@@ -134,7 +138,7 @@ export interface IStorage {
 
   // Inventory operations
   createInventory(inventory: InsertInventory): Promise<Inventory>;
-  getInventoriesByUnit(unitId: string): Promise<Inventory[]>;
+  getInventoriesByProperty(propertyId: string): Promise<Inventory[]>;
   getInventoriesByOrganization(organizationId: string): Promise<Inventory[]>;
   getInventory(id: string): Promise<Inventory | undefined>;
 
@@ -292,7 +296,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPropertiesWithStatsByBlock(blockId: string): Promise<any[]> {
-    // Get all properties for this block
+    // Get all properties for this block (properties ARE units in new schema)
     const blockProperties = await db
       .select()
       .from(properties)
@@ -304,38 +308,24 @@ export class DatabaseStorage implements IStorage {
 
     const propertyIds = blockProperties.map(p => p.id);
 
-    // Batch fetch all units for these properties
-    const allUnits = await db
-      .select()
-      .from(units)
-      .where(sql`${units.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`);
-
-    // Group units by property
-    const unitsByProperty = new Map<string, typeof allUnits>();
-    allUnits.forEach(unit => {
-      if (!unitsByProperty.has(unit.propertyId)) {
-        unitsByProperty.set(unit.propertyId, []);
-      }
-      unitsByProperty.get(unit.propertyId)!.push(unit);
-    });
-
-    // Batch fetch all inspections for these units
-    const unitIds = allUnits.map(u => u.id);
+    // Batch fetch all inspections for these properties
     let allInspections: any[] = [];
-    if (unitIds.length > 0) {
+    if (propertyIds.length > 0) {
       allInspections = await db
         .select()
         .from(inspections)
-        .where(sql`${inspections.unitId} IN (${sql.join(unitIds.map(id => sql`${id}`), sql`, `)})`);
+        .where(sql`${inspections.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`);
     }
 
-    // Group inspections by unit
-    const inspectionsByUnit = new Map<string, typeof allInspections>();
+    // Group inspections by property
+    const inspectionsByProperty = new Map<string, typeof allInspections>();
     allInspections.forEach(inspection => {
-      if (!inspectionsByUnit.has(inspection.unitId)) {
-        inspectionsByUnit.set(inspection.unitId, []);
+      if (inspection.propertyId && !inspectionsByProperty.has(inspection.propertyId)) {
+        inspectionsByProperty.set(inspection.propertyId, []);
       }
-      inspectionsByUnit.get(inspection.unitId)!.push(inspection);
+      if (inspection.propertyId) {
+        inspectionsByProperty.get(inspection.propertyId)!.push(inspection);
+      }
     });
 
     // Calculate date ranges once
@@ -347,17 +337,8 @@ export class DatabaseStorage implements IStorage {
 
     // Build stats for each property
     const propertiesWithStats = blockProperties.map(property => {
-      const propertyUnits = unitsByProperty.get(property.id) || [];
-      const totalUnits = propertyUnits.length;
-      const occupiedUnits = propertyUnits.filter(u => u.status === 'occupied').length;
-      const occupancyStatus = totalUnits > 0 
-        ? `${occupiedUnits}/${totalUnits} occupied` 
-        : 'No units';
-
-      // Get all inspections for this property's units
-      const propertyInspections = propertyUnits.flatMap(unit => 
-        inspectionsByUnit.get(unit.id) || []
-      );
+      // Get all inspections for this property
+      const propertyInspections = inspectionsByProperty.get(property.id) || [];
 
       // Count inspections due in next 30 days
       const inspectionsDue = propertyInspections.filter(insp => {
@@ -373,26 +354,22 @@ export class DatabaseStorage implements IStorage {
         return scheduledDate < now && insp.status !== 'completed';
       }).length;
 
-      // Calculate compliance rate (units with recent completed inspections)
+      // Calculate compliance rate (has recent completed inspection)
       let complianceRate = 0;
       let complianceStatus = 'No data';
-      if (totalUnits > 0) {
-        const unitsWithRecentInspections = new Set<string>();
-        propertyInspections.forEach(insp => {
-          const scheduledDate = new Date(insp.scheduledDate);
-          if (scheduledDate >= ninetyDaysAgo && insp.status === 'completed') {
-            unitsWithRecentInspections.add(insp.unitId);
-          }
-        });
-        complianceRate = Math.round((unitsWithRecentInspections.size / totalUnits) * 100);
-        complianceStatus = `${complianceRate}% compliant`;
-      }
+      const hasRecentInspection = propertyInspections.some(insp => {
+        const scheduledDate = new Date(insp.scheduledDate);
+        return scheduledDate >= ninetyDaysAgo && insp.status === 'completed';
+      });
+      complianceRate = hasRecentInspection ? 100 : 0;
+      complianceStatus = hasRecentInspection ? 'Compliant' : 'Needs inspection';
+
+      // Occupancy status from property directly
+      const occupancyStatus = property.status === 'occupied' ? 'Occupied' : 'Vacant';
 
       return {
         ...property,
         stats: {
-          totalUnits,
-          occupiedUnits,
           occupancyStatus,
           complianceRate,
           complianceStatus,
@@ -410,53 +387,30 @@ export class DatabaseStorage implements IStorage {
     return property;
   }
 
-  // Unit operations
-  async createUnit(unitData: InsertUnit): Promise<Unit> {
-    const [unit] = await db.insert(units).values(unitData).returning();
-    return unit;
-  }
-
-  async getUnitsByProperty(propertyId: string): Promise<Unit[]> {
+  async getPropertiesByBlock(blockId: string): Promise<Property[]> {
     return await db
       .select()
-      .from(units)
-      .where(eq(units.propertyId, propertyId))
-      .orderBy(units.unitNumber);
+      .from(properties)
+      .where(eq(properties.blockId, blockId))
+      .orderBy(properties.name);
   }
 
-  async getUnitsByOrganization(organizationId: string): Promise<Unit[]> {
-    return await db
-      .select({
-        id: units.id,
-        propertyId: units.propertyId,
-        unitNumber: units.unitNumber,
-        bedrooms: units.bedrooms,
-        bathrooms: units.bathrooms,
-        floor: units.floor,
-        sqft: units.sqft,
-        status: units.status,
-        tenantId: units.tenantId,
-        createdAt: units.createdAt,
-        updatedAt: units.updatedAt,
-      })
-      .from(units)
-      .innerJoin(properties, eq(units.propertyId, properties.id))
-      .where(eq(properties.organizationId, organizationId))
-      .orderBy(units.unitNumber);
-  }
-
-  async getUnit(id: string): Promise<Unit | undefined> {
-    const [unit] = await db.select().from(units).where(eq(units.id, id));
-    return unit;
-  }
-
-  async updateUnitTenant(id: string, tenantId: string | null): Promise<Unit> {
-    const [unit] = await db
-      .update(units)
-      .set({ tenantId, updatedAt: new Date() })
-      .where(eq(units.id, id))
+  async updateProperty(id: string, updates: Partial<InsertProperty>): Promise<Property> {
+    const [property] = await db
+      .update(properties)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(properties.id, id))
       .returning();
-    return unit;
+    return property;
+  }
+
+  async updatePropertyTenant(id: string, tenantId: string | null): Promise<Property> {
+    const [property] = await db
+      .update(properties)
+      .set({ tenantId, updatedAt: new Date() })
+      .where(eq(properties.id, id))
+      .returning();
+    return property;
   }
 
   // Inspection operations
@@ -465,11 +419,19 @@ export class DatabaseStorage implements IStorage {
     return inspection;
   }
 
-  async getInspectionsByUnit(unitId: string): Promise<Inspection[]> {
+  async getInspectionsByProperty(propertyId: string): Promise<Inspection[]> {
     return await db
       .select()
       .from(inspections)
-      .where(eq(inspections.unitId, unitId))
+      .where(eq(inspections.propertyId, propertyId))
+      .orderBy(desc(inspections.scheduledDate));
+  }
+
+  async getInspectionsByBlock(blockId: string): Promise<Inspection[]> {
+    return await db
+      .select()
+      .from(inspections)
+      .where(eq(inspections.blockId, blockId))
       .orderBy(desc(inspections.scheduledDate));
   }
 
@@ -477,13 +439,13 @@ export class DatabaseStorage implements IStorage {
     const results = await db
       .select({
         inspection: inspections,
-        unit: units,
         property: properties,
+        block: blocks,
         clerk: users,
       })
       .from(inspections)
-      .innerJoin(units, eq(inspections.unitId, units.id))
-      .innerJoin(properties, eq(units.propertyId, properties.id))
+      .leftJoin(properties, eq(inspections.propertyId, properties.id))
+      .leftJoin(blocks, eq(inspections.blockId, blocks.id))
       .leftJoin(users, eq(inspections.inspectorId, users.id))
       .where(eq(inspections.inspectorId, inspectorId))
       .orderBy(desc(inspections.scheduledDate));
@@ -491,36 +453,61 @@ export class DatabaseStorage implements IStorage {
     // Flatten the structure to match frontend expectations
     return results.map(r => ({
       ...r.inspection,
-      propertyId: r.unit.propertyId,
-      unit: r.unit,
       property: r.property,
+      block: r.block,
       clerk: r.clerk,
     }));
   }
 
   async getInspectionsByOrganization(organizationId: string): Promise<any[]> {
-    const results = await db
+    // Get all inspections for properties in this organization
+    const propertyResults = await db
       .select({
         inspection: inspections,
-        unit: units,
         property: properties,
         clerk: users,
       })
       .from(inspections)
-      .innerJoin(units, eq(inspections.unitId, units.id))
-      .innerJoin(properties, eq(units.propertyId, properties.id))
+      .innerJoin(properties, eq(inspections.propertyId, properties.id))
       .leftJoin(users, eq(inspections.inspectorId, users.id))
       .where(eq(properties.organizationId, organizationId))
       .orderBy(desc(inspections.scheduledDate));
     
-    // Flatten the structure to match frontend expectations
-    return results.map(r => ({
-      ...r.inspection,
-      propertyId: r.unit.propertyId,
-      unit: r.unit,
-      property: r.property,
-      clerk: r.clerk,
-    }));
+    // Get all inspections for blocks in this organization
+    const blockResults = await db
+      .select({
+        inspection: inspections,
+        block: blocks,
+        clerk: users,
+      })
+      .from(inspections)
+      .innerJoin(blocks, eq(inspections.blockId, blocks.id))
+      .leftJoin(users, eq(inspections.inspectorId, users.id))
+      .where(eq(blocks.organizationId, organizationId))
+      .orderBy(desc(inspections.scheduledDate));
+    
+    // Combine and flatten the structure
+    const combined = [
+      ...propertyResults.map(r => ({
+        ...r.inspection,
+        property: r.property,
+        block: null,
+        clerk: r.clerk,
+      })),
+      ...blockResults.map(r => ({
+        ...r.inspection,
+        property: null,
+        block: r.block,
+        clerk: r.clerk,
+      })),
+    ];
+    
+    // Sort by scheduled date
+    return combined.sort((a, b) => {
+      const dateA = new Date(a.scheduledDate || 0).getTime();
+      const dateB = new Date(b.scheduledDate || 0).getTime();
+      return dateB - dateA;
+    });
   }
 
   async getInspection(id: string): Promise<Inspection | undefined> {
@@ -614,11 +601,11 @@ export class DatabaseStorage implements IStorage {
     return request;
   }
 
-  async getMaintenanceRequests(unitId: string): Promise<MaintenanceRequest[]> {
+  async getMaintenanceRequestsByProperty(propertyId: string): Promise<MaintenanceRequest[]> {
     return await db
       .select()
       .from(maintenanceRequests)
-      .where(eq(maintenanceRequests.unitId, unitId))
+      .where(eq(maintenanceRequests.propertyId, propertyId))
       .orderBy(desc(maintenanceRequests.createdAt));
   }
 
@@ -626,7 +613,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select({
         id: maintenanceRequests.id,
-        unitId: maintenanceRequests.unitId,
+        propertyId: maintenanceRequests.propertyId,
         reportedBy: maintenanceRequests.reportedBy,
         assignedTo: maintenanceRequests.assignedTo,
         title: maintenanceRequests.title,
@@ -638,8 +625,7 @@ export class DatabaseStorage implements IStorage {
         updatedAt: maintenanceRequests.updatedAt,
       })
       .from(maintenanceRequests)
-      .innerJoin(units, eq(maintenanceRequests.unitId, units.id))
-      .innerJoin(properties, eq(units.propertyId, properties.id))
+      .innerJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
       .where(eq(properties.organizationId, organizationId))
       .orderBy(desc(maintenanceRequests.createdAt));
   }
@@ -664,17 +650,49 @@ export class DatabaseStorage implements IStorage {
     return report;
   }
 
-  async getComparisonReportsByUnit(unitId: string): Promise<ComparisonReport[]> {
+  async getComparisonReportsByProperty(propertyId: string): Promise<ComparisonReport[]> {
     return await db
       .select()
       .from(comparisonReports)
-      .where(eq(comparisonReports.unitId, unitId))
+      .where(eq(comparisonReports.propertyId, propertyId))
       .orderBy(desc(comparisonReports.createdAt));
   }
 
   async getComparisonReport(id: string): Promise<ComparisonReport | undefined> {
     const [report] = await db.select().from(comparisonReports).where(eq(comparisonReports.id, id));
     return report;
+  }
+  
+  // Inspection Category operations
+  async createInspectionCategory(categoryData: InsertInspectionCategory): Promise<InspectionCategory> {
+    const [category] = await db.insert(inspectionCategories).values(categoryData).returning();
+    return category;
+  }
+
+  async getInspectionCategories(organizationId: string): Promise<InspectionCategory[]> {
+    return await db
+      .select()
+      .from(inspectionCategories)
+      .where(eq(inspectionCategories.organizationId, organizationId))
+      .orderBy(inspectionCategories.sortOrder, inspectionCategories.name);
+  }
+
+  async getInspectionCategory(id: string): Promise<InspectionCategory | undefined> {
+    const [category] = await db.select().from(inspectionCategories).where(eq(inspectionCategories.id, id));
+    return category;
+  }
+
+  async updateInspectionCategory(id: string, updates: Partial<InsertInspectionCategory>): Promise<InspectionCategory> {
+    const [category] = await db
+      .update(inspectionCategories)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(inspectionCategories.id, id))
+      .returning();
+    return category;
+  }
+
+  async deleteInspectionCategory(id: string): Promise<void> {
+    await db.delete(inspectionCategories).where(eq(inspectionCategories.id, id));
   }
 
   // Credit Transaction operations
@@ -714,7 +732,7 @@ export class DatabaseStorage implements IStorage {
     
     const blockIds = allBlocks.map(b => b.id);
     
-    // Batch fetch all properties for all blocks at once
+    // Batch fetch all properties for all blocks at once (properties ARE units)
     const allProperties = await db
       .select()
       .from(properties)
@@ -734,42 +752,45 @@ export class DatabaseStorage implements IStorage {
       }
     });
     
-    // Batch fetch all units for all properties at once
+    // Batch fetch all property-level inspections
     const propertyIds = allProperties.map(p => p.id);
-    let allUnits: any[] = [];
+    let propertyInspections: any[] = [];
     if (propertyIds.length > 0) {
-      allUnits = await db
-        .select()
-        .from(units)
-        .where(sql`${units.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`);
-    }
-    
-    // Group units by property
-    const unitsByProperty = new Map<string, typeof allUnits>();
-    allUnits.forEach(unit => {
-      if (!unitsByProperty.has(unit.propertyId)) {
-        unitsByProperty.set(unit.propertyId, []);
-      }
-      unitsByProperty.get(unit.propertyId)!.push(unit);
-    });
-    
-    // Batch fetch all inspections for all units at once
-    const unitIds = allUnits.map(u => u.id);
-    let allInspections: any[] = [];
-    if (unitIds.length > 0) {
-      allInspections = await db
+      propertyInspections = await db
         .select()
         .from(inspections)
-        .where(sql`${inspections.unitId} IN (${sql.join(unitIds.map(id => sql`${id}`), sql`, `)})`);
+        .where(sql`${inspections.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`);
     }
     
-    // Group inspections by unit
-    const inspectionsByUnit = new Map<string, typeof allInspections>();
-    allInspections.forEach(inspection => {
-      if (!inspectionsByUnit.has(inspection.unitId)) {
-        inspectionsByUnit.set(inspection.unitId, []);
+    // Batch fetch all block-level inspections
+    let blockInspections: any[] = [];
+    if (blockIds.length > 0) {
+      blockInspections = await db
+        .select()
+        .from(inspections)
+        .where(sql`${inspections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
+    }
+    
+    // Group inspections by property
+    const inspectionsByProperty = new Map<string, typeof propertyInspections>();
+    propertyInspections.forEach(inspection => {
+      if (inspection.propertyId && !inspectionsByProperty.has(inspection.propertyId)) {
+        inspectionsByProperty.set(inspection.propertyId, []);
       }
-      inspectionsByUnit.get(inspection.unitId)!.push(inspection);
+      if (inspection.propertyId) {
+        inspectionsByProperty.get(inspection.propertyId)!.push(inspection);
+      }
+    });
+    
+    // Group inspections by block
+    const inspectionsByBlock = new Map<string, typeof blockInspections>();
+    blockInspections.forEach(inspection => {
+      if (inspection.blockId && !inspectionsByBlock.has(inspection.blockId)) {
+        inspectionsByBlock.set(inspection.blockId, []);
+      }
+      if (inspection.blockId) {
+        inspectionsByBlock.get(inspection.blockId)!.push(inspection);
+      }
     });
     
     // Calculate date ranges once
@@ -782,20 +803,19 @@ export class DatabaseStorage implements IStorage {
     // Build stats for each block
     const blocksWithStats = allBlocks.map(block => {
       const blockProperties = propertiesByBlock.get(block.id) || [];
-      const blockPropertyIds = blockProperties.map(p => p.id);
-      
-      // Get all units for this block's properties
-      const blockUnits = blockPropertyIds.flatMap(propId => unitsByProperty.get(propId) || []);
-      const totalUnits = blockUnits.length;
-      const occupiedUnits = blockUnits.filter(u => u.status === 'occupied').length;
+      const totalUnits = blockProperties.length; // Properties ARE units
+      const occupiedUnits = blockProperties.filter(p => p.status === 'occupied').length;
       const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
       
-      // Get all inspections for this block's units
-      const blockUnitIds = blockUnits.map(u => u.id);
-      const blockInspections = blockUnitIds.flatMap(unitId => inspectionsByUnit.get(unitId) || []);
+      // Get all inspections for this block (both property-level and block-level)
+      const blockPropertyInspections = blockProperties.flatMap(prop => 
+        inspectionsByProperty.get(prop.id) || []
+      );
+      const directBlockInspections = inspectionsByBlock.get(block.id) || [];
+      const allBlockInspections = [...blockPropertyInspections, ...directBlockInspections];
       
       // Count inspections due in next 30 days
-      const inspectionsDue = blockInspections.filter(insp => {
+      const inspectionsDue = allBlockInspections.filter(insp => {
         const scheduledDate = new Date(insp.scheduledDate);
         return scheduledDate >= now && 
                scheduledDate <= thirtyDaysFromNow && 
@@ -803,22 +823,22 @@ export class DatabaseStorage implements IStorage {
       }).length;
       
       // Count overdue inspections
-      const overdueInspections = blockInspections.filter(insp => {
+      const overdueInspections = allBlockInspections.filter(insp => {
         const scheduledDate = new Date(insp.scheduledDate);
         return scheduledDate < now && insp.status !== 'completed';
       }).length;
       
-      // Calculate compliance rate (units with recent completed inspections)
+      // Calculate compliance rate (properties with recent completed inspections)
       let complianceRate = 0;
       if (totalUnits > 0) {
-        const unitsWithRecentInspections = new Set<string>();
-        blockInspections.forEach(insp => {
+        const propertiesWithRecentInspections = new Set<string>();
+        blockPropertyInspections.forEach(insp => {
           const scheduledDate = new Date(insp.scheduledDate);
-          if (scheduledDate >= ninetyDaysAgo && insp.status === 'completed') {
-            unitsWithRecentInspections.add(insp.unitId);
+          if (scheduledDate >= ninetyDaysAgo && insp.status === 'completed' && insp.propertyId) {
+            propertiesWithRecentInspections.add(insp.propertyId);
           }
         });
-        complianceRate = Math.round((unitsWithRecentInspections.size / totalUnits) * 100);
+        complianceRate = Math.round((propertiesWithRecentInspections.size / totalUnits) * 100);
       }
       
       return {
@@ -894,11 +914,11 @@ export class DatabaseStorage implements IStorage {
     return inventory;
   }
 
-  async getInventoriesByUnit(unitId: string): Promise<Inventory[]> {
+  async getInventoriesByProperty(propertyId: string): Promise<Inventory[]> {
     return await db
       .select()
       .from(inventories)
-      .where(eq(inventories.unitId, unitId))
+      .where(eq(inventories.propertyId, propertyId))
       .orderBy(desc(inventories.version));
   }
 
@@ -964,7 +984,7 @@ export class DatabaseStorage implements IStorage {
           title: maintenanceRequests.title,
           description: maintenanceRequests.description,
           priority: maintenanceRequests.priority,
-          unitId: maintenanceRequests.unitId,
+          propertyId: maintenanceRequests.propertyId,
         },
         contractor: {
           id: users.id,
@@ -1000,7 +1020,7 @@ export class DatabaseStorage implements IStorage {
           title: maintenanceRequests.title,
           description: maintenanceRequests.description,
           priority: maintenanceRequests.priority,
-          unitId: maintenanceRequests.unitId,
+          propertyId: maintenanceRequests.propertyId,
         },
       })
       .from(workOrders)
