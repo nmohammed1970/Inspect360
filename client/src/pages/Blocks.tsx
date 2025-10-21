@@ -162,76 +162,90 @@ export default function Blocks() {
   };
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Blocks & Buildings</h1>
-          <p className="text-muted-foreground">Manage your property complexes and building blocks</p>
+    <div className="container mx-auto p-6 md:p-8 lg:p-12 space-y-8">
+      {/* Modern Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">Blocks & Buildings</h1>
+          <p className="text-lg text-muted-foreground">Manage your property complexes and building blocks</p>
         </div>
-        <Button onClick={handleOpenCreate} data-testid="button-create-block">
-          <Plus className="mr-2 h-4 w-4" />
+        <Button onClick={handleOpenCreate} size="lg" className="transition-smooth" data-testid="button-create-block">
+          <Plus className="mr-2 h-5 w-5" />
           New Block
         </Button>
       </div>
 
-      {/* Search Filter */}
+      {/* Modern Search Filter */}
       {blocks.length > 0 && (
-        <div className="mb-6">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+        <div className="max-w-2xl">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground h-5 w-5" />
             <Input
               placeholder="Search blocks by name or address..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              className="pl-12 h-12 text-base glass-card border-border/50"
               data-testid="input-search-blocks"
             />
           </div>
         </div>
       )}
 
+      {/* Content Area */}
       {isLoading ? (
-        <div className="text-center py-8">Loading blocks...</div>
+        <div className="flex items-center justify-center py-24">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-muted-foreground">Loading blocks...</p>
+          </div>
+        </div>
       ) : blocks.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Building className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No blocks yet</h3>
-            <p className="text-muted-foreground text-center mb-4">
-              Create your first building block to organize properties
+        <Card className="glass-card-strong">
+          <CardContent className="flex flex-col items-center justify-center py-16 md:py-24">
+            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+              <Building className="h-10 w-10 text-primary" />
+            </div>
+            <h3 className="text-2xl font-semibold mb-3">No blocks yet</h3>
+            <p className="text-muted-foreground text-center mb-6 max-w-md">
+              Create your first building block to organize properties and streamline management
             </p>
-            <Button onClick={handleOpenCreate} data-testid="button-create-first-block">
-              <Plus className="mr-2 h-4 w-4" />
+            <Button onClick={handleOpenCreate} size="lg" className="transition-smooth" data-testid="button-create-first-block">
+              <Plus className="mr-2 h-5 w-5" />
               Create Block
             </Button>
           </CardContent>
         </Card>
       ) : filteredBlocks.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Search className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No blocks found</h3>
-            <p className="text-muted-foreground text-center mb-4">
+        <Card className="glass-card">
+          <CardContent className="flex flex-col items-center justify-center py-16">
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Search className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2">No blocks found</h3>
+            <p className="text-muted-foreground text-center mb-6">
               Try adjusting your search query
             </p>
-            <Button variant="outline" onClick={() => setSearchQuery("")}>
+            <Button variant="outline" onClick={() => setSearchQuery("")} className="transition-smooth">
               Clear Search
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {filteredBlocks.map((block) => (
-            <Card key={block.id} data-testid={`card-block-${block.id}`} className="hover-elevate">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <Link href={`/blocks/${block.id}`} className="flex-1">
-                    <div className="flex items-center gap-2 cursor-pointer">
-                      <Building className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-lg">{block.name}</CardTitle>
+            <Card key={block.id} data-testid={`card-block-${block.id}`} className="glass-card card-hover-lift overflow-hidden">
+              <CardHeader className="pb-4">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/blocks/${block.id}`} className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 cursor-pointer group">
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-smooth">
+                        <Building className="h-5 w-5 text-primary" />
+                      </div>
+                      <CardTitle className="text-xl font-bold truncate">{block.name}</CardTitle>
                     </div>
+                    <CardDescription className="line-clamp-2 cursor-pointer mt-3 text-base">{block.address}</CardDescription>
                   </Link>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -239,6 +253,7 @@ export default function Blocks() {
                         e.preventDefault();
                         handleOpenEdit(block);
                       }}
+                      className="transition-smooth"
                       data-testid={`button-edit-block-${block.id}`}
                     >
                       <Pencil className="h-4 w-4" />
@@ -250,76 +265,93 @@ export default function Blocks() {
                         e.preventDefault();
                         handleDelete(block.id);
                       }}
+                      className="transition-smooth"
                       data-testid={`button-delete-block-${block.id}`}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 </div>
-                <Link href={`/blocks/${block.id}`}>
-                  <CardDescription className="line-clamp-2 cursor-pointer">{block.address}</CardDescription>
-                </Link>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Occupancy Level */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Occupancy</span>
+              <CardContent className="space-y-5 pt-0">
+                {/* Divider */}
+                <div className="h-px bg-border/30" />
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-5">
+                  {/* Occupancy */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-chart-3/10 flex items-center justify-center">
+                        <Users className="h-4 w-4 text-chart-3" />
+                      </div>
+                      <span className="text-xs font-medium text-muted-foreground">Occupancy</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold" data-testid={`badge-occupancy-${block.id}`}>
+                        {block.stats?.occupancyRate || 0}%
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {block.stats?.occupiedUnits || 0}/{block.stats?.totalUnits || 0}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" data-testid={`badge-occupancy-${block.id}`}>
-                      {block.stats?.occupancyRate || 0}%
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {block.stats?.occupiedUnits || 0}/{block.stats?.totalUnits || 0}
-                    </span>
+
+                  {/* Compliance */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(block.stats?.complianceRate || 0) >= 80 ? 'bg-accent/10' : 'bg-destructive/10'}`}>
+                        <CheckCircle2 className={`h-4 w-4 ${(block.stats?.complianceRate || 0) >= 80 ? 'text-accent' : 'text-destructive'}`} />
+                      </div>
+                      <span className="text-xs font-medium text-muted-foreground">Compliance</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-2xl font-bold ${(block.stats?.complianceRate || 0) >= 80 ? 'text-accent' : 'text-destructive'}`} data-testid={`badge-compliance-${block.id}`}>
+                        {block.stats?.complianceRate || 0}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Due Soon */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <Calendar className="h-4 w-4 text-primary" />
+                      </div>
+                      <span className="text-xs font-medium text-muted-foreground">Due Soon</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold" data-testid={`badge-due-${block.id}`}>
+                        {block.stats?.inspectionsDue || 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Overdue */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(block.stats?.overdueInspections || 0) > 0 ? 'bg-destructive/10' : 'bg-muted'}`}>
+                        <AlertTriangle className={`h-4 w-4 ${(block.stats?.overdueInspections || 0) > 0 ? 'text-destructive' : 'text-muted-foreground'}`} />
+                      </div>
+                      <span className="text-xs font-medium text-muted-foreground">Overdue</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-2xl font-bold ${(block.stats?.overdueInspections || 0) > 0 ? 'text-destructive' : ''}`} data-testid={`badge-overdue-${block.id}`}>
+                        {block.stats?.overdueInspections || 0}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Compliance Status */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Compliance</span>
-                  </div>
-                  <Badge 
-                    variant={(block.stats?.complianceRate || 0) >= 80 ? "default" : "destructive"}
-                    data-testid={`badge-compliance-${block.id}`}
-                  >
-                    {block.stats?.complianceRate || 0}%
-                  </Badge>
-                </div>
-
-                {/* Inspections Due */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Due Soon</span>
-                  </div>
-                  <Badge variant="secondary" data-testid={`badge-due-${block.id}`}>
-                    {block.stats?.inspectionsDue || 0}
-                  </Badge>
-                </div>
-
-                {/* Overdue Inspections */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Overdue</span>
-                  </div>
-                  <Badge 
-                    variant={(block.stats?.overdueInspections || 0) > 0 ? "destructive" : "secondary"}
-                    data-testid={`badge-overdue-${block.id}`}
-                  >
-                    {block.stats?.overdueInspections || 0}
-                  </Badge>
-                </div>
-
+                {/* Notes */}
                 {block.notes && (
-                  <div className="pt-2 border-t">
-                    <p className="text-xs text-muted-foreground line-clamp-2">{block.notes}</p>
-                  </div>
+                  <>
+                    <div className="h-px bg-border/30" />
+                    <div className="space-y-1">
+                      <span className="text-xs font-medium text-muted-foreground">Notes</span>
+                      <p className="text-sm text-foreground line-clamp-2">{block.notes}</p>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
