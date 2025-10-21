@@ -85,28 +85,34 @@ export default function Dashboard() {
   const creditsLow = creditsRemaining < 5;
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground" data-testid="text-dashboard-title">
+    <div className="p-6 md:p-8 lg:p-12 space-y-8 md:space-y-12">
+      {/* Header Section */}
+      <div className="space-y-2">
+        <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground" data-testid="text-dashboard-title">
           Dashboard
         </h1>
-        <p className="text-muted-foreground">
-          Welcome back, {user?.firstName || user?.email}
+        <p className="text-lg text-muted-foreground">
+          Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
         </p>
       </div>
 
+      {/* Credits Low Alert - Glassmorphic */}
       {creditsLow && user?.role === "owner" && (
-        <Card className="border-destructive">
-          <CardContent className="flex items-center gap-4 p-6">
-            <AlertCircle className="w-8 h-8 text-destructive" />
-            <div className="flex-1">
-              <p className="font-semibold">Inspection credits low</p>
-              <p className="text-sm text-muted-foreground">
-                You have {creditsRemaining} credits remaining. Purchase more to avoid blocking submissions.
-              </p>
+        <Card className="glass-card-strong border-destructive/30 bg-destructive/5">
+          <CardContent className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-6 md:p-8">
+            <div className="flex items-center gap-4 flex-1">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                <AlertCircle className="w-6 h-6 text-destructive" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-lg">Inspection credits low</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  You have {creditsRemaining} credits remaining. Purchase more to avoid blocking submissions.
+                </p>
+              </div>
             </div>
             <Link href="/credits">
-              <Button variant="destructive" data-testid="button-purchase-credits">
+              <Button variant="destructive" size="lg" className="w-full sm:w-auto transition-smooth" data-testid="button-purchase-credits">
                 Purchase Credits
               </Button>
             </Link>
@@ -114,94 +120,114 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Properties</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
+      {/* KPI Cards Grid */}
+      <div className="grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Properties Card */}
+        <Card className="glass-card card-hover-lift">
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Properties</CardTitle>
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Building2 className="h-5 w-5 text-primary" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-properties-count">{properties.length}</div>
-            <p className="text-xs text-muted-foreground">Total managed buildings</p>
+            <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-properties-count">{properties.length}</div>
+            <p className="text-sm text-muted-foreground mt-2">Total managed buildings</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Units</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
+        {/* Units Card */}
+        <Card className="glass-card card-hover-lift">
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Units</CardTitle>
+            <div className="w-10 h-10 rounded-xl bg-chart-3/10 flex items-center justify-center">
+              <Building2 className="h-5 w-5 text-chart-3" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-units-count">{totalUnits}</div>
-            <p className="text-xs text-muted-foreground">Total apartments/units</p>
+            <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-units-count">{totalUnits}</div>
+            <p className="text-sm text-muted-foreground mt-2">Total apartments/units</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inspections</CardTitle>
-            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+        {/* Inspections Card */}
+        <Card className="glass-card card-hover-lift">
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Inspections</CardTitle>
+            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+              <ClipboardCheck className="h-5 w-5 text-accent" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-inspections-count">{inspections.length}</div>
-            <p className="text-xs text-muted-foreground">
+            <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-inspections-count">{inspections.length}</div>
+            <p className="text-sm text-muted-foreground mt-2">
               {user?.role === "clerk" ? "Assigned to you" : "Total inspections"}
             </p>
           </CardContent>
         </Card>
 
+        {/* Credits Card (Owner Only) */}
         {user?.role === "owner" && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Credits</CardTitle>
-              <CreditCard className="h-4 w-4 text-muted-foreground" />
+          <Card className={`glass-card card-hover-lift ${creditsLow ? 'border-destructive/30 bg-destructive/5' : ''}`}>
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Credits</CardTitle>
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${creditsLow ? 'bg-destructive/10' : 'bg-accent/10'}`}>
+                <CreditCard className={`h-5 w-5 ${creditsLow ? 'text-destructive' : 'text-accent'}`} />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-credits-remaining">
+              <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-credits-remaining">
                 {creditsRemaining}
               </div>
-              <p className="text-xs text-muted-foreground">AI inspection credits</p>
+              <p className="text-sm text-muted-foreground mt-2">AI inspection credits</p>
             </CardContent>
           </Card>
         )}
 
+        {/* Expiring Soon Card (Compliance Only) */}
         {user?.role === "compliance" && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+          <Card className="glass-card card-hover-lift">
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Expiring Soon</CardTitle>
+              <div className="w-10 h-10 rounded-xl bg-chart-1/10 flex items-center justify-center">
+                <FileText className="h-5 w-5 text-chart-1" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-expiring-count">{compliance.length}</div>
+              <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-expiring-count">{compliance.length}</div>
               <p className="text-xs text-muted-foreground">Compliance documents</p>
             </CardContent>
           </Card>
         )}
       </div>
 
+      {/* Clerk Inspections List */}
       {user?.role === "clerk" && (
-        <Card>
+        <Card className="glass-card">
           <CardHeader>
-            <CardTitle>My Inspections</CardTitle>
+            <CardTitle className="text-2xl font-bold">My Inspections</CardTitle>
           </CardHeader>
           <CardContent>
             {inspections.length === 0 ? (
-              <p className="text-muted-foreground">No inspections assigned to you.</p>
+              <div className="text-center py-12">
+                <ClipboardCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No inspections assigned to you.</p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {inspections.slice(0, 5).map((inspection) => (
                   <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
                     <div
-                      className="flex items-center justify-between gap-2 p-4 border rounded-md hover-elevate cursor-pointer"
+                      className="flex items-center justify-between gap-4 p-5 border border-border/50 rounded-2xl hover-elevate cursor-pointer transition-smooth bg-card/50"
                       data-testid={`card-inspection-${inspection.id}`}
                     >
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{inspection.type} Inspection</p>
-                        <p className="text-sm text-muted-foreground truncate">
+                        <p className="font-semibold text-lg truncate">{inspection.type} Inspection</p>
+                        <p className="text-sm text-muted-foreground truncate mt-1">
                           {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
                         </p>
                         {inspection.scheduledDate && (
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-xs text-muted-foreground truncate mt-1">
                             {new Date(inspection.scheduledDate).toLocaleDateString()}
                           </p>
                         )}
@@ -214,6 +240,7 @@ export default function Dashboard() {
                             ? "secondary"
                             : "outline"
                         }
+                        className="whitespace-nowrap"
                         data-testid={`badge-status-${inspection.id}`}
                       >
                         {inspection.status}
@@ -227,26 +254,27 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Owner Recent Inspections */}
       {user?.role === "owner" && inspections.length > 0 && (
-        <Card>
+        <Card className="glass-card">
           <CardHeader>
-            <CardTitle>Recent Inspections</CardTitle>
+            <CardTitle className="text-2xl font-bold">Recent Inspections</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {inspections.slice(0, 5).map((inspection) => (
                 <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
                   <div
-                    className="flex items-center justify-between gap-2 p-4 border rounded-md hover-elevate cursor-pointer"
+                    className="flex items-center justify-between gap-4 p-5 border border-border/50 rounded-2xl hover-elevate cursor-pointer transition-smooth bg-card/50"
                     data-testid={`card-inspection-${inspection.id}`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{inspection.type} Inspection</p>
-                      <p className="text-sm text-muted-foreground truncate">
+                      <p className="font-semibold text-lg truncate">{inspection.type} Inspection</p>
+                      <p className="text-sm text-muted-foreground truncate mt-1">
                         {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
                       </p>
                       {inspection.scheduledDate && (
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground truncate mt-1">
                           {new Date(inspection.scheduledDate).toLocaleDateString()}
                         </p>
                       )}
@@ -259,6 +287,7 @@ export default function Dashboard() {
                           ? "secondary"
                           : "outline"
                       }
+                      className="whitespace-nowrap"
                       data-testid={`badge-status-${inspection.id}`}
                     >
                       {inspection.status}
@@ -271,23 +300,24 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Maintenance Requests */}
       {(user?.role === "owner" || user?.role === "clerk") && maintenance.length > 0 && (
-        <Card>
+        <Card className="glass-card">
           <CardHeader>
-            <CardTitle>Recent Maintenance Requests</CardTitle>
+            <CardTitle className="text-2xl font-bold">Recent Maintenance Requests</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {maintenance.slice(0, 5).map((request) => (
                 <Link key={request.id} href="/maintenance">
                   <div
-                    className="flex items-center justify-between gap-2 p-4 border rounded-md hover-elevate cursor-pointer"
+                    className="flex items-center justify-between gap-4 p-5 border border-border/50 rounded-2xl hover-elevate cursor-pointer transition-smooth bg-card/50"
                     data-testid={`card-maintenance-${request.id}`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{request.title}</p>
-                      <p className="text-sm text-muted-foreground truncate">
-                        Priority: {request.priority}
+                      <p className="font-semibold text-lg truncate">{request.title}</p>
+                      <p className="text-sm text-muted-foreground truncate mt-1">
+                        Priority: <span className="font-medium">{request.priority}</span>
                       </p>
                     </div>
                     <Badge
@@ -298,6 +328,7 @@ export default function Dashboard() {
                           ? "secondary"
                           : "outline"
                       }
+                      className="whitespace-nowrap"
                       data-testid={`badge-status-${request.id}`}
                     >
                       {request.status}

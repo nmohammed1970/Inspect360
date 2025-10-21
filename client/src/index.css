@@ -76,18 +76,18 @@
   --chart-4: 203 80% 35%;
   --chart-5: 142 35% 50%;
 
-  --font-sans: Open Sans, sans-serif;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
-  --radius: .5rem; /* 8px */
-  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --font-mono: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  --radius: 1rem; /* 16px - modern, relaxed corners */
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-sm: 0 2px 4px -1px rgb(0 0 0 / 0.06), 0 4px 6px -2px rgb(0 0 0 / 0.04);
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 6px 12px -2px rgb(0 0 0 / 0.10), 0 3px 6px -3px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 8px 16px -4px rgb(0 0 0 / 0.12), 0 4px 8px -4px rgb(0 0 0 / 0.06);
+  --shadow-xl: 0 12px 24px -6px rgb(0 0 0 / 0.14), 0 6px 12px -6px rgb(0 0 0 / 0.08);
+  --shadow-2xl: 0 16px 32px -8px rgb(0 0 0 / 0.16), 0 8px 16px -8px rgb(0 0 0 / 0.10);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -194,14 +194,14 @@
   --chart-4: 203 80% 58%;
   --chart-5: 142 35% 65%;
 
-  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.20);
+  --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.30), 0 1px 2px -1px rgb(0 0 0 / 0.20);
+  --shadow-sm: 0 2px 4px -1px rgb(0 0 0 / 0.35), 0 4px 6px -2px rgb(0 0 0 / 0.25);
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.40), 0 2px 4px -2px rgb(0 0 0 / 0.30);
+  --shadow-md: 0 6px 12px -2px rgb(0 0 0 / 0.45), 0 3px 6px -3px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 8px 16px -4px rgb(0 0 0 / 0.50), 0 4px 8px -4px rgb(0 0 0 / 0.40);
+  --shadow-xl: 0 12px 24px -6px rgb(0 0 0 / 0.55), 0 6px 12px -6px rgb(0 0 0 / 0.45);
+  --shadow-2xl: 0 16px 32px -8px rgb(0 0 0 / 0.60), 0 8px 16px -8px rgb(0 0 0 / 0.50);
 
   /* Automatically computed borders - intensity can be controlled by the user by the --opaque-button-border-intensity setting */
 
@@ -353,5 +353,77 @@
   .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
+  }
+
+  /* Modern Glassmorphic Utilities */
+  .glass-card {
+    @apply bg-card/95 backdrop-blur-xl border border-border/50;
+  }
+
+  .glass-card-strong {
+    @apply bg-card/80 backdrop-blur-2xl border border-border/60 shadow-lg;
+  }
+
+  .glass-modal {
+    @apply bg-card/90 backdrop-blur-2xl border border-border/40 shadow-2xl;
+  }
+
+  /* Modern Card Hover Effect */
+  .card-hover-lift {
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .card-hover-lift:hover {
+    @apply -translate-y-1 shadow-xl;
+  }
+
+  /* Smooth Transitions */
+  .transition-smooth {
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .transition-fast {
+    @apply transition-all duration-150 ease-out;
+  }
+
+  /* Gradient Utilities */
+  .gradient-navy-to-blue {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--chart-3)) 100%);
+  }
+
+  .gradient-overlay {
+    background: linear-gradient(180deg, transparent 0%, hsl(var(--background) / 0.9) 100%);
+  }
+
+  /* Text Gradients */
+  .text-gradient-primary {
+    @apply bg-gradient-to-r from-primary to-chart-3 bg-clip-text text-transparent;
+  }
+
+  /* Modern Focus Ring */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2;
+  }
+
+  /* Skeleton Loader with Shimmer */
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+
+  .skeleton {
+    @apply bg-muted rounded animate-pulse;
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0px,
+      hsl(var(--muted-foreground) / 0.1) 40px,
+      hsl(var(--muted)) 80px
+    );
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite linear;
   }
 }
