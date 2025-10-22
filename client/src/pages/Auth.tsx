@@ -42,13 +42,18 @@ export default function Auth() {
       return;
     }
 
-    const result = await loginMutation.mutateAsync({
-      email: loginEmail,
-      password: loginPassword,
-    });
-    
-    if (result) {
-      navigate("/dashboard");
+    try {
+      const result = await loginMutation.mutateAsync({
+        email: loginEmail,
+        password: loginPassword,
+      });
+      
+      if (result) {
+        navigate("/dashboard");
+      }
+    } catch (error) {
+      // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection
+      console.error("Login error:", error);
     }
   }
 
@@ -83,17 +88,22 @@ export default function Auth() {
       return;
     }
 
-    const result = await registerMutation.mutateAsync({
-      firstName,
-      lastName,
-      email,
-      username,
-      password,
-      role: role as "owner" | "clerk" | "compliance" | "tenant",
-    });
+    try {
+      const result = await registerMutation.mutateAsync({
+        firstName,
+        lastName,
+        email,
+        username,
+        password,
+        role: role as "owner" | "clerk" | "compliance" | "tenant",
+      });
 
-    if (result) {
-      navigate("/onboarding");
+      if (result) {
+        navigate("/onboarding");
+      }
+    } catch (error) {
+      // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection
+      console.error("Registration error:", error);
     }
   }
 
