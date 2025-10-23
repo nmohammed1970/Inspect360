@@ -229,6 +229,7 @@ export const inspectionTemplates = pgTable("inspection_templates", {
   description: text("description"),
   scope: templateScopeEnum("scope").notNull().default("property"),
   version: integer("version").notNull().default(1),
+  parentTemplateId: varchar("parent_template_id"), // Links to parent template for versioning
   isActive: boolean("is_active").default(true),
   structureJson: jsonb("structure_json").notNull(), // Full template schema with sections/fields
   categoryId: varchar("category_id"), // Optional link to template_categories

@@ -16,7 +16,12 @@ import {
   insertWorkOrderSchema,
   insertWorkLogSchema,
   insertAssetInventorySchema,
-  insertTagSchema
+  insertTagSchema,
+  insertTemplateCategorySchema,
+  insertInspectionTemplateSchema,
+  insertTemplateInventoryLinkSchema,
+  insertInspectionEntrySchema,
+  insertAiImageAnalysisSchema
 } from "@shared/schema";
 
 // Initialize Stripe
@@ -2188,7 +2193,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   // ==================== TAG ROUTES ====================
   
   // Create a new tag
-  app.post("/api/tags", isAuthenticated, requireRole(["owner", "clerk", "compliance"]), async (req: any, res) => {
+  app.post("/api/tags", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user || !user.organizationId) {
@@ -2225,7 +2230,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Update a tag
-  app.patch("/api/tags/:id", isAuthenticated, requireRole(["owner", "clerk", "compliance"]), async (req: any, res) => {
+  app.patch("/api/tags/:id", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       const tag = await storage.getTag(req.params.id);
@@ -2247,7 +2252,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Delete a tag
-  app.delete("/api/tags/:id", isAuthenticated, requireRole(["owner", "clerk", "compliance"]), async (req: any, res) => {
+  app.delete("/api/tags/:id", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       const tag = await storage.getTag(req.params.id);
@@ -2269,7 +2274,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Add tag to block
-  app.post("/api/blocks/:blockId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/blocks/:blockId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       const block = await storage.getBlock(req.params.blockId);
@@ -2292,7 +2297,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Remove tag from block
-  app.delete("/api/blocks/:blockId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.delete("/api/blocks/:blockId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.removeTagFromBlock(req.params.blockId, req.params.tagId);
       res.json({ success: true });
@@ -2314,7 +2319,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Add tag to property
-  app.post("/api/properties/:propertyId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/properties/:propertyId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       const property = await storage.getProperty(req.params.propertyId);
@@ -2337,7 +2342,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Remove tag from property
-  app.delete("/api/properties/:propertyId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.delete("/api/properties/:propertyId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.removeTagFromProperty(req.params.propertyId, req.params.tagId);
       res.json({ success: true });
@@ -2359,7 +2364,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Add tag to user
-  app.post("/api/users/:userId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/users/:userId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       const targetUser = await storage.getUser(req.params.userId);
@@ -2382,7 +2387,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Remove tag from user
-  app.delete("/api/users/:userId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.delete("/api/users/:userId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.removeTagFromUser(req.params.userId, req.params.tagId);
       res.json({ success: true });
@@ -2404,7 +2409,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Add tag to compliance document
-  app.post("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+  app.post("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       await storage.addTagToComplianceDocument(req.params.complianceId, req.params.tagId);
       res.json({ success: true });
@@ -2415,7 +2420,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Remove tag from compliance document
-  app.delete("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+  app.delete("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       await storage.removeTagFromComplianceDocument(req.params.complianceId, req.params.tagId);
       res.json({ success: true });
@@ -2437,7 +2442,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Add tag to asset inventory
-  app.post("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.addTagToAssetInventory(req.params.assetId, req.params.tagId);
       res.json({ success: true });
@@ -2448,7 +2453,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Remove tag from asset inventory
-  app.delete("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.delete("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.removeTagFromAssetInventory(req.params.assetId, req.params.tagId);
       res.json({ success: true });
@@ -2470,7 +2475,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Add tag to maintenance request
-  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.addTagToMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -2481,7 +2486,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   });
 
   // Remove tag from maintenance request
-  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       await storage.removeTagFromMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -2608,6 +2613,455 @@ Provide a structured comparison highlighting differences in condition ratings an
     } catch (error) {
       console.error("Error updating dashboard preferences:", error);
       res.status(500).json({ error: "Failed to update dashboard preferences" });
+    }
+  });
+
+  // ==================== INSPECTION TEMPLATE ROUTES ====================
+
+  // Template Categories
+  app.get("/api/template-categories", isAuthenticated, requireRole('owner', 'clerk', 'compliance'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const categories = await storage.getTemplateCategoriesByOrganization(user.organizationId);
+      res.json(categories);
+    } catch (error) {
+      console.error("Error fetching template categories:", error);
+      res.status(500).json({ message: "Failed to fetch template categories" });
+    }
+  });
+
+  app.post("/api/template-categories", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const validatedData = insertTemplateCategorySchema.parse({
+        ...req.body,
+        organizationId: user.organizationId
+      });
+      const category = await storage.createTemplateCategory(validatedData);
+      res.status(201).json(category);
+    } catch (error) {
+      console.error("Error creating template category:", error);
+      res.status(400).json({ message: "Failed to create template category" });
+    }
+  });
+
+  app.put("/api/template-categories/:id", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      // Verify ownership
+      const existing = await storage.getTemplateCategory(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Category not found" });
+      }
+      const category = await storage.updateTemplateCategory(req.params.id, req.body);
+      res.json(category);
+    } catch (error) {
+      console.error("Error updating template category:", error);
+      res.status(400).json({ message: "Failed to update template category" });
+    }
+  });
+
+  app.delete("/api/template-categories/:id", isAuthenticated, requireRole('owner'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const existing = await storage.getTemplateCategory(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Category not found" });
+      }
+      await storage.deleteTemplateCategory(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting template category:", error);
+      res.status(500).json({ message: "Failed to delete template category" });
+    }
+  });
+
+  // Inspection Templates
+  app.get("/api/inspection-templates", isAuthenticated, requireRole('owner', 'clerk', 'compliance'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const { scope, categoryId, active } = req.query;
+      let templates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
+      
+      // Apply client-side filtering based on query parameters
+      if (scope && scope !== 'both') {
+        templates = templates.filter(t => t.scope === scope || t.scope === 'both');
+      }
+      if (categoryId) {
+        templates = templates.filter(t => t.categoryId === categoryId);
+      }
+      if (active !== undefined) {
+        const isActive = active === 'true';
+        templates = templates.filter(t => t.isActive === isActive);
+      }
+      
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching inspection templates:", error);
+      res.status(500).json({ message: "Failed to fetch inspection templates" });
+    }
+  });
+
+  app.get("/api/inspection-templates/:id", isAuthenticated, requireRole('owner', 'clerk', 'compliance'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const template = await storage.getInspectionTemplate(req.params.id);
+      if (!template || template.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      res.json(template);
+    } catch (error) {
+      console.error("Error fetching inspection template:", error);
+      res.status(500).json({ message: "Failed to fetch inspection template" });
+    }
+  });
+
+  app.post("/api/inspection-templates", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const validatedData = insertInspectionTemplateSchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+        createdBy: req.user.id
+      });
+      const template = await storage.createInspectionTemplate(validatedData);
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating inspection template:", error);
+      res.status(400).json({ message: "Failed to create inspection template" });
+    }
+  });
+
+  app.put("/api/inspection-templates/:id", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const existing = await storage.getInspectionTemplate(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      const template = await storage.updateInspectionTemplate(req.params.id, req.body);
+      res.json(template);
+    } catch (error) {
+      console.error("Error updating inspection template:", error);
+      res.status(400).json({ message: "Failed to update inspection template" });
+    }
+  });
+
+  app.delete("/api/inspection-templates/:id", isAuthenticated, requireRole('owner'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const existing = await storage.getInspectionTemplate(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      await storage.deleteInspectionTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting inspection template:", error);
+      res.status(500).json({ message: "Failed to delete inspection template" });
+    }
+  });
+
+  // Clone template (create new version)
+  app.post("/api/inspection-templates/:id/clone", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const existing = await storage.getInspectionTemplate(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      // Create new template with incremented version
+      const newVersion = existing.version + 1;
+      const clonedTemplate = await storage.createInspectionTemplate({
+        organizationId: user.organizationId,
+        name: req.body.name || `${existing.name} (v${newVersion})`,
+        description: req.body.description || existing.description,
+        categoryId: existing.categoryId,
+        scope: existing.scope,
+        structureJson: existing.structureJson as any,
+        version: newVersion,
+        parentTemplateId: existing.parentTemplateId || existing.id,
+        isActive: req.body.isActive ?? false,
+        createdBy: req.user.id
+      });
+      
+      res.status(201).json(clonedTemplate);
+    } catch (error) {
+      console.error("Error cloning inspection template:", error);
+      res.status(400).json({ message: "Failed to clone inspection template" });
+    }
+  });
+
+  // Template Inventory Links
+  app.get("/api/inspection-templates/:templateId/inventory-links", isAuthenticated, requireRole('owner', 'clerk', 'compliance'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const template = await storage.getInspectionTemplate(req.params.templateId);
+      if (!template || template.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      const links = await storage.getTemplateInventoryLinks(req.params.templateId);
+      res.json(links);
+    } catch (error) {
+      console.error("Error fetching template inventory links:", error);
+      res.status(500).json({ message: "Failed to fetch template inventory links" });
+    }
+  });
+
+  app.post("/api/template-inventory-links", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const validatedData = insertTemplateInventoryLinkSchema.parse(req.body);
+      // Verify template ownership
+      const template = await storage.getInspectionTemplate(validatedData.templateId);
+      if (!template || template.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const link = await storage.createTemplateInventoryLink(validatedData);
+      res.status(201).json(link);
+    } catch (error) {
+      console.error("Error creating template inventory link:", error);
+      res.status(400).json({ message: "Failed to create template inventory link" });
+    }
+  });
+
+  app.delete("/api/template-inventory-links/:id", isAuthenticated, requireRole('owner', 'clerk'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      await storage.deleteTemplateInventoryLink(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting template inventory link:", error);
+      res.status(500).json({ message: "Failed to delete template inventory link" });
+    }
+  });
+
+  // Inspection Entries
+  app.get("/api/inspections/:inspectionId/entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const entries = await storage.getInspectionEntries(req.params.inspectionId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching inspection entries:", error);
+      res.status(500).json({ message: "Failed to fetch inspection entries" });
+    }
+  });
+
+  app.get("/api/inspection-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const entry = await storage.getInspectionEntry(req.params.id);
+      if (!entry) {
+        return res.status(404).json({ message: "Entry not found" });
+      }
+      res.json(entry);
+    } catch (error) {
+      console.error("Error fetching inspection entry:", error);
+      res.status(500).json({ message: "Failed to fetch inspection entry" });
+    }
+  });
+
+  app.post("/api/inspection-entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const validatedData = insertInspectionEntrySchema.parse(req.body);
+      const entry = await storage.createInspectionEntry(validatedData);
+      res.status(201).json(entry);
+    } catch (error) {
+      console.error("Error creating inspection entry:", error);
+      res.status(400).json({ message: "Failed to create inspection entry" });
+    }
+  });
+
+  // Batch create entries (for offline sync)
+  app.post("/api/inspection-entries/batch", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const { entries } = req.body;
+      if (!Array.isArray(entries)) {
+        return res.status(400).json({ message: "entries must be an array" });
+      }
+      const validatedEntries = entries.map(e => insertInspectionEntrySchema.parse(e));
+      const created = await storage.createInspectionEntriesBatch(validatedEntries);
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error batch creating inspection entries:", error);
+      res.status(400).json({ message: "Failed to batch create inspection entries" });
+    }
+  });
+
+  app.put("/api/inspection-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const entry = await storage.updateInspectionEntry(req.params.id, req.body);
+      res.json(entry);
+    } catch (error) {
+      console.error("Error updating inspection entry:", error);
+      res.status(400).json({ message: "Failed to update inspection entry" });
+    }
+  });
+
+  app.delete("/api/inspection-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      await storage.deleteInspectionEntry(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting inspection entry:", error);
+      res.status(500).json({ message: "Failed to delete inspection entry" });
+    }
+  });
+
+  // AI Image Analyses
+  app.get("/api/inspections/:inspectionId/ai-analyses", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const analyses = await storage.getAiImageAnalysesByInspection(req.params.inspectionId);
+      res.json(analyses);
+    } catch (error) {
+      console.error("Error fetching AI analyses:", error);
+      res.status(500).json({ message: "Failed to fetch AI analyses" });
+    }
+  });
+
+  app.get("/api/inspection-entries/:entryId/ai-analyses", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const analyses = await storage.getAiImageAnalysesByEntry(req.params.entryId);
+      res.json(analyses);
+    } catch (error) {
+      console.error("Error fetching AI analyses:", error);
+      res.status(500).json({ message: "Failed to fetch AI analyses" });
+    }
+  });
+
+  app.post("/api/ai-analyses", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const { inspectionId, inspectionEntryId, imageUrl, context } = req.body;
+
+      // Verify user has access to this inspection
+      const inspection = await storage.getInspection(inspectionId);
+      if (!inspection) {
+        return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      // Check if organization has credits
+      const org = await storage.getOrganization(user.organizationId);
+      if (!org || (org.creditsRemaining ?? 0) < 1) {
+        return res.status(402).json({ message: "Insufficient AI credits" });
+      }
+
+      // Call OpenAI Vision API
+      const openaiClient = getOpenAI();
+      const response = await openaiClient.chat.completions.create({
+        model: "gpt-5",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: context || "Analyze this inspection photo. Identify the room/item, assess its condition, note any defects, damage, or issues that require attention. Provide a detailed assessment."
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageUrl }
+              }
+            ]
+          }
+        ],
+        max_tokens: 500
+      });
+
+      const analysisText = response.choices[0]?.message?.content || "";
+
+      // Deduct credit
+      await storage.updateOrganizationCredits(user.organizationId, (org.creditsRemaining ?? 0) - 1);
+
+      // Save analysis
+      const validatedData = insertAiImageAnalysisSchema.parse({
+        inspectionId,
+        inspectionEntryId,
+        imageUrl,
+        analysisJson: { text: analysisText, model: "gpt-5" },
+        createdBy: req.user.id
+      });
+      const analysis = await storage.createAiImageAnalysis(validatedData);
+
+      res.status(201).json({ ...analysis, remainingCredits: (org.creditsRemaining ?? 0) - 1 });
+    } catch (error) {
+      console.error("Error creating AI analysis:", error);
+      res.status(500).json({ message: "Failed to create AI analysis" });
     }
   });
 
