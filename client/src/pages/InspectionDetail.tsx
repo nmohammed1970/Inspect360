@@ -176,7 +176,7 @@ export default function InspectionDetail() {
             Inspection Details
           </h1>
           <p className="text-muted-foreground">
-            {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
+            {inspection.property?.name || inspection.block?.name}
           </p>
         </div>
         {inspection.status !== "completed" && (
@@ -226,21 +226,17 @@ export default function InspectionDetail() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Property & Unit</CardTitle>
+            <CardTitle>Property</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-muted-foreground" />
-                <span className="font-medium">{inspection.property?.name}</span>
+                <span className="font-medium">{inspection.property?.name || inspection.block?.name}</span>
               </div>
               <p className="text-sm text-muted-foreground ml-6">
-                {inspection.property?.address}
+                {inspection.property?.address || inspection.block?.address}
               </p>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm text-muted-foreground">Unit:</span>
-              <p className="font-medium">{inspection.unit?.unitNumber}</p>
             </div>
             {inspection.clerk && (
               <div className="space-y-1">

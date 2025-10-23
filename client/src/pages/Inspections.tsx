@@ -198,35 +198,6 @@ export default function Inspections() {
 
                 <FormField
                   control={form.control}
-                  name="unitId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Unit</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        disabled={!selectedPropertyId}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-unit">
-                            <SelectValue placeholder="Select unit" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {units.map((unit: any) => (
-                            <SelectItem key={unit.id} value={unit.id}>
-                              {unit.unitNumber}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
                   name="type"
                   render={({ field }) => (
                     <FormItem>
@@ -357,7 +328,7 @@ export default function Inspections() {
                   </div>
                   <CardDescription className="flex items-center gap-1">
                     <MapPin className="w-3 h-3" />
-                    Unit {inspection.unit?.unitNumber || "N/A"}
+                    {inspection.property?.address || inspection.block?.address || "No location"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">

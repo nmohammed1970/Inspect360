@@ -224,7 +224,7 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-lg truncate">{inspection.type} Inspection</p>
                         <p className="text-sm text-muted-foreground truncate mt-1">
-                          {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
+                          {inspection.property?.name || inspection.block?.name}
                         </p>
                         {inspection.scheduledDate && (
                           <p className="text-xs text-muted-foreground truncate mt-1">
@@ -271,7 +271,7 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-lg truncate">{inspection.type} Inspection</p>
                       <p className="text-sm text-muted-foreground truncate mt-1">
-                        {inspection.property?.name} - Unit {inspection.unit?.unitNumber}
+                        {inspection.property?.name || inspection.block?.name}
                       </p>
                       {inspection.scheduledDate && (
                         <p className="text-xs text-muted-foreground truncate mt-1">

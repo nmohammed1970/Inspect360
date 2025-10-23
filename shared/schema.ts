@@ -32,7 +32,6 @@ export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_
 export const complianceStatusEnum = pgEnum("compliance_status", ["current", "expiring_soon", "expired"]);
 export const maintenanceStatusEnum = pgEnum("maintenance_status", ["open", "in_progress", "completed", "closed"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "inactive", "cancelled"]);
-export const unitStatusEnum = pgEnum("unit_status", ["occupied", "vacant"]);
 export const workOrderStatusEnum = pgEnum("work_order_status", ["assigned", "in_progress", "waiting_parts", "completed", "rejected"]);
 export const assetConditionEnum = pgEnum("asset_condition", ["excellent", "good", "fair", "poor", "needs_replacement"]);
 export const inspectionPointDataTypeEnum = pgEnum("inspection_point_data_type", ["text", "number", "checkbox", "photo", "rating"]);
@@ -163,7 +162,7 @@ export const insertBlockSchema = createInsertSchema(blocks).omit({
 export type Block = typeof blocks.$inferSelect;
 export type InsertBlock = z.infer<typeof insertBlockSchema>;
 
-// Properties (Individual units/apartments - merged with units)
+// Properties (Buildings/Locations)
 // Properties can optionally belong to blocks for organizational hierarchy
 export const properties = pgTable("properties", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -171,14 +170,6 @@ export const properties = pgTable("properties", {
   blockId: varchar("block_id"), // Optional: properties can be grouped into blocks
   name: varchar("name").notNull(),
   address: text("address").notNull(),
-  // Unit-specific fields (merged from units table)
-  unitNumber: varchar("unit_number"),
-  bedrooms: integer("bedrooms"),
-  bathrooms: integer("bathrooms"),
-  floor: integer("floor"),
-  sqft: integer("sqft"),
-  status: unitStatusEnum("status").default("vacant"),
-  tenantId: varchar("tenant_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

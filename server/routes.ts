@@ -401,9 +401,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== UNIT ROUTES (Properties ARE units) ====================
+  // ==================== PROPERTY BY BLOCK ROUTES ====================
   
-  // Get properties/units by block
+  // Get properties by block
   app.get("/api/blocks/:blockId/properties", isAuthenticated, async (req, res) => {
     try {
       const { blockId } = req.params;
@@ -1129,7 +1129,7 @@ Provide a structured comparison highlighting differences in condition ratings an
         organizationId: organization.id,
         amount: -2,
         type: "comparison",
-        description: `AI comparison report for unit`,
+        description: `AI comparison report for property`,
         relatedId: report.id,
       });
 
@@ -1221,21 +1221,19 @@ Provide a structured comparison highlighting differences in condition ratings an
         return res.status(400).json({ message: "Property ID and title are required" });
       }
 
-      // Get user to check role
+      // Get user to check organization
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // If tenant, verify they own the property (unit)
-      if (user.role === "tenant") {
-        const property = await storage.getProperty(propertyId);
-        if (!property) {
-          return res.status(404).json({ message: "Property not found" });
-        }
-        if (property.tenantId !== userId) {
-          return res.status(403).json({ message: "Access denied: You can only create requests for your own property" });
-        }
+      // Verify property exists and belongs to the same organization
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      if (property.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
       }
 
       const request = await storage.createMaintenanceRequest({

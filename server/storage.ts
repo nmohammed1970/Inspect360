@@ -93,13 +93,12 @@ export interface IStorage {
   updateContact(id: string, updates: Partial<InsertContact>): Promise<Contact>;
   deleteContact(id: string): Promise<void>;
   
-  // Property operations (Properties ARE units in the new schema)
+  // Property operations
   createProperty(property: InsertProperty): Promise<Property>;
   getPropertiesByOrganization(organizationId: string): Promise<Property[]>;
   getPropertiesByBlock(blockId: string): Promise<Property[]>;
   getProperty(id: string): Promise<Property | undefined>;
   updateProperty(id: string, updates: Partial<InsertProperty>): Promise<Property>;
-  updatePropertyTenant(id: string, tenantId: string | null): Promise<Property>;
   
   // Inspection operations (Inspections can be on blocks OR properties)
   createInspection(inspection: InsertInspection): Promise<Inspection>;
@@ -448,13 +447,9 @@ export class DatabaseStorage implements IStorage {
       complianceRate = hasRecentInspection ? 100 : 0;
       complianceStatus = hasRecentInspection ? 'Compliant' : 'Needs inspection';
 
-      // Occupancy status from property directly
-      const occupancyStatus = property.status === 'occupied' ? 'Occupied' : 'Vacant';
-
       return {
         ...property,
         stats: {
-          occupancyStatus,
           complianceRate,
           complianceStatus,
           inspectionsDue,
@@ -483,15 +478,6 @@ export class DatabaseStorage implements IStorage {
     const [property] = await db
       .update(properties)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(properties.id, id))
-      .returning();
-    return property;
-  }
-
-  async updatePropertyTenant(id: string, tenantId: string | null): Promise<Property> {
-    const [property] = await db
-      .update(properties)
-      .set({ tenantId, updatedAt: new Date() })
       .where(eq(properties.id, id))
       .returning();
     return property;
@@ -887,9 +873,7 @@ export class DatabaseStorage implements IStorage {
     // Build stats for each block
     const blocksWithStats = allBlocks.map(block => {
       const blockProperties = propertiesByBlock.get(block.id) || [];
-      const totalUnits = blockProperties.length; // Properties ARE units
-      const occupiedUnits = blockProperties.filter(p => p.status === 'occupied').length;
-      const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+      const totalProperties = blockProperties.length;
       
       // Get all inspections for this block (both property-level and block-level)
       const blockPropertyInspections = blockProperties.flatMap(prop => 
@@ -914,7 +898,7 @@ export class DatabaseStorage implements IStorage {
       
       // Calculate compliance rate (properties with recent completed inspections)
       let complianceRate = 0;
-      if (totalUnits > 0) {
+      if (totalProperties > 0) {
         const propertiesWithRecentInspections = new Set<string>();
         blockPropertyInspections.forEach(insp => {
           const scheduledDate = new Date(insp.scheduledDate);
@@ -922,16 +906,13 @@ export class DatabaseStorage implements IStorage {
             propertiesWithRecentInspections.add(insp.propertyId);
           }
         });
-        complianceRate = Math.round((propertiesWithRecentInspections.size / totalUnits) * 100);
+        complianceRate = Math.round((propertiesWithRecentInspections.size / totalProperties) * 100);
       }
       
       return {
         ...block,
         stats: {
-          totalProperties: blockProperties.length,
-          totalUnits,
-          occupiedUnits,
-          occupancyRate,
+          totalProperties,
           complianceRate,
           inspectionsDue,
           overdueInspections,
