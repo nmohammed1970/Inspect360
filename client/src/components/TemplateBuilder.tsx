@@ -12,7 +12,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Trash2, GripVertical, Save, X, Eye, Code, ChevronDown, ChevronRight } from "lucide-react";
 import { type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { z } from "zod";
@@ -118,7 +118,12 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
         return await apiRequest("POST", "/api/inspection-templates", payload);
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Refetch queries and wait for fresh data before closing dialog
+      await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates"] });
+      if (template) {
+        await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates", template.id] });
+      }
       toast({
         title: "Success",
         description: template ? "Template updated successfully" : "Template created successfully",

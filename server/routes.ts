@@ -427,252 +427,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== INSPECTION TEMPLATE ROUTES ====================
-
-  // Create inspection template
-  app.post("/api/inspection-templates", isAuthenticated, requireRole("owner"), async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const { name, description, scope, categoryId, isActive, structureJson, version } = req.body;
-      
-      // Validate required fields
-      if (!name || !scope || !structureJson) {
-        return res.status(400).json({ error: "Missing required fields: name, scope, and structureJson are required" });
-      }
-
-      const template = await storage.createInspectionTemplate({
-        organizationId: user.organizationId,
-        createdBy: userId,
-        name,
-        description: description || null,
-        scope,
-        categoryId: categoryId || null,
-        isActive: isActive !== undefined ? isActive : true,
-        structureJson: typeof structureJson === 'string' ? structureJson : JSON.stringify(structureJson),
-        version: version || 1,
-      });
-
-      res.json(template);
-    } catch (error) {
-      console.error("Error creating inspection template:", error);
-      res.status(500).json({ error: "Failed to create inspection template" });
-    }
-  });
-
-  // Get all templates for organization
-  app.get("/api/inspection-templates", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const templates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
-      res.json(templates);
-    } catch (error) {
-      console.error("Error fetching inspection templates:", error);
-      res.status(500).json({ error: "Failed to fetch inspection templates" });
-    }
-  });
-
-  // Get single template
-  app.get("/api/inspection-templates/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const template = await storage.getInspectionTemplate(req.params.id);
-      if (!template) {
-        return res.status(404).json({ error: "Template not found" });
-      }
-
-      // Verify organization ownership
-      if (template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      res.json(template);
-    } catch (error) {
-      console.error("Error fetching inspection template:", error);
-      res.status(500).json({ error: "Failed to fetch inspection template" });
-    }
-  });
-
-  // Update template
-  app.patch("/api/inspection-templates/:id", isAuthenticated, requireRole("owner"), async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const template = await storage.getInspectionTemplate(req.params.id);
-      if (!template) {
-        return res.status(404).json({ error: "Template not found" });
-      }
-
-      // Verify organization ownership
-      if (template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      const updated = await storage.updateInspectionTemplate(req.params.id, req.body);
-      res.json(updated);
-    } catch (error) {
-      console.error("Error updating inspection template:", error);
-      res.status(500).json({ error: "Failed to update inspection template" });
-    }
-  });
-
-  // Delete template
-  app.delete("/api/inspection-templates/:id", isAuthenticated, requireRole("owner"), async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const template = await storage.getInspectionTemplate(req.params.id);
-      if (!template) {
-        return res.status(404).json({ error: "Template not found" });
-      }
-
-      // Verify organization ownership
-      if (template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      await storage.deleteInspectionTemplate(req.params.id);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error deleting inspection template:", error);
-      res.status(500).json({ error: "Failed to delete inspection template" });
-    }
-  });
-
-  // Create template point
-  app.post("/api/inspection-templates/:templateId/points", isAuthenticated, requireRole("owner"), async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      // Verify template ownership
-      const template = await storage.getInspectionTemplate(req.params.templateId);
-      if (!template) {
-        return res.status(404).json({ error: "Template not found" });
-      }
-      if (template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      const point = await storage.createInspectionTemplatePoint({
-        templateId: req.params.templateId,
-        ...req.body,
-      });
-
-      res.json(point);
-    } catch (error) {
-      console.error("Error creating template point:", error);
-      res.status(500).json({ error: "Failed to create template point" });
-    }
-  });
-
-  // Get template points
-  app.get("/api/inspection-templates/:templateId/points", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      // Verify template ownership
-      const template = await storage.getInspectionTemplate(req.params.templateId);
-      if (!template) {
-        return res.status(404).json({ error: "Template not found" });
-      }
-      if (template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      const points = await storage.getInspectionTemplatePoints(req.params.templateId);
-      res.json(points);
-    } catch (error) {
-      console.error("Error fetching template points:", error);
-      res.status(500).json({ error: "Failed to fetch template points" });
-    }
-  });
-
-  // Update template point
-  app.patch("/api/inspection-template-points/:id", isAuthenticated, requireRole("owner"), async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const point = await storage.getInspectionTemplatePoint(req.params.id);
-      if (!point) {
-        return res.status(404).json({ error: "Point not found" });
-      }
-
-      // Verify template ownership through point's template
-      const template = await storage.getInspectionTemplate(point.templateId);
-      if (!template || template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      const updated = await storage.updateInspectionTemplatePoint(req.params.id, req.body);
-      res.json(updated);
-    } catch (error) {
-      console.error("Error updating template point:", error);
-      res.status(500).json({ error: "Failed to update template point" });
-    }
-  });
-
-  // Delete template point
-  app.delete("/api/inspection-template-points/:id", isAuthenticated, requireRole("owner"), async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ error: "No organization found" });
-      }
-
-      const point = await storage.getInspectionTemplatePoint(req.params.id);
-      if (!point) {
-        return res.status(404).json({ error: "Point not found" });
-      }
-
-      // Verify template ownership through point's template
-      const template = await storage.getInspectionTemplate(point.templateId);
-      if (!template || template.organizationId !== user.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      await storage.deleteInspectionTemplatePoint(req.params.id);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error deleting template point:", error);
-      res.status(500).json({ error: "Failed to delete template point" });
-    }
-  });
-
   // ==================== INSPECTION ROUTES ====================
   
   app.post("/api/inspections", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
@@ -2780,7 +2534,21 @@ Provide a structured comparison highlighting differences in condition ratings an
       if (!existing || existing.organizationId !== user.organizationId) {
         return res.status(404).json({ message: "Template not found" });
       }
-      const template = await storage.updateInspectionTemplate(req.params.id, req.body);
+      
+      // Prepare updates - stringify structureJson if it's an object
+      const updates: any = { ...req.body };
+      if (updates.structureJson && typeof updates.structureJson !== 'string') {
+        updates.structureJson = JSON.stringify(updates.structureJson);
+      }
+      
+      // Remove fields that shouldn't be updated via API
+      delete updates.id;
+      delete updates.organizationId;
+      delete updates.createdBy;
+      delete updates.createdAt;
+      delete updates.updatedAt;
+      
+      const template = await storage.updateInspectionTemplate(req.params.id, updates);
       res.json(template);
     } catch (error) {
       console.error("Error updating inspection template:", error);

@@ -178,7 +178,7 @@ export default function InspectionTemplates() {
   };
 
   const handleBuilderSave = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/inspection-templates"] });
+    // Cache invalidation is handled by TemplateBuilder
     handleCloseBuilder();
   };
 
