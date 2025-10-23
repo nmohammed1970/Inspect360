@@ -15,7 +15,8 @@ import {
   insertInventoryItemSchema,
   insertWorkOrderSchema,
   insertWorkLogSchema,
-  insertAssetInventorySchema
+  insertAssetInventorySchema,
+  insertTagSchema
 } from "@shared/schema";
 
 // Initialize Stripe
@@ -2181,6 +2182,344 @@ Provide a structured comparison highlighting differences in condition ratings an
     } catch (error) {
       console.error("Error fetching work logs:", error);
       res.status(500).json({ error: "Failed to fetch work logs" });
+    }
+  });
+
+  // ==================== TAG ROUTES ====================
+  
+  // Create a new tag
+  app.post("/api/tags", isAuthenticated, requireRole(["owner", "clerk", "compliance"]), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ error: "User not associated with an organization" });
+      }
+
+      const validatedData = insertTagSchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+      });
+
+      const tag = await storage.createTag(validatedData);
+      res.json(tag);
+    } catch (error: any) {
+      console.error("Error creating tag:", error);
+      res.status(400).json({ error: error.message || "Failed to create tag" });
+    }
+  });
+
+  // Get all tags for the organization
+  app.get("/api/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ error: "User not associated with an organization" });
+      }
+
+      const tags = await storage.getTagsByOrganization(user.organizationId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching tags:", error);
+      res.status(500).json({ error: "Failed to fetch tags" });
+    }
+  });
+
+  // Update a tag
+  app.patch("/api/tags/:id", isAuthenticated, requireRole(["owner", "clerk", "compliance"]), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      const tag = await storage.getTag(req.params.id);
+
+      if (!tag) {
+        return res.status(404).json({ error: "Tag not found" });
+      }
+
+      if (tag.organizationId !== user?.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const updated = await storage.updateTag(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating tag:", error);
+      res.status(500).json({ error: "Failed to update tag" });
+    }
+  });
+
+  // Delete a tag
+  app.delete("/api/tags/:id", isAuthenticated, requireRole(["owner", "clerk", "compliance"]), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      const tag = await storage.getTag(req.params.id);
+
+      if (!tag) {
+        return res.status(404).json({ error: "Tag not found" });
+      }
+
+      if (tag.organizationId !== user?.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteTag(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting tag:", error);
+      res.status(500).json({ error: "Failed to delete tag" });
+    }
+  });
+
+  // Add tag to block
+  app.post("/api/blocks/:blockId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      const block = await storage.getBlock(req.params.blockId);
+      const tag = await storage.getTag(req.params.tagId);
+
+      if (!block || !tag) {
+        return res.status(404).json({ error: "Block or tag not found" });
+      }
+
+      if (block.organizationId !== user?.organizationId || tag.organizationId !== user?.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.addTagToBlock(req.params.blockId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to block:", error);
+      res.status(500).json({ error: "Failed to add tag to block" });
+    }
+  });
+
+  // Remove tag from block
+  app.delete("/api/blocks/:blockId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.removeTagFromBlock(req.params.blockId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from block:", error);
+      res.status(500).json({ error: "Failed to remove tag from block" });
+    }
+  });
+
+  // Get tags for block
+  app.get("/api/blocks/:blockId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForBlock(req.params.blockId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching block tags:", error);
+      res.status(500).json({ error: "Failed to fetch block tags" });
+    }
+  });
+
+  // Add tag to property
+  app.post("/api/properties/:propertyId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      const property = await storage.getProperty(req.params.propertyId);
+      const tag = await storage.getTag(req.params.tagId);
+
+      if (!property || !tag) {
+        return res.status(404).json({ error: "Property or tag not found" });
+      }
+
+      if (property.organizationId !== user?.organizationId || tag.organizationId !== user?.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.addTagToProperty(req.params.propertyId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to property:", error);
+      res.status(500).json({ error: "Failed to add tag to property" });
+    }
+  });
+
+  // Remove tag from property
+  app.delete("/api/properties/:propertyId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.removeTagFromProperty(req.params.propertyId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from property:", error);
+      res.status(500).json({ error: "Failed to remove tag from property" });
+    }
+  });
+
+  // Get tags for property
+  app.get("/api/properties/:propertyId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForProperty(req.params.propertyId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching property tags:", error);
+      res.status(500).json({ error: "Failed to fetch property tags" });
+    }
+  });
+
+  // Add tag to user
+  app.post("/api/users/:userId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      const targetUser = await storage.getUser(req.params.userId);
+      const tag = await storage.getTag(req.params.tagId);
+
+      if (!targetUser || !tag) {
+        return res.status(404).json({ error: "User or tag not found" });
+      }
+
+      if (targetUser.organizationId !== user?.organizationId || tag.organizationId !== user?.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.addTagToUser(req.params.userId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to user:", error);
+      res.status(500).json({ error: "Failed to add tag to user" });
+    }
+  });
+
+  // Remove tag from user
+  app.delete("/api/users/:userId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.removeTagFromUser(req.params.userId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from user:", error);
+      res.status(500).json({ error: "Failed to remove tag from user" });
+    }
+  });
+
+  // Get tags for user
+  app.get("/api/users/:userId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForUser(req.params.userId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching user tags:", error);
+      res.status(500).json({ error: "Failed to fetch user tags" });
+    }
+  });
+
+  // Add tag to compliance document
+  app.post("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+    try {
+      await storage.addTagToComplianceDocument(req.params.complianceId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to compliance document:", error);
+      res.status(500).json({ error: "Failed to add tag to compliance document" });
+    }
+  });
+
+  // Remove tag from compliance document
+  app.delete("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole(["owner", "compliance"]), async (req: any, res) => {
+    try {
+      await storage.removeTagFromComplianceDocument(req.params.complianceId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from compliance document:", error);
+      res.status(500).json({ error: "Failed to remove tag from compliance document" });
+    }
+  });
+
+  // Get tags for compliance document
+  app.get("/api/compliance/:complianceId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForComplianceDocument(req.params.complianceId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching compliance document tags:", error);
+      res.status(500).json({ error: "Failed to fetch compliance document tags" });
+    }
+  });
+
+  // Add tag to asset inventory
+  app.post("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.addTagToAssetInventory(req.params.assetId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to asset inventory:", error);
+      res.status(500).json({ error: "Failed to add tag to asset inventory" });
+    }
+  });
+
+  // Remove tag from asset inventory
+  app.delete("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.removeTagFromAssetInventory(req.params.assetId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from asset inventory:", error);
+      res.status(500).json({ error: "Failed to remove tag from asset inventory" });
+    }
+  });
+
+  // Get tags for asset inventory
+  app.get("/api/asset-inventory/:assetId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForAssetInventory(req.params.assetId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching asset inventory tags:", error);
+      res.status(500).json({ error: "Failed to fetch asset inventory tags" });
+    }
+  });
+
+  // Add tag to maintenance request
+  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.addTagToMaintenanceRequest(req.params.requestId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to maintenance request:", error);
+      res.status(500).json({ error: "Failed to add tag to maintenance request" });
+    }
+  });
+
+  // Remove tag from maintenance request
+  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole(["owner", "clerk"]), async (req: any, res) => {
+    try {
+      await storage.removeTagFromMaintenanceRequest(req.params.requestId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from maintenance request:", error);
+      res.status(500).json({ error: "Failed to remove tag from maintenance request" });
+    }
+  });
+
+  // Get tags for maintenance request
+  app.get("/api/maintenance/:requestId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForMaintenanceRequest(req.params.requestId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching maintenance request tags:", error);
+      res.status(500).json({ error: "Failed to fetch maintenance request tags" });
+    }
+  });
+
+  // Search entities by tags
+  app.post("/api/tags/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ error: "User not associated with an organization" });
+      }
+
+      const { tagIds } = req.body;
+      if (!Array.isArray(tagIds)) {
+        return res.status(400).json({ error: "tagIds must be an array" });
+      }
+
+      const results = await storage.searchByTags(user.organizationId, tagIds);
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching by tags:", error);
+      res.status(500).json({ error: "Failed to search by tags" });
     }
   });
 

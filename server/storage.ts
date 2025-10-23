@@ -20,6 +20,13 @@ import {
   workOrders,
   workLogs,
   assetInventory,
+  tags,
+  blockTags,
+  propertyTags,
+  userTags,
+  complianceDocumentTags,
+  assetInventoryTags,
+  maintenanceRequestTags,
   type User,
   type UpsertUser,
   type Organization,
@@ -62,6 +69,8 @@ import {
   type InsertWorkLog,
   type AssetInventory,
   type InsertAssetInventory,
+  type Tag,
+  type InsertTag,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, gte, lte, ne } from "drizzle-orm";
@@ -209,6 +218,48 @@ export interface IStorage {
   getInspectionResponse(id: string): Promise<InspectionResponse | undefined>;
   updateInspectionResponse(id: string, updates: Partial<InsertInspectionResponse>): Promise<InspectionResponse>;
   deleteInspectionResponse(id: string): Promise<void>;
+
+  // Tag operations
+  createTag(tag: InsertTag): Promise<Tag>;
+  getTagsByOrganization(organizationId: string): Promise<Tag[]>;
+  getTag(id: string): Promise<Tag | undefined>;
+  updateTag(id: string, updates: Partial<InsertTag>): Promise<Tag>;
+  deleteTag(id: string): Promise<void>;
+  
+  // Tag entity association operations
+  addTagToBlock(blockId: string, tagId: string): Promise<void>;
+  removeTagFromBlock(blockId: string, tagId: string): Promise<void>;
+  getTagsForBlock(blockId: string): Promise<Tag[]>;
+  
+  addTagToProperty(propertyId: string, tagId: string): Promise<void>;
+  removeTagFromProperty(propertyId: string, tagId: string): Promise<void>;
+  getTagsForProperty(propertyId: string): Promise<Tag[]>;
+  
+  addTagToUser(userId: string, tagId: string): Promise<void>;
+  removeTagFromUser(userId: string, tagId: string): Promise<void>;
+  getTagsForUser(userId: string): Promise<Tag[]>;
+  
+  addTagToComplianceDocument(complianceDocumentId: string, tagId: string): Promise<void>;
+  removeTagFromComplianceDocument(complianceDocumentId: string, tagId: string): Promise<void>;
+  getTagsForComplianceDocument(complianceDocumentId: string): Promise<Tag[]>;
+  
+  addTagToAssetInventory(assetInventoryId: string, tagId: string): Promise<void>;
+  removeTagFromAssetInventory(assetInventoryId: string, tagId: string): Promise<void>;
+  getTagsForAssetInventory(assetInventoryId: string): Promise<Tag[]>;
+  
+  addTagToMaintenanceRequest(maintenanceRequestId: string, tagId: string): Promise<void>;
+  removeTagFromMaintenanceRequest(maintenanceRequestId: string, tagId: string): Promise<void>;
+  getTagsForMaintenanceRequest(maintenanceRequestId: string): Promise<Tag[]>;
+  
+  // Tag search operations
+  searchByTags(organizationId: string, tagIds: string[]): Promise<{
+    blocks: any[];
+    properties: any[];
+    users: any[];
+    complianceDocuments: any[];
+    assetInventory: any[];
+    maintenanceRequests: any[];
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1303,6 +1354,281 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInspectionResponse(id: string): Promise<void> {
     await db.delete(inspectionResponses).where(eq(inspectionResponses.id, id));
+  }
+
+  // Tag operations
+  async createTag(tagData: InsertTag): Promise<Tag> {
+    const [tag] = await db.insert(tags).values(tagData).returning();
+    return tag;
+  }
+
+  async getTagsByOrganization(organizationId: string): Promise<Tag[]> {
+    return await db
+      .select()
+      .from(tags)
+      .where(eq(tags.organizationId, organizationId))
+      .orderBy(tags.name);
+  }
+
+  async getTag(id: string): Promise<Tag | undefined> {
+    const [tag] = await db
+      .select()
+      .from(tags)
+      .where(eq(tags.id, id));
+    return tag;
+  }
+
+  async updateTag(id: string, updates: Partial<InsertTag>): Promise<Tag> {
+    const [tag] = await db
+      .update(tags)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(tags.id, id))
+      .returning();
+    return tag;
+  }
+
+  async deleteTag(id: string): Promise<void> {
+    // Delete all tag associations first
+    await db.delete(blockTags).where(eq(blockTags.tagId, id));
+    await db.delete(propertyTags).where(eq(propertyTags.tagId, id));
+    await db.delete(userTags).where(eq(userTags.tagId, id));
+    await db.delete(complianceDocumentTags).where(eq(complianceDocumentTags.tagId, id));
+    await db.delete(assetInventoryTags).where(eq(assetInventoryTags.tagId, id));
+    await db.delete(maintenanceRequestTags).where(eq(maintenanceRequestTags.tagId, id));
+    // Delete the tag itself
+    await db.delete(tags).where(eq(tags.id, id));
+  }
+
+  // Block tag operations
+  async addTagToBlock(blockId: string, tagId: string): Promise<void> {
+    await db.insert(blockTags).values({ blockId, tagId });
+  }
+
+  async removeTagFromBlock(blockId: string, tagId: string): Promise<void> {
+    await db.delete(blockTags).where(
+      and(eq(blockTags.blockId, blockId), eq(blockTags.tagId, tagId))
+    );
+  }
+
+  async getTagsForBlock(blockId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(blockTags)
+      .innerJoin(tags, eq(blockTags.tagId, tags.id))
+      .where(eq(blockTags.blockId, blockId));
+    return result.map(r => r.tag);
+  }
+
+  // Property tag operations
+  async addTagToProperty(propertyId: string, tagId: string): Promise<void> {
+    await db.insert(propertyTags).values({ propertyId, tagId });
+  }
+
+  async removeTagFromProperty(propertyId: string, tagId: string): Promise<void> {
+    await db.delete(propertyTags).where(
+      and(eq(propertyTags.propertyId, propertyId), eq(propertyTags.tagId, tagId))
+    );
+  }
+
+  async getTagsForProperty(propertyId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(propertyTags)
+      .innerJoin(tags, eq(propertyTags.tagId, tags.id))
+      .where(eq(propertyTags.propertyId, propertyId));
+    return result.map(r => r.tag);
+  }
+
+  // User tag operations
+  async addTagToUser(userId: string, tagId: string): Promise<void> {
+    await db.insert(userTags).values({ userId, tagId });
+  }
+
+  async removeTagFromUser(userId: string, tagId: string): Promise<void> {
+    await db.delete(userTags).where(
+      and(eq(userTags.userId, userId), eq(userTags.tagId, tagId))
+    );
+  }
+
+  async getTagsForUser(userId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(userTags)
+      .innerJoin(tags, eq(userTags.tagId, tags.id))
+      .where(eq(userTags.userId, userId));
+    return result.map(r => r.tag);
+  }
+
+  // Compliance document tag operations
+  async addTagToComplianceDocument(complianceDocumentId: string, tagId: string): Promise<void> {
+    await db.insert(complianceDocumentTags).values({ complianceDocumentId, tagId });
+  }
+
+  async removeTagFromComplianceDocument(complianceDocumentId: string, tagId: string): Promise<void> {
+    await db.delete(complianceDocumentTags).where(
+      and(
+        eq(complianceDocumentTags.complianceDocumentId, complianceDocumentId),
+        eq(complianceDocumentTags.tagId, tagId)
+      )
+    );
+  }
+
+  async getTagsForComplianceDocument(complianceDocumentId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(complianceDocumentTags)
+      .innerJoin(tags, eq(complianceDocumentTags.tagId, tags.id))
+      .where(eq(complianceDocumentTags.complianceDocumentId, complianceDocumentId));
+    return result.map(r => r.tag);
+  }
+
+  // Asset inventory tag operations
+  async addTagToAssetInventory(assetInventoryId: string, tagId: string): Promise<void> {
+    await db.insert(assetInventoryTags).values({ assetInventoryId, tagId });
+  }
+
+  async removeTagFromAssetInventory(assetInventoryId: string, tagId: string): Promise<void> {
+    await db.delete(assetInventoryTags).where(
+      and(
+        eq(assetInventoryTags.assetInventoryId, assetInventoryId),
+        eq(assetInventoryTags.tagId, tagId)
+      )
+    );
+  }
+
+  async getTagsForAssetInventory(assetInventoryId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(assetInventoryTags)
+      .innerJoin(tags, eq(assetInventoryTags.tagId, tags.id))
+      .where(eq(assetInventoryTags.assetInventoryId, assetInventoryId));
+    return result.map(r => r.tag);
+  }
+
+  // Maintenance request tag operations
+  async addTagToMaintenanceRequest(maintenanceRequestId: string, tagId: string): Promise<void> {
+    await db.insert(maintenanceRequestTags).values({ maintenanceRequestId, tagId });
+  }
+
+  async removeTagFromMaintenanceRequest(maintenanceRequestId: string, tagId: string): Promise<void> {
+    await db.delete(maintenanceRequestTags).where(
+      and(
+        eq(maintenanceRequestTags.maintenanceRequestId, maintenanceRequestId),
+        eq(maintenanceRequestTags.tagId, tagId)
+      )
+    );
+  }
+
+  async getTagsForMaintenanceRequest(maintenanceRequestId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(maintenanceRequestTags)
+      .innerJoin(tags, eq(maintenanceRequestTags.tagId, tags.id))
+      .where(eq(maintenanceRequestTags.maintenanceRequestId, maintenanceRequestId));
+    return result.map(r => r.tag);
+  }
+
+  // Tag search operations
+  async searchByTags(organizationId: string, tagIds: string[]): Promise<{
+    blocks: any[];
+    properties: any[];
+    users: any[];
+    complianceDocuments: any[];
+    assetInventory: any[];
+    maintenanceRequests: any[];
+  }> {
+    const results = {
+      blocks: [] as any[],
+      properties: [] as any[],
+      users: [] as any[],
+      complianceDocuments: [] as any[],
+      assetInventory: [] as any[],
+      maintenanceRequests: [] as any[],
+    };
+
+    if (tagIds.length === 0) {
+      return results;
+    }
+
+    // Search blocks with these tags
+    const blocksResult = await db
+      .select({ block: blocks })
+      .from(blockTags)
+      .innerJoin(blocks, eq(blockTags.blockId, blocks.id))
+      .where(
+        and(
+          sql`${blockTags.tagId} = ANY(${tagIds})`,
+          eq(blocks.organizationId, organizationId)
+        )
+      );
+    results.blocks = blocksResult.map(r => r.block);
+
+    // Search properties with these tags
+    const propertiesResult = await db
+      .select({ property: properties })
+      .from(propertyTags)
+      .innerJoin(properties, eq(propertyTags.propertyId, properties.id))
+      .where(
+        and(
+          sql`${propertyTags.tagId} = ANY(${tagIds})`,
+          eq(properties.organizationId, organizationId)
+        )
+      );
+    results.properties = propertiesResult.map(r => r.property);
+
+    // Search users with these tags
+    const usersResult = await db
+      .select({ user: users })
+      .from(userTags)
+      .innerJoin(users, eq(userTags.userId, users.id))
+      .where(
+        and(
+          sql`${userTags.tagId} = ANY(${tagIds})`,
+          eq(users.organizationId, organizationId)
+        )
+      );
+    results.users = usersResult.map(r => r.user);
+
+    // Search compliance documents with these tags
+    const complianceResult = await db
+      .select({ doc: complianceDocuments })
+      .from(complianceDocumentTags)
+      .innerJoin(complianceDocuments, eq(complianceDocumentTags.complianceDocumentId, complianceDocuments.id))
+      .where(
+        and(
+          sql`${complianceDocumentTags.tagId} = ANY(${tagIds})`,
+          eq(complianceDocuments.organizationId, organizationId)
+        )
+      );
+    results.complianceDocuments = complianceResult.map(r => r.doc);
+
+    // Search asset inventory with these tags
+    const assetResult = await db
+      .select({ asset: assetInventory })
+      .from(assetInventoryTags)
+      .innerJoin(assetInventory, eq(assetInventoryTags.assetInventoryId, assetInventory.id))
+      .where(
+        and(
+          sql`${assetInventoryTags.tagId} = ANY(${tagIds})`,
+          eq(assetInventory.organizationId, organizationId)
+        )
+      );
+    results.assetInventory = assetResult.map(r => r.asset);
+
+    // Search maintenance requests with these tags
+    const maintenanceResult = await db
+      .select({ request: maintenanceRequests })
+      .from(maintenanceRequestTags)
+      .innerJoin(maintenanceRequests, eq(maintenanceRequestTags.maintenanceRequestId, maintenanceRequests.id))
+      .where(
+        and(
+          sql`${maintenanceRequestTags.tagId} = ANY(${tagIds})`,
+          eq(maintenanceRequests.organizationId, organizationId)
+        )
+      );
+    results.maintenanceRequests = maintenanceResult.map(r => r.request);
+
+    return results;
   }
 }
 
