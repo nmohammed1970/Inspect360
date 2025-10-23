@@ -55,7 +55,15 @@ The platform follows a PWA-first approach with a robust web architecture.
     - ✅ Blocks: Full tag assignment UI integrated in create/edit forms
     - ⏳ Properties, Users, Compliance Documents, Asset Inventory, Maintenance Requests: Backend ready, frontend integration pending
   - **Extension Pattern**: The TagInput component and tag persistence logic from Blocks serves as a reusable pattern for integrating tags into remaining entity forms.
-- **Dashboards**: Role-specific dashboards with KPIs (properties, blocks, inspections, credits, compliance status).
+- **Configurable Role-Based Dashboards (October 2025)**: Comprehensive dashboard system with role-specific views and user customization. Features include:
+  - **Role-Specific Panels**: 9 panel types (stats, inspections, compliance, maintenance, assets, workOrders, inspectionTrend, statusDistribution, credits) with role-based access control
+  - **Panel Permissions**: Server-side and client-side enforcement ensures users only see authorized panels (e.g., credits panel owner-only, compliance panel for owner/compliance roles)
+  - **Configurable Layout**: Users can show/hide available panels via Configure dialog; preferences persist in database
+  - **Charts & Visualizations**: Recharts-powered LineChart for inspection trends and PieChart for status distribution
+  - **Empty States**: Panels display helpful empty states with CTAs when enabled but no data exists
+  - **Role View Switching (Owner Only)**: Owners can preview dashboard as other roles (clerk, compliance) without changing actual permissions
+  - **Quick Stats**: Always-visible stats showing properties, blocks, inspections, and AI credits (owner-only)
+  - **Security**: Backend validates panel IDs against user role before persisting preferences to prevent privilege escalation
 - **Tenant Portal**: Secure access to property-specific reports and maintenance request submission.
 - **Team Management**: Owner-controlled user and role management.
 - **Organization Onboarding**: Streamlined setup for new organizations.

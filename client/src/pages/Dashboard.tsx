@@ -448,7 +448,7 @@ export default function Dashboard() {
                   <p className="text-3xl font-bold">{inspections.length}</p>
                   <p className="text-sm text-muted-foreground mt-1">Inspections</p>
                 </div>
-                {user?.role === "owner" && (
+                {viewRole === "owner" && (
                   <div className="p-6 bg-card/50 rounded-xl border" data-testid="stat-credits">
                     <div className="flex items-center gap-3 mb-2">
                       <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
