@@ -116,13 +116,18 @@ Comprehensive JSON-based inspection template system with flexible structure edit
 - **Responsive Design**: Works on desktop and tablet devices
 - **Component**: `TemplateBuilder.tsx` with collapsible sections and field management
 
-**Templates List Page**:
-- Card-based grid layout showing all templates
-- Filter by category and active status
+**Templates List Page (Task 5 - Complete)**:
+- Card-based grid layout showing all templates with loading skeletons
+- **Comprehensive Filtering**: Search by name/description, filter by category/scope/status, sort by 5 options
+- **Search Functionality**: Real-time client-side search with clear button
+- **Scope Filter**: Filter by Property/Block/Both with smart logic (property filter includes "both" templates)
+- **Sorting Options**: Name A-Z, Name Z-A, Newest First, Oldest First, Highest Version
+- **Clear Filters Button**: Resets all filters to defaults, appears when any filter is active
+- **Result Count**: Shows "X templates" with "(filtered from Y)" notation when filters applied
+- **Enhanced Empty States**: Context-aware messages for "no templates" vs "no matching filters"
 - Template cards display: name, description, category badge, scope, version number, active toggle
 - Quick actions: Edit, Clone (create new version), Delete
 - Category management dialog with color picker
-- Empty state with CTA for first template creation
 
 **API Routes (21 endpoints)**:
 - Template Categories: GET, POST, PUT, DELETE
@@ -145,9 +150,9 @@ Comprehensive JSON-based inspection template system with flexible structure edit
 - ✅ Task 2: Storage layer with offline sync
 - ✅ Task 3: Backend API routes (21 endpoints)
 - ✅ Task 4: Template Builder UI with visual editor (October 23, 2025)
+- ✅ Task 5: Templates list page filtering enhancements (October 23, 2025)
 
 **Pending Tasks**:
-- Task 5: Templates list page enhancements (filtering UI)
 - Task 6: Update inspection creation flow to support template selection and snapshot creation
 - Tasks 7-18: Inspector capture UI, field widgets, offline queue, review screens, comparison reports
 - Task 19: Full documentation update
