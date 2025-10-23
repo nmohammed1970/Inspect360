@@ -27,6 +27,8 @@ import WorkOrders from "@/pages/WorkOrders";
 import Settings from "@/pages/Settings";
 import AssetInventory from "@/pages/AssetInventory";
 import InspectionTemplates from "@/pages/InspectionTemplates";
+import InspectionCapture from "@/pages/InspectionCapture";
+import InspectionReview from "@/pages/InspectionReview";
 import Contacts from "@/pages/Contacts";
 import { Button } from "@/components/ui/button";
 import { LogOut, Loader2 } from "lucide-react";
@@ -97,6 +99,8 @@ function AppContent() {
                 <Route path="/properties/:id" component={PropertyDetail} />
                 <Route path="/credits" component={Credits} />
                 <Route path="/inspections" component={Inspections} />
+                <Route path="/inspections/:id/capture" component={InspectionCapture} />
+                <Route path="/inspections/:id/review" component={InspectionReview} />
                 <Route path="/inspections/:id" component={InspectionDetail} />
                 <Route path="/compliance" component={Compliance} />
                 <Route path="/maintenance" component={Maintenance} />

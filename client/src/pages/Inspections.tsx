@@ -33,8 +33,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, ClipboardList, Calendar, MapPin, User } from "lucide-react";
-import { Link } from "wouter";
+import { Plus, ClipboardList, Calendar, MapPin, User, Play } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 
 const createInspectionSchema = z.object({
@@ -50,6 +50,7 @@ type CreateInspectionData = z.infer<typeof createInspectionSchema>;
 
 export default function Inspections() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
 
@@ -357,21 +358,21 @@ export default function Inspections() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {inspections.map((inspection: any) => (
-            <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
-              <Card className="hover-elevate cursor-pointer" data-testid={`card-inspection-${inspection.id}`}>
-                <CardHeader>
-                  <div className="flex justify-between items-start gap-2">
-                    <CardTitle className="text-lg">
-                      {inspection.property?.name || "Unknown Property"}
-                    </CardTitle>
-                    {getStatusBadge(inspection.status)}
-                  </div>
-                  <CardDescription className="flex items-center gap-1">
-                    <MapPin className="w-3 h-3" />
-                    {inspection.property?.address || inspection.block?.address || "No location"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
+            <Card key={inspection.id} className="hover-elevate" data-testid={`card-inspection-${inspection.id}`}>
+              <CardHeader>
+                <div className="flex justify-between items-start gap-2">
+                  <CardTitle className="text-lg">
+                    {inspection.property?.name || "Unknown Property"}
+                  </CardTitle>
+                  {getStatusBadge(inspection.status)}
+                </div>
+                <CardDescription className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {inspection.property?.address || inspection.block?.address || "No location"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Type:</span>
                     {getTypeBadge(inspection.type)}
@@ -392,9 +393,32 @@ export default function Inspections() {
                       </span>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </Link>
+                </div>
+                
+                <div className="flex gap-2">
+                  {inspection.templateSnapshotJson && inspection.status !== "completed" && (
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => navigate(`/inspections/${inspection.id}/capture`)}
+                      data-testid={`button-start-capture-${inspection.id}`}
+                    >
+                      <Play className="w-4 h-4 mr-2" />
+                      {inspection.status === "in_progress" ? "Continue" : "Start"}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => navigate(`/inspections/${inspection.id}`)}
+                    data-testid={`button-view-details-${inspection.id}`}
+                  >
+                    View Details
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
