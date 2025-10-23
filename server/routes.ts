@@ -2525,12 +2525,60 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== DASHBOARD PREFERENCES ROUTES ====================
   
+  // Define role-based panel permissions
+  const PANEL_PERMISSIONS: Record<string, string[]> = {
+    stats: ["owner", "clerk", "compliance"],
+    inspections: ["owner", "clerk"],
+    compliance: ["owner", "compliance"],
+    maintenance: ["owner", "clerk"],
+    assets: ["owner", "clerk"],
+    workOrders: ["owner", "contractor"],
+    inspectionTrend: ["owner", "clerk"],
+    statusDistribution: ["owner", "clerk", "compliance"],
+    credits: ["owner"],
+  };
+
+  // Get allowed panels for a role
+  function getAllowedPanels(role: string): string[] {
+    return Object.keys(PANEL_PERMISSIONS).filter(panel => 
+      PANEL_PERMISSIONS[panel].includes(role)
+    );
+  }
+
+  // Filter panels based on role permissions
+  function filterPanelsByRole(panels: string[], role: string): string[] {
+    const allowed = getAllowedPanels(role);
+    return panels.filter(panel => allowed.includes(panel));
+  }
+
   // Get dashboard preferences
   app.get("/api/dashboard/preferences", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
       const prefs = await storage.getDashboardPreferences(userId);
-      res.json(prefs || { enabledPanels: ["stats", "inspections", "compliance", "maintenance"] });
+      
+      // Default panels based on role
+      const defaultPanels = getAllowedPanels(user.role);
+      
+      if (!prefs) {
+        return res.json({ enabledPanels: defaultPanels });
+      }
+
+      // Parse enabled panels if stored as string
+      let enabledPanels = prefs.enabledPanels;
+      if (typeof enabledPanels === "string") {
+        enabledPanels = JSON.parse(enabledPanels);
+      }
+
+      // Filter panels to only those allowed for user's role
+      const filteredPanels = filterPanelsByRole(enabledPanels, user.role);
+      
+      res.json({ enabledPanels: filteredPanels });
     } catch (error) {
       console.error("Error fetching dashboard preferences:", error);
       res.status(500).json({ error: "Failed to fetch dashboard preferences" });
@@ -2541,14 +2589,22 @@ Provide a structured comparison highlighting differences in condition ratings an
   app.put("/api/dashboard/preferences", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
       const { enabledPanels } = req.body;
       
       if (!Array.isArray(enabledPanels)) {
         return res.status(400).json({ error: "enabledPanels must be an array" });
       }
 
-      const prefs = await storage.updateDashboardPreferences(userId, enabledPanels);
-      res.json(prefs);
+      // Filter panels to only those allowed for user's role
+      const filteredPanels = filterPanelsByRole(enabledPanels, user.role);
+
+      const prefs = await storage.updateDashboardPreferences(userId, filteredPanels);
+      res.json({ ...prefs, enabledPanels: filteredPanels });
     } catch (error) {
       console.error("Error updating dashboard preferences:", error);
       res.status(500).json({ error: "Failed to update dashboard preferences" });

@@ -533,7 +533,7 @@ export default function Dashboard() {
         )}
 
         {/* Recent Inspections */}
-        {shouldShowPanel("inspections") && inspections.length > 0 && (
+        {shouldShowPanel("inspections") && (
           <Card className="lg:col-span-2" data-testid="panel-inspections">
             <CardHeader>
               <CardTitle className="text-2xl font-bold flex items-center gap-2">
@@ -542,44 +542,56 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {inspections.slice(0, 5).map((inspection) => (
-                  <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
-                    <div
-                      className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                      data-testid={`card-inspection-${inspection.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-lg truncate">
-                          {inspection.property?.name || inspection.block?.name || "Unknown Property"}
-                        </p>
-                        <p className="text-sm text-muted-foreground truncate mt-1">
-                          {inspection.type} • {new Date(inspection.scheduledDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={
-                          inspection.status === "completed"
-                            ? "default"
-                            : inspection.status === "in_progress"
-                            ? "secondary"
-                            : "outline"
-                        }
-                        className="whitespace-nowrap"
-                        data-testid={`badge-status-${inspection.id}`}
+              {inspections.length > 0 ? (
+                <div className="space-y-3">
+                  {inspections.slice(0, 5).map((inspection) => (
+                    <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
+                      <div
+                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        data-testid={`card-inspection-${inspection.id}`}
                       >
-                        {inspection.status}
-                      </Badge>
-                    </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-lg truncate">
+                            {inspection.property?.name || inspection.block?.name || "Unknown Property"}
+                          </p>
+                          <p className="text-sm text-muted-foreground truncate mt-1">
+                            {inspection.type} • {new Date(inspection.scheduledDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            inspection.status === "completed"
+                              ? "default"
+                              : inspection.status === "in_progress"
+                              ? "secondary"
+                              : "outline"
+                          }
+                          className="whitespace-nowrap"
+                          data-testid={`badge-status-${inspection.id}`}
+                        >
+                          {inspection.status}
+                        </Badge>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12" data-testid="empty-inspections">
+                  <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No inspections yet</p>
+                  <Link href="/inspections">
+                    <Button variant="outline" size="sm" className="mt-4">
+                      Create Inspection
+                    </Button>
                   </Link>
-                ))}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
         {/* Compliance Documents */}
-        {shouldShowPanel("compliance") && compliance.length > 0 && (
+        {shouldShowPanel("compliance") && (
           <Card data-testid="panel-compliance">
             <CardHeader>
               <CardTitle className="text-2xl font-bold flex items-center gap-2">
@@ -588,42 +600,54 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {compliance.slice(0, 5).map((doc) => (
-                  <Link key={doc.id} href="/compliance">
-                    <div
-                      className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                      data-testid={`card-compliance-${doc.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-lg truncate">{doc.documentType}</p>
-                        <p className="text-sm text-muted-foreground truncate mt-1">
-                          Expires: {new Date(doc.expiryDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={
-                          doc.status === "current"
-                            ? "default"
-                            : doc.status === "expiring_soon"
-                            ? "secondary"
-                            : "destructive"
-                        }
-                        className="whitespace-nowrap"
-                        data-testid={`badge-status-${doc.id}`}
+              {compliance.length > 0 ? (
+                <div className="space-y-3">
+                  {compliance.slice(0, 5).map((doc) => (
+                    <Link key={doc.id} href="/compliance">
+                      <div
+                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        data-testid={`card-compliance-${doc.id}`}
                       >
-                        {doc.status}
-                      </Badge>
-                    </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-lg truncate">{doc.documentType}</p>
+                          <p className="text-sm text-muted-foreground truncate mt-1">
+                            Expires: {new Date(doc.expiryDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            doc.status === "current"
+                              ? "default"
+                              : doc.status === "expiring_soon"
+                              ? "secondary"
+                              : "destructive"
+                          }
+                          className="whitespace-nowrap"
+                          data-testid={`badge-status-${doc.id}`}
+                        >
+                          {doc.status}
+                        </Badge>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12" data-testid="empty-compliance">
+                  <FileText className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No compliance documents yet</p>
+                  <Link href="/compliance">
+                    <Button variant="outline" size="sm" className="mt-4">
+                      Add Document
+                    </Button>
                   </Link>
-                ))}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
         {/* Maintenance Requests */}
-        {shouldShowPanel("maintenance") && maintenance.length > 0 && (
+        {shouldShowPanel("maintenance") && (
           <Card data-testid="panel-maintenance">
             <CardHeader>
               <CardTitle className="text-2xl font-bold flex items-center gap-2">
@@ -632,42 +656,54 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {maintenance.slice(0, 5).map((request) => (
-                  <Link key={request.id} href="/maintenance">
-                    <div
-                      className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                      data-testid={`card-maintenance-${request.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-lg truncate">{request.title}</p>
-                        <p className="text-sm text-muted-foreground truncate mt-1">
-                          Priority: <span className="font-medium">{request.priority}</span>
-                        </p>
-                      </div>
-                      <Badge
-                        variant={
-                          request.status === "completed"
-                            ? "default"
-                            : request.status === "in_progress"
-                            ? "secondary"
-                            : "outline"
-                        }
-                        className="whitespace-nowrap"
-                        data-testid={`badge-status-${request.id}`}
+              {maintenance.length > 0 ? (
+                <div className="space-y-3">
+                  {maintenance.slice(0, 5).map((request) => (
+                    <Link key={request.id} href="/maintenance">
+                      <div
+                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        data-testid={`card-maintenance-${request.id}`}
                       >
-                        {request.status}
-                      </Badge>
-                    </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-lg truncate">{request.title}</p>
+                          <p className="text-sm text-muted-foreground truncate mt-1">
+                            Priority: <span className="font-medium">{request.priority}</span>
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            request.status === "completed"
+                              ? "default"
+                              : request.status === "in_progress"
+                              ? "secondary"
+                              : "outline"
+                          }
+                          className="whitespace-nowrap"
+                          data-testid={`badge-status-${request.id}`}
+                        >
+                          {request.status}
+                        </Badge>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12" data-testid="empty-maintenance">
+                  <Wrench className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No maintenance requests</p>
+                  <Link href="/maintenance">
+                    <Button variant="outline" size="sm" className="mt-4">
+                      Create Request
+                    </Button>
                   </Link>
-                ))}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
         {/* Asset Inventory */}
-        {shouldShowPanel("assets") && assets.length > 0 && (
+        {shouldShowPanel("assets") && (
           <Card data-testid="panel-assets">
             <CardHeader>
               <CardTitle className="text-2xl font-bold flex items-center gap-2">
@@ -676,36 +712,48 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {assets.filter(a => a.condition === "poor" || a.condition === "needs_replacement").slice(0, 5).map((asset) => (
-                  <Link key={asset.id} href="/inventory">
-                    <div
-                      className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                      data-testid={`card-asset-${asset.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-lg truncate">{asset.name}</p>
-                        <p className="text-sm text-muted-foreground truncate mt-1">
-                          {asset.category}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={asset.condition === "needs_replacement" ? "destructive" : "secondary"}
-                        className="whitespace-nowrap"
-                        data-testid={`badge-condition-${asset.id}`}
+              {assets.length > 0 ? (
+                <div className="space-y-3">
+                  {assets.filter(a => a.condition === "poor" || a.condition === "needs_replacement").slice(0, 5).map((asset) => (
+                    <Link key={asset.id} href="/inventory">
+                      <div
+                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        data-testid={`card-asset-${asset.id}`}
                       >
-                        {asset.condition}
-                      </Badge>
-                    </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-lg truncate">{asset.name}</p>
+                          <p className="text-sm text-muted-foreground truncate mt-1">
+                            {asset.category}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={asset.condition === "needs_replacement" ? "destructive" : "secondary"}
+                          className="whitespace-nowrap"
+                          data-testid={`badge-condition-${asset.id}`}
+                        >
+                          {asset.condition}
+                        </Badge>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12" data-testid="empty-assets">
+                  <Package className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No assets tracked yet</p>
+                  <Link href="/inventory">
+                    <Button variant="outline" size="sm" className="mt-4">
+                      Add Asset
+                    </Button>
                   </Link>
-                ))}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
         {/* Work Orders */}
-        {shouldShowPanel("workOrders") && workOrders.length > 0 && (
+        {shouldShowPanel("workOrders") && (
           <Card data-testid="panel-work-orders">
             <CardHeader>
               <CardTitle className="text-2xl font-bold flex items-center gap-2">
@@ -714,36 +762,48 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {workOrders.filter(wo => wo.status !== "completed").slice(0, 5).map((workOrder) => (
-                  <Link key={workOrder.id} href="/work-orders">
-                    <div
-                      className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                      data-testid={`card-work-order-${workOrder.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-lg truncate">{workOrder.title}</p>
-                        <p className="text-sm text-muted-foreground truncate mt-1">
-                          {workOrder.description}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={
-                          workOrder.status === "completed"
-                            ? "default"
-                            : workOrder.status === "in_progress"
-                            ? "secondary"
-                            : "outline"
-                        }
-                        className="whitespace-nowrap"
-                        data-testid={`badge-status-${workOrder.id}`}
+              {workOrders.length > 0 ? (
+                <div className="space-y-3">
+                  {workOrders.filter(wo => wo.status !== "completed").slice(0, 5).map((workOrder) => (
+                    <Link key={workOrder.id} href="/work-orders">
+                      <div
+                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        data-testid={`card-work-order-${workOrder.id}`}
                       >
-                        {workOrder.status}
-                      </Badge>
-                    </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-lg truncate">{workOrder.title}</p>
+                          <p className="text-sm text-muted-foreground truncate mt-1">
+                            {workOrder.description}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            workOrder.status === "completed"
+                              ? "default"
+                              : workOrder.status === "in_progress"
+                              ? "secondary"
+                              : "outline"
+                          }
+                          className="whitespace-nowrap"
+                          data-testid={`badge-status-${workOrder.id}`}
+                        >
+                          {workOrder.status}
+                        </Badge>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12" data-testid="empty-work-orders">
+                  <Users className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No active work orders</p>
+                  <Link href="/work-orders">
+                    <Button variant="outline" size="sm" className="mt-4">
+                      Create Work Order
+                    </Button>
                   </Link>
-                ))}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
