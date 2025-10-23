@@ -36,7 +36,7 @@ export default function InspectionReview() {
 
   // Fetch all entries for this inspection
   const { data: entries = [], isLoading: entriesLoading } = useQuery<any[]>({
-    queryKey: ["/api/inspection-entries", id],
+    queryKey: [`/api/inspections/${id}/entries`],
     enabled: !!id,
   });
 

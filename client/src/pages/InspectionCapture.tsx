@@ -56,7 +56,7 @@ export default function InspectionCapture() {
 
   // Fetch existing entries for this inspection
   const { data: existingEntries = [] } = useQuery<any[]>({
-    queryKey: ["/api/inspection-entries", id],
+    queryKey: [`/api/inspections/${id}/entries`],
     enabled: !!id,
   });
 
@@ -116,7 +116,7 @@ export default function InspectionCapture() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inspection-entries", id] });
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
     },
     onError: (error: Error) => {
       toast({
