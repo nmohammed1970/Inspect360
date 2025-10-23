@@ -32,8 +32,8 @@ The platform follows a PWA-first approach with a robust web architecture.
 - **Backend**: Express.js, PostgreSQL (Neon) for the database, Drizzle ORM, Passport.js with Local Strategy for custom username/password authentication, and Express-session for session management.
 - **Authentication**: Custom username/password authentication with Passport.js, utilizing `req.user.id` for user identification across API routes.
 - **Object Storage**: Google Cloud Storage for inspection photos and compliance documents with ACL policies.
-- **Database Schema**: Core tables include `users` (with roles: owner, clerk, compliance, tenant, contractor), `organizations`, `properties`, `units`, `blocks`, `inspections`, `inspection_items`, `compliance_documents`, `maintenance_requests`, `work_orders`, `work_logs`, `comparison_reports`, `credit_transactions`, `asset_inventory`, and `contacts`.
-- **Role-Based Access**: Granular access control for Owner Operators (full access), Inventory Clerks (inspections, photo uploads), Compliance Officers (document management, expiry tracking), Tenants (unit-specific reports, maintenance requests), and Contractors (assigned work orders). Secure unit filtering ensures tenants only access their own units.
+- **Database Schema**: Core tables include `users` (with roles: owner, clerk, compliance, tenant, contractor), `organizations`, `properties`, `blocks`, `inspections`, `inspection_items`, `compliance_documents`, `maintenance_requests`, `work_orders`, `work_logs`, `comparison_reports`, `credit_transactions`, `asset_inventory`, and `contacts`. Properties represent buildings/locations without subdivisions.
+- **Role-Based Access**: Granular access control for Owner Operators (full access), Inventory Clerks (inspections, photo uploads), Compliance Officers (document management, expiry tracking), Tenants (property-specific reports, maintenance requests), and Contractors (assigned work orders).
 - **Credit System**: AI photo analysis (1 credit), AI comparison reports (2 credits). Credits are purchased via Stripe, and organizations receive 5 free credits initially.
 - **AI Features**:
     - **Photo Analysis**: Powered by OpenAI GPT-5 Vision to analyze room/item conditions, generate assessments, and identify issues.
@@ -42,11 +42,11 @@ The platform follows a PWA-first approach with a robust web architecture.
 - **Performance**: Optimized database queries (e.g., `getBlocksWithStats` uses batched queries) and Zod validation for robust API error handling.
 
 ### Feature Specifications
-- **Core Modules**: Properties, Units, Inspections, Compliance, Maintenance, Credit Management, Asset Inventory, Contacts.
+- **Core Modules**: Properties, Blocks, Inspections, Compliance, Maintenance, Credit Management, Asset Inventory, Contacts.
 - **Asset Inventory**: Track physical assets and equipment across properties and blocks with photos, supplier information, purchase dates, condition tracking (excellent, good, fair, poor, needs_replacement), and expected lifespan. Supports filtering by property or block, full CRUD operations, and image uploads via Uppy.
 - **Contacts Management**: Comprehensive contact management system for tracking internal team members and external contacts (contractors, leads, companies, partners, vendors). Features include contact type categorization, full profile details (name, company, contact info, location, job title, notes), search and filtering by type/name/company, card-based UI with avatars and badges, and full CRUD operations. Accessible to owner, clerk, and compliance roles.
-- **Dashboards**: Role-specific dashboards with KPIs (properties, units, inspections, credits, occupancy, compliance status).
-- **Tenant Portal**: Secure access to unit-specific reports and maintenance request submission.
+- **Dashboards**: Role-specific dashboards with KPIs (properties, blocks, inspections, credits, compliance status).
+- **Tenant Portal**: Secure access to property-specific reports and maintenance request submission.
 - **Team Management**: Owner-controlled user and role management.
 - **Organization Onboarding**: Streamlined setup for new organizations.
 - **Search and Filters**: Functionality to search and filter properties and blocks by name/address.

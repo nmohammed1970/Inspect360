@@ -7,12 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Building2, ClipboardCheck, FileText, CreditCard, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
-import type { Property, Inspection, ComplianceDocument, MaintenanceRequest, Unit } from "@shared/schema";
+import type { Property, Inspection, ComplianceDocument, MaintenanceRequest, Block } from "@shared/schema";
 
-// Extended inspection type with nested unit and property
+// Extended inspection type with nested property and block
 type InspectionWithDetails = Inspection & {
-  unit?: Unit & { propertyId: string };
   property?: Property;
+  block?: Block;
   clerk?: { firstName: string | null; lastName: string | null };
 };
 
@@ -44,13 +44,10 @@ export default function Dashboard() {
     enabled: isAuthenticated,
   });
 
-  // Fetch all units for all properties to calculate total
-  const { data: allUnits = [] } = useQuery<any[]>({
-    queryKey: ["/api/units"],
-    enabled: isAuthenticated && properties.length > 0,
+  const { data: blocks = [] } = useQuery<Block[]>({
+    queryKey: ["/api/blocks"],
+    enabled: isAuthenticated,
   });
-
-  const totalUnits = allUnits.length;
 
   const { data: compliance = [] } = useQuery<ComplianceDocument[]>({
     queryKey: ["/api/compliance/expiring", { days: 90 }],
@@ -136,17 +133,17 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Units Card */}
+        {/* Blocks Card */}
         <Card className="glass-card card-hover-lift">
           <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Units</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Blocks</CardTitle>
             <div className="w-10 h-10 rounded-xl bg-chart-3/10 flex items-center justify-center">
               <Building2 className="h-5 w-5 text-chart-3" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-units-count">{totalUnits}</div>
-            <p className="text-sm text-muted-foreground mt-2">Total apartments/units</p>
+            <div className="text-3xl md:text-4xl font-bold tracking-tight" data-testid="text-blocks-count">{blocks.length}</div>
+            <p className="text-sm text-muted-foreground mt-2">Total blocks</p>
           </CardContent>
         </Card>
 

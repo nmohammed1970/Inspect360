@@ -130,7 +130,7 @@ export interface IStorage {
   // Maintenance operations
   createMaintenanceRequest(request: InsertMaintenanceRequest): Promise<MaintenanceRequest>;
   getMaintenanceRequestsByProperty(propertyId: string): Promise<MaintenanceRequest[]>;
-  getMaintenanceByOrganization(organizationId: string): Promise<MaintenanceRequest[]>;
+  getMaintenanceByOrganization(organizationId: string): Promise<any[]>;
   updateMaintenanceStatus(id: string, status: string, assignedTo?: string): Promise<MaintenanceRequest>;
   
   // Comparison Report operations
@@ -679,7 +679,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(maintenanceRequests.createdAt));
   }
 
-  async getMaintenanceByOrganization(organizationId: string): Promise<MaintenanceRequest[]> {
+  async getMaintenanceByOrganization(organizationId: string): Promise<any[]> {
     return await db
       .select({
         id: maintenanceRequests.id,
@@ -693,6 +693,11 @@ export class DatabaseStorage implements IStorage {
         photoUrl: maintenanceRequests.photoUrl,
         createdAt: maintenanceRequests.createdAt,
         updatedAt: maintenanceRequests.updatedAt,
+        property: {
+          id: properties.id,
+          name: properties.name,
+          address: properties.address,
+        },
       })
       .from(maintenanceRequests)
       .innerJoin(properties, eq(maintenanceRequests.propertyId, properties.id))

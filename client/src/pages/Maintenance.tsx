@@ -36,18 +36,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertMaintenanceRequestSchema } from "@shared/schema";
-import type { MaintenanceRequest, Property, Unit, User } from "@shared/schema";
+import type { MaintenanceRequest, Property, User } from "@shared/schema";
 import { z } from "zod";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
-  unit?: { unitNumber: string; property?: { name: string } };
+  property?: { name: string; address: string };
   reportedByUser?: { firstName: string; lastName: string };
   assignedToUser?: { firstName: string; lastName: string };
 };
 
 const createMaintenanceSchema = insertMaintenanceRequestSchema.extend({
   title: z.string().min(1, "Title is required"),
-  unitId: z.string().min(1, "Unit is required"),
+  propertyId: z.string().min(1, "Property is required"),
   priority: z.enum(["low", "medium", "high"]),
 });
 
@@ -62,21 +62,10 @@ export default function Maintenance() {
     queryKey: ["/api/maintenance"],
   });
 
-  // Fetch properties to get units
+  // Fetch properties
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
   });
-
-  // Fetch units for all properties
-  const { data: allUnits = [] } = useQuery<Unit[]>({
-    queryKey: ["/api/units"],
-    enabled: properties.length > 0,
-  });
-
-  // Filter units for tenants - they can only see/select their own units
-  const availableUnits = user?.role === "tenant" 
-    ? allUnits.filter(unit => unit.tenantId === user.id)
-    : allUnits;
 
   // Fetch organization clerks (for assignment)
   const { data: clerks = [] } = useQuery<User[]>({
@@ -133,7 +122,7 @@ export default function Maintenance() {
     defaultValues: {
       title: "",
       description: "",
-      unitId: "",
+      propertyId: "",
       priority: "medium",
       reportedBy: user?.id || "",
     },
@@ -197,7 +186,7 @@ export default function Maintenance() {
             <DialogHeader>
               <DialogTitle>Create Maintenance Request</DialogTitle>
               <DialogDescription>
-                Submit a new maintenance request for a unit
+                Submit a new maintenance request for a property
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -221,20 +210,20 @@ export default function Maintenance() {
                 />
                 <FormField
                   control={form.control}
-                  name="unitId"
+                  name="propertyId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Unit</FormLabel>
+                      <FormLabel>Property</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-unit">
-                            <SelectValue placeholder="Select a unit" />
+                          <SelectTrigger data-testid="select-property">
+                            <SelectValue placeholder="Select a property" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {availableUnits.map((unit) => (
-                            <SelectItem key={unit.id} value={unit.id} data-testid={`option-unit-${unit.id}`}>
-                              Unit {unit.unitNumber}
+                          {properties.map((property) => (
+                            <SelectItem key={property.id} value={property.id} data-testid={`option-property-${property.id}`}>
+                              {property.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -340,11 +329,11 @@ export default function Maintenance() {
                       {request.title}
                     </CardTitle>
                     <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-                      <span data-testid={`text-unit-${request.id}`}>
-                        Unit {request.unit?.unitNumber || "Unknown"}
+                      <span data-testid={`text-property-${request.id}`}>
+                        {request.property?.name || "Unknown"}
                       </span>
-                      {request.unit?.property && (
-                        <span>• {request.unit.property.name}</span>
+                      {request.property?.address && (
+                        <span>• {request.property.address}</span>
                       )}
                       <span>• Created {format(new Date(request.createdAt?.toString() || Date.now()), 'PPP')}</span>
                     </div>

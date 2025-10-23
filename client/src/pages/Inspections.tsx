@@ -39,7 +39,6 @@ import { format } from "date-fns";
 
 const createInspectionSchema = z.object({
   propertyId: z.string().min(1, "Property is required"),
-  unitId: z.string().min(1, "Unit is required"),
   type: z.enum(["check_in", "check_out", "routine", "maintenance"]),
   scheduledDate: z.string().min(1, "Scheduled date is required"),
   clerkId: z.string().optional(),
@@ -61,10 +60,6 @@ export default function Inspections() {
     queryKey: ["/api/properties"],
   });
 
-  const { data: units = [] } = useQuery<any[]>({
-    queryKey: ["/api/properties", selectedPropertyId, "units"],
-    enabled: !!selectedPropertyId,
-  });
 
   const { data: clerks = [] } = useQuery<any[]>({
     queryKey: ["/api/users/clerks"],
@@ -74,7 +69,6 @@ export default function Inspections() {
     resolver: zodResolver(createInspectionSchema),
     defaultValues: {
       propertyId: "",
-      unitId: "",
       type: "routine",
       scheduledDate: new Date().toISOString().split("T")[0],
       clerkId: "",
@@ -174,7 +168,6 @@ export default function Inspections() {
                         onValueChange={(value) => {
                           field.onChange(value);
                           setSelectedPropertyId(value);
-                          form.setValue("unitId", "");
                         }}
                         value={field.value}
                       >
