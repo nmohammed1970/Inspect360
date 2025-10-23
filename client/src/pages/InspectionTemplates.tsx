@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Edit2, Trash2, FileText, Copy, Eye, Layers } from "lucide-react";
+import { Plus, Edit2, Trash2, FileText, Copy, Eye, Layers, Search, X, ArrowUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { insertInspectionTemplateSchema, insertTemplateCategorySchema, type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { z } from "zod";
 import { TemplateBuilder } from "../components/TemplateBuilder";
@@ -37,15 +38,19 @@ export default function InspectionTemplates() {
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<InspectionTemplate | null>(null);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterScope, setFilterScope] = useState<string>("all");
   const [filterActive, setFilterActive] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("name-asc");
 
-  // Fetch templates
-  const { data: templates, isLoading: templatesLoading } = useQuery<InspectionTemplate[]>({
-    queryKey: ["/api/inspection-templates", filterCategory, filterActive],
+  // Fetch templates (server-side filtering)
+  const { data: rawTemplates, isLoading: templatesLoading } = useQuery<InspectionTemplate[]>({
+    queryKey: ["/api/inspection-templates", filterCategory, filterScope, filterActive],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filterCategory !== "all") params.append("categoryId", filterCategory);
+      if (filterScope !== "all") params.append("scope", filterScope);
       if (filterActive !== "all") params.append("active", filterActive);
       const query = params.toString();
       const response = await fetch(`/api/inspection-templates${query ? `?${query}` : ""}`, {
@@ -55,6 +60,51 @@ export default function InspectionTemplates() {
       return response.json();
     },
   });
+
+  // Client-side filtering and sorting
+  const templates = useMemo(() => {
+    if (!rawTemplates) return [];
+    
+    // Create a copy to avoid mutating rawTemplates
+    let filtered = [...rawTemplates];
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(t => 
+        t.name.toLowerCase().includes(query) ||
+        (t.description?.toLowerCase().includes(query))
+      );
+    }
+    
+    // Apply sorting (create new sorted array)
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.name.localeCompare(b.name);
+        case "name-desc":
+          return b.name.localeCompare(a.name);
+        case "newest": {
+          // Fallback to updatedAt if createdAt is missing
+          const aTime = new Date(a.createdAt || a.updatedAt || Date.now()).getTime();
+          const bTime = new Date(b.createdAt || b.updatedAt || Date.now()).getTime();
+          return bTime - aTime;
+        }
+        case "oldest": {
+          // Fallback to updatedAt if createdAt is missing
+          const aTime = new Date(a.createdAt || a.updatedAt || Date.now()).getTime();
+          const bTime = new Date(b.createdAt || b.updatedAt || Date.now()).getTime();
+          return aTime - bTime;
+        }
+        case "version":
+          return (b.version || 1) - (a.version || 1);
+        default:
+          return 0;
+      }
+    });
+    
+    return sorted;
+  }, [rawTemplates, searchQuery, sortBy]);
 
   // Fetch categories
   const { data: categories } = useQuery<TemplateCategory[]>({
@@ -182,6 +232,16 @@ export default function InspectionTemplates() {
     handleCloseBuilder();
   };
 
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setFilterCategory("all");
+    setFilterScope("all");
+    setFilterActive("all");
+    setSortBy("name-asc");
+  };
+
+  const hasActiveFilters = searchQuery.trim() || filterCategory !== "all" || filterScope !== "all" || filterActive !== "all" || sortBy !== "name-asc";
+
   return (
     <div className="container mx-auto p-8 space-y-8">
       {/* Header */}
@@ -215,35 +275,120 @@ export default function InspectionTemplates() {
       {/* Filters */}
       <Card className="shadow-sm rounded-xl">
         <CardContent className="p-6">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <label className="text-sm font-medium mb-2 block">Filter by Category</label>
-              <Select value={filterCategory} onValueChange={setFilterCategory}>
-                <SelectTrigger data-testid="select-filter-category">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories?.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-4">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search templates by name or description..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-9"
+                data-testid="input-search-templates"
+              />
+              {searchQuery && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => setSearchQuery("")}
+                  data-testid="button-clear-search"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
             </div>
-            <div className="flex-1">
-              <label className="text-sm font-medium mb-2 block">Filter by Status</label>
-              <Select value={filterActive} onValueChange={setFilterActive}>
-                <SelectTrigger data-testid="select-filter-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="true">Active Only</SelectItem>
-                  <SelectItem value="false">Inactive Only</SelectItem>
-                </SelectContent>
-              </Select>
+
+            {/* Filter Controls Row */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Category</label>
+                <Select value={filterCategory} onValueChange={setFilterCategory}>
+                  <SelectTrigger data-testid="select-filter-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {categories?.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Scope</label>
+                <Select value={filterScope} onValueChange={setFilterScope}>
+                  <SelectTrigger data-testid="select-filter-scope">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Scopes</SelectItem>
+                    <SelectItem value="property">Property</SelectItem>
+                    <SelectItem value="block">Block</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Status</label>
+                <Select value={filterActive} onValueChange={setFilterActive}>
+                  <SelectTrigger data-testid="select-filter-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="true">Active Only</SelectItem>
+                    <SelectItem value="false">Inactive Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Sort By</label>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger data-testid="select-sort-by">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name-asc">Name (A-Z)</SelectItem>
+                    <SelectItem value="name-desc">Name (Z-A)</SelectItem>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    <SelectItem value="version">Highest Version</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Results Count and Clear Filters */}
+            <div className="flex items-center justify-between pt-2">
+              <div className="text-sm text-muted-foreground">
+                {templatesLoading ? (
+                  "Loading..."
+                ) : (
+                  <span data-testid="text-result-count">
+                    Showing <span className="font-semibold text-foreground">{templates?.length || 0}</span> {templates?.length === 1 ? "template" : "templates"}
+                    {rawTemplates && templates && rawTemplates.length !== templates.length && (
+                      <span className="ml-1">(filtered from {rawTemplates.length})</span>
+                    )}
+                  </span>
+                )}
+              </div>
+              {hasActiveFilters && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearAllFilters}
+                  data-testid="button-clear-filters"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear Filters
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -252,21 +397,50 @@ export default function InspectionTemplates() {
       {/* Templates Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {templatesLoading ? (
-          <div className="col-span-full text-center py-12 text-muted-foreground">
-            Loading templates...
-          </div>
+          // Loading skeletons
+          Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i} className="shadow-sm rounded-xl">
+              <CardHeader>
+                <Skeleton className="h-6 w-3/4 mb-2" />
+                <div className="flex gap-2 mt-2">
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-5 w-12" />
+                </div>
+                <Skeleton className="h-10 w-full mt-2" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-9 w-full" />
+              </CardContent>
+            </Card>
+          ))
         ) : !templates || templates.length === 0 ? (
           <Card className="col-span-full shadow-sm rounded-xl">
             <CardContent className="text-center py-12">
               <FileText className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No templates yet</h3>
-              <p className="text-muted-foreground mb-6">
-                Create your first inspection template to get started
-              </p>
-              <Button onClick={handleCreateTemplate} data-testid="button-create-first-template">
-                <Plus className="w-4 h-4 mr-2" />
-                Create Template
-              </Button>
+              {hasActiveFilters ? (
+                <>
+                  <h3 className="text-lg font-semibold mb-2">No templates match your filters</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Try adjusting your search or filter criteria
+                  </p>
+                  <Button variant="outline" onClick={clearAllFilters} data-testid="button-clear-filters-empty">
+                    <X className="w-4 h-4 mr-2" />
+                    Clear All Filters
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-semibold mb-2">No templates yet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Create your first inspection template to get started
+                  </p>
+                  <Button onClick={handleCreateTemplate} data-testid="button-create-first-template">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Template
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
         ) : (

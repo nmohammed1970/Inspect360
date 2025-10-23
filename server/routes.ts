@@ -2469,14 +2469,20 @@ Provide a structured comparison highlighting differences in condition ratings an
       const { scope, categoryId, active } = req.query;
       let templates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
       
-      // Apply client-side filtering based on query parameters
-      if (scope && scope !== 'both') {
-        templates = templates.filter(t => t.scope === scope || t.scope === 'both');
+      // Apply filtering based on query parameters
+      if (scope && scope !== 'all') {
+        if (scope === 'both') {
+          // When filtering by "both", show ONLY templates with scope='both'
+          templates = templates.filter(t => t.scope === 'both');
+        } else {
+          // When filtering by specific scope (property/block), also include templates with scope='both'
+          templates = templates.filter(t => t.scope === scope || t.scope === 'both');
+        }
       }
-      if (categoryId) {
+      if (categoryId && categoryId !== 'all') {
         templates = templates.filter(t => t.categoryId === categoryId);
       }
-      if (active !== undefined) {
+      if (active !== undefined && active !== 'all') {
         const isActive = active === 'true';
         templates = templates.filter(t => t.isActive === isActive);
       }
