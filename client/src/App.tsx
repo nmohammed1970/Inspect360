@@ -30,6 +30,9 @@ import InspectionTemplates from "@/pages/InspectionTemplates";
 import InspectionCapture from "@/pages/InspectionCapture";
 import InspectionReview from "@/pages/InspectionReview";
 import Contacts from "@/pages/Contacts";
+import AdminLogin from "@/pages/AdminLogin";
+import AdminDashboard from "@/pages/AdminDashboard";
+import AdminTeam from "@/pages/AdminTeam";
 import { Button } from "@/components/ui/button";
 import { LogOut, Loader2 } from "lucide-react";
 
@@ -42,7 +45,7 @@ function AppContent() {
     "--sidebar-width-icon": "3rem",
   };
 
-  // Not authenticated - show public routes
+  // Not authenticated - show public routes (including admin routes)
   if (!isAuthenticated) {
     return (
       <TooltipProvider>
@@ -50,6 +53,9 @@ function AppContent() {
           <Route path="/" component={Landing} />
           <Route path="/auth" component={Auth} />
           <Route path="/forgot-password" component={ForgotPassword} />
+          <Route path="/admin/login" component={AdminLogin} />
+          <Route path="/admin/dashboard" component={AdminDashboard} />
+          <Route path="/admin/team" component={AdminTeam} />
           <Route component={NotFound} />
         </Switch>
         <Toaster />
