@@ -32,6 +32,7 @@ export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_
 export const complianceStatusEnum = pgEnum("compliance_status", ["current", "expiring_soon", "expired"]);
 export const maintenanceStatusEnum = pgEnum("maintenance_status", ["open", "in_progress", "completed", "closed"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "inactive", "cancelled"]);
+export const subscriptionLevelEnum = pgEnum("subscription_level", ["free", "starter", "professional", "enterprise"]);
 export const workOrderStatusEnum = pgEnum("work_order_status", ["assigned", "in_progress", "waiting_parts", "completed", "rejected"]);
 export const assetConditionEnum = pgEnum("asset_condition", ["excellent", "good", "fair", "poor", "needs_replacement"]);
 export const inspectionPointDataTypeEnum = pgEnum("inspection_point_data_type", ["text", "number", "checkbox", "photo", "rating"]);
@@ -90,6 +91,32 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
 export type LoginUser = z.infer<typeof loginUserSchema>;
 
+// Admin Users (Platform administrators)
+export const adminUsers = pgTable("admin_users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email").unique().notNull(),
+  password: varchar("password").notNull(),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const loginAdminSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1),
+});
+
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
+export type LoginAdmin = z.infer<typeof loginAdminSchema>;
+
 // Organizations
 export const organizations = pgTable("organizations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -97,7 +124,9 @@ export const organizations = pgTable("organizations", {
   ownerId: varchar("owner_id").notNull(),
   stripeCustomerId: varchar("stripe_customer_id"),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").default("inactive"),
-  creditsRemaining: integer("credits_remaining").default(0),
+  subscriptionLevel: subscriptionLevelEnum("subscription_level").default("free"),
+  isActive: boolean("is_active").default(true),
+  creditsRemaining: integer("credits_remaining").default(5),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

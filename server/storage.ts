@@ -1,5 +1,6 @@
 import {
   users,
+  adminUsers,
   organizations,
   contacts,
   blocks,
@@ -34,6 +35,8 @@ import {
   dashboardPreferences,
   type User,
   type UpsertUser,
+  type AdminUser,
+  type InsertAdminUser,
   type Organization,
   type InsertOrganization,
   type Contact,
@@ -310,6 +313,15 @@ export interface IStorage {
   // Dashboard preferences operations
   getDashboardPreferences(userId: string): Promise<any | undefined>;
   updateDashboardPreferences(userId: string, enabledPanels: string[]): Promise<any>;
+
+  // Admin operations
+  getAdminByEmail(email: string): Promise<AdminUser | undefined>;
+  getAllAdmins(): Promise<AdminUser[]>;
+  createAdmin(admin: InsertAdminUser): Promise<AdminUser>;
+  updateAdmin(id: string, updates: Partial<AdminUser>): Promise<AdminUser>;
+  deleteAdmin(id: string): Promise<void>;
+  getAllOrganizationsWithOwners(): Promise<any[]>;
+  getOrganizationWithOwner(id: string): Promise<any | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1882,6 +1894,84 @@ export class DatabaseStorage implements IStorage {
   async getInspectionWithSnapshots(id: string): Promise<Inspection | undefined> {
     const [inspection] = await db.select().from(inspections).where(eq(inspections.id, id));
     return inspection;
+  }
+
+  // Admin operations
+  async getAdminByEmail(email: string): Promise<AdminUser | undefined> {
+    const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
+    return admin;
+  }
+
+  async getAllAdmins(): Promise<AdminUser[]> {
+    return await db.select().from(adminUsers).orderBy(desc(adminUsers.createdAt));
+  }
+
+  async createAdmin(adminData: InsertAdminUser): Promise<AdminUser> {
+    const [admin] = await db.insert(adminUsers).values(adminData).returning();
+    return admin;
+  }
+
+  async updateAdmin(id: string, updates: Partial<AdminUser>): Promise<AdminUser> {
+    const [admin] = await db
+      .update(adminUsers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id))
+      .returning();
+    return admin;
+  }
+
+  async deleteAdmin(id: string): Promise<void> {
+    await db.delete(adminUsers).where(eq(adminUsers.id, id));
+  }
+
+  async getAllOrganizationsWithOwners(): Promise<any[]> {
+    return await db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        subscriptionStatus: organizations.subscriptionStatus,
+        subscriptionLevel: organizations.subscriptionLevel,
+        isActive: organizations.isActive,
+        creditsRemaining: organizations.creditsRemaining,
+        stripeCustomerId: organizations.stripeCustomerId,
+        createdAt: organizations.createdAt,
+        owner: {
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          username: users.username,
+        },
+      })
+      .from(organizations)
+      .leftJoin(users, eq(organizations.ownerId, users.id))
+      .orderBy(desc(organizations.createdAt));
+  }
+
+  async getOrganizationWithOwner(id: string): Promise<any | undefined> {
+    const [result] = await db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        subscriptionStatus: organizations.subscriptionStatus,
+        subscriptionLevel: organizations.subscriptionLevel,
+        isActive: organizations.isActive,
+        creditsRemaining: organizations.creditsRemaining,
+        stripeCustomerId: organizations.stripeCustomerId,
+        createdAt: organizations.createdAt,
+        updatedAt: organizations.updatedAt,
+        owner: {
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          username: users.username,
+        },
+      })
+      .from(organizations)
+      .leftJoin(users, eq(organizations.ownerId, users.id))
+      .where(eq(organizations.id, id));
+    return result;
   }
 }
 

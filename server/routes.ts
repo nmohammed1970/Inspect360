@@ -2951,6 +2951,212 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
+  // ==================== ADMIN ROUTES ====================
+  
+  // Admin authentication middleware
+  const isAdminAuthenticated = (req: any, res: any, next: any) => {
+    if (req.session && req.session.adminUser) {
+      return next();
+    }
+    return res.status(401).json({ message: "Unauthorized - Admin access required" });
+  };
+
+  // Admin Login
+  app.post("/api/admin/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+
+      const adminUser = await storage.getAdminByEmail(email);
+      
+      if (!adminUser) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const bcrypt = require("bcryptjs");
+      const isValidPassword = await bcrypt.compare(password, adminUser.password);
+      
+      if (!isValidPassword) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Set admin session
+      req.session.adminUser = {
+        id: adminUser.id,
+        email: adminUser.email,
+        firstName: adminUser.firstName,
+        lastName: adminUser.lastName,
+      };
+
+      res.json({
+        id: adminUser.id,
+        email: adminUser.email,
+        firstName: adminUser.firstName,
+        lastName: adminUser.lastName,
+      });
+    } catch (error) {
+      console.error("Admin login error:", error);
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  // Admin Logout
+  app.post("/api/admin/logout", (req, res) => {
+    req.session.adminUser = null;
+    res.json({ message: "Logged out successfully" });
+  });
+
+  // Get current admin user
+  app.get("/api/admin/me", isAdminAuthenticated, (req: any, res) => {
+    res.json(req.session.adminUser);
+  });
+
+  // ==================== ADMIN INSTANCE MANAGEMENT ====================
+
+  // Get all instances (organizations) with owner details
+  app.get("/api/admin/instances", isAdminAuthenticated, async (req, res) => {
+    try {
+      const instances = await storage.getAllOrganizationsWithOwners();
+      res.json(instances);
+    } catch (error) {
+      console.error("Error fetching instances:", error);
+      res.status(500).json({ message: "Failed to fetch instances" });
+    }
+  });
+
+  // Get single instance details
+  app.get("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
+    try {
+      const instance = await storage.getOrganizationWithOwner(req.params.id);
+      if (!instance) {
+        return res.status(404).json({ message: "Instance not found" });
+      }
+      res.json(instance);
+    } catch (error) {
+      console.error("Error fetching instance:", error);
+      res.status(500).json({ message: "Failed to fetch instance" });
+    }
+  });
+
+  // Update instance (subscription level, credits, active status)
+  app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
+    try {
+      const { subscriptionLevel, creditsRemaining, isActive } = req.body;
+      const updated = await storage.updateOrganization(req.params.id, {
+        subscriptionLevel,
+        creditsRemaining,
+        isActive,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating instance:", error);
+      res.status(500).json({ message: "Failed to update instance" });
+    }
+  });
+
+  // Disable/Enable instance
+  app.post("/api/admin/instances/:id/toggle-status", isAdminAuthenticated, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) {
+        return res.status(404).json({ message: "Instance not found" });
+      }
+      
+      const updated = await storage.updateOrganization(req.params.id, {
+        isActive: !org.isActive,
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error toggling instance status:", error);
+      res.status(500).json({ message: "Failed to toggle status" });
+    }
+  });
+
+  // ==================== ADMIN TEAM MANAGEMENT ====================
+
+  // Get all admin users
+  app.get("/api/admin/team", isAdminAuthenticated, async (req, res) => {
+    try {
+      const admins = await storage.getAllAdmins();
+      // Remove password from response
+      const sanitizedAdmins = admins.map(({ password, ...admin }) => admin);
+      res.json(sanitizedAdmins);
+    } catch (error) {
+      console.error("Error fetching admin team:", error);
+      res.status(500).json({ message: "Failed to fetch admin team" });
+    }
+  });
+
+  // Create admin user
+  app.post("/api/admin/team", isAdminAuthenticated, async (req, res) => {
+    try {
+      const { email, password, firstName, lastName } = req.body;
+      
+      if (!email || !password || !firstName || !lastName) {
+        return res.status(400).json({ message: "All fields are required" });
+      }
+
+      const bcrypt = require("bcryptjs");
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const admin = await storage.createAdmin({
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+      });
+
+      // Remove password from response
+      const { password: _, ...sanitizedAdmin } = admin;
+      res.json(sanitizedAdmin);
+    } catch (error: any) {
+      console.error("Error creating admin:", error);
+      if (error.message?.includes("duplicate") || error.code === "23505") {
+        return res.status(400).json({ message: "Email already exists" });
+      }
+      res.status(500).json({ message: "Failed to create admin" });
+    }
+  });
+
+  // Update admin user
+  app.patch("/api/admin/team/:id", isAdminAuthenticated, async (req, res) => {
+    try {
+      const { email, firstName, lastName, password } = req.body;
+      const updateData: any = { email, firstName, lastName };
+
+      if (password) {
+        const bcrypt = require("bcryptjs");
+        updateData.password = await bcrypt.hash(password, 10);
+      }
+
+      const admin = await storage.updateAdmin(req.params.id, updateData);
+      const { password: _, ...sanitizedAdmin } = admin;
+      res.json(sanitizedAdmin);
+    } catch (error) {
+      console.error("Error updating admin:", error);
+      res.status(500).json({ message: "Failed to update admin" });
+    }
+  });
+
+  // Delete admin user
+  app.delete("/api/admin/team/:id", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      // Prevent self-deletion
+      if (req.params.id === req.session.adminUser.id) {
+        return res.status(400).json({ message: "Cannot delete your own account" });
+      }
+
+      await storage.deleteAdmin(req.params.id);
+      res.json({ message: "Admin deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting admin:", error);
+      res.status(500).json({ message: "Failed to delete admin" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
