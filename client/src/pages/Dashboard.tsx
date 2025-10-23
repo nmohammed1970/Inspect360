@@ -421,43 +421,51 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-6 bg-card/50 rounded-xl border" data-testid="stat-properties">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Building2 className="w-5 h-5 text-primary" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold">{properties.length}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Properties</p>
-                </div>
-                <div className="p-6 bg-card/50 rounded-xl border" data-testid="stat-blocks">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Building2 className="w-5 h-5 text-primary" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold">{blocks.length}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Blocks</p>
-                </div>
-                <div className="p-6 bg-card/50 rounded-xl border" data-testid="stat-inspections">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <ClipboardCheck className="w-5 h-5 text-primary" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold">{inspections.length}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Inspections</p>
-                </div>
-                {viewRole === "owner" && (
-                  <div className="p-6 bg-card/50 rounded-xl border" data-testid="stat-credits">
+                <Link href="/properties">
+                  <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-properties">
                     <div className="flex items-center gap-3 mb-2">
                       <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <CreditCard className="w-5 h-5 text-primary" />
+                        <Building2 className="w-5 h-5 text-primary" />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold">{creditsRemaining}</p>
-                    <p className="text-sm text-muted-foreground mt-1">AI Credits</p>
+                    <p className="text-3xl font-bold">{properties.length}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Properties</p>
                   </div>
+                </Link>
+                <Link href="/blocks">
+                  <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-blocks">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Building2 className="w-5 h-5 text-primary" />
+                      </div>
+                    </div>
+                    <p className="text-3xl font-bold">{blocks.length}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Blocks</p>
+                  </div>
+                </Link>
+                <Link href="/inspections">
+                  <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-inspections">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <ClipboardCheck className="w-5 h-5 text-primary" />
+                      </div>
+                    </div>
+                    <p className="text-3xl font-bold">{inspections.length}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Inspections</p>
+                  </div>
+                </Link>
+                {viewRole === "owner" && (
+                  <Link href="/credits">
+                    <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-credits">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <CreditCard className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+                      <p className="text-3xl font-bold">{creditsRemaining}</p>
+                      <p className="text-sm text-muted-foreground mt-1">AI Credits</p>
+                    </div>
+                  </Link>
                 )}
               </div>
             </CardContent>
@@ -555,7 +563,7 @@ export default function Dashboard() {
                             {inspection.property?.name || inspection.block?.name || "Unknown Property"}
                           </p>
                           <p className="text-sm text-muted-foreground truncate mt-1">
-                            {inspection.type} • {new Date(inspection.scheduledDate).toLocaleDateString()}
+                            {inspection.type} • {inspection.scheduledDate ? new Date(inspection.scheduledDate).toLocaleDateString() : 'Not scheduled'}
                           </p>
                         </div>
                         <Badge
@@ -611,7 +619,7 @@ export default function Dashboard() {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-lg truncate">{doc.documentType}</p>
                           <p className="text-sm text-muted-foreground truncate mt-1">
-                            Expires: {new Date(doc.expiryDate).toLocaleDateString()}
+                            Expires: {doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString() : 'No expiry date'}
                           </p>
                         </div>
                         <Badge
