@@ -1,0 +1,330 @@
+Got it. Here’s a clear, Replit-ready spec that explains exactly **how Inspection Templates work**, how inspectors will **use** them in the field, and how **inventory, media, AI analysis, and maintenance** tie together. It’s written so Replit (and devs) can implement it without ambiguity.
+
+---
+
+# Inspect360 — Inspection Templates Specification
+
+## 1) Purpose
+
+Inspection Templates define **what must be captured** during an inspection. They:
+
+* Work for **Block** or **Property** inspections.
+* Are **versioned** and snapshotted at inspection start (so past inspections don’t change if the template is edited).
+* Bind **Inventory** items to inspection points so clerks can move room-by-room and item-by-item.
+* Support **data types** (text, ratings, photos, videos, etc.), validation, and conditional visibility.
+* Auto-create **maintenance requests** from flagged findings.
+* Send captured media to **AI analysis**.
+
+---
+
+## 2) Data Model (Supabase)
+
+### 2.1 Templates
+
+* **inspection_templates**
+
+  * `id, organisation_id, name, scope enum('block','property','both'), version int, is_active bool`
+  * `structure_json jsonb`  ← full JSON schema (see §3)
+  * `created_by, created_at`
+
+* **template_categories** *(optional, if you want browseable groups)*
+  `id, organisation_id, name, description`
+
+### 2.2 Template ↔ Inventory Binding
+
+* **template_inventory_links**
+
+  * `id, template_id, inventory_template_id`
+    (This binds an inspection template to an **Inventory Template** so the system can pre-generate room/fixture points.)
+
+### 2.3 Inspection Instances (snapshot)
+
+* **inspections**
+
+  * `id, organisation_id, type enum('check_in','check_out','routine'), level enum('block','property')`
+  * `block_id (nullable), property_id (nullable)`
+  * `assigned_to, scheduled_at, started_at, submitted_at, status`
+  * `template_id, template_version`
+  * `template_snapshot_json jsonb`  ← copy of `structure_json` at start
+  * `inventory_snapshot_json jsonb` ← copy of bound inventory layout at start
+
+* **inspection_entries**
+
+  * `id, inspection_id, item_ref text, section_ref text`
+  * `field_key text, field_type text, value_json jsonb, note text`
+  * `photos text[] (signed URLs)`, `videos text[]`
+  * `maintenance_flag bool`, `defects_json jsonb`
+
+* **ai_image_analyses**
+
+  * `id, inspection_entry_id, media_url, model, result_json, confidence, annotations_url`
+
+* **maintenance_requests** (autocreated)
+
+  * `id, organisation_id, source='inspection', inspection_id, property_id/block_id`
+  * `title, description, priority, status, photos[]`
+
+---
+
+## 3) Template JSON Schema (structure_json)
+
+A template is a tree of **Sections** → **Subsections** → **Inspection Points (fields)**.
+Supports repeatable sections (e.g., “Bedroom [n]” for multiple bedrooms).
+
+```json
+{
+  "name": "2-Bed Check-In",
+  "scope": "property", 
+  "version": 3,
+  "sections": [
+    {
+      "key": "bedrooms",
+      "label": "Bedrooms",
+      "repeatable": true,
+      "min": 1,
+      "max": 5,
+      "children": [
+        {
+          "key": "overall",
+          "label": "Overall Room Condition",
+          "fields": [
+            {
+              "key": "condition_rating",
+              "label": "Condition",
+              "type": "rating",               // 1..5 integer
+              "required": true
+            },
+            {
+              "key": "cleanliness_rating",
+              "label": "Cleanliness",
+              "type": "rating",
+              "required": true
+            },
+            {
+              "key": "room_photos",
+              "label": "Room Photos",
+              "type": "photo[]",              // multiple photos
+              "ai_analyse": true              // send to AI
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "long_text",
+              "placeholder": "General observations"
+            },
+            {
+              "key": "maintenance_needed",
+              "label": "Raise maintenance?",
+              "type": "boolean",
+              "on_true": {
+                "auto_create_maintenance": true,
+                "fields": [
+                  { "key": "maint_title", "label": "Title", "type": "short_text", "required": true },
+                  { "key": "maint_priority", "label": "Priority", "type": "select", "options": ["low","med","high","urgent"], "required": true }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "key": "inventory_items",
+          "label": "Inventory Items",
+          "repeat_from_inventory": true,     // auto-generate rows from inventory snapshot
+          "fields": [
+            { "key": "item_condition", "label": "Condition", "type": "rating", "required": true },
+            { "key": "item_cleanliness", "label": "Cleanliness", "type": "rating" },
+            { "key": "item_photos", "label": "Photos", "type": "photo[]", "ai_analyse": true },
+            { "key": "item_damage_type", "label": "Damage Type", "type": "multiselect", "options": ["scratch","dent","chip","crack","stain","mold","other"] },
+            { "key": "item_requires_maintenance", "label": "Raise maintenance for this item?", "type": "boolean",
+              "on_true": { "auto_create_maintenance": true } }
+          ]
+        }
+      ]
+    },
+
+    {
+      "key": "kitchen",
+      "label": "Kitchen",
+      "repeatable": false,
+      "fields": [
+        { "key": "overall_condition", "label": "Overall Condition", "type": "rating", "required": true },
+        { "key": "appliance_photos", "label": "Appliance Photos", "type": "photo[]", "ai_analyse": true },
+        { "key": "video_walkthrough", "label": "Short Walkthrough Video", "type": "video", "ai_analyse": true },
+        { "key": "gas_smell", "label": "Smell of Gas Present", "type": "boolean" },
+        { "key": "meter_reading", "label": "Meter Reading", "type": "number", "unit": "kWh" },
+        { "key": "gps", "label": "GPS Lock", "type": "gps" },
+        { "key": "signature", "label": "Inspector Signature", "type": "signature" }
+      ]
+    }
+  ]
+}
+```
+
+### Supported Field Types
+
+* `short_text`, `long_text`
+* `number` (with optional `unit`)
+* `select`, `multiselect`
+* `boolean`
+* `rating` (1–5)
+* `date`, `time`, `datetime`
+* `photo`, `photo[]`
+* `video`
+* `gps` (lat/lng)
+* `signature`
+
+**Validation:** `required`, `min`, `max`, `regex`, `depends_on` (conditional visibility).
+**AI hook:** `ai_analyse: true` triggers media to be queued for AI.
+
+---
+
+## 4) How Inspectors Use Templates (PWA Flow)
+
+1. **Start Inspection**
+
+   * Select **Block** or **Property**.
+   * Choose template; app **snapshots template & inventory** for this inspection.
+   * Prefetches sections for offline use.
+
+2. **Room/Section Navigation**
+
+   * Large tiles per section (“Bedrooms”, “Kitchen”, etc.).
+   * If section is repeatable, user can **add Bedroom 1, Bedroom 2, …** (pre-filled from inventory snapshot where possible).
+
+3. **Capture & Input**
+
+   * For each inspection point, show field widgets based on `type`.
+   * **Photos/Videos** stored locally first; queued for upload and AI when online.
+   * **Inventory loop:** for each inventory item (e.g., “Wardrobe”, “Bed”), show mini-form with condition/cleanliness, media, damage tags, and **“Raise maintenance?”** switch.
+
+4. **Maintenance Autocreate**
+
+   * If any `maintenance_*` boolean is `true`, create a **pending maintenance draft** with:
+
+     * Linked inspection_id, property/block_id
+     * Title/priority/notes (from inlined fields)
+     * Attached media
+   * Draft converts to an active **maintenance_request** on **Submit**, unless user cancels.
+
+5. **AI Analysis**
+
+   * When media uploads complete, enqueue `ai_analyse_image` per file.
+   * Store detections (e.g., `mold`, `crack`, `water_mark`) with bboxes & confidences in `ai_image_analyses`.
+   * Surface AI flags in the **review screen** (“2 potential mold detections in Bedroom 2”).
+
+6. **Review & Submit**
+
+   * Show completeness meter; highlight missing required fields.
+   * On submit:
+
+     * Validate credits (Stripe).
+     * Persist all entries.
+     * Finalise maintenance requests.
+     * Trigger optional **comparison generation** if this is a check-out and there’s a prior check-in.
+
+7. **Offline Behavior**
+
+   * All data saved to an **offline queue** with `offline_id`.
+   * Background Sync posts to server when online, resolving `offline_id → server id`.
+   * “Sync Center” shows pending batches and errors.
+
+---
+
+## 5) Inventory Binding Logic
+
+* Each property has an **Inventory Template** (e.g., *2-Bed Standard*), which lists rooms and items:
+  `Bedroom → (Bed, Wardrobe, Curtains, Lamp), Kitchen → (Oven, Hob, Fridge) …`
+* When an inspection starts, the **inventory snapshot** is embedded in `inspection.inventory_snapshot_json`.
+* In the template schema, any section marked `repeat_from_inventory: true` instructs the client to **generate one sub-form per inventory item**, mapping:
+
+  * `section_ref`: room name/path (e.g., `Bedrooms/Bedroom 1`)
+  * `item_ref`: item path (e.g., `Bedrooms/Bedroom 1/Wardrobe`)
+* This guarantees the inspector sees every relevant item with a consistent set of fields (condition, cleanliness, media, maintenance flag).
+
+---
+
+## 6) Block vs Property Inspections
+
+* **Property inspection**:
+  Uses property’s inventory snapshot and template.
+  Media/AI/maintenance link to `property_id`.
+
+* **Block inspection**:
+  For communal areas (lobbies, lifts, corridors) or plant rooms.
+  Template scope: `block` or `both`.
+  Inventory snapshot can include **block-level items** (e.g., Lift A, Fire Panel).
+  Media/AI/maintenance link to `block_id`.
+
+---
+
+## 7) UI/UX Requirements (PWA)
+
+* **Large, tappable cards** for sections and items.
+* **Progress bar** per section; green tick when complete.
+* **Quick capture** toolbar: Photo, Video, Note, Maintenance.
+* **Auto-compare**: show previous photos/values side-by-side where applicable.
+* **Accessibility**: offline banner, sync status, retry controls.
+
+---
+
+## 8) API / Edge Functions (summary)
+
+* `POST /api/inspections/:id/entries`
+  Save batched entries (supports offline replays with `offline_id`).
+* `POST /api/media/ai`
+  Queues images/videos with metadata; Edge Function runs model; writes `ai_image_analyses`.
+* `POST /api/maintenance/from-entry`
+  Creates/updates a maintenance request linked to an `inspection_entry`.
+* `POST /api/comparisons`
+  Generate check-in vs check-out report (diff_json + summary).
+
+---
+
+## 9) Example: Bedroom Item Capture (Entry payload)
+
+```json
+{
+  "inspection_id": "…",
+  "section_ref": "Bedrooms/Bedroom 2",
+  "item_ref": "Bedrooms/Bedroom 2/Wardrobe",
+  "field_key": "item_condition",
+  "field_type": "rating",
+  "value_json": 3,
+  "photos": ["supabase://inspection-photos/.../wardrobe1.jpg"],
+  "maintenance_flag": true,
+  "defects_json": ["scratch","chip"]
+}
+```
+
+When `maintenance_flag=true`, the app calls the maintenance endpoint with:
+
+```json
+{
+  "source": "inspection",
+  "inspection_id": "…",
+  "property_id": "…",
+  "title": "Wardrobe door loose – Bedroom 2",
+  "priority": "med",
+  "photos": ["…/wardrobe1.jpg"]
+}
+```
+
+---
+
+## 10) Acceptance Criteria (Templates)
+
+* Create, edit, and version **Inspection Templates** with **data types** and **validation**.
+* Start an inspection → **snapshot template + inventory**.
+* Inspector sees **repeatable rooms** and **per-item sub-forms**.
+* Capture **photos/videos** and queue AI analysis.
+* Toggle **maintenance** inline; requests are created on submit.
+* Works **offline** with full data capture; syncs reliably when online.
+* Supports **Block** and **Property** scopes.
+
+---
+
+If you want, I can also provide:
+
+* A **UI JSON editor** schema for templates,
+* The **supabase SQL** for the new tables, and
+* A **demo template** file you can seed at org creation.
