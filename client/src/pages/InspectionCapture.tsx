@@ -330,6 +330,8 @@ export default function InspectionCapture() {
                   value={entry?.valueJson}
                   note={entry?.note}
                   photos={entry?.photos}
+                  inspectionId={id}
+                  entryId={entry?.id}
                   onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
                 />
               );

@@ -6,8 +6,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Star, Upload, Calendar, Clock, MapPin } from "lucide-react";
+import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import Uppy from "@uppy/core";
+import { Dashboard } from "@uppy/react";
+import AwsS3 from "@uppy/aws-s3";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface TemplateField {
   id: string;
@@ -25,12 +30,18 @@ interface FieldWidgetProps {
   value?: any;
   note?: string;
   photos?: string[];
+  inspectionId?: string;
+  entryId?: string;
   onChange: (value: any, note?: string, photos?: string[]) => void;
 }
 
-export function FieldWidget({ field, value, note, photos, onChange }: FieldWidgetProps) {
+export function FieldWidget({ field, value, note, photos, inspectionId, entryId, onChange }: FieldWidgetProps) {
   const [localNote, setLocalNote] = useState(note || "");
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
+  const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // Rehydrate local state when props change (e.g., when existing entries load)
   useEffect(() => {
@@ -48,6 +59,149 @@ export function FieldWidget({ field, value, note, photos, onChange }: FieldWidge
   const handleNoteChange = (newNote: string) => {
     setLocalNote(newNote);
     onChange(value, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
+  };
+
+  const handlePhotoAdd = (photoUrl: string) => {
+    const newPhotos = field.type === "photo" ? [photoUrl] : [...localPhotos, photoUrl];
+    setLocalPhotos(newPhotos);
+    onChange(value, localNote || undefined, newPhotos);
+    toast({
+      title: "Success",
+      description: "Photo uploaded successfully",
+    });
+  };
+
+  const handlePhotoRemove = (photoUrl: string) => {
+    const newPhotos = localPhotos.filter((p) => p !== photoUrl);
+    setLocalPhotos(newPhotos);
+    onChange(value, localNote || undefined, newPhotos.length > 0 ? newPhotos : undefined);
+  };
+
+  const createPhotoUppy = () => {
+    const maxFiles = field.type === "photo" ? 1 : 10;
+    const uppy = new Uppy({
+      restrictions: {
+        maxNumberOfFiles: maxFiles,
+        allowedFileTypes: ["image/*"],
+        maxFileSize: 10485760, // 10MB
+      },
+      autoProceed: false,
+    }).use(AwsS3, {
+      shouldUseMultipart: false,
+      async getUploadParameters(file: any) {
+        const response = await fetch("/api/objects/upload", {
+          method: "POST",
+          credentials: "include",
+        });
+        const { uploadURL } = await response.json();
+        return {
+          method: "PUT" as const,
+          url: uploadURL,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+        };
+      },
+    });
+
+    uppy.on("upload-success", (_file: any, response: any) => {
+      const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
+      if (uploadUrl) {
+        const photoUrl = uploadUrl.split("?")[0];
+        handlePhotoAdd(photoUrl);
+      }
+    });
+
+    uppy.on("complete", () => {
+      setShowPhotoUpload(false);
+    });
+
+    return uppy;
+  };
+
+  const createVideoUppy = () => {
+    const uppy = new Uppy({
+      restrictions: {
+        maxNumberOfFiles: 1,
+        allowedFileTypes: ["video/*"],
+        maxFileSize: 104857600, // 100MB
+      },
+      autoProceed: false,
+    }).use(AwsS3, {
+      shouldUseMultipart: false,
+      async getUploadParameters(file: any) {
+        const response = await fetch("/api/objects/upload", {
+          method: "POST",
+          credentials: "include",
+        });
+        const { uploadURL } = await response.json();
+        return {
+          method: "PUT" as const,
+          url: uploadURL,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+        };
+      },
+    });
+
+    uppy.on("upload-success", (_file: any, response: any) => {
+      const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
+      if (uploadUrl) {
+        const videoUrl = uploadUrl.split("?")[0];
+        handleValueChange(videoUrl);
+        toast({
+          title: "Success",
+          description: "Video uploaded successfully",
+        });
+      }
+    });
+
+    uppy.on("complete", () => {
+      setShowPhotoUpload(false);
+    });
+
+    return uppy;
+  };
+
+  const handleAnalyzePhoto = async (photoUrl: string) => {
+    if (!inspectionId || !photoUrl) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Unable to analyze photo - missing inspection data",
+      });
+      return;
+    }
+
+    setAnalyzingPhoto(photoUrl);
+
+    try {
+      const response = await apiRequest("POST", "/api/ai-analyses", {
+        inspectionId,
+        inspectionEntryId: entryId,
+        imageUrl: photoUrl,
+        context: `Analyze this photo for ${field.label}. Provide a detailed assessment of the condition, noting any issues, damage, or concerns.`,
+      });
+
+      setAiAnalyses((prev) => ({
+        ...prev,
+        [photoUrl]: response,
+      }));
+
+      toast({
+        title: "Analysis Complete",
+        description: "AI analysis generated successfully (1 credit used)",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Analysis Failed",
+        description: error.message || "Failed to analyze photo",
+      });
+    } finally {
+      setAnalyzingPhoto(null);
+    }
   };
 
   const renderField = () => {
@@ -225,36 +379,114 @@ export function FieldWidget({ field, value, note, photos, onChange }: FieldWidge
       case "photo":
       case "photo_array":
         return (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-4">
-                <Upload className="w-8 h-8 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Photo upload coming soon</p>
-                  <p className="text-xs text-muted-foreground">
-                    Integration with Uppy will be added in the next task
-                  </p>
-                </div>
+          <div className="space-y-3">
+            {localPhotos.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {localPhotos.map((photoUrl, index) => (
+                  <Card key={index} className="overflow-hidden">
+                    <CardContent className="p-0">
+                      <div className="relative group">
+                        <img
+                          src={photoUrl}
+                          alt={`${field.label} ${index + 1}`}
+                          className="w-full h-48 object-cover"
+                        />
+                        <Button
+                          size="icon"
+                          variant="destructive"
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handlePhotoRemove(photoUrl)}
+                          data-testid={`button-remove-photo-${index}`}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {inspectionId && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleAnalyzePhoto(photoUrl)}
+                            disabled={analyzingPhoto === photoUrl || !!aiAnalyses[photoUrl]}
+                            data-testid={`button-analyze-photo-${index}`}
+                            className="w-full"
+                          >
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            {analyzingPhoto === photoUrl
+                              ? "Analyzing..."
+                              : aiAnalyses[photoUrl]
+                              ? "Analyzed"
+                              : "Analyze with AI"}
+                          </Button>
+                        )}
+                        {aiAnalyses[photoUrl] && (
+                          <div className="p-3 bg-muted rounded-lg text-sm">
+                            <p className="font-medium mb-1 flex items-center gap-2">
+                              <Sparkles className="w-4 h-4" />
+                              AI Analysis
+                            </p>
+                            <p className="text-muted-foreground whitespace-pre-wrap">
+                              {aiAnalyses[photoUrl].resultJson?.analysis || 
+                               aiAnalyses[photoUrl].resultJson?.content ||
+                               "Analysis completed"}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
-            </CardContent>
-          </Card>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowPhotoUpload(true)}
+              disabled={field.type === "photo" && localPhotos.length >= 1}
+              data-testid={`button-upload-photo-${field.id}`}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              {localPhotos.length > 0 ? "Add More Photos" : "Upload Photo"}
+            </Button>
+            {showPhotoUpload && (
+              <Dashboard
+                uppy={createPhotoUppy()}
+                proudlyDisplayPoweredByUppy={false}
+                height={300}
+              />
+            )}
+          </div>
         );
 
       case "video":
         return (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-4">
-                <Upload className="w-8 h-8 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Video upload coming soon</p>
-                  <p className="text-xs text-muted-foreground">
-                    Video upload will be added in the next task
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-3">
+            {value && (
+              <video
+                src={value}
+                controls
+                className="w-full max-h-64 rounded-lg"
+                data-testid={`video-preview-${field.id}`}
+              />
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowPhotoUpload(true)}
+              data-testid={`button-upload-video-${field.id}`}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              {value ? "Replace Video" : "Upload Video"}
+            </Button>
+            {showPhotoUpload && (
+              <Dashboard
+                uppy={createVideoUppy()}
+                proudlyDisplayPoweredByUppy={false}
+                height={300}
+              />
+            )}
+          </div>
         );
 
       case "gps":
