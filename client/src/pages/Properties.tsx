@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2, MapPin, Search } from "lucide-react";
+import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -209,15 +209,15 @@ export default function Properties() {
           {filteredProperties.map((property: any) => {
             const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
             return (
-              <Link key={property.id} href={`/properties/${property.id}`}>
-                <Card className="hover-elevate cursor-pointer" data-testid={`card-property-${property.id}`}>
-                  <CardHeader>
+              <Card key={property.id} className="hover-elevate" data-testid={`card-property-${property.id}`}>
+                <Link href={`/properties/${property.id}`}>
+                  <CardHeader className="cursor-pointer">
                     <CardTitle className="flex items-center gap-2">
                       <Building2 className="w-5 h-5 text-primary" />
                       {property.name}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="space-y-2 cursor-pointer pb-4">
                     <p className="text-sm text-muted-foreground">{property.address}</p>
                     {propertyBlock && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -226,8 +226,56 @@ export default function Properties() {
                       </p>
                     )}
                   </CardContent>
-                </Card>
-              </Link>
+                </Link>
+                <CardContent className="pt-0 border-t">
+                  <div className="flex items-center justify-around pt-4">
+                    <Link href={`/inventory?propertyId=${property.id}`}>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-3"
+                        data-testid={`button-inventory-${property.id}`}
+                      >
+                        <Package className="h-4 w-4 mb-1" />
+                        <span className="text-xs">Inventory</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/inspections?propertyId=${property.id}&create=true`}>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-3"
+                        data-testid={`button-inspect-${property.id}`}
+                      >
+                        <ClipboardCheck className="h-4 w-4 mb-1" />
+                        <span className="text-xs">Inspect</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/team?role=tenant&propertyId=${property.id}`}>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-3"
+                        data-testid={`button-tenants-${property.id}`}
+                      >
+                        <Users className="h-4 w-4 mb-1" />
+                        <span className="text-xs">Tenants</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/compliance?propertyId=${property.id}`}>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-3"
+                        data-testid={`button-compliance-${property.id}`}
+                      >
+                        <FileText className="h-4 w-4 mb-1" />
+                        <span className="text-xs">Compliance</span>
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>

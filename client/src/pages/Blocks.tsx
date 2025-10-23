@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building, Pencil, Trash2, Users, CheckCircle2, Calendar, AlertTriangle, Search } from "lucide-react";
+import { Plus, Building, Pencil, Trash2, Users, CheckCircle2, Calendar, AlertTriangle, Search, Package, ClipboardCheck, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 
@@ -353,6 +353,55 @@ export default function Blocks() {
                     </div>
                   </>
                 )}
+                
+                {/* Quick Actions */}
+                <div className="h-px bg-border/30" />
+                <div className="flex items-center justify-around -mx-2">
+                  <Link href={`/inventory?blockId=${block.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex flex-col h-auto py-2 px-3"
+                      data-testid={`button-inventory-${block.id}`}
+                    >
+                      <Package className="h-4 w-4 mb-1" />
+                      <span className="text-xs">Inventory</span>
+                    </Button>
+                  </Link>
+                  <Link href={`/inspections?blockId=${block.id}&create=true`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex flex-col h-auto py-2 px-3"
+                      data-testid={`button-inspect-${block.id}`}
+                    >
+                      <ClipboardCheck className="h-4 w-4 mb-1" />
+                      <span className="text-xs">Inspect</span>
+                    </Button>
+                  </Link>
+                  <Link href={`/team?role=tenant&blockId=${block.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex flex-col h-auto py-2 px-3"
+                      data-testid={`button-tenants-${block.id}`}
+                    >
+                      <Users className="h-4 w-4 mb-1" />
+                      <span className="text-xs">Tenants</span>
+                    </Button>
+                  </Link>
+                  <Link href={`/compliance?blockId=${block.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex flex-col h-auto py-2 px-3"
+                      data-testid={`button-compliance-${block.id}`}
+                    >
+                      <FileText className="h-4 w-4 mb-1" />
+                      <span className="text-xs">Compliance</span>
+                    </Button>
+                  </Link>
+                </div>
               </CardContent>
             </Card>
           ))}
