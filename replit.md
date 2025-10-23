@@ -140,6 +140,12 @@ Comprehensive JSON-based inspection template system with flexible structure edit
 - **Query Filtering**: Filter templates by scope, category, and active status
 - **Zod Validation**: All API inputs validated with Drizzle-Zod schemas
 
+**Completed Tasks**:
+- ✅ Task 1: Database schema implementation
+- ✅ Task 2: Storage layer with offline sync
+- ✅ Task 3: Backend API routes (21 endpoints)
+- ✅ Task 4: Template Builder UI with visual editor (October 23, 2025)
+
 **Pending Tasks**:
 - Task 5: Templates list page enhancements (filtering UI)
 - Task 6: Update inspection creation flow to support template selection and snapshot creation
