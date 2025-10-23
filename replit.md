@@ -33,6 +33,14 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **PWA**: `manifest.json` and service worker for offline capabilities and caching.
 - **Performance**: Optimized database queries and Zod validation for API error handling.
 - **Inspection Templates System**: JSON-based templates with a flexible structure editor, supporting various field types, versioning, and snapshots. Includes a Template Builder UI for visual editing and a Templates List Page with comprehensive filtering and management.
+- **Inspection Capture Workflow**: Complete field inspection workflow with:
+  - InspectionCapture page for data entry with 15 field type widgets
+  - Real-time progress tracking based on completed fields
+  - Entry persistence with optimistic updates
+  - InspectionReview page for read-only verification
+  - Status management (scheduled → in_progress → completed)
+  - Template snapshot preservation for audit trail
+  - Note and photo support on all fields
 
 ### Feature Specifications
 - **Core Modules**: Properties, Blocks, Inspections, Compliance, Maintenance, Credit Management, Asset Inventory, Contacts, Tagging System.
