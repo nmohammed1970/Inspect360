@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, ClipboardCheck, Sparkles, Shield, Users, TrendingUp } from "lucide-react";
 import { useLocation } from "wouter";
+import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
 
 export default function Landing() {
   const [, navigate] = useLocation();
@@ -10,8 +11,8 @@ export default function Landing() {
       {/* Header/Nav */}
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-8 h-8 text-primary" />
+          <div className="flex items-center gap-3">
+            <img src={logoUrl} alt="Inspect360" className="h-10" />
             <span className="text-2xl font-bold text-primary">Inspect360</span>
           </div>
           <Button
