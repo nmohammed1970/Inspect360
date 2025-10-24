@@ -122,6 +122,10 @@ export default function Maintenance() {
           }
 
           const { url, publicUrl } = await response.json();
+          
+          // Store publicUrl in file metadata for later retrieval
+          uppy.setFileMeta(file.id, { publicUrl });
+          
           return {
             method: "PUT" as const,
             url,
@@ -133,9 +137,9 @@ export default function Maintenance() {
         },
       });
 
-      uppy.on("upload-success", (file, response) => {
-        if (file && file.name) {
-          const publicUrl = `${import.meta.env.VITE_PUBLIC_OBJECT_URL}/${file.name}`;
+      uppy.on("upload-success", (file) => {
+        if (file && file.meta && file.meta.publicUrl) {
+          const publicUrl = file.meta.publicUrl as string;
           setUploadedImages((prev) => [...prev, publicUrl]);
         }
       });
