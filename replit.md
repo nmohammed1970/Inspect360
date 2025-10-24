@@ -90,3 +90,9 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **Shadcn UI**: UI component library.
 - **Tailwind CSS**: Styling framework.
 - **Uppy**: File upload library.
+
+## Recent Critical Fixes
+- **Query Cache Management**: Changed queryClient config from `staleTime: Infinity` to `staleTime: 0` and added `refetchOnMount: true` to enable proper list refreshing after mutations
+- **List Refresh Pattern**: Updated Blocks.tsx and Properties.tsx to use `await queryClient.refetchQueries()` instead of `invalidateQueries()` for immediate, guaranteed list updates after create/update/delete operations
+- **Inspection Route Fix**: Corrected PropertyDetail "New Inspection" button to navigate to `/inspections` instead of broken `/inspections/new` route
+- **TanStack Query v5 Best Practices**: Implemented recommended v5 pattern for synchronous cache updates with scoped queryKey filters
