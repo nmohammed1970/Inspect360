@@ -5,7 +5,8 @@ Inspect360 is a PWA-first building inspection platform designed for Build-to-Ren
 
 ## User Preferences
 - Prioritize PWA-first mobile experience
-- Light, airy Sky Blue/Cobalt brand color scheme (clean modern SaaS aesthetic)
+- Inspect360 branded color scheme: Bright Cyan (#00D5CC / HSL 174 100% 42%) primary, Teal (#3B7A8C / HSL 193 40% 38%) accents
+- Logo: attached_assets/Inspect360 Logo_1761302629835.png (bright cyan magnifying glass with teal house icon)
 - Clean, accessible enterprise UI with generous white space
 - Role-based feature access
 - Offline support for field inspections
@@ -14,10 +15,11 @@ Inspect360 is a PWA-first building inspection platform designed for Build-to-Ren
 The platform employs a PWA-first approach with a robust web architecture.
 
 ### UI/UX Decisions
-- **Modern Clean Design System**: Utilizes Inter font, clean cards with soft shadows, 0.75rem border-radius, 150ms transitions, generous spacing (p-6/p-8, gap-6/gap-8), subtle hover effects, and skeleton loaders with sky blue shimmer.
-- **Color Scheme**: Primary CTAs use Sky Blue (#5AB5E8), accents/links use Cobalt Blue (214 100% 50%), with clean white backgrounds and warm gray neutrals.
+- **Modern Clean Design System**: Utilizes Inter font, clean cards with soft shadows, 0.75rem border-radius, 150ms transitions, generous spacing (p-6/p-8, gap-6/gap-8), subtle hover effects, and skeleton loaders with cyan shimmer.
+- **Color Scheme**: Primary CTAs use Bright Cyan (#00D5CC / HSL 174 100% 42%), accents/links use Teal (#3B7A8C / HSL 193 40% 38%), with clean white backgrounds and warm gray neutrals.
+- **Branding**: Inspect360 logo (attached_assets/Inspect360 Logo_1761302629835.png) appears on all login pages (Auth.tsx h-12/h-16, AdminLogin.tsx h-16) and main app sidebar (app-sidebar.tsx h-8).
 - **Components**: Clean white cards, pill-shaped buttons, minimal elevation.
-- **Layout**: Left sidebar navigation with role-aware menus, top bar with logout, responsive grid with ample white space.
+- **Layout**: Left sidebar navigation with Inspect360 logo header and role-aware menus, top bar with logout, responsive grid with ample white space.
 
 ### Technical Implementations
 - **Frontend**: React with TypeScript, Vite, Wouter (routing), TanStack Query (data fetching), Shadcn UI, Tailwind CSS, Uppy (file uploads).
