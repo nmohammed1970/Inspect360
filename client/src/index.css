@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE - Clean, Airy Sky Blue Theme */
+/* LIGHT MODE - Inspect360 Cyan/Teal Theme */
 :root {
   --button-outline: rgba(0,0,0, .08);
   --badge-outline: rgba(0,0,0, .04);
@@ -30,19 +30,19 @@
   --sidebar: 0 0% 100%;
   --sidebar-foreground: 30 8% 15%;
   --sidebar-border: 30 8% 90%;
-  --sidebar-primary: 199 79% 63%;
+  --sidebar-primary: 174 100% 42%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 199 40% 97%;
-  --sidebar-accent-foreground: 199 79% 45%;
-  --sidebar-ring: 199 79% 63%;
+  --sidebar-accent: 174 30% 97%;
+  --sidebar-accent-foreground: 193 40% 38%;
+  --sidebar-ring: 174 100% 42%;
 
   /* Popovers */
   --popover: 0 0% 100%;
   --popover-foreground: 30 8% 15%;
   --popover-border: 30 8% 90%;
 
-  /* Primary - Sky Blue */
-  --primary: 199 79% 63%;
+  /* Primary - Bright Cyan (from Inspect360 logo) */
+  --primary: 174 100% 42%;
   --primary-foreground: 0 0% 100%;
 
   /* Secondary - Soft gray */
@@ -53,8 +53,8 @@
   --muted: 30 8% 95%;
   --muted-foreground: 30 5% 45%;
 
-  /* Accent - Cobalt Blue */
-  --accent: 214 100% 50%;
+  /* Accent - Teal (from Inspect360 logo house) */
+  --accent: 193 40% 38%;
   --accent-foreground: 0 0% 100%;
 
   /* Destructive */
@@ -63,11 +63,11 @@
 
   /* Input & Ring */
   --input: 30 8% 88%;
-  --ring: 199 79% 63%;
+  --ring: 174 100% 42%;
 
-  /* Charts - Sky Blue Palette */
-  --chart-1: 214 100% 50%;
-  --chart-2: 199 79% 63%;
+  /* Charts - Cyan/Teal Palette */
+  --chart-1: 174 100% 42%;
+  --chart-2: 193 40% 38%;
   --chart-3: 145 60% 50%;
   --chart-4: 35 90% 55%;
   --chart-5: 280 60% 60%;
@@ -143,19 +143,19 @@
   --sidebar: 220 13% 16%;
   --sidebar-foreground: 0 0% 98%;
   --sidebar-border: 220 10% 25%;
-  --sidebar-primary: 199 79% 68%;
+  --sidebar-primary: 174 100% 48%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 220 10% 20%;
-  --sidebar-accent-foreground: 199 79% 68%;
-  --sidebar-ring: 199 79% 68%;
+  --sidebar-accent-foreground: 174 100% 48%;
+  --sidebar-ring: 174 100% 48%;
 
   /* Popovers */
   --popover: 220 13% 16%;
   --popover-foreground: 0 0% 98%;
   --popover-border: 220 10% 25%;
 
-  /* Primary - Sky Blue (brighter for dark) */
-  --primary: 199 79% 68%;
+  /* Primary - Bright Cyan (adjusted for dark mode) */
+  --primary: 174 100% 48%;
   --primary-foreground: 0 0% 100%;
 
   /* Secondary */
@@ -166,8 +166,8 @@
   --muted: 220 10% 18%;
   --muted-foreground: 30 5% 70%;
 
-  /* Accent - Cobalt (brighter for dark) */
-  --accent: 214 100% 65%;
+  /* Accent - Teal (adjusted for dark mode) */
+  --accent: 193 40% 45%;
   --accent-foreground: 0 0% 100%;
 
   /* Destructive */
@@ -176,11 +176,11 @@
 
   /* Input & Ring */
   --input: 220 10% 30%;
-  --ring: 199 79% 68%;
+  --ring: 174 100% 48%;
 
   /* Charts - Adjusted for dark */
-  --chart-1: 214 100% 65%;
-  --chart-2: 199 79% 68%;
+  --chart-1: 174 100% 48%;
+  --chart-2: 193 40% 45%;
   --chart-3: 145 60% 58%;
   --chart-4: 35 90% 60%;
   --chart-5: 280 60% 68%;
@@ -354,7 +354,7 @@
     background-image: linear-gradient(
       90deg,
       hsl(var(--muted)) 0px,
-      hsl(var(--primary) / 0.1) 40px,
+      hsl(174 100% 42% / 0.1) 40px,
       hsl(var(--muted)) 80px
     );
     background-size: 1000px 100%;
