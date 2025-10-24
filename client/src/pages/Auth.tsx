@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Building2, Eye, EyeOff, FileCheck } from "lucide-react";
+import { Loader2, Building2, Eye, EyeOff, FileCheck, Lock } from "lucide-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -413,7 +413,7 @@ export default function Auth() {
 
             <div className="flex items-start gap-4">
               <div className="bg-[#59B677] p-3 rounded-lg">
-                <Shield className="h-6 w-6 text-white" />
+                <Lock className="h-6 w-6 text-white" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">Role-Based Access</h3>

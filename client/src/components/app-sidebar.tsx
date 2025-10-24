@@ -20,12 +20,14 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
+import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
 
 export function AppSidebar() {
   const { user } = useAuth();
@@ -124,11 +126,13 @@ export function AppSidebar() {
 
   return (
     <Sidebar data-testid="sidebar-main">
+      <SidebarHeader className="p-4 border-b">
+        <div className="flex items-center gap-2">
+          <img src={logoUrl} alt="Inspect360" className="h-8" />
+        </div>
+      </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-lg font-semibold text-primary">
-            Inspect360
-          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {filteredMenuItems.map((item) => (
