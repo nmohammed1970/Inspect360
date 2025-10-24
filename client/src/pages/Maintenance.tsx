@@ -65,6 +65,17 @@ export default function Maintenance() {
   const [currentStep, setCurrentStep] = useState<"form" | "images" | "suggestions" | "review">("form");
   const uppyRef = useRef<Uppy | null>(null);
 
+  // Reset state when dialog closes
+  const handleDialogChange = (open: boolean) => {
+    setIsCreateOpen(open);
+    if (!open) {
+      setCurrentStep("form");
+      setUploadedImages([]);
+      setAiSuggestions("");
+      form.reset();
+    }
+  };
+
   // Fetch maintenance requests
   const { data: requests = [], isLoading } = useQuery<MaintenanceRequestWithDetails[]>({
     queryKey: ["/api/maintenance"],
@@ -307,7 +318,7 @@ export default function Maintenance() {
               : "Manage internal maintenance work orders"}
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <Dialog open={isCreateOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button data-testid="button-create-request">
               <Plus className="w-4 h-4 mr-2" />
@@ -383,7 +394,7 @@ export default function Maintenance() {
                           </FormItem>
                         )}
                       />
-                      <Button type="submit" className="w-full">
+                      <Button type="submit" className="w-full" data-testid="button-next-upload">
                         Next: Upload Photos <Upload className="w-4 h-4 ml-2" />
                       </Button>
                     </form>
@@ -399,8 +410,8 @@ export default function Maintenance() {
                         <p className="text-sm text-muted-foreground">{uploadedImages.length} image(s) uploaded</p>
                       )}
                       <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => setCurrentStep("form")} className="flex-1">Back</Button>
-                        <Button onClick={handleImageStep} disabled={isAnalyzing} className="flex-1">
+                        <Button variant="outline" onClick={() => setCurrentStep("form")} className="flex-1" data-testid="button-back-to-form">Back</Button>
+                        <Button onClick={handleImageStep} disabled={isAnalyzing} className="flex-1" data-testid="button-get-ai-suggestions">
                           {isAnalyzing ? (
                             <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</>
                           ) : (
@@ -427,8 +438,8 @@ export default function Maintenance() {
                       </CardContent>
                     </Card>
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setCurrentStep("images")} className="flex-1">Back</Button>
-                      <Button onClick={form.handleSubmit(onSubmit)} disabled={createMutation.isPending} className="flex-1">
+                      <Button variant="outline" onClick={() => setCurrentStep("images")} className="flex-1" data-testid="button-back-to-images">Back</Button>
+                      <Button onClick={form.handleSubmit(onSubmit)} disabled={createMutation.isPending} className="flex-1" data-testid="button-submit-final">
                         {createMutation.isPending ? "Submitting..." : "Submit Request"}
                       </Button>
                     </div>
