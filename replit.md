@@ -92,7 +92,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **Uppy**: File upload library.
 
 ## Recent Critical Fixes
-- **Session Persistence Fix (Oct 24, 2025)**: Fixed critical authentication bug where all API requests returned 401 Unauthorized after successful login. Added explicit `req.session.save()` callback in login handler (server/auth.ts) to ensure session is persisted to PostgreSQL sessions table before responding. This prevents race conditions where session cookie is set but session data isn't saved.
+- **Session Persistence Fix (Oct 24, 2025)**: Fixed critical authentication bug where all API requests returned 401 Unauthorized after successful login. Root cause was `resave: false` in session configuration preventing proper session persistence. Solution: Changed to `resave: true` to force session saves, disabled secure cookie requirement for development (`secure: false`), and set `sameSite: 'lax'` unconditionally. Session now persists correctly across all authenticated requests.
 - **Query Cache Management**: Changed queryClient config from `staleTime: Infinity` to `staleTime: 0` and added `refetchOnMount: true` to enable proper list refreshing after mutations
 - **List Refresh Pattern**: Updated Blocks.tsx and Properties.tsx to use `await queryClient.refetchQueries()` instead of `invalidateQueries()` for immediate, guaranteed list updates after create/update/delete operations
 - **Inspection Route Fix**: Corrected PropertyDetail "New Inspection" button to navigate to `/inspections` instead of broken `/inspections/new` route

@@ -46,12 +46,12 @@ export function getSession() {
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
-    resave: false,
+    resave: true,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Only require HTTPS in production
-      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      secure: false, // Disable secure in development
+      sameSite: 'lax',
       maxAge: sessionTtl,
     },
   });
