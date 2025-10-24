@@ -1,14 +1,14 @@
 # Inspect360 Design Guidelines
 
 ## Design Approach
-**Modern SaaS Design System** inspired by Linear's clarity, Notion's airiness, and contemporary dashboard aesthetics. Sky blue brand palette with clean white surfaces, soft shadows, and generous breathing room. PWA-optimized for mobile-first inspection workflows with seamless light/dark mode transitions. Professional, calming, and effortlessly modern.
+**Modern SaaS Design System** inspired by Linear's clarity, Notion's airiness, and contemporary dashboard aesthetics. Bright cyan and teal brand palette from the Inspect360 logo with clean white surfaces, soft shadows, and generous breathing room. PWA-optimized for mobile-first inspection workflows with seamless light/dark mode transitions. Professional, calming, and effortlessly modern.
 
 ## Color System
 
 ### Light Mode (Primary)
-- **Sky Blue Primary:** 199 79% 63% (#5AB5E8 - brand primary, CTAs, primary buttons)
-- **Cobalt Accent:** 214 100% 50% (links, interactive elements, data highlights)
-- **Powder Blue Background:** 199 40% 97% (subtle surface tints, hover states)
+- **Bright Cyan Primary:** 174 100% 42% (#00D5CC - brand primary from Inspect360 logo, CTAs, primary buttons)
+- **Teal Accent:** 193 40% 38% (#3B7A8C - from Inspect360 logo house, links, interactive elements)
+- **Powder Cyan Background:** 174 30% 97% (subtle surface tints, hover states)
 - **White Surface:** 0 0% 100% (main backgrounds, cards)
 - **Warm Gray 50:** 30 10% 98% (alternative surface, subtle sections)
 - **Warm Gray 200:** 30 8% 90% (borders, dividers)
@@ -16,8 +16,8 @@
 - **Warm Gray 900:** 30 8% 15% (primary text, headings)
 
 ### Dark Mode
-- **Sky Blue Primary:** 199 79% 68% (adjusted brightness for dark contrast)
-- **Cobalt Accent:** 214 100% 65% (links, accents on dark)
+- **Bright Cyan Primary:** 174 100% 48% (adjusted brightness for dark contrast)
+- **Teal Accent:** 193 40% 45% (links, accents on dark)
 - **Dark Surface Base:** 220 15% 12% (main background)
 - **Dark Surface Elevated:** 220 13% 16% (cards, modals)
 - **Dark Surface Subtle:** 220 10% 20% (hover states, sections)
