@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Building2, Shield, Eye, EyeOff, FileCheck } from "lucide-react";
+import { Loader2, Building2, Eye, EyeOff, FileCheck } from "lucide-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -118,11 +119,14 @@ export default function Auth() {
       <div className="flex flex-1 items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md">
           <Card>
-            <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl font-bold">
+            <CardHeader className="space-y-3">
+              <div className="flex justify-center mb-2">
+                <img src={logoUrl} alt="Inspect360" className="h-12" />
+              </div>
+              <CardTitle className="text-2xl font-bold text-center">
                 {isLogin ? "Welcome back" : "Create account"}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-center">
                 {isLogin
                   ? "Enter your credentials to access your account"
                   : "Fill in your details to create your Inspect360 account"}
@@ -360,6 +364,9 @@ export default function Auth() {
 
         {/* Content */}
         <div className="relative z-10 max-w-lg space-y-8 text-white">
+          <div className="mb-6">
+            <img src={logoUrl} alt="Inspect360" className="h-16 mb-6 brightness-0 invert" />
+          </div>
           <div>
             <h1 className="text-4xl font-bold mb-4">AI-Powered Building Inspections</h1>
             <p className="text-lg text-white/90">

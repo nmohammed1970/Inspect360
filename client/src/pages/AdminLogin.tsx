@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Shield } from "lucide-react";
+import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
 
 export default function AdminLogin() {
   const [, navigate] = useLocation();
@@ -55,9 +55,7 @@ export default function AdminLogin() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center">
-              <Shield className="w-8 h-8 text-primary-foreground" />
-            </div>
+            <img src={logoUrl} alt="Inspect360" className="h-16" />
           </div>
           <CardTitle className="text-3xl font-bold" data-testid="heading-admin-login">Admin Portal</CardTitle>
           <CardDescription>
