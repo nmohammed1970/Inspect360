@@ -414,11 +414,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get inspections for this property
       const inspections = await storage.getInspectionsByProperty(id);
       const now = new Date();
-      const dueInspections = inspections.filter(i => 
-        i.status === 'scheduled' && i.scheduledDate && new Date(i.scheduledDate) <= now
-      ).length;
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      // Overdue: scheduled date is before today
       const overdueInspections = inspections.filter(i => 
-        i.status === 'scheduled' && i.scheduledDate && new Date(i.scheduledDate) < now
+        i.status === 'scheduled' && i.scheduledDate && new Date(i.scheduledDate) < today
+      ).length;
+      
+      // Due soon: scheduled date is today or in the near future (next 7 days)
+      const weekFromNow = new Date(today);
+      weekFromNow.setDate(weekFromNow.getDate() + 7);
+      const dueInspections = inspections.filter(i => 
+        i.status === 'scheduled' && i.scheduledDate && 
+        new Date(i.scheduledDate) >= today &&
+        new Date(i.scheduledDate) <= weekFromNow
       ).length;
 
       // Get compliance docs for this property
