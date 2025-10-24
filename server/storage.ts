@@ -803,7 +803,9 @@ export class DatabaseStorage implements IStorage {
         description: maintenanceRequests.description,
         status: maintenanceRequests.status,
         priority: maintenanceRequests.priority,
-        photoUrl: maintenanceRequests.photoUrl,
+        photoUrls: maintenanceRequests.photoUrls,
+        aiSuggestedFixes: maintenanceRequests.aiSuggestedFixes,
+        aiAnalysisJson: maintenanceRequests.aiAnalysisJson,
         createdAt: maintenanceRequests.createdAt,
         updatedAt: maintenanceRequests.updatedAt,
         property: {

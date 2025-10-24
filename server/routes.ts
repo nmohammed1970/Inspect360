@@ -72,7 +72,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         organization = await storage.getOrganization(user.organizationId);
       }
       
-      res.json({ ...user, organization });
+      // Exclude password from response for security
+      const { password, ...userWithoutPassword } = user;
+      res.json({ ...userWithoutPassword, organization });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });

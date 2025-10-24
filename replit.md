@@ -67,6 +67,14 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **AI Photo Analysis**: OpenAI Vision API integration (1 credit per analysis) with inline results display in inspection capture.
 - **Offline Queue System**: LocalStorage-based offline sync with auto-reconnection, manual sync, and status indicators.
 - **AI Comparison Reports**: Check-in vs check-out inspection comparisons using OpenAI (2 credits), with automatic report selection and inline display.
+- **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal for maintenance requests with:
+  - **Step 1**: Basic issue description form (title, property, details)
+  - **Step 2**: Multi-image upload via Uppy with Google Cloud Storage (max 5 images, 10MB each)
+  - **Step 3**: AI-powered fix suggestions using OpenAI Vision API (analyzes uploaded images)
+  - **Step 4**: Review AI suggestions before submitting request
+  - Schema includes photoUrls (array), aiSuggestedFixes (text), aiAnalysisJson (json) fields
+  - Non-tenant users see standard single-step form without AI suggestions
+  - All maintenance requests support multi-image attachments and AI analysis storage
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
