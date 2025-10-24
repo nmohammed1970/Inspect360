@@ -1322,10 +1322,82 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== MAINTENANCE ROUTES ====================
   
+  // AI analyze maintenance image for fix suggestions
+  app.post("/api/maintenance/analyze-image", isAuthenticated, async (req: any, res) => {
+    try {
+      const { imageUrl, issueDescription } = req.body;
+      
+      if (!imageUrl) {
+        return res.status(400).json({ message: "Image URL is required" });
+      }
+
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User must belong to an organization" });
+      }
+
+      // Check if organization has credits
+      const organization = await storage.getOrganization(user.organizationId);
+      if (!organization || organization.creditsRemaining < 1) {
+        return res.status(402).json({ 
+          message: "Insufficient credits. Please purchase more credits to use AI analysis.",
+          creditsRemaining: organization?.creditsRemaining || 0
+        });
+      }
+
+      // Call OpenAI Vision API for maintenance issue analysis
+      const prompt = issueDescription 
+        ? `You are a maintenance expert analyzing a property maintenance issue. The tenant reports: "${issueDescription}". 
+           Analyze the image and provide:
+           1. A brief assessment of the issue (2-3 sentences)
+           2. 3-5 possible DIY fixes the tenant can try immediately
+           3. Whether this requires professional help
+           Format your response in clear sections.`
+        : `You are a maintenance expert analyzing a property maintenance issue. 
+           Analyze the image and provide:
+           1. A brief assessment of what maintenance issue you can see (2-3 sentences)
+           2. 3-5 possible DIY fixes that can be tried immediately
+           3. Whether this requires professional help
+           Format your response in clear sections.`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: imageUrl } }
+            ]
+          }
+        ],
+        max_tokens: 800,
+      });
+
+      const suggestedFixes = response.choices[0]?.message?.content || "Unable to analyze the image at this time.";
+
+      // Deduct credit
+      await storage.deductCredit(user.organizationId, 1, "AI maintenance image analysis");
+
+      res.json({ 
+        suggestedFixes,
+        analysis: {
+          model: "gpt-4o",
+          timestamp: new Date().toISOString()
+        },
+        creditsRemaining: organization.creditsRemaining - 1
+      });
+    } catch (error) {
+      console.error("Error analyzing maintenance image:", error);
+      res.status(500).json({ message: "Failed to analyze image" });
+    }
+  });
+  
   app.post("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { propertyId, title, description, priority, photoUrl } = req.body;
+      const { propertyId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson } = req.body;
       
       if (!propertyId || !title) {
         return res.status(400).json({ message: "Property ID and title are required" });
@@ -1352,7 +1424,10 @@ Provide a structured comparison highlighting differences in condition ratings an
         title,
         description: description || null,
         priority: priority || "medium",
-        photoUrl: photoUrl || null,
+        photoUrls: photoUrls || null,
+        aiSuggestedFixes: aiSuggestedFixes || null,
+        aiAnalysisJson: aiAnalysisJson || null,
+        source: user.role === "tenant" ? "tenant_portal" : "manual",
       });
 
       res.json(request);
