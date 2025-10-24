@@ -395,6 +395,225 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get property stats
+  app.get("/api/properties/:id/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const property = await storage.getProperty(id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      // Get inspections for this property
+      const inspections = await storage.getInspectionsByProperty(id);
+      const now = new Date();
+      const dueInspections = inspections.filter(i => 
+        i.status === 'scheduled' && i.scheduledDate && new Date(i.scheduledDate) <= now
+      ).length;
+      const overdueInspections = inspections.filter(i => 
+        i.status === 'scheduled' && i.scheduledDate && new Date(i.scheduledDate) < now
+      ).length;
+
+      // Get compliance docs for this property
+      const allComplianceDocs = await storage.getComplianceDocuments(user.organizationId);
+      const complianceDocs = allComplianceDocs.filter((d: any) => d.propertyId === id);
+      const validDocs = complianceDocs.filter((d: any) => {
+        if (!d.expiryDate) return true;
+        return new Date(d.expiryDate) > now;
+      }).length;
+      const complianceRate = complianceDocs.length > 0 
+        ? Math.round((validDocs / complianceDocs.length) * 100)
+        : 100;
+
+      // Get maintenance requests
+      const maintenanceRequests = await storage.getMaintenanceRequestsByProperty(id);
+      const openRequests = maintenanceRequests.filter(m => 
+        m.status !== 'completed' && m.status !== 'closed'
+      ).length;
+
+      // Get inventory count
+      const inventory = await storage.getAssetInventoryByProperty(id);
+      
+      // Get tenants
+      const tenants = await storage.getUsersByOrganizationAndRole(user.organizationId, "tenant");
+      const propertyTenants = tenants.filter((t: any) => t.propertyId === id);
+
+      res.json({
+        occupancyStatus: propertyTenants.length > 0 ? `${propertyTenants.length} Tenant${propertyTenants.length > 1 ? 's' : ''}` : 'Vacant',
+        complianceRate,
+        dueInspections,
+        overdueInspections,
+        maintenanceRequests: openRequests,
+        inventoryCount: inventory.length,
+      });
+    } catch (error) {
+      console.error("Error fetching property stats:", error);
+      res.status(500).json({ message: "Failed to fetch property stats" });
+    }
+  });
+
+  // Get property tenants
+  app.get("/api/properties/:id/tenants", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const property = await storage.getProperty(id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const tenants = await storage.getUsersByOrganizationAndRole(user.organizationId, "tenant");
+      const propertyTenants = tenants.filter((t: any) => t.propertyId === id);
+
+      res.json(propertyTenants);
+    } catch (error) {
+      console.error("Error fetching property tenants:", error);
+      res.status(500).json({ message: "Failed to fetch tenants" });
+    }
+  });
+
+  // Get property inspections
+  app.get("/api/properties/:id/inspections", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const property = await storage.getProperty(id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const inspections = await storage.getInspectionsByProperty(id);
+      
+      // Enhance with template names and inspector info
+      const enhancedInspections = await Promise.all(inspections.map(async (inspection: any) => {
+        let templateName = 'Unknown Template';
+        if (inspection.templateId) {
+          const template = await storage.getInspectionTemplate(inspection.templateId);
+          if (template) templateName = template.name;
+        }
+
+        let inspectorName = undefined;
+        if (inspection.inspectorId) {
+          const inspector = await storage.getUser(inspection.inspectorId);
+          if (inspector) inspectorName = `${inspector.firstName} ${inspector.lastName}`;
+        }
+
+        return {
+          id: inspection.id,
+          templateName,
+          scheduledDate: inspection.scheduledDate,
+          status: inspection.status,
+          inspectorName,
+        };
+      }));
+
+      res.json(enhancedInspections);
+    } catch (error) {
+      console.error("Error fetching property inspections:", error);
+      res.status(500).json({ message: "Failed to fetch inspections" });
+    }
+  });
+
+  // Get property inventory
+  app.get("/api/properties/:id/inventory", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const property = await storage.getProperty(id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const inventory = await storage.getAssetInventoryByProperty(id);
+      res.json(inventory);
+    } catch (error) {
+      console.error("Error fetching property inventory:", error);
+      res.status(500).json({ message: "Failed to fetch inventory" });
+    }
+  });
+
+  // Get property compliance documents
+  app.get("/api/properties/:id/compliance", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const property = await storage.getProperty(id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const allComplianceDocs = await storage.getComplianceDocuments(user.organizationId);
+      const complianceDocs = allComplianceDocs.filter((d: any) => d.propertyId === id);
+      
+      // Add status based on expiry
+      const now = new Date();
+      const enhancedDocs = complianceDocs.map((doc: any) => ({
+        ...doc,
+        status: !doc.expiryDate || new Date(doc.expiryDate) > now ? 'valid' : 'expired',
+      }));
+
+      res.json(enhancedDocs);
+    } catch (error) {
+      console.error("Error fetching property compliance:", error);
+      res.status(500).json({ message: "Failed to fetch compliance documents" });
+    }
+  });
+
+  // Get property maintenance requests
+  app.get("/api/properties/:id/maintenance", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const property = await storage.getProperty(id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const maintenance = await storage.getMaintenanceRequestsByProperty(id);
+      res.json(maintenance);
+    } catch (error) {
+      console.error("Error fetching property maintenance:", error);
+      res.status(500).json({ message: "Failed to fetch maintenance requests" });
+    }
+  });
+
   // ==================== USER ROUTES ====================
   
   app.get("/api/users/clerks", isAuthenticated, async (req: any, res) => {
