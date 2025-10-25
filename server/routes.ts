@@ -2822,6 +2822,39 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
+  // Add tag to contact
+  app.post("/api/contacts/:contactId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
+    try {
+      await storage.addTagToContact(req.params.contactId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding tag to contact:", error);
+      res.status(500).json({ error: "Failed to add tag to contact" });
+    }
+  });
+
+  // Remove tag from contact
+  app.delete("/api/contacts/:contactId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
+    try {
+      await storage.removeTagFromContact(req.params.contactId, req.params.tagId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing tag from contact:", error);
+      res.status(500).json({ error: "Failed to remove tag from contact" });
+    }
+  });
+
+  // Get tags for contact
+  app.get("/api/contacts/:contactId/tags", isAuthenticated, async (req: any, res) => {
+    try {
+      const tags = await storage.getTagsForContact(req.params.contactId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching contact tags:", error);
+      res.status(500).json({ error: "Failed to fetch contact tags" });
+    }
+  });
+
   // Search entities by tags
   app.post("/api/tags/search", isAuthenticated, async (req: any, res) => {
     try {
