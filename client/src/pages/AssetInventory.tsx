@@ -1,44 +1,24 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench } from "lucide-react";
-import { assetInventory, type AssetInventory, type Property, type Block } from "@shared/schema";
-import { z } from "zod";
-import { format } from "date-fns";
+import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, DollarSign, FileText, MapPin, Tag as TagIcon } from "lucide-react";
+import type { AssetInventory, Property, Block } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
-import { createInsertSchema } from "drizzle-zod";
+import { format } from "date-fns";
 import Uppy from "@uppy/core";
 import { Dashboard } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
 
-const baseAssetSchema = createInsertSchema(assetInventory).omit({
-  id: true,
-  organizationId: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-const assetFormSchema = baseAssetSchema.extend({
-  name: z.string().min(1, "Asset name is required"),
-  condition: z.enum(["excellent", "good", "fair", "poor", "needs_replacement"]),
-  expectedLifespanYears: z.coerce.number().min(0, "Lifespan must be 0 or greater").optional(),
-}).refine(
-  (data) => data.propertyId || data.blockId,
-  { message: "Either propertyId or blockId must be provided" }
-);
-
-type AssetFormValues = z.infer<typeof assetFormSchema>;
+import "@uppy/core/dist/style.min.css";
+import "@uppy/dashboard/dist/style.min.css";
 
 const conditionLabels = {
   excellent: "Excellent",
@@ -48,91 +28,85 @@ const conditionLabels = {
   needs_replacement: "Needs Replacement",
 };
 
-const conditionColors = {
-  excellent: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  good: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  fair: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-  poor: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  needs_replacement: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
+const assetCategories = [
+  "HVAC",
+  "Appliances",
+  "Furniture",
+  "Plumbing",
+  "Electrical",
+  "Flooring",
+  "Windows & Doors",
+  "Security",
+  "Landscaping",
+  "Lighting",
+  "Kitchen Equipment",
+  "Bathroom Fixtures",
+  "Other",
+];
 
 export default function AssetInventory() {
   const { toast } = useToast();
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<AssetInventory | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "property" | "block">("all");
-  const [filterId, setFilterId] = useState<string>("");
-  const [uploadedPhotoUrl, setUploadedPhotoUrl] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterCondition, setFilterCondition] = useState<string>("all");
+  const [filterLocation, setFilterLocation] = useState<string>("all");
+  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+
+  // Form state
+  const [formData, setFormData] = useState<Partial<AssetInventory>>({});
 
   // Fetch assets
-  const { data: assets, isLoading: assetsLoading } = useQuery<AssetInventory[]>({
+  const { data: assets, isLoading } = useQuery<AssetInventory[]>({
     queryKey: ["/api/asset-inventory"],
   });
 
-  // Fetch properties for filter
+  // Fetch properties
   const { data: properties } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
   });
 
-  // Fetch blocks for filter
+  // Fetch blocks
   const { data: blocks } = useQuery<Block[]>({
     queryKey: ["/api/blocks"],
   });
 
-  // Create asset mutation
-  const createMutation = useMutation({
-    mutationFn: async (data: AssetFormValues) => {
-      return await apiRequest("POST", "/api/asset-inventory", data);
+  // Create/Update mutations
+  const saveMutation = useMutation({
+    mutationFn: async (data: Partial<AssetInventory>) => {
+      if (editingAsset) {
+        const res = await apiRequest("PATCH", `/api/asset-inventory/${editingAsset.id}`, data);
+        return await res.json();
+      } else {
+        const res = await apiRequest("POST", "/api/asset-inventory", data);
+        return await res.json();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/asset-inventory"] });
       toast({
         title: "Success",
-        description: "Asset created successfully",
+        description: editingAsset ? "Asset updated successfully" : "Asset created successfully",
       });
-      setIsCreateDialogOpen(false);
-      createForm.reset();
-      setUploadedPhotoUrl("");
+      handleCloseDialog();
     },
     onError: (error: Error) => {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to create asset",
+        description: error.message || "Failed to save asset",
       });
     },
   });
 
-  // Update asset mutation
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<AssetFormValues> }) => {
-      return await apiRequest("PATCH", `/api/asset-inventory/${id}`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/asset-inventory"] });
-      toast({
-        title: "Success",
-        description: "Asset updated successfully",
-      });
-      setEditingAsset(null);
-      setUploadedPhotoUrl("");
-    },
-    onError: (error: Error) => {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to update asset",
-      });
-    },
-  });
-
-  // Delete asset mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return await apiRequest("DELETE", `/api/asset-inventory/${id}`);
+      const res = await apiRequest("DELETE", `/api/asset-inventory/${id}`);
+      return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/asset-inventory"] });
+      queryClient.refetchQueries({ queryKey: ["/api/asset-inventory"] });
       toast({
         title: "Success",
         description: "Asset deleted successfully",
@@ -147,777 +121,664 @@ export default function AssetInventory() {
     },
   });
 
-  const createForm = useForm<AssetFormValues>({
-    resolver: zodResolver(assetFormSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      supplier: "",
-      datePurchased: undefined,
-      condition: "good",
-      expectedLifespanYears: undefined,
-      propertyId: undefined,
-      blockId: undefined,
-      photoUrl: "",
-    },
-  });
-
-  const editForm = useForm<AssetFormValues>({
-    resolver: zodResolver(assetFormSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      supplier: "",
-      datePurchased: undefined,
-      condition: "good",
-      expectedLifespanYears: undefined,
-      propertyId: undefined,
-      blockId: undefined,
-      photoUrl: "",
-    },
-  });
-
-  // Update edit form when editingAsset changes
-  if (editingAsset && editForm.getValues().name !== editingAsset.name) {
-    editForm.reset({
-      name: editingAsset.name,
-      description: editingAsset.description ?? "",
-      supplier: editingAsset.supplier ?? "",
-      datePurchased: editingAsset.datePurchased ?? undefined,
-      condition: editingAsset.condition,
-      expectedLifespanYears: editingAsset.expectedLifespanYears ?? undefined,
-      propertyId: editingAsset.propertyId ?? undefined,
-      blockId: editingAsset.blockId ?? undefined,
-      photoUrl: editingAsset.photoUrl ?? "",
-    });
-    setUploadedPhotoUrl(editingAsset.photoUrl ?? "");
-  }
-
-  // Uppy instance for image upload
-  const createUppy = () => {
-    const uppy = new Uppy({
+  const uppy = useMemo(() => {
+    const uppyInstance = new Uppy({
       restrictions: {
-        maxNumberOfFiles: 1,
-        allowedFileTypes: ["image/*"],
+        maxFileSize: 10 * 1024 * 1024,
+        maxNumberOfFiles: 10,
+        allowedFileTypes: ['image/*'],
       },
       autoProceed: false,
-    }).use(AwsS3, {
-      shouldUseMultipart: false,
-      async getUploadParameters(file: any) {
-        const response = await fetch("/api/objects/upload", {
-          method: "POST",
-          credentials: "include",
+    });
+
+    uppyInstance.use(AwsS3, {
+      endpoint: '/api/upload/sign',
+      getUploadParameters: async (file) => {
+        const response = await fetch('/api/upload/sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type,
+          }),
         });
-        const { uploadURL } = await response.json();
+
+        if (!response.ok) {
+          throw new Error('Failed to get upload URL');
+        }
+
+        const data = await response.json();
         return {
-          method: "PUT" as const,
-          url: uploadURL,
+          method: 'PUT',
+          url: data.url,
+          fields: {},
           headers: {
-            "Content-Type": file.type || "application/octet-stream",
+            'Content-Type': file.type || 'application/octet-stream',
           },
         };
       },
     });
 
-    uppy.on("upload-success", (_file: any, response: any) => {
-      const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
-      if (uploadUrl) {
-        const photoUrl = uploadUrl.split("?")[0];
-        setUploadedPhotoUrl(photoUrl);
-        
-        if (editingAsset) {
-          editForm.setValue("photoUrl", photoUrl);
-        } else {
-          createForm.setValue("photoUrl", photoUrl);
-        }
-
-        toast({
-          title: "Success",
-          description: "Image uploaded successfully",
-        });
+    uppyInstance.on('upload-success', (file, response) => {
+      if (file && response.uploadURL) {
+        const publicUrl = response.uploadURL.split('?')[0];
+        setUploadedPhotos(prev => [...prev, publicUrl]);
       }
     });
 
-    return uppy;
+    return uppyInstance;
+  }, []);
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false);
+    setEditingAsset(null);
+    setFormData({});
+    setUploadedPhotos([]);
+    uppy.cancelAll();
   };
 
-  const handleCreateSubmit = (data: AssetFormValues) => {
-    // Add the uploaded photo URL if present
-    if (uploadedPhotoUrl) {
-      data.photoUrl = uploadedPhotoUrl;
+  const handleOpenDialog = (asset?: AssetInventory) => {
+    if (asset) {
+      setEditingAsset(asset);
+      setFormData(asset);
+      setUploadedPhotos(asset.photos || []);
+    } else {
+      setFormData({});
+      setUploadedPhotos([]);
     }
-    createMutation.mutate(data);
+    setIsDialogOpen(true);
   };
 
-  const handleEditSubmit = (data: AssetFormValues) => {
-    if (!editingAsset) return;
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     
-    // Add the uploaded photo URL if present
-    if (uploadedPhotoUrl) {
-      data.photoUrl = uploadedPhotoUrl;
-    }
-    
-    updateMutation.mutate({ id: editingAsset.id, data });
+    const submitData = {
+      ...formData,
+      photos: uploadedPhotos.length > 0 ? uploadedPhotos : formData.photos || [],
+    };
+
+    saveMutation.mutate(submitData);
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm("Are you sure you want to delete this asset?")) {
-      deleteMutation.mutate(id);
-    }
+  // Calculate current value based on purchase price and depreciation
+  const calculateCurrentValue = (purchasePrice: number, depreciationPerYear: number, datePurchased: Date) => {
+    const yearsOwned = Math.floor((Date.now() - new Date(datePurchased).getTime()) / (1000 * 60 * 60 * 24 * 365));
+    const totalDepreciation = depreciationPerYear * yearsOwned;
+    return Math.max(0, purchasePrice - totalDepreciation);
   };
 
   // Filter assets
-  const filteredAssets = assets?.filter((asset) => {
-    if (filterType === "all") return true;
-    if (filterType === "property" && filterId) return asset.propertyId === filterId;
-    if (filterType === "block" && filterId) return asset.blockId === filterId;
-    return true;
-  });
+  const filteredAssets = useMemo(() => {
+    if (!assets) return [];
+    
+    return assets.filter(asset => {
+      const matchesSearch = searchTerm === "" ||
+        asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        asset.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        asset.location?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesCategory = filterCategory === "all" || asset.category === filterCategory;
+      const matchesCondition = filterCondition === "all" || asset.condition === filterCondition;
+      const matchesLocation = filterLocation === "all" || asset.propertyId === filterLocation || asset.blockId === filterLocation;
+      
+      return matchesSearch && matchesCategory && matchesCondition && matchesLocation;
+    });
+  }, [assets, searchTerm, filterCategory, filterCondition, filterLocation]);
 
-  const getLocationInfo = (asset: AssetInventory) => {
-    if (asset.propertyId) {
-      const property = properties?.find((p) => p.id === asset.propertyId);
-      return property ? { type: "Property", name: property.name } : null;
-    }
-    if (asset.blockId) {
-      const block = blocks?.find((b) => b.id === asset.blockId);
-      return block ? { type: "Block", name: block.name } : null;
-    }
-    return null;
-  };
+  // Get unique locations
+  const locations = useMemo(() => {
+    const locs: Array<{ id: string; name: string; type: "property" | "block" }> = [];
+    properties?.forEach(p => locs.push({ id: p.id, name: p.address, type: "property" }));
+    blocks?.forEach(b => locs.push({ id: b.id, name: b.name, type: "block" }));
+    return locs;
+  }, [properties, blocks]);
+
+  if (isLoading) {
+    return <div className="p-8">Loading...</div>;
+  }
 
   return (
-    <div className="p-8 space-y-6" data-testid="page-asset-inventory">
+    <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold flex items-center gap-3" data-testid="heading-asset-inventory">
-            <Package className="w-10 h-10" />
-            Asset Inventory
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Track physical assets and equipment across properties and blocks
+          <h1 className="text-3xl font-bold">Asset Inventory</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage physical assets and equipment across your properties
           </p>
         </div>
 
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button size="default" data-testid="button-create-asset">
+            <Button onClick={() => handleOpenDialog()} data-testid="button-add-asset">
               <Plus className="w-4 h-4 mr-2" />
               Add Asset
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-create-asset">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Add New Asset</DialogTitle>
+              <DialogTitle>{editingAsset ? "Edit Asset" : "Add New Asset"}</DialogTitle>
               <DialogDescription>
-                Add a new physical asset or equipment to track
+                {editingAsset ? "Update asset information" : "Add a new asset to your inventory"}
               </DialogDescription>
             </DialogHeader>
-            <Form {...createForm}>
-              <form onSubmit={createForm.handleSubmit(handleCreateSubmit)} className="space-y-4">
-                <FormField
-                  control={createForm.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Asset Name *</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="e.g., HVAC Unit, Refrigerator" data-testid="input-asset-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
 
-                <FormField
-                  control={createForm.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          value={field.value ?? ""}
-                          placeholder="Details about the asset..."
-                          data-testid="input-asset-description"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Basic Information</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={createForm.control}
-                    name="supplier"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Supplier</FormLabel>
-                        <FormControl>
-                          <Input {...field} value={field.value ?? ""} placeholder="Supplier name" data-testid="input-asset-supplier" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div>
+                    <Label htmlFor="name">Asset Name *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name || ""}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g., Refrigerator - Unit 101"
+                      required
+                      data-testid="input-asset-name"
+                    />
+                  </div>
 
-                  <FormField
-                    control={createForm.control}
-                    name="datePurchased"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Date Purchased</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="date"
-                            {...field}
-                            value={field.value ? new Date(field.value).toISOString().split("T")[0] : ""}
-                            onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
-                            data-testid="input-asset-date-purchased"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div>
+                    <Label htmlFor="category">Category</Label>
+                    <Select
+                      value={formData.category || ""}
+                      onValueChange={(value) => setFormData({ ...formData, category: value })}
+                    >
+                      <SelectTrigger data-testid="select-category">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {assetCategories.map((cat) => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="condition">Condition *</Label>
+                    <Select
+                      value={formData.condition || ""}
+                      onValueChange={(value) => setFormData({ ...formData, condition: value as any })}
+                    >
+                      <SelectTrigger data-testid="select-condition">
+                        <SelectValue placeholder="Select condition" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(conditionLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="cleanliness">Cleanliness</Label>
+                    <Select
+                      value={formData.cleanliness || ""}
+                      onValueChange={(value) => setFormData({ ...formData, cleanliness: value as any })}
+                    >
+                      <SelectTrigger data-testid="select-cleanliness">
+                        <SelectValue placeholder="Select cleanliness" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(conditionLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={formData.description || ""}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Detailed description of the asset..."
+                    rows={3}
+                    data-testid="textarea-description"
+                  />
+                </div>
+              </div>
+
+              {/* Location & Assignment */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Location & Assignment</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={createForm.control}
-                    name="condition"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Condition *</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-asset-condition">
-                              <SelectValue placeholder="Select condition" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {Object.entries(conditionLabels).map(([value, label]) => (
-                              <SelectItem key={value} value={value} data-testid={`option-condition-${value}`}>
-                                {label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div>
+                    <Label htmlFor="property">Property</Label>
+                    <Select
+                      value={formData.propertyId || ""}
+                      onValueChange={(value) => setFormData({ ...formData, propertyId: value, blockId: undefined })}
+                    >
+                      <SelectTrigger data-testid="select-property">
+                        <SelectValue placeholder="Select property" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {properties?.map((property) => (
+                          <SelectItem key={property.id} value={property.id}>
+                            {property.address}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                  <FormField
-                    control={createForm.control}
-                    name="expectedLifespanYears"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Expected Lifespan (Years)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            {...field}
-                            value={field.value ?? ""}
-                            placeholder="e.g., 10"
-                            data-testid="input-asset-lifespan"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div>
+                    <Label htmlFor="block">Block</Label>
+                    <Select
+                      value={formData.blockId || ""}
+                      onValueChange={(value) => setFormData({ ...formData, blockId: value, propertyId: undefined })}
+                    >
+                      <SelectTrigger data-testid="select-block">
+                        <SelectValue placeholder="Select block" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {blocks?.map((block) => (
+                          <SelectItem key={block.id} value={block.id}>
+                            {block.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <Label htmlFor="location">Specific Location</Label>
+                    <Input
+                      id="location"
+                      value={formData.location || ""}
+                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                      placeholder="e.g., Unit 101 - Kitchen, Common Area - Lobby"
+                      data-testid="input-location"
+                    />
+                  </div>
                 </div>
+              </div>
 
+              {/* Purchase & Financial Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Purchase & Financial Information</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={createForm.control}
-                    name="propertyId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Property</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-asset-property">
-                              <SelectValue placeholder="Select property" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="">None</SelectItem>
-                            {properties?.map((property) => (
-                              <SelectItem key={property.id} value={property.id} data-testid={`option-property-${property.id}`}>
-                                {property.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Assign to a specific property
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div>
+                    <Label htmlFor="datePurchased">Date Purchased</Label>
+                    <Input
+                      id="datePurchased"
+                      type="date"
+                      value={formData.datePurchased ? format(new Date(formData.datePurchased), 'yyyy-MM-dd') : ""}
+                      onChange={(e) => setFormData({ ...formData, datePurchased: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      data-testid="input-date-purchased"
+                    />
+                  </div>
 
-                  <FormField
-                    control={createForm.control}
-                    name="blockId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Block</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-asset-block">
-                              <SelectValue placeholder="Select block" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="">None</SelectItem>
-                            {blocks?.map((block) => (
-                              <SelectItem key={block.id} value={block.id} data-testid={`option-block-${block.id}`}>
-                                {block.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Assign to a block (building/complex)
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div>
+                    <Label htmlFor="purchasePrice">Purchase Price ($)</Label>
+                    <Input
+                      id="purchasePrice"
+                      type="number"
+                      step="0.01"
+                      value={formData.purchasePrice?.toString() || ""}
+                      onChange={(e) => setFormData({ ...formData, purchasePrice: e.target.value as any })}
+                      placeholder="0.00"
+                      data-testid="input-purchase-price"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="expectedLifespanYears">Expected Lifespan (years)</Label>
+                    <Input
+                      id="expectedLifespanYears"
+                      type="number"
+                      value={formData.expectedLifespanYears?.toString() || ""}
+                      onChange={(e) => setFormData({ ...formData, expectedLifespanYears: parseInt(e.target.value) as any })}
+                      placeholder="10"
+                      data-testid="input-lifespan"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="depreciationPerYear">Depreciation per Year ($)</Label>
+                    <Input
+                      id="depreciationPerYear"
+                      type="number"
+                      step="0.01"
+                      value={formData.depreciationPerYear?.toString() || ""}
+                      onChange={(e) => setFormData({ ...formData, depreciationPerYear: e.target.value as any })}
+                      placeholder="0.00"
+                      data-testid="input-depreciation"
+                    />
+                  </div>
                 </div>
+              </div>
 
-                <div className="space-y-2">
-                  <Label>Asset Photo</Label>
-                  <Dashboard uppy={createUppy()} proudlyDisplayPoweredByUppy={false} height={200} />
+              {/* Supplier & Product Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Supplier & Product Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="supplier">Supplier</Label>
+                    <Input
+                      id="supplier"
+                      value={formData.supplier || ""}
+                      onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                      placeholder="e.g., Home Depot, Lowe's"
+                      data-testid="input-supplier"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="supplierContact">Supplier Contact</Label>
+                    <Input
+                      id="supplierContact"
+                      value={formData.supplierContact || ""}
+                      onChange={(e) => setFormData({ ...formData, supplierContact: e.target.value })}
+                      placeholder="Phone or email"
+                      data-testid="input-supplier-contact"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="serialNumber">Serial Number</Label>
+                    <Input
+                      id="serialNumber"
+                      value={formData.serialNumber || ""}
+                      onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
+                      placeholder="SN-123456"
+                      data-testid="input-serial-number"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="modelNumber">Model Number</Label>
+                    <Input
+                      id="modelNumber"
+                      value={formData.modelNumber || ""}
+                      onChange={(e) => setFormData({ ...formData, modelNumber: e.target.value })}
+                      placeholder="Model-XYZ"
+                      data-testid="input-model-number"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="warrantyExpiryDate">Warranty Expiry Date</Label>
+                    <Input
+                      id="warrantyExpiryDate"
+                      type="date"
+                      value={formData.warrantyExpiryDate ? format(new Date(formData.warrantyExpiryDate), 'yyyy-MM-dd') : ""}
+                      onChange={(e) => setFormData({ ...formData, warrantyExpiryDate: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      data-testid="input-warranty-expiry"
+                    />
+                  </div>
                 </div>
+              </div>
 
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setIsCreateDialogOpen(false);
-                      createForm.reset();
-                      setUploadedPhotoUrl("");
-                    }}
-                    data-testid="button-cancel-create"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={createMutation.isPending}
-                    data-testid="button-submit-asset"
-                  >
-                    {createMutation.isPending ? "Creating..." : "Create Asset"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
+              {/* Maintenance Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Maintenance Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="lastMaintenanceDate">Last Maintenance Date</Label>
+                    <Input
+                      id="lastMaintenanceDate"
+                      type="date"
+                      value={formData.lastMaintenanceDate ? format(new Date(formData.lastMaintenanceDate), 'yyyy-MM-dd') : ""}
+                      onChange={(e) => setFormData({ ...formData, lastMaintenanceDate: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      data-testid="input-last-maintenance"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="nextMaintenanceDate">Next Maintenance Date</Label>
+                    <Input
+                      id="nextMaintenanceDate"
+                      type="date"
+                      value={formData.nextMaintenanceDate ? format(new Date(formData.nextMaintenanceDate), 'yyyy-MM-dd') : ""}
+                      onChange={(e) => setFormData({ ...formData, nextMaintenanceDate: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      data-testid="input-next-maintenance"
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <Label htmlFor="maintenanceNotes">Maintenance Notes</Label>
+                    <Textarea
+                      id="maintenanceNotes"
+                      value={formData.maintenanceNotes || ""}
+                      onChange={(e) => setFormData({ ...formData, maintenanceNotes: e.target.value })}
+                      placeholder="Notes about maintenance history or requirements..."
+                      rows={3}
+                      data-testid="textarea-maintenance-notes"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Photos */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Photos</h3>
+                {uploadedPhotos.length > 0 && (
+                  <div className="grid grid-cols-4 gap-2">
+                    {uploadedPhotos.map((url, index) => (
+                      <div key={index} className="relative">
+                        <img src={url} alt={`Asset photo ${index + 1}`} className="w-full h-24 object-cover rounded" />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="destructive"
+                          className="absolute top-1 right-1 h-6 w-6"
+                          onClick={() => setUploadedPhotos(prev => prev.filter((_, i) => i !== index))}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Dashboard uppy={uppy} proudlyDisplayPoweredByUppy={false} height={300} />
+              </div>
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saveMutation.isPending} data-testid="button-submit-asset">
+                  {editingAsset ? "Update Asset" : "Create Asset"}
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="flex gap-4">
-          <div className="flex-1">
-            <Label>Filter By</Label>
-            <Select value={filterType} onValueChange={(value: any) => {
-              setFilterType(value);
-              setFilterId("");
-            }}>
-              <SelectTrigger data-testid="select-filter-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Assets</SelectItem>
-                <SelectItem value="property">By Property</SelectItem>
-                <SelectItem value="block">By Block</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {filterType === "property" && (
-            <div className="flex-1">
-              <Label>Property</Label>
-              <Select value={filterId} onValueChange={setFilterId}>
-                <SelectTrigger data-testid="select-filter-property">
-                  <SelectValue placeholder="Select property" />
-                </SelectTrigger>
-                <SelectContent>
-                  {properties?.map((property) => (
-                    <SelectItem key={property.id} value={property.id}>
-                      {property.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {filterType === "block" && (
-            <div className="flex-1">
-              <Label>Block</Label>
-              <Select value={filterId} onValueChange={setFilterId}>
-                <SelectTrigger data-testid="select-filter-block">
-                  <SelectValue placeholder="Select block" />
-                </SelectTrigger>
-                <SelectContent>
-                  {blocks?.map((block) => (
-                    <SelectItem key={block.id} value={block.id}>
-                      {block.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Assets List */}
-      {assetsLoading ? (
-        <div className="flex justify-center p-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="flex gap-4 items-center flex-wrap">
+        <div className="relative flex-1 min-w-[300px]">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search assets by name, description, or location..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-assets"
+          />
         </div>
-      ) : filteredAssets && filteredAssets.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAssets.map((asset) => {
-            const location = getLocationInfo(asset);
-            return (
-              <Card key={asset.id} className="hover-elevate" data-testid={`card-asset-${asset.id}`}>
-                {asset.photoUrl && (
-                  <div className="w-full h-48 overflow-hidden rounded-t-xl">
-                    <img
-                      src={asset.photoUrl}
-                      alt={asset.name}
-                      className="w-full h-full object-cover"
-                      data-testid={`img-asset-${asset.id}`}
-                    />
-                  </div>
-                )}
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-lg" data-testid={`text-asset-name-${asset.id}`}>
-                        {asset.name}
-                      </CardTitle>
-                      {location && (
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
-                          {location.type === "Property" ? (
-                            <Home className="w-3 h-3" />
-                          ) : (
-                            <Building2 className="w-3 h-3" />
-                          )}
-                          <span>{location.name}</span>
-                        </div>
-                      )}
-                    </div>
-                    <Badge className={conditionColors[asset.condition]}>
-                      {conditionLabels[asset.condition]}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {asset.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {asset.description}
-                    </p>
-                  )}
-                  
-                  <div className="space-y-1 text-sm">
-                    {asset.supplier && (
-                      <div className="flex items-center gap-2">
-                        <Wrench className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Supplier:</span>
-                        <span>{asset.supplier}</span>
-                      </div>
-                    )}
-                    {asset.datePurchased && (
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Purchased:</span>
-                        <span>{format(new Date(asset.datePurchased), "MMM d, yyyy")}</span>
-                      </div>
-                    )}
-                    {asset.expectedLifespanYears && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">Expected Lifespan:</span>
-                        <span>{asset.expectedLifespanYears} years</span>
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="flex gap-2 pt-2">
-                    <Dialog
-                      open={editingAsset?.id === asset.id}
-                      onOpenChange={(open) => {
-                        if (!open) {
-                          setEditingAsset(null);
-                          setUploadedPhotoUrl("");
-                        } else {
-                          setEditingAsset(asset);
-                        }
-                      }}
-                    >
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          data-testid={`button-edit-asset-${asset.id}`}
-                        >
-                          <Edit2 className="w-3 h-3 mr-1" />
-                          Edit
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                        <DialogHeader>
-                          <DialogTitle>Edit Asset</DialogTitle>
-                          <DialogDescription>
-                            Update asset information
-                          </DialogDescription>
-                        </DialogHeader>
-                        <Form {...editForm}>
-                          <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4">
-                            <FormField
-                              control={editForm.control}
-                              name="name"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Asset Name *</FormLabel>
-                                  <FormControl>
-                                    <Input {...field} data-testid="input-edit-asset-name" />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
+        <Select value={filterCategory} onValueChange={setFilterCategory}>
+          <SelectTrigger className="w-48" data-testid="select-filter-category">
+            <SelectValue placeholder="All Categories" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {assetCategories.map((cat) => (
+              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-                            <FormField
-                              control={editForm.control}
-                              name="description"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Description</FormLabel>
-                                  <FormControl>
-                                    <Textarea
-                                      {...field}
-                                      value={field.value ?? ""}
-                                      data-testid="input-edit-asset-description"
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
+        <Select value={filterCondition} onValueChange={setFilterCondition}>
+          <SelectTrigger className="w-48" data-testid="select-filter-condition">
+            <SelectValue placeholder="All Conditions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Conditions</SelectItem>
+            {Object.entries(conditionLabels).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-                            <div className="grid grid-cols-2 gap-4">
-                              <FormField
-                                control={editForm.control}
-                                name="supplier"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Supplier</FormLabel>
-                                    <FormControl>
-                                      <Input {...field} value={field.value ?? ""} data-testid="input-edit-asset-supplier" />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
+        <Select value={filterLocation} onValueChange={setFilterLocation}>
+          <SelectTrigger className="w-48" data-testid="select-filter-location">
+            <SelectValue placeholder="All Locations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Locations</SelectItem>
+            {locations.map((loc) => (
+              <SelectItem key={loc.id} value={loc.id}>
+                {loc.type === "property" ? <Home className="w-3 h-3 inline mr-1" /> : <Building2 className="w-3 h-3 inline mr-1" />}
+                {loc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-                              <FormField
-                                control={editForm.control}
-                                name="datePurchased"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Date Purchased</FormLabel>
-                                    <FormControl>
-                                      <Input
-                                        type="date"
-                                        {...field}
-                                        value={field.value ? new Date(field.value).toISOString().split("T")[0] : ""}
-                                        onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
-                                        data-testid="input-edit-asset-date-purchased"
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <FormField
-                                control={editForm.control}
-                                name="condition"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Condition *</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                      <FormControl>
-                                        <SelectTrigger data-testid="select-edit-asset-condition">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                      </FormControl>
-                                      <SelectContent>
-                                        {Object.entries(conditionLabels).map(([value, label]) => (
-                                          <SelectItem key={value} value={value}>
-                                            {label}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-
-                              <FormField
-                                control={editForm.control}
-                                name="expectedLifespanYears"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Expected Lifespan (Years)</FormLabel>
-                                    <FormControl>
-                                      <Input
-                                        type="number"
-                                        {...field}
-                                        value={field.value ?? ""}
-                                        data-testid="input-edit-asset-lifespan"
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <FormField
-                                control={editForm.control}
-                                name="propertyId"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Property</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                                      <FormControl>
-                                        <SelectTrigger data-testid="select-edit-asset-property">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                      </FormControl>
-                                      <SelectContent>
-                                        <SelectItem value="">None</SelectItem>
-                                        {properties?.map((property) => (
-                                          <SelectItem key={property.id} value={property.id}>
-                                            {property.name}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-
-                              <FormField
-                                control={editForm.control}
-                                name="blockId"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>Block</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                                      <FormControl>
-                                        <SelectTrigger data-testid="select-edit-asset-block">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                      </FormControl>
-                                      <SelectContent>
-                                        <SelectItem value="">None</SelectItem>
-                                        {blocks?.map((block) => (
-                                          <SelectItem key={block.id} value={block.id}>
-                                            {block.name}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>Asset Photo</Label>
-                              <Dashboard uppy={createUppy()} proudlyDisplayPoweredByUppy={false} height={200} />
-                            </div>
-
-                            <DialogFooter>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => {
-                                  setEditingAsset(null);
-                                  setUploadedPhotoUrl("");
-                                }}
-                                data-testid="button-cancel-edit"
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                type="submit"
-                                disabled={updateMutation.isPending}
-                                data-testid="button-update-asset"
-                              >
-                                {updateMutation.isPending ? "Updating..." : "Update Asset"}
-                              </Button>
-                            </DialogFooter>
-                          </form>
-                        </Form>
-                      </DialogContent>
-                    </Dialog>
-
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDelete(asset.id)}
-                      disabled={deleteMutation.isPending}
-                      data-testid={`button-delete-asset-${asset.id}`}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      ) : (
+      {/* Assets Grid */}
+      {!filteredAssets || filteredAssets.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center p-12">
-            <Package className="w-16 h-16 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Assets Found</h3>
-            <p className="text-muted-foreground text-center mb-4">
-              {filterType !== "all" ? "No assets match the selected filter" : "Get started by adding your first asset"}
+          <CardContent className="p-12 text-center">
+            <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">
+              {searchTerm || filterCategory !== "all" || filterCondition !== "all" ? "No Assets Found" : "No Assets Yet"}
+            </h3>
+            <p className="text-muted-foreground mb-4">
+              {searchTerm || filterCategory !== "all" || filterCondition !== "all"
+                ? "Try adjusting your search or filters"
+                : "Get started by adding your first asset"}
             </p>
-            {filterType === "all" && (
-              <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-create-first-asset">
+            {!searchTerm && filterCategory === "all" && filterCondition === "all" && (
+              <Button onClick={() => handleOpenDialog()} data-testid="button-add-first-asset">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Your First Asset
               </Button>
             )}
           </CardContent>
         </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredAssets.map((asset) => (
+            <Card key={asset.id} className="hover-elevate" data-testid={`card-asset-${asset.id}`}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-lg truncate">{asset.name}</CardTitle>
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      {asset.category && (
+                        <Badge variant="outline" className="text-xs">
+                          <TagIcon className="w-3 h-3 mr-1" />
+                          {asset.category}
+                        </Badge>
+                      )}
+                      <Badge variant={
+                        asset.condition === "excellent" ? "default" :
+                        asset.condition === "good" ? "secondary" :
+                        asset.condition === "fair" ? "outline" :
+                        "destructive"
+                      } className="text-xs">
+                        {conditionLabels[asset.condition]}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => handleOpenDialog(asset)}
+                      data-testid={`button-edit-${asset.id}`}
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        if (confirm("Are you sure you want to delete this asset?")) {
+                          deleteMutation.mutate(asset.id);
+                        }
+                      }}
+                      data-testid={`button-delete-${asset.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-3">
+                {asset.photos && asset.photos.length > 0 && (
+                  <div className="relative h-32 rounded overflow-hidden">
+                    <img src={asset.photos[0]} alt={asset.name} className="w-full h-full object-cover" />
+                    {asset.photos.length > 1 && (
+                      <Badge className="absolute top-2 right-2 text-xs">
+                        +{asset.photos.length - 1} more
+                      </Badge>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-2 text-sm">
+                  {asset.location && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <MapPin className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{asset.location}</span>
+                    </div>
+                  )}
+
+                  {asset.purchasePrice && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <DollarSign className="w-4 h-4 shrink-0" />
+                      <span>Purchase: ${parseFloat(asset.purchasePrice.toString()).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {asset.datePurchased && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Calendar className="w-4 h-4 shrink-0" />
+                      <span>Purchased: {format(new Date(asset.datePurchased), 'MMM d, yyyy')}</span>
+                    </div>
+                  )}
+
+                  {asset.lastMaintenanceDate && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Wrench className="w-4 h-4 shrink-0" />
+                      <span>Last Maintained: {format(new Date(asset.lastMaintenanceDate), 'MMM d, yyyy')}</span>
+                    </div>
+                  )}
+
+                  {asset.description && (
+                    <div className="flex items-start gap-2 text-muted-foreground">
+                      <FileText className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span className="line-clamp-2">{asset.description}</span>
+                    </div>
+                  )}
+
+                  {asset.cleanliness && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Cleanliness:</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {conditionLabels[asset.cleanliness]}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );
