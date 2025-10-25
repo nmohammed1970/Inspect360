@@ -72,9 +72,11 @@ The platform employs a PWA-first approach with a robust web architecture.
   - `storage.updateOrganization()`: Generic update method for organization fields (subscription level, credits, active status)
   - Used by admin routes for instance management and configuration
 - **Maintenance Requests**:
-  - Automatically includes organizationId from user session
+  - Automatically includes organizationId from user session (frontend form omits it, backend adds from session)
   - Full validation of property ownership before creation
   - AI-powered image analysis with credit deduction using OpenAI Vision API
+  - `storage.getMaintenanceByOrganization()`: Returns complete maintenance requests with reporter/assignee user details via Drizzle table aliases
+  - Frontend mutations use correct apiRequest(method, url, data) parameter order and parse JSON responses
 - **Null Safety**:
   - Proper null coalescing for credit checks
   - Lazy OpenAI client initialization via getOpenAI()
