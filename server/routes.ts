@@ -830,7 +830,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const users = await storage.getUsersByOrganizationAndRole(user.organizationId, "clerk");
-      res.json(users);
+      // Filter to only return active clerks
+      const activeClerks = users.filter(u => u.isActive !== false);
+      res.json(activeClerks);
     } catch (error) {
       console.error("Error fetching clerks:", error);
       res.status(500).json({ message: "Failed to fetch clerks" });
