@@ -66,6 +66,7 @@ export const users = pgTable("users", {
   certificateUrls: text("certificate_urls").array(),
   role: userRoleEnum("role").notNull().default("owner"),
   organizationId: varchar("organization_id"),
+  isActive: boolean("is_active").notNull().default(true),
   resetToken: varchar("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),

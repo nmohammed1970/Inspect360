@@ -79,6 +79,11 @@ export async function setupAuth(app: Express) {
             return done(null, false, { message: "Invalid email or password" });
           }
           
+          // Check if user account is active
+          if (!user.isActive) {
+            return done(null, false, { message: "Account has been disabled. Please contact your administrator." });
+          }
+          
           return done(null, user);
         } catch (error) {
           return done(error);

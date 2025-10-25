@@ -206,6 +206,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Toggle user active status
+  app.patch("/api/team/:userId/status", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const requesterId = req.user.id;
+      const requester = await storage.getUser(requesterId);
+      
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+      
+      const { userId } = req.params;
+      const { isActive } = req.body;
+
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({ message: "isActive must be a boolean" });
+      }
+
+      // Verify the user belongs to the same organization
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser || targetUser.organizationId !== requester.organizationId) {
+        return res.status(403).json({ message: "User not found in your organization" });
+      }
+
+      // Prevent disabling own account
+      if (userId === req.user.id) {
+        return res.status(400).json({ message: "Cannot change your own account status" });
+      }
+
+      const updatedUser = await storage.updateUser(userId, { isActive });
+      const { password: _, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error("Error updating user status:", error);
+      res.status(500).json({ message: "Failed to update user status" });
+    }
+  });
+
   app.post("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const requesterId = req.user.id;

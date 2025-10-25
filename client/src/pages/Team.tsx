@@ -101,6 +101,25 @@ export default function Team() {
     },
   });
 
+  const toggleStatusMutation = useMutation({
+    mutationFn: async ({ userId, isActive }: { userId: string; isActive: boolean }) => {
+      return await apiRequest("PATCH", `/api/team/${userId}/status`, { isActive });
+    },
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ["/api/team"] });
+      toast({ 
+        title: "Status updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to update status",
+      });
+    },
+  });
+
   const handleOpenCreate = () => {
     setEditingUser(null);
     resetForm();
@@ -301,7 +320,7 @@ export default function Team() {
 
                   {/* Main Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
                       <h3 className="text-xl font-semibold" data-testid={`text-name-${member.id}`}>
                         {member.firstName && member.lastName
                           ? `${member.firstName} ${member.lastName}`
@@ -309,6 +328,12 @@ export default function Team() {
                       </h3>
                       <Badge variant={getRoleBadgeVariant(member.role)} data-testid={`badge-role-${member.id}`}>
                         {getRoleLabel(member.role)}
+                      </Badge>
+                      <Badge 
+                        variant={member.isActive ? "default" : "secondary"} 
+                        data-testid={`badge-status-${member.id}`}
+                      >
+                        {member.isActive ? "Active" : "Inactive"}
                       </Badge>
                     </div>
                     
@@ -355,6 +380,15 @@ export default function Team() {
                       data-testid={`button-edit-${member.id}`}
                     >
                       Edit Profile
+                    </Button>
+                    <Button
+                      variant={member.isActive ? "destructive" : "default"}
+                      size="sm"
+                      onClick={() => toggleStatusMutation.mutate({ userId: member.id, isActive: !member.isActive })}
+                      disabled={toggleStatusMutation.isPending}
+                      data-testid={`button-toggle-status-${member.id}`}
+                    >
+                      {member.isActive ? "Disable Account" : "Enable Account"}
                     </Button>
                     <Select
                       value={member.role}
