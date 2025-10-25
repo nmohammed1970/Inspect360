@@ -52,6 +52,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal with basic issue description, multi-image upload, AI-powered fix suggestions using OpenAI Vision API, and review before submission.
 - **InspectAI Field Analysis**: Field-level AI inspection analysis button that analyzes all uploaded images for an inspection point using OpenAI GPT-5 Vision and auto-generates comprehensive reports in the notes field; costs 1 credit per analysis.
 - **Condition & Cleanliness Ratings**: Optional per-field ratings (Excellent/Good/Poor for Condition, Clean/Needs a Clean/Poor for Cleanliness) configurable in Template Builder; when enabled, dropdowns appear during inspection capture below field inputs; values stored as composite objects {value, condition?, cleanliness?}.
+- **Inspection Reports**: Beautifully formatted HTML reports for completed and in-progress inspections with print-friendly CSS, displaying inspection metadata, all sections/fields with values, condition/cleanliness badges, photos, AI analysis notes, and interactive action buttons; Owner/Manager roles can edit notes inline with changes persisting via PATCH API.
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
