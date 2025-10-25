@@ -59,7 +59,15 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **Tagging System**: Organization-scoped tags with customizable colors, full CRUD API, and integration across entities like Blocks, Properties, Users, Compliance Documents, Asset Inventory, and Maintenance Requests. Features a global search.
 - **Configurable Role-Based Dashboards**: Role-specific views with 9 panel types (stats, inspections, compliance, etc.), user customization, persistence, charts, empty states, and owner-only role switching.
 - **Tenant Portal**: Secure access for property reports and maintenance requests.
-- **Team Management**: Owner-controlled user and role administration.
+- **Team Management**: Comprehensive team member profile management with:
+  - **Profile Creation**: Full user profiles with basic info, professional details, and documents
+  - **Fields**: Profile picture, name, email, username, phone (international format), role assignment
+  - **Address Management**: Complete address capture (street, city, state/county, postal code, country) with auto-formatted display
+  - **Professional Info**: Skills management (array with add/remove), education (degrees/certifications), certificate URLs
+  - **Role Types**: Owner/Operator, Inventory Clerk, Compliance Officer, Tenant, Contractor
+  - **Visual Display**: Avatar with initials fallback, role badges, contact cards, skill badges
+  - **Edit Functionality**: Update all profile fields except password (optional on edit)
+  - **Owner Controls**: Full user and role administration for organization management
 - **Organization Onboarding**: Streamlined setup process.
 - **Search and Filters**: Functionality for properties and blocks.
 - **Block-Property Relationship**: Properties assigned to blocks, with associated metrics.
@@ -93,6 +101,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 
 ## Recent Critical Fixes
 - **Session Persistence Fix (Oct 24, 2025)**: Fixed critical authentication bug where all API requests returned 401 Unauthorized after successful login. Root cause was `resave: false` in session configuration preventing proper session persistence. Solution: Changed to `resave: true` to force session saves, disabled secure cookie requirement for development (`secure: false`), and set `sameSite: 'lax'` unconditionally. Session now persists correctly across all authenticated requests.
+- **Address Persistence Fix (Oct 25, 2025)**: Fixed Team Management address data not persisting to database. Root cause was submit logic checking `address.formatted` field which was never populated. Solution: Changed to check if ANY address field has data, then auto-generate formatted string from individual fields before submission. Address now saves as complete JSON object with all components.
 - **Query Cache Management**: Changed queryClient config from `staleTime: Infinity` to `staleTime: 0` and added `refetchOnMount: true` to enable proper list refreshing after mutations
 - **List Refresh Pattern**: Updated Blocks.tsx and Properties.tsx to use `await queryClient.refetchQueries()` instead of `invalidateQueries()` for immediate, guaranteed list updates after create/update/delete operations
 - **Inspection Route Fix**: Corrected PropertyDetail "New Inspection" button to navigate to `/inspections` instead of broken `/inspections/new` route
