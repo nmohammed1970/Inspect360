@@ -300,21 +300,21 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-6 md:p-8 lg:p-12 space-y-8">
+    <div className="p-4 md:p-6 lg:p-8 xl:p-12 space-y-6 md:space-y-8">
       {/* Header Section */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="space-y-2">
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground" data-testid="text-dashboard-title">
+      <div className="flex flex-col gap-4">
+        <div className="space-y-1">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-foreground" data-testid="text-dashboard-title">
             Dashboard
           </h1>
-          <p className="text-lg text-muted-foreground">
+          <p className="text-sm md:text-base lg:text-lg text-muted-foreground">
             Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
           {user?.role === "owner" && (
             <Select value={viewRole} onValueChange={setViewRole}>
-              <SelectTrigger className="w-48" data-testid="select-view-role">
+              <SelectTrigger className="w-full sm:w-48" data-testid="select-view-role">
                 <SelectValue placeholder="View as..." />
               </SelectTrigger>
               <SelectContent>
@@ -324,84 +324,87 @@ export default function Dashboard() {
               </SelectContent>
             </Select>
           )}
-          <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="lg" className="gap-2" data-testid="button-configure-panels">
-                <Settings className="h-5 w-5" />
-                Configure
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Configure Dashboard Panels</DialogTitle>
-                <DialogDescription>
-                  Select which panels you want to see on your dashboard
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                {availablePanelsForRole.map((panel) => {
-                  const Icon = panel.icon;
-                  const isEnabled = enabledPanels.includes(panel.id);
-                  return (
-                    <div 
-                      key={panel.id} 
-                      className="flex items-start gap-4 p-4 border rounded-xl hover-elevate cursor-pointer"
-                      onClick={() => togglePanel(panel.id)}
-                      data-testid={`panel-config-${panel.id}`}
-                    >
-                      <Checkbox 
-                        checked={isEnabled} 
-                        onCheckedChange={() => togglePanel(panel.id)}
-                        data-testid={`checkbox-panel-${panel.id}`}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Icon className="h-4 w-4 text-primary" />
-                          <span className="font-semibold">{panel.title}</span>
+          <div className="flex gap-2 sm:gap-3">
+            <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2 flex-1 sm:flex-initial" data-testid="button-configure-panels">
+                  <Settings className="h-4 w-4" />
+                  <span className="hidden sm:inline">Configure</span>
+                  <span className="sm:hidden">Config</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Configure Dashboard Panels</DialogTitle>
+                  <DialogDescription>
+                    Select which panels you want to see on your dashboard
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  {availablePanelsForRole.map((panel) => {
+                    const Icon = panel.icon;
+                    const isEnabled = enabledPanels.includes(panel.id);
+                    return (
+                      <div 
+                        key={panel.id} 
+                        className="flex items-start gap-4 p-4 border rounded-xl hover-elevate cursor-pointer"
+                        onClick={() => togglePanel(panel.id)}
+                        data-testid={`panel-config-${panel.id}`}
+                      >
+                        <Checkbox 
+                          checked={isEnabled} 
+                          onCheckedChange={() => togglePanel(panel.id)}
+                          data-testid={`checkbox-panel-${panel.id}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Icon className="h-4 w-4 text-primary" />
+                            <span className="font-semibold">{panel.title}</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{panel.description}</p>
                         </div>
-                        <p className="text-sm text-muted-foreground">{panel.description}</p>
+                        {isEnabled ? (
+                          <Eye className="h-5 w-5 text-primary" />
+                        ) : (
+                          <EyeOff className="h-5 w-5 text-muted-foreground" />
+                        )}
                       </div>
-                      {isEnabled ? (
-                        <Eye className="h-5 w-5 text-primary" />
-                      ) : (
-                        <EyeOff className="h-5 w-5 text-muted-foreground" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </DialogContent>
-          </Dialog>
-          <Button 
-            onClick={() => setTagSearchOpen(true)} 
-            size="lg"
-            variant="outline"
-            className="gap-2"
-            data-testid="button-search-tags"
-          >
-            <Search className="h-5 w-5" />
-            Search by Tags
-          </Button>
+                    );
+                  })}
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Button 
+              onClick={() => setTagSearchOpen(true)} 
+              variant="outline"
+              className="gap-2 flex-1 sm:flex-initial"
+              data-testid="button-search-tags"
+            >
+              <Search className="h-4 w-4" />
+              <span className="hidden sm:inline">Search by Tags</span>
+              <span className="sm:hidden">Search</span>
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Credits Low Alert */}
       {creditsLow && user?.role === "owner" && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-6">
-            <div className="flex items-center gap-4 flex-1">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-destructive" />
+          <CardContent className="flex flex-col gap-4 p-4 md:p-6">
+            <div className="flex items-start gap-3 md:gap-4">
+              <div className="flex-shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 md:w-6 md:h-6 text-destructive" />
               </div>
-              <div className="flex-1">
-                <p className="font-semibold text-lg">Inspection credits low</p>
-                <p className="text-sm text-muted-foreground mt-1">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-base md:text-lg">Inspection credits low</p>
+                <p className="text-xs md:text-sm text-muted-foreground mt-1">
                   You have {creditsRemaining} credits remaining. Purchase more to avoid blocking submissions.
                 </p>
               </div>
             </div>
-            <Link href="/credits">
-              <Button variant="default" size="lg" data-testid="button-purchase-credits">
+            <Link href="/credits" className="w-full sm:w-auto sm:self-end">
+              <Button variant="default" className="w-full sm:w-auto" data-testid="button-purchase-credits">
                 Purchase Credits
               </Button>
             </Link>
@@ -409,61 +412,61 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
         {/* Quick Stats Panel */}
         {shouldShowPanel("stats") && (
           <Card className="xl:col-span-3" data-testid="panel-stats">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                <TrendingUp className="h-6 w-6 text-primary" />
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 Quick Stats
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                 <Link href="/properties">
-                  <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-properties">
+                  <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-properties">
                     <div className="flex items-center gap-3 mb-2">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-primary" />
+                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Building2 className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold">{properties.length}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Properties</p>
+                    <p className="text-2xl md:text-3xl font-bold">{properties.length}</p>
+                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Properties</p>
                   </div>
                 </Link>
                 <Link href="/blocks">
-                  <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-blocks">
+                  <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-blocks">
                     <div className="flex items-center gap-3 mb-2">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-primary" />
+                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Building2 className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold">{blocks.length}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Blocks</p>
+                    <p className="text-2xl md:text-3xl font-bold">{blocks.length}</p>
+                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Blocks</p>
                   </div>
                 </Link>
                 <Link href="/inspections">
-                  <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-inspections">
+                  <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-inspections">
                     <div className="flex items-center gap-3 mb-2">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <ClipboardCheck className="w-5 h-5 text-primary" />
+                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <ClipboardCheck className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold">{inspections.length}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Inspections</p>
+                    <p className="text-2xl md:text-3xl font-bold">{inspections.length}</p>
+                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Inspections</p>
                   </div>
                 </Link>
                 {viewRole === "owner" && (
                   <Link href="/credits">
-                    <div className="p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-credits">
+                    <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-credits">
                       <div className="flex items-center gap-3 mb-2">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <CreditCard className="w-5 h-5 text-primary" />
+                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <CreditCard className="w-4 h-4 md:w-5 md:h-5 text-primary" />
                         </div>
                       </div>
-                      <p className="text-3xl font-bold">{creditsRemaining}</p>
-                      <p className="text-sm text-muted-foreground mt-1">AI Credits</p>
+                      <p className="text-2xl md:text-3xl font-bold">{creditsRemaining}</p>
+                      <p className="text-xs md:text-sm text-muted-foreground mt-1">AI Credits</p>
                     </div>
                   </Link>
                 )}
