@@ -939,7 +939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notes,
         templateId: templateId || null,
         templateVersion,
-        templateSnapshotJson,
+        templateSnapshotJson: templateSnapshotJson as any,
       });
 
       res.json(inspection);
@@ -1484,14 +1484,16 @@ Provide a structured comparison highlighting differences in condition ratings an
 
       // Check if organization has credits
       const organization = await storage.getOrganization(user.organizationId);
-      if (!organization || organization.creditsRemaining < 1) {
+      const currentCredits = organization?.creditsRemaining ?? 0;
+      if (!organization || currentCredits < 1) {
         return res.status(402).json({ 
           message: "Insufficient credits. Please purchase more credits to use AI analysis.",
-          creditsRemaining: organization?.creditsRemaining || 0
+          creditsRemaining: currentCredits
         });
       }
 
       // Call OpenAI Vision API for maintenance issue analysis
+      const openaiInstance = getOpenAI();
       const prompt = issueDescription 
         ? `You are a maintenance expert analyzing a property maintenance issue. The tenant reports: "${issueDescription}". 
            Analyze the image and provide:
@@ -1506,7 +1508,7 @@ Provide a structured comparison highlighting differences in condition ratings an
            3. Whether this requires professional help
            Format your response in clear sections.`;
 
-      const response = await openai.chat.completions.create({
+      const response = await openaiInstance.chat.completions.create({
         model: "gpt-4o",
         messages: [
           {
@@ -1531,7 +1533,7 @@ Provide a structured comparison highlighting differences in condition ratings an
           model: "gpt-4o",
           timestamp: new Date().toISOString()
         },
-        creditsRemaining: organization.creditsRemaining - 1
+        creditsRemaining: currentCredits - 1
       });
     } catch (error) {
       console.error("Error analyzing maintenance image:", error);
@@ -1564,6 +1566,7 @@ Provide a structured comparison highlighting differences in condition ratings an
       }
 
       const request = await storage.createMaintenanceRequest({
+        organizationId: user.organizationId,
         propertyId,
         reportedBy: userId,
         title,
@@ -2938,7 +2941,7 @@ Provide a structured comparison highlighting differences in condition ratings an
       }
 
       // Filter panels to only those allowed for user's role
-      const filteredPanels = filterPanelsByRole(enabledPanels, user.role);
+      const filteredPanels = filterPanelsByRole(enabledPanels as string[], user.role);
       
       res.json({ enabledPanels: filteredPanels });
     } catch (error) {
@@ -3501,7 +3504,7 @@ Provide a structured comparison highlighting differences in condition ratings an
   
   // Admin authentication middleware
   const isAdminAuthenticated = (req: any, res: any, next: any) => {
-    if (req.session && req.session.adminUser) {
+    if (req.session && (req.session as any).adminUser) {
       return next();
     }
     return res.status(401).json({ message: "Unauthorized - Admin access required" });
@@ -3529,7 +3532,7 @@ Provide a structured comparison highlighting differences in condition ratings an
       }
 
       // Set admin session
-      req.session.adminUser = {
+      (req.session as any).adminUser = {
         id: adminUser.id,
         email: adminUser.email,
         firstName: adminUser.firstName,
@@ -3550,7 +3553,7 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // Admin Logout
   app.post("/api/admin/logout", (req, res) => {
-    req.session.adminUser = null;
+    (req.session as any).adminUser = null;
     res.json({ message: "Logged out successfully" });
   });
 
