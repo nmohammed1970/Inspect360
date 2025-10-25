@@ -2,7 +2,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, requireRole } from "./auth";
+import { setupAuth, isAuthenticated, requireRole, hashPassword } from "./auth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import Stripe from "stripe";
@@ -262,13 +262,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid role" });
       }
 
+      // Hash password before creating user
+      const hashedPassword = await hashPassword(password);
+
       // Create team member with organization ID
       const newUser = await storage.createUser({
         email,
         firstName,
         lastName,
         username,
-        password,
+        password: hashedPassword,
         role,
         phone,
         address,
