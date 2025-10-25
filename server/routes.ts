@@ -206,6 +206,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const requesterId = req.user.id;
+      const requester = await storage.getUser(requesterId);
+      
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { email, firstName, lastName, username, password, role, phone, address, skills, education, profileImageUrl, certificateUrls } = req.body;
+
+      if (!email || !username || !password || !role) {
+        return res.status(400).json({ message: "Email, username, password, and role are required" });
+      }
+
+      if (!["owner", "clerk", "compliance", "tenant"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      // Create team member with organization ID
+      const newUser = await storage.createUser({
+        email,
+        firstName,
+        lastName,
+        username,
+        password,
+        role,
+        phone,
+        address,
+        skills,
+        education,
+        profileImageUrl,
+        certificateUrls,
+        organizationId: requester.organizationId,
+      });
+
+      // Don't return password
+      const { password: _, ...userWithoutPassword } = newUser;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Error creating team member:", error);
+      if (error.message?.includes("duplicate") || error.message?.includes("unique")) {
+        res.status(400).json({ message: "Email or username already exists" });
+      } else {
+        res.status(500).json({ message: "Failed to create team member" });
+      }
+    }
+  });
+
+  app.patch("/api/team/:userId", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const requesterId = req.user.id;
+      const requester = await storage.getUser(requesterId);
+      
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+      
+      const { userId } = req.params;
+      const updateData = req.body;
+
+      // Verify the user belongs to the same organization
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser || targetUser.organizationId !== requester.organizationId) {
+        return res.status(403).json({ message: "User not found in your organization" });
+      }
+
+      // Update allowed fields
+      const allowedFields = ['firstName', 'lastName', 'phone', 'address', 'skills', 'education', 'profileImageUrl', 'certificateUrls', 'role'];
+      const filteredData: any = {};
+      
+      for (const field of allowedFields) {
+        if (updateData[field] !== undefined) {
+          filteredData[field] = updateData[field];
+        }
+      }
+
+      if (Object.keys(filteredData).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+
+      const updatedUser = await storage.updateUser(userId, filteredData);
+      
+      // Don't return password
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error("Error updating team member:", error);
+      res.status(500).json({ message: "Failed to update team member" });
+    }
+  });
+
   // ==================== CONTACT ROUTES ====================
 
   app.get("/api/contacts", isAuthenticated, async (req: any, res) => {

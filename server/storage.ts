@@ -102,6 +102,7 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   getUsersByOrganization(organizationId: string): Promise<User[]>;
   getUsersByOrganizationAndRole(organizationId: string, role: string): Promise<User[]>;
+  updateUser(id: string, updates: Partial<UpsertUser>): Promise<User>;
   updateUserRole(id: string, role: string): Promise<User>;
   updatePassword(id: string, hashedPassword: string): Promise<User>;
   setResetToken(id: string, token: string, expiry: Date): Promise<User>;
@@ -374,6 +375,15 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(users)
       .where(and(eq(users.organizationId, organizationId), eq(users.role, role as any)));
+  }
+
+  async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
   }
 
   async updateUserRole(id: string, role: string): Promise<User> {
