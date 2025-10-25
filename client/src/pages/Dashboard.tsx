@@ -478,28 +478,36 @@ export default function Dashboard() {
         {/* Inspection Trend Chart */}
         {shouldShowPanel("inspectionTrend") && (
           <Card className="lg:col-span-2" data-testid="panel-inspection-trend">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold">Inspection Activity (Last 7 Days)</CardTitle>
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold">Inspection Activity (Last 7 Days)</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={250} className="md:h-[300px]">
                 <LineChart data={inspectionTrendData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="hsl(var(--muted-foreground))" 
+                    tick={{ fontSize: 12 }}
+                  />
+                  <YAxis 
+                    stroke="hsl(var(--muted-foreground))" 
+                    tick={{ fontSize: 12 }}
+                  />
                   <Tooltip 
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--background))', 
                       border: '1px solid hsl(var(--border))',
-                      borderRadius: '0.75rem'
+                      borderRadius: '0.75rem',
+                      fontSize: '0.875rem'
                     }} 
                   />
                   <Line 
                     type="monotone" 
                     dataKey="count" 
                     stroke="hsl(199, 79%, 63%)" 
-                    strokeWidth={3}
-                    dot={{ fill: 'hsl(199, 79%, 63%)', r: 4 }}
+                    strokeWidth={2}
+                    dot={{ fill: 'hsl(199, 79%, 63%)', r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -510,11 +518,11 @@ export default function Dashboard() {
         {/* Status Distribution Chart */}
         {shouldShowPanel("statusDistribution") && (
           <Card data-testid="panel-status-distribution">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold">Inspection Status</CardTitle>
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold">Inspection Status</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={250} className="md:h-[300px]">
                 <PieChart>
                   <Pie
                     data={statusDistributionData}
@@ -522,7 +530,7 @@ export default function Dashboard() {
                     cy="50%"
                     labelLine={false}
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
+                    outerRadius={window.innerWidth < 768 ? 70 : 80}
                     fill="#8884d8"
                     dataKey="value"
                   >
@@ -534,7 +542,8 @@ export default function Dashboard() {
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--background))', 
                       border: '1px solid hsl(var(--border))',
-                      borderRadius: '0.75rem'
+                      borderRadius: '0.75rem',
+                      fontSize: '0.875rem'
                     }} 
                   />
                 </PieChart>
@@ -546,26 +555,26 @@ export default function Dashboard() {
         {/* Recent Inspections */}
         {shouldShowPanel("inspections") && (
           <Card className="lg:col-span-2" data-testid="panel-inspections">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                <ClipboardCheck className="h-6 w-6 text-primary" />
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <ClipboardCheck className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 Recent Inspections
               </CardTitle>
             </CardHeader>
             <CardContent>
               {inspections.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   {inspections.slice(0, 5).map((inspection) => (
                     <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
                       <div
-                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
                         data-testid={`card-inspection-${inspection.id}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-lg truncate">
+                          <p className="font-semibold text-base md:text-lg truncate">
                             {inspection.property?.name || inspection.block?.name || "Unknown Property"}
                           </p>
-                          <p className="text-sm text-muted-foreground truncate mt-1">
+                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
                             {inspection.type} • {inspection.scheduledDate ? new Date(inspection.scheduledDate).toLocaleDateString() : 'Not scheduled'}
                           </p>
                         </div>
@@ -577,7 +586,7 @@ export default function Dashboard() {
                               ? "secondary"
                               : "outline"
                           }
-                          className="whitespace-nowrap"
+                          className="whitespace-nowrap text-xs"
                           data-testid={`badge-status-${inspection.id}`}
                         >
                           {inspection.status}
@@ -587,11 +596,11 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12" data-testid="empty-inspections">
-                  <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No inspections yet</p>
+                <div className="text-center py-8 md:py-12" data-testid="empty-inspections">
+                  <ClipboardCheck className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
+                  <p className="text-sm md:text-base text-muted-foreground">No inspections yet</p>
                   <Link href="/inspections">
-                    <Button variant="outline" size="sm" className="mt-4">
+                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
                       Create Inspection
                     </Button>
                   </Link>
@@ -604,24 +613,24 @@ export default function Dashboard() {
         {/* Compliance Documents */}
         {shouldShowPanel("compliance") && (
           <Card data-testid="panel-compliance">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                <FileText className="h-6 w-6 text-primary" />
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <FileText className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 Expiring Soon
               </CardTitle>
             </CardHeader>
             <CardContent>
               {compliance.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   {compliance.slice(0, 5).map((doc) => (
                     <Link key={doc.id} href="/compliance">
                       <div
-                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
                         data-testid={`card-compliance-${doc.id}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-lg truncate">{doc.documentType}</p>
-                          <p className="text-sm text-muted-foreground truncate mt-1">
+                          <p className="font-semibold text-base md:text-lg truncate">{doc.documentType}</p>
+                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
                             Expires: {doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString() : 'No expiry date'}
                           </p>
                         </div>
@@ -633,7 +642,7 @@ export default function Dashboard() {
                               ? "secondary"
                               : "destructive"
                           }
-                          className="whitespace-nowrap"
+                          className="whitespace-nowrap text-xs"
                           data-testid={`badge-status-${doc.id}`}
                         >
                           {doc.status}
@@ -643,11 +652,11 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12" data-testid="empty-compliance">
-                  <FileText className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No compliance documents yet</p>
+                <div className="text-center py-8 md:py-12" data-testid="empty-compliance">
+                  <FileText className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
+                  <p className="text-sm md:text-base text-muted-foreground">No compliance documents yet</p>
                   <Link href="/compliance">
-                    <Button variant="outline" size="sm" className="mt-4">
+                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
                       Add Document
                     </Button>
                   </Link>
@@ -660,24 +669,24 @@ export default function Dashboard() {
         {/* Maintenance Requests */}
         {shouldShowPanel("maintenance") && (
           <Card data-testid="panel-maintenance">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                <Wrench className="h-6 w-6 text-primary" />
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <Wrench className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 Maintenance Requests
               </CardTitle>
             </CardHeader>
             <CardContent>
               {maintenance.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   {maintenance.slice(0, 5).map((request) => (
                     <Link key={request.id} href="/maintenance">
                       <div
-                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
                         data-testid={`card-maintenance-${request.id}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-lg truncate">{request.title}</p>
-                          <p className="text-sm text-muted-foreground truncate mt-1">
+                          <p className="font-semibold text-base md:text-lg truncate">{request.title}</p>
+                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
                             Priority: <span className="font-medium">{request.priority}</span>
                           </p>
                         </div>
@@ -689,7 +698,7 @@ export default function Dashboard() {
                               ? "secondary"
                               : "outline"
                           }
-                          className="whitespace-nowrap"
+                          className="whitespace-nowrap text-xs"
                           data-testid={`badge-status-${request.id}`}
                         >
                           {request.status}
@@ -699,11 +708,11 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12" data-testid="empty-maintenance">
-                  <Wrench className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No maintenance requests</p>
+                <div className="text-center py-8 md:py-12" data-testid="empty-maintenance">
+                  <Wrench className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
+                  <p className="text-sm md:text-base text-muted-foreground">No maintenance requests</p>
                   <Link href="/maintenance">
-                    <Button variant="outline" size="sm" className="mt-4">
+                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
                       Create Request
                     </Button>
                   </Link>
@@ -716,30 +725,30 @@ export default function Dashboard() {
         {/* Asset Inventory */}
         {shouldShowPanel("assets") && (
           <Card data-testid="panel-assets">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                <Package className="h-6 w-6 text-primary" />
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <Package className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 Assets Needing Attention
               </CardTitle>
             </CardHeader>
             <CardContent>
               {assets.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   {assets.filter(a => a.condition === "poor" || a.condition === "needs_replacement").slice(0, 5).map((asset) => (
                     <Link key={asset.id} href="/inventory">
                       <div
-                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
                         data-testid={`card-asset-${asset.id}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-lg truncate">{asset.name}</p>
-                          <p className="text-sm text-muted-foreground truncate mt-1">
+                          <p className="font-semibold text-base md:text-lg truncate">{asset.name}</p>
+                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
                             {asset.category}
                           </p>
                         </div>
                         <Badge
                           variant={asset.condition === "needs_replacement" ? "destructive" : "secondary"}
-                          className="whitespace-nowrap"
+                          className="whitespace-nowrap text-xs"
                           data-testid={`badge-condition-${asset.id}`}
                         >
                           {asset.condition}
@@ -749,11 +758,11 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12" data-testid="empty-assets">
-                  <Package className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No assets tracked yet</p>
+                <div className="text-center py-8 md:py-12" data-testid="empty-assets">
+                  <Package className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
+                  <p className="text-sm md:text-base text-muted-foreground">No assets tracked yet</p>
                   <Link href="/inventory">
-                    <Button variant="outline" size="sm" className="mt-4">
+                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
                       Add Asset
                     </Button>
                   </Link>
@@ -766,24 +775,24 @@ export default function Dashboard() {
         {/* Work Orders */}
         {shouldShowPanel("workOrders") && (
           <Card data-testid="panel-work-orders">
-            <CardHeader>
-              <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                <Users className="h-6 w-6 text-primary" />
+            <CardHeader className="pb-3 md:pb-6">
+              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <Users className="h-5 w-5 md:h-6 md:w-6 text-primary" />
                 Active Work Orders
               </CardTitle>
             </CardHeader>
             <CardContent>
               {workOrders.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   {workOrders.filter(wo => wo.status !== "completed").slice(0, 5).map((workOrder) => (
                     <Link key={workOrder.id} href="/work-orders">
                       <div
-                        className="flex items-center justify-between gap-4 p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
+                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
                         data-testid={`card-work-order-${workOrder.id}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-lg truncate">{workOrder.title}</p>
-                          <p className="text-sm text-muted-foreground truncate mt-1">
+                          <p className="font-semibold text-base md:text-lg truncate">{workOrder.title}</p>
+                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
                             {workOrder.description}
                           </p>
                         </div>
@@ -795,7 +804,7 @@ export default function Dashboard() {
                               ? "secondary"
                               : "outline"
                           }
-                          className="whitespace-nowrap"
+                          className="whitespace-nowrap text-xs"
                           data-testid={`badge-status-${workOrder.id}`}
                         >
                           {workOrder.status}
@@ -805,11 +814,11 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-12" data-testid="empty-work-orders">
-                  <Users className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No active work orders</p>
+                <div className="text-center py-8 md:py-12" data-testid="empty-work-orders">
+                  <Users className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
+                  <p className="text-sm md:text-base text-muted-foreground">No active work orders</p>
                   <Link href="/work-orders">
-                    <Button variant="outline" size="sm" className="mt-4">
+                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
                       Create Work Order
                     </Button>
                   </Link>
