@@ -32,8 +32,9 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **AI Features**: OpenAI GPT-5 Vision for photo analysis (condition assessment) and comparison reports (check-in vs. check-out summaries).
 - **PWA**: `manifest.json` and service worker for offline capabilities and caching.
 - **Performance**: Optimized database queries and Zod validation.
-- **Inspection Templates System**: JSON-based templates with a flexible editor, versioning, snapshots, and a visual Template Builder UI.
-- **Inspection Capture Workflow**: Full field inspection workflow with data entry, real-time progress, optimistic updates, review page, status management, template snapshot preservation, and note/photo support with native smartphone camera capture.
+- **Inspection Templates System**: JSON-based templates with a flexible editor, versioning, snapshots, and a visual Template Builder UI with optional per-field Condition and Cleanliness rating toggles.
+- **Inspection Capture Workflow**: Full field inspection workflow with data entry, real-time progress, optimistic updates, review page, status management, template snapshot preservation, note/photo support with native smartphone camera capture, and optional Condition/Cleanliness dropdowns for fields that have these ratings enabled.
+- **Field ID Migration**: Template fields use both `id` and `key` properties (same value) for compatibility; runtime migration ensures legacy templates without `id` get migrated automatically in TemplateBuilder and InspectionCapture.
 - **Camera Integration**: Uppy Webcam plugin enables direct photo capture from smartphone cameras during inspections in PWA mode, with rear-camera default ('environment' facing mode) for optimal field use; requires HTTPS (provided by Replit deployment).
 
 ### Feature Specifications
@@ -50,6 +51,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **Offline Queue System**: LocalStorage-based offline sync with auto-reconnection and status indicators.
 - **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal with basic issue description, multi-image upload, AI-powered fix suggestions using OpenAI Vision API, and review before submission.
 - **InspectAI Field Analysis**: Field-level AI inspection analysis button that analyzes all uploaded images for an inspection point using OpenAI GPT-5 Vision and auto-generates comprehensive reports in the notes field; costs 1 credit per analysis.
+- **Condition & Cleanliness Ratings**: Optional per-field ratings (Excellent/Good/Poor for Condition, Clean/Needs a Clean/Poor for Cleanliness) configurable in Template Builder; when enabled, dropdowns appear during inspection capture below field inputs; values stored as composite objects {value, condition?, cleanliness?}.
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.

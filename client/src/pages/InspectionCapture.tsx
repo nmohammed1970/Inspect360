@@ -23,6 +23,7 @@ interface TemplateSection {
 
 interface TemplateField {
   id: string;
+  key?: string; // For compatibility with legacy templates
   label: string;
   type: string;
   required?: boolean;
@@ -30,6 +31,8 @@ interface TemplateField {
   options?: string[];
   validation?: Record<string, any>;
   dependsOn?: Record<string, any>;
+  includeCondition?: boolean;
+  includeCleanliness?: boolean;
 }
 
 interface InspectionEntry {
@@ -125,8 +128,21 @@ export default function InspectionCapture() {
     }
   };
 
-  // Parse template structure from snapshot
-  const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
+  // Parse template structure from snapshot and migrate old templates
+  const rawTemplateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
+  
+  // Migrate old templates: ensure all fields have both id and key
+  const templateStructure = rawTemplateStructure ? {
+    sections: rawTemplateStructure.sections.map(section => ({
+      ...section,
+      fields: section.fields.map((field: any) => ({
+        ...field,
+        id: field.id || field.key, // Use existing id or fall back to key
+        key: field.key || field.id, // Ensure key exists too
+      })),
+    })),
+  } : null;
+  
   const sections = templateStructure?.sections || [];
   const currentSection = sections[currentSectionIndex];
 
