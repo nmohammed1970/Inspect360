@@ -52,6 +52,18 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  phone: varchar("phone"),
+  address: jsonb("address").$type<{
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+    formatted?: string;
+  }>(),
+  skills: text("skills").array(),
+  education: text("education"),
+  certificateUrls: text("certificate_urls").array(),
   role: userRoleEnum("role").notNull().default("owner"),
   organizationId: varchar("organization_id"),
   resetToken: varchar("reset_token"),
