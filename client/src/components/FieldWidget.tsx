@@ -462,6 +462,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
                 uppy={createPhotoUppy()}
                 proudlyDisplayPoweredByUppy={false}
                 height={300}
+                plugins={['Webcam']}
               />
             )}
           </div>

@@ -64,6 +64,7 @@ export function ObjectUploader({
         open={showModal}
         onRequestClose={() => setShowModal(false)}
         proudlyDisplayPoweredByUppy={false}
+        plugins={['Webcam']}
       />
     </div>
   );
