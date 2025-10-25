@@ -33,7 +33,8 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **PWA**: `manifest.json` and service worker for offline capabilities and caching.
 - **Performance**: Optimized database queries and Zod validation.
 - **Inspection Templates System**: JSON-based templates with a flexible editor, versioning, snapshots, and a visual Template Builder UI.
-- **Inspection Capture Workflow**: Full field inspection workflow with data entry, real-time progress, optimistic updates, review page, status management, template snapshot preservation, and note/photo support.
+- **Inspection Capture Workflow**: Full field inspection workflow with data entry, real-time progress, optimistic updates, review page, status management, template snapshot preservation, and note/photo support with native smartphone camera capture.
+- **Camera Integration**: Uppy Webcam plugin enables direct photo capture from smartphone cameras during inspections in PWA mode, with rear-camera default ('environment' facing mode) for optimal field use; requires HTTPS (provided by Replit deployment).
 
 ### Feature Specifications
 - **Core Modules**: Properties, Blocks, Inspections, Compliance, Maintenance, Credit Management, Asset Inventory, Contacts, Tagging System.
@@ -45,6 +46,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **Tenant Portal**: Secure access for property reports and maintenance requests.
 - **Team Management**: Comprehensive team member profiles with basic info, professional details (skills, education), address management, role assignment, account status management (active/inactive), and owner controls for full administration.
 - **Photo & Video Upload**: Uppy integration with Google Cloud Storage for photo, photo_array, and video field types (10MB/100MB limits).
+- **Smartphone Camera Capture**: Native camera access for taking photos directly during inspections via PWA, powered by Uppy Webcam plugin with rear-camera default for field inspections.
 - **Offline Queue System**: LocalStorage-based offline sync with auto-reconnection and status indicators.
 - **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal with basic issue description, multi-image upload, AI-powered fix suggestions using OpenAI Vision API, and review before submission.
 
@@ -61,7 +63,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **TanStack Query**: Data fetching.
 - **Shadcn UI**: UI component library.
 - **Tailwind CSS**: Styling framework.
-- **Uppy**: File upload library.
+- **Uppy**: File upload library with Webcam plugin for camera access.
 
 ## Backend API Implementations
 - **Credit Management**:
