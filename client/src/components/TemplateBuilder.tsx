@@ -41,6 +41,8 @@ interface TemplateField {
   options?: string[];
   validation?: any;
   depends_on?: string;
+  includeCondition?: boolean;
+  includeCleanliness?: boolean;
 }
 
 interface TemplateSection {
@@ -455,46 +457,72 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                               <div className="space-y-2">
                                 {section.fields.map((field, fieldIndex) => (
                                   <div key={field.key} className="space-y-2">
-                                    <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                                      <GripVertical className="w-4 h-4 text-muted-foreground" />
-                                      <Input
-                                        value={field.label}
-                                        onChange={(e) => updateField(section.id, field.key, { label: e.target.value })}
-                                        placeholder="Field Label"
-                                        className="flex-1"
-                                        data-testid={`input-field-label-${sectionIndex}-${fieldIndex}`}
-                                      />
-                                      <Select
-                                        value={field.type}
-                                        onValueChange={(type) => updateField(section.id, field.key, { type })}
-                                      >
-                                        <SelectTrigger className="w-40" data-testid={`select-field-type-${sectionIndex}-${fieldIndex}`}>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {FIELD_TYPES.map((ft) => (
-                                            <SelectItem key={ft.value} value={ft.value}>
-                                              {ft.label}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      <Switch
-                                        checked={field.required || false}
-                                        onCheckedChange={(checked) =>
-                                          updateField(section.id, field.key, { required: checked })
-                                        }
-                                        data-testid={`switch-field-required-${sectionIndex}-${fieldIndex}`}
-                                      />
-                                      <span className="text-xs text-muted-foreground w-16">Required</span>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => deleteField(section.id, field.key)}
-                                        data-testid={`button-delete-field-${sectionIndex}-${fieldIndex}`}
-                                      >
-                                        <Trash2 className="w-4 h-4 text-destructive" />
-                                      </Button>
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                                        <GripVertical className="w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                          value={field.label}
+                                          onChange={(e) => updateField(section.id, field.key, { label: e.target.value })}
+                                          placeholder="Field Label"
+                                          className="flex-1"
+                                          data-testid={`input-field-label-${sectionIndex}-${fieldIndex}`}
+                                        />
+                                        <Select
+                                          value={field.type}
+                                          onValueChange={(type) => updateField(section.id, field.key, { type })}
+                                        >
+                                          <SelectTrigger className="w-40" data-testid={`select-field-type-${sectionIndex}-${fieldIndex}`}>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {FIELD_TYPES.map((ft) => (
+                                              <SelectItem key={ft.value} value={ft.value}>
+                                                {ft.label}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        <Switch
+                                          checked={field.required || false}
+                                          onCheckedChange={(checked) =>
+                                            updateField(section.id, field.key, { required: checked })
+                                          }
+                                          data-testid={`switch-field-required-${sectionIndex}-${fieldIndex}`}
+                                        />
+                                        <span className="text-xs text-muted-foreground w-16">Required</span>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => deleteField(section.id, field.key)}
+                                          data-testid={`button-delete-field-${sectionIndex}-${fieldIndex}`}
+                                        >
+                                          <Trash2 className="w-4 h-4 text-destructive" />
+                                        </Button>
+                                      </div>
+                                      
+                                      {/* Additional Options Row */}
+                                      <div className="flex items-center gap-4 ml-8 px-3">
+                                        <div className="flex items-center gap-2">
+                                          <Switch
+                                            checked={field.includeCondition || false}
+                                            onCheckedChange={(checked) =>
+                                              updateField(section.id, field.key, { includeCondition: checked })
+                                            }
+                                            data-testid={`switch-field-condition-${sectionIndex}-${fieldIndex}`}
+                                          />
+                                          <span className="text-xs text-muted-foreground">Include Condition</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Switch
+                                            checked={field.includeCleanliness || false}
+                                            onCheckedChange={(checked) =>
+                                              updateField(section.id, field.key, { includeCleanliness: checked })
+                                            }
+                                            data-testid={`switch-field-cleanliness-${sectionIndex}-${fieldIndex}`}
+                                          />
+                                          <span className="text-xs text-muted-foreground">Include Cleanliness</span>
+                                        </div>
+                                      </div>
                                     </div>
                                     
                                     {/* Options editor for select/multiselect fields */}
