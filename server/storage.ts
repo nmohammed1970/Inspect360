@@ -32,6 +32,7 @@ import {
   complianceDocumentTags,
   assetInventoryTags,
   maintenanceRequestTags,
+  contactTags,
   dashboardPreferences,
   type User,
   type UpsertUser,
@@ -1599,6 +1600,29 @@ export class DatabaseStorage implements IStorage {
       .from(maintenanceRequestTags)
       .innerJoin(tags, eq(maintenanceRequestTags.tagId, tags.id))
       .where(eq(maintenanceRequestTags.maintenanceRequestId, maintenanceRequestId));
+    return result.map(r => r.tag);
+  }
+
+  // Contact tag operations
+  async addTagToContact(contactId: string, tagId: string): Promise<void> {
+    await db.insert(contactTags).values({ contactId, tagId });
+  }
+
+  async removeTagFromContact(contactId: string, tagId: string): Promise<void> {
+    await db.delete(contactTags).where(
+      and(
+        eq(contactTags.contactId, contactId),
+        eq(contactTags.tagId, tagId)
+      )
+    );
+  }
+
+  async getTagsForContact(contactId: string): Promise<Tag[]> {
+    const result = await db
+      .select({ tag: tags })
+      .from(contactTags)
+      .innerJoin(tags, eq(contactTags.tagId, tags.id))
+      .where(eq(contactTags.contactId, contactId));
     return result.map(r => r.tag);
   }
 
