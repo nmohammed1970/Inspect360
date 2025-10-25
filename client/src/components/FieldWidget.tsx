@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import Uppy from "@uppy/core";
 import { Dashboard } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
+import Webcam from "@uppy/webcam";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -86,23 +87,28 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
         maxFileSize: 10485760, // 10MB
       },
       autoProceed: false,
-    }).use(AwsS3, {
-      shouldUseMultipart: false,
-      async getUploadParameters(file: any) {
-        const response = await fetch("/api/objects/upload", {
-          method: "POST",
-          credentials: "include",
-        });
-        const { uploadURL } = await response.json();
-        return {
-          method: "PUT" as const,
-          url: uploadURL,
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-        };
-      },
-    });
+    })
+      .use(Webcam, {
+        modes: ['picture'],
+        facingMode: 'environment',
+      })
+      .use(AwsS3, {
+        shouldUseMultipart: false,
+        async getUploadParameters(file: any) {
+          const response = await fetch("/api/objects/upload", {
+            method: "POST",
+            credentials: "include",
+          });
+          const { uploadURL } = await response.json();
+          return {
+            method: "PUT" as const,
+            url: uploadURL,
+            headers: {
+              "Content-Type": file.type || "application/octet-stream",
+            },
+          };
+        },
+      });
 
     uppy.on("upload-success", (_file: any, response: any) => {
       const uploadUrl = response?.uploadURL || response?.body?.uploadURL;

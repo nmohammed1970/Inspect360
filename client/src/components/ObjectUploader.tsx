@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
+import Webcam from "@uppy/webcam";
 // NOTE: Uppy CSS imports removed due to Vite bundling issues
 // The upload modal will be functional but may not have full styling
 import type { UploadResult } from "@uppy/core";
@@ -39,6 +40,10 @@ export function ObjectUploader({
       },
       autoProceed: false,
     })
+      .use(Webcam, {
+        modes: ['picture'],
+        facingMode: 'environment',
+      })
       .use(AwsS3, {
         shouldUseMultipart: false,
         getUploadParameters: onGetUploadParameters,
