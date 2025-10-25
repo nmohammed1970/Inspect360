@@ -3466,6 +3466,20 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
+  app.patch("/api/inspection-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const entry = await storage.updateInspectionEntry(req.params.id, req.body);
+      res.json(entry);
+    } catch (error) {
+      console.error("Error updating inspection entry:", error);
+      res.status(400).json({ message: "Failed to update inspection entry" });
+    }
+  });
+
   app.delete("/api/inspection-entries/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
