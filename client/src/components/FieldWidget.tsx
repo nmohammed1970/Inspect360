@@ -24,6 +24,8 @@ interface TemplateField {
   options?: string[];
   validation?: Record<string, any>;
   dependsOn?: Record<string, any>;
+  includeCondition?: boolean;
+  includeCleanliness?: boolean;
 }
 
 interface FieldWidgetProps {
@@ -37,6 +39,22 @@ interface FieldWidgetProps {
 }
 
 export function FieldWidget({ field, value, note, photos, inspectionId, entryId, onChange }: FieldWidgetProps) {
+  // Parse value - if field includes condition/cleanliness, value might be an object
+  const parseValue = (val: any) => {
+    if (val && typeof val === 'object' && (field.includeCondition || field.includeCleanliness)) {
+      return {
+        value: val.value,
+        condition: val.condition,
+        cleanliness: val.cleanliness,
+      };
+    }
+    return { value: val, condition: undefined, cleanliness: undefined };
+  };
+
+  const parsed = parseValue(value);
+  const [localValue, setLocalValue] = useState(parsed.value);
+  const [localCondition, setLocalCondition] = useState(parsed.condition);
+  const [localCleanliness, setLocalCleanliness] = useState(parsed.cleanliness);
   const [localNote, setLocalNote] = useState(note || "");
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
@@ -47,6 +65,13 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
 
   // Rehydrate local state when props change (e.g., when existing entries load)
   useEffect(() => {
+    const parsed = parseValue(value);
+    setLocalValue(parsed.value);
+    setLocalCondition(parsed.condition);
+    setLocalCleanliness(parsed.cleanliness);
+  }, [value]);
+
+  useEffect(() => {
     setLocalNote(note || "");
   }, [note]);
 
@@ -54,19 +79,46 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
     setLocalPhotos(photos || []);
   }, [photos]);
 
+  const composeValue = (val: any, condition?: string, cleanliness?: string) => {
+    if (field.includeCondition || field.includeCleanliness) {
+      return {
+        value: val,
+        ...(field.includeCondition && { condition }),
+        ...(field.includeCleanliness && { cleanliness }),
+      };
+    }
+    return val;
+  };
+
   const handleValueChange = (newValue: any) => {
-    onChange(newValue, localNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
+    setLocalValue(newValue);
+    const composedValue = composeValue(newValue, localCondition, localCleanliness);
+    onChange(composedValue, localNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
+  };
+
+  const handleConditionChange = (condition: string) => {
+    setLocalCondition(condition);
+    const composedValue = composeValue(localValue, condition, localCleanliness);
+    onChange(composedValue, localNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
+  };
+
+  const handleCleanlinessChange = (cleanliness: string) => {
+    setLocalCleanliness(cleanliness);
+    const composedValue = composeValue(localValue, localCondition, cleanliness);
+    onChange(composedValue, localNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
   };
 
   const handleNoteChange = (newNote: string) => {
     setLocalNote(newNote);
-    onChange(value, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
+    const composedValue = composeValue(localValue, localCondition, localCleanliness);
+    onChange(composedValue, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
   };
 
   const handlePhotoAdd = (photoUrl: string) => {
     const newPhotos = field.type === "photo" ? [photoUrl] : [...localPhotos, photoUrl];
     setLocalPhotos(newPhotos);
-    onChange(value, localNote || undefined, newPhotos);
+    const composedValue = composeValue(localValue, localCondition, localCleanliness);
+    onChange(composedValue, localNote || undefined, newPhotos);
     toast({
       title: "Success",
       description: "Photo uploaded successfully",
@@ -76,7 +128,8 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
   const handlePhotoRemove = (photoUrl: string) => {
     const newPhotos = localPhotos.filter((p) => p !== photoUrl);
     setLocalPhotos(newPhotos);
-    onChange(value, localNote || undefined, newPhotos.length > 0 ? newPhotos : undefined);
+    const composedValue = composeValue(localValue, localCondition, localCleanliness);
+    onChange(composedValue, localNote || undefined, newPhotos.length > 0 ? newPhotos : undefined);
   };
 
   const handleInspectField = async () => {
@@ -105,7 +158,8 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
       // Auto-populate the notes field with the AI analysis
       const newNote = analysis;
       setLocalNote(newNote);
-      onChange(value, newNote, localPhotos);
+      const composedValue = composeValue(localValue, localCondition, localCleanliness);
+      onChange(composedValue, newNote, localPhotos);
 
       toast({
         title: "InspectAI Complete",
@@ -262,7 +316,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
       case "short_text":
         return (
           <Input
-            value={value || ""}
+            value={localValue || ""}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
             data-testid={`input-${field.id}`}
@@ -272,7 +326,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
       case "long_text":
         return (
           <Textarea
-            value={value || ""}
+            value={localValue || ""}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
             rows={4}
@@ -284,7 +338,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
         return (
           <Input
             type="number"
-            value={value || ""}
+            value={localValue || ""}
             onChange={(e) => handleValueChange(parseFloat(e.target.value) || 0)}
             placeholder={field.placeholder || "Enter number"}
             data-testid={`input-number-${field.id}`}
@@ -304,16 +358,16 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
               >
                 <Star
                   className={`w-8 h-8 ${
-                    (value || 0) >= rating
+                    (localValue || 0) >= rating
                       ? "fill-primary text-primary"
                       : "text-muted-foreground"
                   }`}
                 />
               </button>
             ))}
-            {value > 0 && (
+            {localValue > 0 && (
               <span className="ml-2 text-sm text-muted-foreground">
-                {value} / 5
+                {localValue} / 5
               </span>
             )}
           </div>
@@ -321,7 +375,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
 
       case "select":
         return (
-          <Select value={value || ""} onValueChange={handleValueChange}>
+          <Select value={localValue || ""} onValueChange={handleValueChange}>
             <SelectTrigger data-testid={`select-${field.id}`}>
               <SelectValue placeholder={field.placeholder || "Select an option"} />
             </SelectTrigger>
@@ -336,7 +390,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
         );
 
       case "multiselect":
-        const selectedValues = value || [];
+        const selectedValues = localValue || [];
         return (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2 mb-2">
@@ -383,7 +437,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
         return (
           <div className="flex items-center space-x-2">
             <Checkbox
-              checked={value || false}
+              checked={localValue || false}
               onCheckedChange={handleValueChange}
               data-testid={`checkbox-${field.id}`}
             />
@@ -399,7 +453,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
             <Calendar className="w-4 h-4 text-muted-foreground" />
             <Input
               type="date"
-              value={value || ""}
+              value={localValue || ""}
               onChange={(e) => handleValueChange(e.target.value)}
               data-testid={`input-date-${field.id}`}
             />
@@ -412,7 +466,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
             <Clock className="w-4 h-4 text-muted-foreground" />
             <Input
               type="time"
-              value={value || ""}
+              value={localValue || ""}
               onChange={(e) => handleValueChange(e.target.value)}
               data-testid={`input-time-${field.id}`}
             />
@@ -423,7 +477,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
         return (
           <Input
             type="datetime-local"
-            value={value || ""}
+            value={localValue || ""}
             onChange={(e) => handleValueChange(e.target.value)}
             data-testid={`input-datetime-${field.id}`}
           />
@@ -516,9 +570,9 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
       case "video":
         return (
           <div className="space-y-3">
-            {value && (
+            {localValue && (
               <video
-                src={value}
+                src={localValue}
                 controls
                 className="w-full max-h-64 rounded-lg"
                 data-testid={`video-preview-${field.id}`}
@@ -531,7 +585,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
               data-testid={`button-upload-video-${field.id}`}
             >
               <Upload className="w-4 h-4 mr-2" />
-              {value ? "Replace Video" : "Upload Video"}
+              {localValue ? "Replace Video" : "Upload Video"}
             </Button>
             {showPhotoUpload && (
               <Dashboard
@@ -548,7 +602,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-muted-foreground" />
             <Input
-              value={value || ""}
+              value={localValue || ""}
               onChange={(e) => handleValueChange(e.target.value)}
               placeholder="Latitude, Longitude"
               data-testid={`input-gps-${field.id}`}
@@ -578,7 +632,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
       default:
         return (
           <Input
-            value={value || ""}
+            value={localValue || ""}
             onChange={(e) => handleValueChange(e.target.value)}
             placeholder={field.placeholder || "Enter value"}
             data-testid={`input-default-${field.id}`}
@@ -595,6 +649,40 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
       </Label>
 
       {renderField()}
+
+      {/* Condition Rating */}
+      {field.includeCondition && (
+        <div className="pt-2">
+          <Label className="text-sm font-medium">Condition</Label>
+          <Select value={localCondition || ""} onValueChange={handleConditionChange}>
+            <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1">
+              <SelectValue placeholder="Select condition" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Excellent">Excellent</SelectItem>
+              <SelectItem value="Good">Good</SelectItem>
+              <SelectItem value="Poor">Poor</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Cleanliness Rating */}
+      {field.includeCleanliness && (
+        <div className="pt-2">
+          <Label className="text-sm font-medium">Cleanliness</Label>
+          <Select value={localCleanliness || ""} onValueChange={handleCleanlinessChange}>
+            <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1">
+              <SelectValue placeholder="Select cleanliness" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Clean">Clean</SelectItem>
+              <SelectItem value="Needs a Clean">Needs a Clean</SelectItem>
+              <SelectItem value="Poor">Poor</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* InspectAI Button - only show when photos exist */}
       {inspectionId && localPhotos.length > 0 && (
