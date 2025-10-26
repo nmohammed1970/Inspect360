@@ -59,7 +59,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **OpenAI Vision API**: AI photo analysis and comparison reports.
 - **Stripe**: Payment processing for credits.
 - **Google Cloud Storage**: Object storage for media.
-- **Resend**: Email service for team invitations.
+- **Resend**: Email service for team invitations and inspection completion notifications.
 - **Passport.js**: Authentication middleware.
 - **Drizzle ORM**: TypeScript ORM.
 - **Vite**: Frontend build tool.
@@ -92,6 +92,13 @@ The platform employs a PWA-first approach with a robust web architecture.
   - Costs 1 credit per field analysis with full transaction logging
   - Button appears automatically when photos are uploaded to any inspection field
   - Proper JSON response parsing in frontend (await response.json())
+- **Email Notifications**:
+  - `sendInspectionCompleteEmail()`: Sends branded HTML email to organization owner when inspection is marked complete
+  - PATCH /api/inspections/:id/status triggers email notification on status change to "completed"
+  - Email includes inspection type, property/block name, inspector name, completion date, and view link
+  - Uses owner.email field (not username) for proper Resend API formatting
+  - Email failures logged as warnings but don't block inspection status updates
+  - Branded HTML template with Inspect360 colors (#00D5CC, #3B7A8C)
 - **Null Safety**:
   - Proper null coalescing for credit checks
   - Lazy OpenAI client initialization via getOpenAI()
