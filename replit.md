@@ -53,6 +53,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **InspectAI Field Analysis**: Field-level AI inspection analysis button that analyzes all uploaded images for an inspection point using OpenAI GPT-5 Vision and auto-generates comprehensive reports in the notes field; costs 1 credit per analysis.
 - **Condition & Cleanliness Ratings**: Optional per-field ratings (Excellent/Good/Poor for Condition, Clean/Needs a Clean/Poor for Cleanliness) configurable in Template Builder; when enabled, dropdowns appear during inspection capture below field inputs; values stored as composite objects {value, condition?, cleanliness?}.
 - **Inspection Reports**: Beautifully formatted HTML reports for completed and in-progress inspections with print-friendly CSS, displaying inspection metadata, all sections/fields with values, condition/cleanliness badges, photos, AI analysis notes, and interactive action buttons; Owner/Manager roles can edit notes inline with changes persisting via PATCH API.
+- **Annual Compliance Calendar**: Visual compliance tracking grid showing inspection templates vs. months for Properties and Blocks; displays color-coded status badges (completed/green, overdue/red, due/yellow, scheduled/blue, not_scheduled/gray), per-template compliance rates, overall compliance percentage, and summary stats; integrated into PropertyDetail and BlockDetail Compliance tabs with responsive design and hover tooltips.
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
