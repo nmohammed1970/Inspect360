@@ -43,7 +43,8 @@ The platform utilizes a PWA-first approach built on a robust web architecture.
   - **Properties**: Properties page supports `?blockId=X` query parameter for filtering properties by block with breadcrumb navigation and dynamic page title; Blocks page "Properties" quick action button (first icon, Home icon) routes to filtered properties view; when creating a new property from a block-filtered view, the form automatically prepopulates the address and block selection from the current block.
   - **Asset Inventory**: Asset inventory page supports filtering by `blockId` with breadcrumb navigation.
 - **Block Tenant Management**: Comprehensive tenant occupancy tracking, KPIs, and roster management on a dedicated BlockTenants page.
-- **API Security**: Comprehensive Zod validation on 15 schemas for all API operations, with 14 critical routes protected by `.safeParse()`. Multi-tenant isolation is enforced with 62 organization ownership checks across critical routes.
+- **Property Detail Filtering**: Property detail page tabs (Inventory, Inspections, Tenants, Compliance) all properly filter data by propertyId with organization isolation. Tenant assignments queried via dedicated `getTenantAssignmentsByProperty` method that joins properties table for multi-tenant security.
+- **API Security**: Comprehensive Zod validation on 15 schemas for all API operations, with 14 critical routes protected by `.safeParse()`. Multi-tenant isolation is enforced with 63 organization ownership checks across critical routes (including property detail tabs).
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
