@@ -431,6 +431,17 @@ export default function Blocks() {
                       <span className="text-xs">Properties</span>
                     </Button>
                   </Link>
+                  <Link href={`/asset-inventory?blockId=${block.id}`}>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="flex flex-col h-auto py-2 px-3"
+                      data-testid={`button-inventory-${block.id}`}
+                    >
+                      <Package className="h-4 w-4 mb-1" />
+                      <span className="text-xs">Inventory</span>
+                    </Button>
+                  </Link>
                   <Link href={`/inspections?blockId=${block.id}&create=true`}>
                     <Button 
                       variant="ghost" 
