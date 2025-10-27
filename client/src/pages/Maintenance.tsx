@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -75,6 +75,7 @@ export default function Maintenance() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<string>("");
@@ -85,10 +86,16 @@ export default function Maintenance() {
   // Handle dialog state change
   const handleDialogChange = (open: boolean) => {
     setIsCreateOpen(open);
-    if (open) {
+    if (open && !editingRequest) {
       // Reset form when opening dialog for a new request
       form.reset();
       setCurrentStep("form");
+      setUploadedImages([]);
+      setAiSuggestions("");
+    }
+    if (!open) {
+      // Clear editing state when closing
+      setEditingRequest(null);
       setUploadedImages([]);
       setAiSuggestions("");
     }
@@ -252,6 +259,49 @@ export default function Maintenance() {
     },
   });
 
+  // Update maintenance request mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<z.infer<typeof createMaintenanceSchema>> & { photoUrls?: string[]; aiSuggestedFixes?: string } }) => {
+      const res = await apiRequest("PATCH", `/api/maintenance/${id}`, data);
+      return await res.json();
+    },
+    onSuccess: async () => {
+      try {
+        console.log("[Maintenance] Request updated successfully, refetching queries...");
+        await queryClient.refetchQueries({ queryKey: ["/api/maintenance"] });
+        
+        toast({
+          title: "Success",
+          description: "Maintenance request updated successfully",
+        });
+        
+        setIsCreateOpen(false);
+        setEditingRequest(null);
+        form.reset();
+        setUploadedImages([]);
+        setAiSuggestions("");
+        setCurrentStep("form");
+        
+        console.log("[Maintenance] Update cleanup complete");
+      } catch (error) {
+        console.error("[Maintenance] Error in onSuccess:", error);
+        toast({
+          title: "Warning",
+          description: "Request updated but there was an issue refreshing the list",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error) => {
+      console.error("[Maintenance] Failed to update maintenance request:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update maintenance request",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Update status mutation
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status, assignedTo }: { id: string; status: string; assignedTo?: string }) => {
@@ -309,7 +359,7 @@ export default function Maintenance() {
 
   const onSubmit = (data: z.infer<typeof createMaintenanceSchema>) => {
     // For tenants, require images and show AI suggestions first
-    if (user?.role === "tenant" && currentStep === "form") {
+    if (user?.role === "tenant" && currentStep === "form" && !editingRequest) {
       setCurrentStep("images");
       return;
     }
@@ -321,7 +371,28 @@ export default function Maintenance() {
       photoUrls: uploadedImages.length > 0 ? uploadedImages : undefined,
       aiSuggestedFixes: aiSuggestions || undefined,
     };
-    createMutation.mutate(payload);
+    
+    if (editingRequest) {
+      updateMutation.mutate({ id: editingRequest.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
+  };
+
+  // Handle edit button click
+  const handleEdit = (request: MaintenanceRequestWithDetails) => {
+    setEditingRequest(request);
+    form.reset({
+      title: request.title,
+      description: request.description || "",
+      propertyId: request.propertyId,
+      priority: request.priority as "low" | "medium" | "high",
+      reportedBy: request.reportedBy || "",
+    });
+    setUploadedImages(request.photoUrls || []);
+    setAiSuggestions(request.aiSuggestedFixes || "");
+    setCurrentStep("form");
+    setIsCreateOpen(true);
   };
 
   const getPriorityBadge = (priority: string) => {
@@ -377,7 +448,9 @@ export default function Maintenance() {
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {user?.role === "tenant" ? "Report Maintenance Issue" : "Create Maintenance Request"}
+                {editingRequest 
+                  ? "Edit Maintenance Request" 
+                  : user?.role === "tenant" ? "Report Maintenance Issue" : "Create Maintenance Request"}
               </DialogTitle>
               <DialogDescription>
                 {user?.role === "tenant" && currentStep === "images" 
@@ -739,8 +812,10 @@ export default function Maintenance() {
                     </Card>
                   )}
 
-                  <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-request">
-                    {createMutation.isPending ? "Creating..." : "Create Request"}
+                  <Button type="submit" className="w-full" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit-request">
+                    {createMutation.isPending || updateMutation.isPending 
+                      ? editingRequest ? "Updating..." : "Creating..." 
+                      : editingRequest ? "Update Request" : "Create Request"}
                   </Button>
                 </form>
               </Form>
@@ -802,8 +877,22 @@ export default function Maintenance() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    {getPriorityBadge(request.priority)}
-                    {getStatusBadge(request.status)}
+                    <div className="flex items-center gap-2">
+                      {(user?.role === "owner" || user?.role === "clerk") && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleEdit(request)}
+                          data-testid={`button-edit-${request.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
+                      <div className="flex flex-col gap-2">
+                        {getPriorityBadge(request.priority)}
+                        {getStatusBadge(request.status)}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
