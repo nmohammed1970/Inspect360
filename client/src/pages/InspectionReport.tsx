@@ -288,15 +288,153 @@ export default function InspectionReport() {
           }
           .print-break-inside-avoid {
             break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .print-only {
+            display: block !important;
+          }
+          .print-cover-page {
+            display: flex !important;
+            page-break-after: always;
+            min-height: 100%;
+            padding: 3rem 2rem;
+            margin: 0;
+            box-sizing: border-box;
           }
           body {
             background: white !important;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
           }
           .bg-card {
             background: white !important;
+            border: 1px solid #e5e7eb !important;
+          }
+          img {
+            max-width: 100%;
+            page-break-inside: avoid;
+          }
+          h1, h2, h3, h4, h5, h6 {
+            page-break-after: avoid;
+            page-break-inside: avoid;
+          }
+          .space-y-8 > * + * {
+            margin-top: 2rem !important;
+          }
+          @page {
+            margin: 0.75in;
+            size: letter;
+          }
+          @page :first {
+            margin: 0;
+          }
+          /* Ensure colors print correctly */
+          * {
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+          }
+        }
+        @media screen {
+          .print-only {
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            width: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            visibility: hidden !important;
           }
         }
       `}</style>
+
+      {/* PDF Cover Page - Only visible when printing */}
+      <div className="print-only print-cover-page hidden flex-col items-center justify-center text-center p-12" aria-hidden="true">
+        <div className="space-y-12 max-w-2xl mx-auto">
+          {/* Logo */}
+          <div className="flex justify-center mb-16">
+            <img 
+              src={new URL("@assets/Inspect360 Logo_1761302629835.png", import.meta.url).href}
+              alt="Inspect360 Logo" 
+              className="h-24 w-auto"
+            />
+          </div>
+
+          {/* Report Title */}
+          <div className="space-y-4 mb-12">
+            <h1 className="text-5xl font-bold text-gray-900" style={{ color: '#000' }}>
+              Inspection Report
+            </h1>
+            <div className="h-1 w-32 mx-auto" style={{ backgroundColor: '#00D5CC' }}></div>
+          </div>
+
+          {/* Inspection Type */}
+          {inspection.type && (
+            <div className="text-2xl font-semibold text-gray-700 mb-12" style={{ color: '#333' }}>
+              {inspection.type.replace(/_/g, ' ').toUpperCase()}
+            </div>
+          )}
+
+          {/* Property Information */}
+          <div className="space-y-6 pt-8 border-t-2" style={{ borderColor: '#E5E7EB' }}>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Property</div>
+              <div className="text-2xl font-bold text-gray-900" style={{ color: '#000' }}>
+                {propertyName || "Property Not Specified"}
+              </div>
+              {propertyAddress && propertyAddress !== "No address" && (
+                <div className="text-lg text-gray-600" style={{ color: '#666' }}>
+                  {propertyAddress}
+                </div>
+              )}
+            </div>
+
+            {/* Inspector Information */}
+            <div className="space-y-2 pt-6">
+              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Inspector</div>
+              <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
+                {inspectorName || "Inspector Not Assigned"}
+              </div>
+              {inspection.inspector?.email && (
+                <div className="text-base text-gray-600" style={{ color: '#666' }}>
+                  {inspection.inspector.email}
+                </div>
+              )}
+            </div>
+
+            {/* Inspection Date */}
+            <div className="space-y-2 pt-6">
+              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Inspection Date</div>
+              <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
+                {inspection.completedDate 
+                  ? format(new Date(inspection.completedDate), "MMMM dd, yyyy")
+                  : inspection.scheduledDate 
+                    ? format(new Date(inspection.scheduledDate), "MMMM dd, yyyy")
+                    : "Not Scheduled"}
+              </div>
+            </div>
+
+            {/* Status Badge */}
+            {inspection.status && (
+              <div className="pt-6">
+                <div className="inline-block px-6 py-2 text-sm font-semibold uppercase tracking-wide border-2 rounded-lg"
+                     style={{ 
+                       borderColor: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF',
+                       color: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF'
+                     }}>
+                  {inspection.status.replace(/_/g, ' ')}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Report ID */}
+          {inspection.id && (
+            <div className="pt-8 text-sm text-gray-500">
+              Report ID: {inspection.id}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Header Actions - Hidden in print */}
       <div className="no-print sticky top-0 z-10 bg-background border-b">
@@ -370,9 +508,11 @@ export default function InspectionReport() {
                   {propertyName}
                 </CardDescription>
               </div>
-              <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
-                {inspection.status.replace('_', ' ').toUpperCase()}
-              </Badge>
+              {inspection.status && (
+                <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
+                  {inspection.status.replace(/_/g, ' ').toUpperCase()}
+                </Badge>
+              )}
             </div>
 
             {/* Inspection Metadata Grid */}
@@ -389,7 +529,9 @@ export default function InspectionReport() {
                 <FileText className="w-5 h-5 text-muted-foreground mt-0.5" />
                 <div>
                   <div className="text-sm font-medium">Inspection Type</div>
-                  <div className="text-sm text-muted-foreground capitalize">{inspection.type.replace('_', ' ')}</div>
+                  <div className="text-sm text-muted-foreground capitalize">
+                    {inspection.type ? inspection.type.replace(/_/g, ' ') : 'Not specified'}
+                  </div>
                 </div>
               </div>
 
