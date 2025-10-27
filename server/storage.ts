@@ -1190,6 +1190,55 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
+  async getTenantAssignmentsByProperty(propertyId: string, organizationId: string): Promise<any[]> {
+    // Get all tenant assignments for this property with user info
+    // Enforce organization isolation by joining with properties table
+    const assignments = await db
+      .select({
+        // Assignment info
+        assignmentId: tenantAssignments.id,
+        leaseStartDate: tenantAssignments.leaseStartDate,
+        leaseEndDate: tenantAssignments.leaseEndDate,
+        monthlyRent: tenantAssignments.monthlyRent,
+        depositAmount: tenantAssignments.depositAmount,
+        isActive: tenantAssignments.isActive,
+        // User info
+        userId: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        phone: users.phone,
+        profileImageUrl: users.profileImageUrl,
+      })
+      .from(tenantAssignments)
+      .innerJoin(users, eq(tenantAssignments.tenantId, users.id))
+      .innerJoin(properties, eq(tenantAssignments.propertyId, properties.id))
+      .where(
+        and(
+          eq(tenantAssignments.propertyId, propertyId),
+          eq(properties.organizationId, organizationId)
+        )
+      );
+
+    return assignments.map(a => ({
+      id: a.userId,
+      firstName: a.firstName,
+      lastName: a.lastName,
+      email: a.email,
+      phone: a.phone,
+      profileImageUrl: a.profileImageUrl,
+      role: 'tenant',
+      assignment: {
+        id: a.assignmentId,
+        leaseStartDate: a.leaseStartDate,
+        leaseEndDate: a.leaseEndDate,
+        monthlyRent: a.monthlyRent,
+        depositAmount: a.depositAmount,
+        isActive: a.isActive,
+      },
+    }));
+  }
+
   async getBlockTenantStats(blockId: string): Promise<{ totalUnits: number; occupiedUnits: number; occupancyRate: number; totalMonthlyRent: number }> {
     // Get all properties in the block (properties = units)
     const blockProperties = await db

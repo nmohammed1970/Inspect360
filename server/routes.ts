@@ -673,10 +673,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Property not found" });
       }
 
-      const tenants = await storage.getUsersByOrganizationAndRole(user.organizationId, "tenant");
-      const propertyTenants = tenants.filter((t: any) => t.propertyId === id);
+      // Use tenant_assignments table to get property tenants with organization isolation
+      const tenants = await storage.getTenantAssignmentsByProperty(id, user.organizationId);
 
-      res.json(propertyTenants);
+      res.json(tenants);
     } catch (error) {
       console.error("Error fetching property tenants:", error);
       res.status(500).json({ message: "Failed to fetch tenants" });
@@ -754,12 +754,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id: item.id,
         name: item.name,
         description: item.description,
-        category: item.supplier || 'General', // Use supplier as category for now
+        category: item.category || 'General',
         condition: item.condition,
         quantity: 1, // Default quantity
         datePurchased: item.datePurchased,
         expectedLifespanYears: item.expectedLifespanYears,
-        photoUrl: item.photoUrl,
+        photoUrl: item.photos?.[0] || null, // Use first photo from photos array
       }));
 
       res.json(enhancedInventory);
