@@ -2551,10 +2551,16 @@ Provide a structured comparison highlighting differences in condition ratings an
       // Remove organizationId from request body (should not be updated)
       const { organizationId: _, ...updateData } = req.body;
 
-      const asset = await storage.updateAssetInventory(req.params.id, updateData);
+      // Validate and coerce dates
+      const validatedData = insertAssetInventorySchema.partial().parse(updateData);
+
+      const asset = await storage.updateAssetInventory(req.params.id, validatedData);
       res.json(asset);
     } catch (error: any) {
       console.error("Error updating asset inventory:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
       res.status(500).json({ error: "Failed to update asset inventory" });
     }
   });
