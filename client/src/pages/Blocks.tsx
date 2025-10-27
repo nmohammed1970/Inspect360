@@ -420,7 +420,7 @@ export default function Blocks() {
                 {/* Quick Actions */}
                 <div className="h-px bg-border/30" />
                 <div className="flex items-center justify-around -mx-2">
-                  <Link href={`/inventory?blockId=${block.id}`}>
+                  <Link href={`/asset-inventory?blockId=${block.id}`}>
                     <Button 
                       variant="ghost" 
                       size="sm" 
