@@ -723,17 +723,8 @@ export default function Team() {
                   Certificates & Documents
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Upload professional certificates, licenses, or other relevant documents
+                  Upload professional certificates, licenses, or other relevant documents (PDF, images, etc.)
                 </p>
-                <div className="border-2 border-dashed rounded-lg p-8 text-center">
-                  <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Document upload feature will be enabled with file storage integration
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    For now, you can manually add certificate URLs below
-                  </p>
-                </div>
               </div>
 
               {/* Upload Certificates */}
