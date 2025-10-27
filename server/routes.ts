@@ -4009,8 +4009,8 @@ Provide a structured comparison highlighting differences in condition ratings an
 
   // ==================== OBJECT STORAGE ROUTES ====================
   
-  app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
-    const userId = req.user?.claims?.sub;
+  app.get("/objects/:objectPath(*)", async (req: any, res) => {
+    const userId = req.user?.claims?.sub || req.user?.id;
     const objectStorageService = new ObjectStorageService();
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
@@ -4051,13 +4051,65 @@ Provide a structured comparison highlighting differences in condition ratings an
         req.body.photoUrl,
         {
           owner: userId,
-          visibility: "private",
+          visibility: "public",
         },
       );
 
       res.status(200).json({ objectPath });
     } catch (error) {
       console.error("Error setting object ACL:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Fix existing photos - make them public
+  app.post("/api/objects/fix-acls", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      
+      // Get all assets with photos
+      const assets = await storage.getAssetInventoryByOrganization(user.organizationId);
+      const photosToFix: string[] = [];
+      
+      for (const asset of assets) {
+        if (asset.photos && asset.photos.length > 0) {
+          photosToFix.push(...asset.photos);
+        }
+      }
+      
+      // Update ACL for each photo
+      const fixed: string[] = [];
+      const errors: string[] = [];
+      
+      for (const photoPath of photosToFix) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(
+            photoPath,
+            {
+              owner: userId,
+              visibility: "public",
+            },
+          );
+          fixed.push(photoPath);
+        } catch (error) {
+          console.error(`Failed to fix ACL for ${photoPath}:`, error);
+          errors.push(photoPath);
+        }
+      }
+      
+      res.json({ 
+        message: `Fixed ${fixed.length} photos, ${errors.length} errors`,
+        fixed: fixed.length,
+        errors: errors.length 
+      });
+    } catch (error) {
+      console.error("Error fixing ACLs:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

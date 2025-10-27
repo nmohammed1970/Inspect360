@@ -45,6 +45,7 @@ The platform utilizes a PWA-first approach built on a robust web architecture.
 - **Block Tenant Management**: Comprehensive tenant occupancy tracking, KPIs, and roster management on a dedicated BlockTenants page.
 - **Property Detail Filtering**: Property detail page tabs (Inventory, Inspections, Tenants, Compliance) all properly filter data by propertyId with organization isolation. Tenant assignments queried via dedicated `getTenantAssignmentsByProperty` method that joins properties table for multi-tenant security.
 - **API Security**: Comprehensive Zod validation on 15 schemas for all API operations, with 14 critical routes protected by `.safeParse()`. Multi-tenant isolation is enforced with 63 organization ownership checks across critical routes (including property detail tabs).
+- **Object Storage ACL**: Asset inventory photos use visibility: "public" to allow organization-wide viewing without authentication. The `/objects/` serving route allows unauthenticated access for public objects while maintaining owner-only access for private objects.
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
