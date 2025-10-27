@@ -48,7 +48,7 @@ The platform employs a PWA-first approach with a robust web architecture.
 - **Team Management**: Comprehensive team member profiles with basic info, professional details (skills, education), address management, role assignment, account status management (active/inactive), and owner controls for full administration.
 - **Photo & Video Upload**: Uppy integration with Google Cloud Storage for photo, photo_array, and video field types (10MB/100MB limits).
 - **Smartphone Camera Capture**: Native camera access for taking photos directly during inspections via PWA, powered by Uppy Webcam plugin with rear-camera default for field inspections.
-- **Offline Queue System**: LocalStorage-based offline sync with auto-reconnection and status indicators.
+- **Offline Queue System**: LocalStorage-based offline sync with auto-reconnection, status indicators, and Background Sync API integration for automatic retry when connection restored; MessageChannel-based coordination between service worker and client; **Limitation**: Background Sync only works when app has an active client window (localStorage not accessible in service worker context); for full offline sync when app is closed, migration to IndexedDB required.
 - **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal with basic issue description, multi-image upload, AI-powered fix suggestions using OpenAI Vision API, and review before submission.
 - **InspectAI Field Analysis**: Field-level AI inspection analysis button that analyzes all uploaded images for an inspection point using OpenAI GPT-5 Vision and auto-generates comprehensive reports in the notes field; costs 1 credit per analysis.
 - **Condition & Cleanliness Ratings**: Optional per-field ratings (Excellent/Good/Poor for Condition, Clean/Needs a Clean/Poor for Cleanliness) configurable in Template Builder; when enabled, dropdowns appear during inspection capture below field inputs; values stored as composite objects {value, condition?, cleanliness?}.
@@ -100,6 +100,12 @@ The platform employs a PWA-first approach with a robust web architecture.
   - Uses owner.email field (not username) for proper Resend API formatting
   - Email failures logged as warnings but don't block inspection status updates
   - Branded HTML template with Inspect360 colors (#00D5CC, #3B7A8C)
+- **Password Reset**:
+  - POST /api/forgot-password generates 6-digit token with 1-hour expiry
+  - `sendPasswordResetEmail()`: Sends branded HTML email via Resend with reset token
+  - POST /api/reset-password validates token and updates password with bcrypt hashing
+  - Production-ready: No dev tokens exposed in API responses
+  - Email failures don't block token generation (logged as warnings)
 - **Null Safety**:
   - Proper null coalescing for credit checks
   - Lazy OpenAI client initialization via getOpenAI()
