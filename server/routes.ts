@@ -46,7 +46,9 @@ import {
   updateDashboardPreferencesSchema,
   updateTemplateCategorySchema,
   updateInspectionSchema,
-  updateBlockSchema
+  updateBlockSchema,
+  insertMessageTemplateSchema,
+  updateMessageTemplateSchema
 } from "@shared/schema";
 
 // Initialize Stripe
@@ -2432,6 +2434,163 @@ Provide a structured comparison highlighting differences in condition ratings an
     } catch (error) {
       console.error("Error fetching block tenants:", error);
       res.status(500).json({ error: "Failed to fetch block tenants" });
+    }
+  });
+
+  // Broadcast message to all block tenants
+  app.post("/api/blocks/:blockId/broadcast", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const { blockId } = req.params;
+      const { templateId, subject, body } = req.body;
+
+      // Verify block belongs to user's organization
+      const block = await storage.getBlock(blockId);
+      if (!block) {
+        return res.status(404).json({ error: "Block not found" });
+      }
+      if (block.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Get organization for name
+      const organization = await storage.getOrganization(user.organizationId);
+
+      // Prepare message template
+      let templateData: { subject: string; body: string };
+      
+      if (templateId) {
+        // Use existing template
+        const template = await storage.getMessageTemplate(templateId);
+        if (!template || template.organizationId !== user.organizationId) {
+          return res.status(404).json({ error: "Template not found" });
+        }
+        templateData = { subject: template.subject, body: template.body };
+      } else if (subject && body) {
+        // Use custom message
+        templateData = { subject, body };
+      } else {
+        return res.status(400).json({ error: "Either templateId or subject and body must be provided" });
+      }
+
+      // Get all tenant emails for this block
+      const recipients = await storage.getBlockTenantsEmails(blockId, user.organizationId);
+
+      if (recipients.length === 0) {
+        return res.status(404).json({ error: "No active tenants found for this block" });
+      }
+
+      // Send broadcast
+      const { broadcastMessageToTenants } = await import('./resend');
+      const result = await broadcastMessageToTenants(
+        recipients,
+        templateData,
+        {
+          blockName: block.name,
+          organizationName: organization?.name || 'Your Property Management',
+        }
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error broadcasting message:", error);
+      res.status(500).json({ error: "Failed to broadcast message" });
+    }
+  });
+
+  // ==================== MESSAGE TEMPLATE ROUTES ====================
+
+  app.get("/api/message-templates", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const templates = await storage.getMessageTemplatesByOrganization(user.organizationId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching message templates:", error);
+      res.status(500).json({ error: "Failed to fetch message templates" });
+    }
+  });
+
+  app.post("/api/message-templates", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertMessageTemplateSchema.safeParse(req.body);
+      if (!validatedData.success) {
+        return res.status(400).json({ error: "Invalid request data", details: validatedData.error.errors });
+      }
+
+      const template = await storage.createMessageTemplate({
+        ...validatedData.data,
+        organizationId: user.organizationId,
+        createdBy: userId,
+      });
+
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating message template:", error);
+      res.status(500).json({ error: "Failed to create message template" });
+    }
+  });
+
+  app.put("/api/message-templates/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const existing = await storage.getMessageTemplate(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      const validatedData = updateMessageTemplateSchema.safeParse(req.body);
+      if (!validatedData.success) {
+        return res.status(400).json({ error: "Invalid request data", details: validatedData.error.errors });
+      }
+
+      const updated = await storage.updateMessageTemplate(req.params.id, validatedData.data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating message template:", error);
+      res.status(500).json({ error: "Failed to update message template" });
+    }
+  });
+
+  app.delete("/api/message-templates/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const existing = await storage.getMessageTemplate(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+
+      await storage.deleteMessageTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting message template:", error);
+      res.status(500).json({ error: "Failed to delete message template" });
     }
   });
 

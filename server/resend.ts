@@ -257,3 +257,132 @@ export async function sendInspectionCompleteEmail(
     throw error;
   }
 }
+
+export async function broadcastMessageToTenants(
+  recipients: { email: string; firstName?: string; lastName?: string }[],
+  templateData: {
+    subject: string;
+    body: string;
+  },
+  variables: {
+    blockName?: string;
+    organizationName?: string;
+    [key: string]: any;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const results: any[] = [];
+    const errors: any[] = [];
+
+    // Send email to each recipient
+    for (const recipient of recipients) {
+      try {
+        // Replace variables in subject and body
+        const recipientName = recipient.firstName 
+          ? `${recipient.firstName}${recipient.lastName ? ' ' + recipient.lastName : ''}` 
+          : 'Tenant';
+        
+        // Create replacements object with recipient-specific and general variables
+        const replacements: Record<string, string> = {
+          tenant_name: recipientName,
+          tenant_first_name: recipient.firstName || 'Tenant',
+          tenant_last_name: recipient.lastName || '',
+          block_name: variables.blockName || '',
+          organization_name: variables.organizationName || '',
+          ...Object.keys(variables).reduce((acc, key) => {
+            if (key !== 'blockName' && key !== 'organizationName') {
+              acc[key] = String(variables[key]);
+            }
+            return acc;
+          }, {} as Record<string, string>),
+        };
+
+        // Replace variables in subject and body
+        let personalizedSubject = templateData.subject;
+        let personalizedBody = templateData.body;
+
+        Object.keys(replacements).forEach(key => {
+          const regex = new RegExp(`\\{${key}\\}`, 'g');
+          personalizedSubject = personalizedSubject.replace(regex, replacements[key]);
+          personalizedBody = personalizedBody.replace(regex, replacements[key]);
+        });
+
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${personalizedSubject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <!-- Header with Inspect360 branding -->
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">${personalizedSubject}</h1>
+    </div>
+
+    <!-- Main content -->
+    <div style="margin-bottom: 24px;">
+      <div style="font-size: 16px; white-space: pre-wrap;">
+        ${personalizedBody}
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        This email was sent from <strong style="color: #00D5CC;">Inspect360</strong> — Your AI-Powered Building Inspection Platform
+      </p>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #aaa; text-align: center;">
+        © ${new Date().getFullYear()} Inspect360. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+        `;
+
+        const response = await client.emails.send({
+          from: fromEmail,
+          to: recipient.email,
+          subject: personalizedSubject,
+          html,
+        });
+
+        results.push({
+          email: recipient.email,
+          success: true,
+          messageId: response.data?.id || 'sent',
+        });
+
+        console.log(`Email sent to ${recipient.email}:`, response);
+      } catch (emailError) {
+        console.error(`Failed to send email to ${recipient.email}:`, emailError);
+        errors.push({
+          email: recipient.email,
+          success: false,
+          error: emailError instanceof Error ? emailError.message : 'Unknown error',
+        });
+      }
+    }
+
+    return {
+      totalSent: results.length,
+      totalFailed: errors.length,
+      results,
+      errors,
+    };
+  } catch (error) {
+    console.error('Failed to broadcast messages:', error);
+    throw error;
+  }
+}
