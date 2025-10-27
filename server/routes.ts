@@ -1015,6 +1015,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/users/role/tenant", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.json([]);
+      }
+
+      const users = await storage.getUsersByOrganizationAndRole(user.organizationId, "tenant");
+      // Filter to only return active tenants
+      const activeTenants = users.filter(u => u.isActive !== false);
+      res.json(activeTenants);
+    } catch (error) {
+      console.error("Error fetching tenants:", error);
+      res.status(500).json({ message: "Failed to fetch tenants" });
+    }
+  });
+
   // ==================== PROPERTY BY BLOCK ROUTES ====================
   
   // Get properties by block

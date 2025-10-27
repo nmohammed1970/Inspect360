@@ -33,6 +33,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import AddTenantDialog from "@/components/AddTenantDialog";
+import EditTenantDialog from "@/components/EditTenantDialog";
 
 interface TenantAssignment {
   id: string;
@@ -243,15 +245,17 @@ export default function PropertyTenants() {
           )}
 
           <div className="flex gap-2 pt-2 border-t">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              data-testid={`button-edit-${tenant.id}`}
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </Button>
+            <EditTenantDialog propertyId={propertyId!} tenant={tenant}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                data-testid={`button-edit-${tenant.id}`}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            </EditTenantDialog>
             <Button
               variant="outline"
               size="sm"
@@ -288,10 +292,12 @@ export default function PropertyTenants() {
             </p>
           </div>
 
-          <Button data-testid="button-add-tenant">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Tenant
-          </Button>
+          <AddTenantDialog propertyId={propertyId!}>
+            <Button data-testid="button-add-tenant">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Tenant
+            </Button>
+          </AddTenantDialog>
         </div>
       </div>
 
@@ -358,10 +364,12 @@ export default function PropertyTenants() {
                 <p className="text-muted-foreground text-center mb-4">
                   Add a tenant to start tracking their lease and rental information
                 </p>
-                <Button data-testid="button-add-first-tenant">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add First Tenant
-                </Button>
+                <AddTenantDialog propertyId={propertyId!}>
+                  <Button data-testid="button-add-first-tenant">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Tenant
+                  </Button>
+                </AddTenantDialog>
               </CardContent>
             </Card>
           ) : (
