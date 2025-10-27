@@ -48,7 +48,9 @@ import {
   updateInspectionSchema,
   updateBlockSchema,
   insertMessageTemplateSchema,
-  updateMessageTemplateSchema
+  updateMessageTemplateSchema,
+  insertTenantAssignmentSchema,
+  updateTenantAssignmentSchema
 } from "@shared/schema";
 
 // Initialize Stripe
@@ -2591,6 +2593,94 @@ Provide a structured comparison highlighting differences in condition ratings an
     } catch (error) {
       console.error("Error deleting message template:", error);
       res.status(500).json({ error: "Failed to delete message template" });
+    }
+  });
+
+  // ==================== TENANT ASSIGNMENT ROUTES ====================
+
+  app.post("/api/tenant-assignments", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const validatedData = insertTenantAssignmentSchema.safeParse(req.body);
+      if (!validatedData.success) {
+        return res.status(400).json({ error: "Invalid request data", details: validatedData.error.errors });
+      }
+
+      // Verify property belongs to user's organization
+      const property = await storage.getProperty(validatedData.data.propertyId);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      // Verify tenant user exists and has tenant role
+      const tenantUser = await storage.getUser(validatedData.data.tenantId);
+      if (!tenantUser || tenantUser.role !== 'tenant' || tenantUser.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Tenant user not found" });
+      }
+
+      const assignment = await storage.createTenantAssignment({
+        ...validatedData.data,
+        organizationId: user.organizationId,
+      });
+
+      res.status(201).json(assignment);
+    } catch (error) {
+      console.error("Error creating tenant assignment:", error);
+      res.status(500).json({ error: "Failed to create tenant assignment" });
+    }
+  });
+
+  app.put("/api/tenant-assignments/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify assignment belongs to user's organization
+      const existing = await storage.getTenantAssignment(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Tenant assignment not found" });
+      }
+
+      const validatedData = updateTenantAssignmentSchema.safeParse(req.body);
+      if (!validatedData.success) {
+        return res.status(400).json({ error: "Invalid request data", details: validatedData.error.errors });
+      }
+
+      const updated = await storage.updateTenantAssignment(req.params.id, validatedData.data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating tenant assignment:", error);
+      res.status(500).json({ error: "Failed to update tenant assignment" });
+    }
+  });
+
+  app.delete("/api/tenant-assignments/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify assignment belongs to user's organization
+      const existing = await storage.getTenantAssignment(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Tenant assignment not found" });
+      }
+
+      await storage.deleteTenantAssignment(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting tenant assignment:", error);
+      res.status(500).json({ error: "Failed to delete tenant assignment" });
     }
   });
 

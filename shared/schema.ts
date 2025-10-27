@@ -250,6 +250,7 @@ export const insertTenantAssignmentSchema = createInsertSchema(tenantAssignments
   createdAt: true,
   updatedAt: true,
 });
+export const updateTenantAssignmentSchema = insertTenantAssignmentSchema.partial();
 export type TenantAssignment = typeof tenantAssignments.$inferSelect;
 export type InsertTenantAssignment = z.infer<typeof insertTenantAssignmentSchema>;
 

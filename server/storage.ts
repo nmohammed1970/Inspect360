@@ -190,6 +190,13 @@ export interface IStorage {
   deleteBlock(id: string): Promise<void>;
   getTenantAssignmentsByBlock(blockId: string): Promise<any[]>;
   getBlockTenantStats(blockId: string): Promise<{ totalUnits: number; occupiedUnits: number; occupancyRate: number; totalMonthlyRent: number }>;
+  
+  // Tenant Assignment operations
+  createTenantAssignment(assignment: InsertTenantAssignment & { organizationId: string }): Promise<TenantAssignment>;
+  getTenantAssignment(id: string): Promise<TenantAssignment | undefined>;
+  updateTenantAssignment(id: string, updates: Partial<InsertTenantAssignment>): Promise<TenantAssignment>;
+  deleteTenantAssignment(id: string): Promise<void>;
+  getTenantAssignmentsByProperty(propertyId: string, organizationId: string): Promise<any[]>;
 
   // Inventory Template operations
   createInventoryTemplate(template: InsertInventoryTemplate): Promise<InventoryTemplate>;
@@ -1263,6 +1270,28 @@ export class DatabaseStorage implements IStorage {
         isActive: a.isActive,
       },
     }));
+  }
+
+  async createTenantAssignment(assignment: InsertTenantAssignment & { organizationId: string }): Promise<TenantAssignment> {
+    const [created] = await db.insert(tenantAssignments).values(assignment).returning();
+    return created;
+  }
+
+  async getTenantAssignment(id: string): Promise<TenantAssignment | undefined> {
+    const [assignment] = await db.select().from(tenantAssignments).where(eq(tenantAssignments.id, id));
+    return assignment;
+  }
+
+  async updateTenantAssignment(id: string, updates: Partial<InsertTenantAssignment>): Promise<TenantAssignment> {
+    const [updated] = await db.update(tenantAssignments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(tenantAssignments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTenantAssignment(id: string): Promise<void> {
+    await db.delete(tenantAssignments).where(eq(tenantAssignments.id, id));
   }
 
   async getBlockTenantStats(blockId: string): Promise<{ totalUnits: number; occupiedUnits: number; occupancyRate: number; totalMonthlyRent: number }> {
