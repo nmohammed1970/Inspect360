@@ -1229,6 +1229,40 @@ export const updateBlockSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Message Templates (for broadcasting to tenants)
+export const messageTemplates = pgTable("message_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  subject: varchar("subject", { length: 500 }).notNull(),
+  body: text("body").notNull(),
+  description: text("description"),
+  variables: text("variables").array(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMessageTemplateSchema = createInsertSchema(messageTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateMessageTemplateSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  subject: z.string().min(1).max(500).optional(),
+  body: z.string().min(1).optional(),
+  description: z.string().optional(),
+  variables: z.array(z.string()).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type MessageTemplate = typeof messageTemplates.$inferSelect;
+export type InsertMessageTemplate = z.infer<typeof insertMessageTemplateSchema>;
+export type UpdateMessageTemplate = z.infer<typeof updateMessageTemplateSchema>;
+
 // Export types for the new schemas
 export type CreateOrganization = z.infer<typeof createOrganizationSchema>;
 export type CreateTeamMember = z.infer<typeof createTeamMemberSchema>;

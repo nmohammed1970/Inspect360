@@ -35,6 +35,7 @@ import {
   contactTags,
   dashboardPreferences,
   tenantAssignments,
+  messageTemplates,
   type User,
   type UpsertUser,
   type AdminUser,
@@ -47,6 +48,8 @@ import {
   type InsertBlock,
   type Property,
   type InsertProperty,
+  type MessageTemplate,
+  type InsertMessageTemplate,
   type Inspection,
   type InsertInspection,
   type InspectionItem,
@@ -333,6 +336,14 @@ export interface IStorage {
   deleteAdmin(id: string): Promise<void>;
   getAllOrganizationsWithOwners(): Promise<any[]>;
   getOrganizationWithOwner(id: string): Promise<any | undefined>;
+
+  // Message Template operations
+  createMessageTemplate(template: any): Promise<any>;
+  getMessageTemplatesByOrganization(organizationId: string): Promise<any[]>;
+  getMessageTemplate(id: string): Promise<any | undefined>;
+  updateMessageTemplate(id: string, updates: any): Promise<any>;
+  deleteMessageTemplate(id: string): Promise<void>;
+  getBlockTenantsEmails(blockId: string, organizationId: string): Promise<{email: string; firstName?: string; lastName?: string;}[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2240,6 +2251,66 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(users, eq(organizations.ownerId, users.id))
       .where(eq(organizations.id, id));
     return result;
+  }
+
+  // Message Template operations
+  async createMessageTemplate(templateData: InsertMessageTemplate): Promise<MessageTemplate> {
+    const [template] = await db.insert(messageTemplates).values(templateData).returning();
+    return template;
+  }
+
+  async getMessageTemplatesByOrganization(organizationId: string): Promise<MessageTemplate[]> {
+    return await db
+      .select()
+      .from(messageTemplates)
+      .where(eq(messageTemplates.organizationId, organizationId))
+      .orderBy(desc(messageTemplates.createdAt));
+  }
+
+  async getMessageTemplate(id: string): Promise<MessageTemplate | undefined> {
+    const [template] = await db
+      .select()
+      .from(messageTemplates)
+      .where(eq(messageTemplates.id, id));
+    return template;
+  }
+
+  async updateMessageTemplate(id: string, updates: Partial<InsertMessageTemplate>): Promise<MessageTemplate> {
+    const [template] = await db
+      .update(messageTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(messageTemplates.id, id))
+      .returning();
+    return template;
+  }
+
+  async deleteMessageTemplate(id: string): Promise<void> {
+    await db.delete(messageTemplates).where(eq(messageTemplates.id, id));
+  }
+
+  async getBlockTenantsEmails(blockId: string, organizationId: string): Promise<{email: string; firstName?: string; lastName?: string;}[]> {
+    const tenantsData = await db
+      .select({
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+      })
+      .from(tenantAssignments)
+      .innerJoin(users, eq(tenantAssignments.tenantId, users.id))
+      .innerJoin(properties, eq(tenantAssignments.propertyId, properties.id))
+      .where(
+        and(
+          eq(properties.blockId, blockId),
+          eq(properties.organizationId, organizationId),
+          eq(tenantAssignments.isActive, true)
+        )
+      );
+
+    return tenantsData.map(t => ({
+      email: t.email,
+      firstName: t.firstName ?? undefined,
+      lastName: t.lastName ?? undefined,
+    }));
   }
 }
 
