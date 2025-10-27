@@ -40,7 +40,7 @@ The platform utilizes a PWA-first approach built on a robust web architecture.
 - **Inspection Reports**: Generates beautifully formatted HTML reports for completed and in-progress inspections with print-friendly CSS, interactive action buttons, and inline editing for notes.
 - **Annual Compliance Calendar**: Visual compliance tracking grid showing inspection templates vs. months, with color-coded status badges, compliance rates, and summary stats.
 - **Block-Level Filtering**: 
-  - **Properties**: Properties page supports `?blockId=X` query parameter for filtering properties by block with breadcrumb navigation and dynamic page title; Blocks page "Properties" quick action button (first icon, Home icon) routes to filtered properties view.
+  - **Properties**: Properties page supports `?blockId=X` query parameter for filtering properties by block with breadcrumb navigation and dynamic page title; Blocks page "Properties" quick action button (first icon, Home icon) routes to filtered properties view; when creating a new property from a block-filtered view, the form automatically prepopulates the address and block selection from the current block.
   - **Asset Inventory**: Asset inventory page supports filtering by `blockId` with breadcrumb navigation.
 - **Block Tenant Management**: Comprehensive tenant occupancy tracking, KPIs, and roster management on a dedicated BlockTenants page.
 - **API Security**: Comprehensive Zod validation on 15 schemas for all API operations, with 14 critical routes protected by `.safeParse()`. Multi-tenant isolation is enforced with 62 organization ownership checks across critical routes.

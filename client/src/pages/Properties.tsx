@@ -72,6 +72,14 @@ export default function Properties() {
     return filtered;
   }, [properties, urlBlockId, searchQuery]);
 
+  // Prepopulate form when dialog opens and we have a selected block
+  useEffect(() => {
+    if (dialogOpen && urlBlockId && selectedBlock) {
+      setAddress(selectedBlock.address || "");
+      setBlockId(urlBlockId);
+    }
+  }, [dialogOpen, urlBlockId, selectedBlock]);
+
   const createProperty = useMutation({
     mutationFn: async (data: { name: string; address: string; blockId?: string }) => {
       return await apiRequest("POST", "/api/properties", data);
