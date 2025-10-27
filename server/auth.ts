@@ -241,14 +241,24 @@ export async function setupAuth(app: Express) {
 
       await storage.setResetToken(user.id, resetToken, expiry);
 
-      // In production, send email with reset token
-      // For now, just return success (token would be emailed)
-      console.log(`Password reset token for ${email}: ${resetToken}`);
+      // Send password reset email
+      try {
+        const { sendPasswordResetEmail } = await import('./resend');
+        const displayName = user.firstName 
+          ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+          : user.username;
+        await sendPasswordResetEmail(
+          user.email,
+          displayName,
+          resetToken
+        );
+      } catch (emailError) {
+        console.error('Failed to send password reset email:', emailError);
+        // Don't fail the request if email fails - token is still set
+      }
       
       res.json({ 
-        message: "If that email exists, a password reset link has been sent",
-        // TODO: Remove this in production - only for development
-        __dev_token: resetToken
+        message: "If that email exists, a password reset link has been sent"
       });
     } catch (error) {
       console.error("Forgot password error:", error);

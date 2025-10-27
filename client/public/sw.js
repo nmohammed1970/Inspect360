@@ -92,11 +92,62 @@ self.addEventListener('sync', (event) => {
   }
 });
 
-// Placeholder for inspection sync
+// Sync offline inspection queue
 async function syncInspections() {
   console.log('[Service Worker] Syncing inspections...');
-  // Future implementation: sync offline inspection data
-  return Promise.resolve();
+  
+  try {
+    // Get all active clients
+    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+    
+    if (clients.length === 0) {
+      console.log('[Service Worker] No active clients to sync with - sync will retry later');
+      // Reject so Background Sync will retry when a client becomes available
+      return Promise.reject(new Error('No active clients available for sync'));
+    }
+    
+    // Create a MessageChannel to wait for the client's response
+    const messageChannel = new MessageChannel();
+    
+    // Set up promise to wait for client response
+    const syncPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Sync timeout - no response from client'));
+      }, 30000); // 30 second timeout
+      
+      messageChannel.port1.onmessage = (event) => {
+        clearTimeout(timeout);
+        
+        if (event.data && event.data.type === 'SYNC_RESULT') {
+          console.log(`[Service Worker] Sync complete: ${event.data.success} succeeded, ${event.data.failed} failed`);
+          
+          if (event.data.failed > 0) {
+            // Some items failed - reject so Background Sync will retry
+            reject(new Error(`Sync partially failed: ${event.data.failed} items`));
+          } else {
+            resolve(event.data);
+          }
+        } else if (event.data && event.data.type === 'SYNC_ERROR') {
+          reject(new Error(event.data.error || 'Sync failed'));
+        } else {
+          reject(new Error('Invalid sync response'));
+        }
+      };
+    });
+    
+    // Send sync request to client with MessageChannel port
+    clients[0].postMessage({
+      type: 'REQUEST_SYNC'
+    }, [messageChannel.port2]);
+    
+    console.log('[Service Worker] Sync request sent to client, waiting for completion...');
+    
+    // Wait for the client to complete the sync
+    return await syncPromise;
+  } catch (error) {
+    console.error('[Service Worker] Sync error:', error);
+    return Promise.reject(error);
+  }
 }
 
 // Message event - for communication with client

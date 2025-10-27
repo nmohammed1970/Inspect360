@@ -44,6 +44,102 @@ export async function getUncachableResendClient() {
   };
 }
 
+export async function sendPasswordResetEmail(
+  recipientEmail: string,
+  recipientName: string,
+  resetToken: string
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = 'Password Reset Request - Inspect360';
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <!-- Header with Inspect360 branding -->
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <path d="M12 17v-6"></path>
+          <path d="M12 11h.01"></path>
+          <circle cx="12" cy="12" r="10"></circle>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Password Reset Request</h1>
+    </div>
+
+    <!-- Main content -->
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        We received a request to reset your password for your Inspect360 account. Use the code below to reset your password.
+      </p>
+
+      <!-- Reset Code Card -->
+      <div style="background-color: #f8f9fa; border: 2px dashed #00D5CC; padding: 24px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Your Reset Code</p>
+        <div style="font-size: 32px; font-weight: 700; color: #00D5CC; letter-spacing: 4px; font-family: 'Courier New', monospace;">
+          ${resetToken}
+        </div>
+        <p style="margin: 16px 0 0 0; font-size: 13px; color: #888;">
+          This code will expire in 1 hour
+        </p>
+      </div>
+
+      <p style="margin: 0 0 16px 0; font-size: 15px; color: #555;">
+        To reset your password:
+      </p>
+      <ol style="margin: 0 0 24px 0; padding-left: 24px; font-size: 15px; color: #555;">
+        <li style="margin-bottom: 8px;">Return to the password reset page</li>
+        <li style="margin-bottom: 8px;">Enter this 6-digit code</li>
+        <li style="margin-bottom: 8px;">Create a new password</li>
+      </ol>
+
+      <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; border-radius: 4px; margin-top: 24px;">
+        <p style="margin: 0; font-size: 14px; color: #856404;">
+          <strong>Didn't request this?</strong><br>
+          If you didn't request a password reset, you can safely ignore this email. Your password will remain unchanged.
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        This email was sent from <strong style="color: #00D5CC;">Inspect360</strong> — Your AI-Powered Building Inspection Platform
+      </p>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #aaa; text-align: center;">
+        © ${new Date().getFullYear()} Inspect360. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    });
+
+    console.log('Password reset email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send password reset email:', error);
+    throw error;
+  }
+}
+
 export async function sendInspectionCompleteEmail(
   recipientEmail: string,
   recipientName: string,

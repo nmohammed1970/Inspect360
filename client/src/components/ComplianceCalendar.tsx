@@ -67,10 +67,30 @@ function StatusCell({ data }: { data: MonthData }) {
     }
   };
 
+  const getStatusLabel = () => {
+    switch (data.status) {
+      case 'completed':
+        return `${data.month}: Completed - ${data.completed || 0} of ${data.count} inspections completed`;
+      case 'overdue':
+        return `${data.month}: Overdue - ${data.overdue || 0} of ${data.count} inspections overdue`;
+      case 'due':
+        return `${data.month}: Due Soon - ${data.count} inspections due within 30 days`;
+      case 'scheduled':
+        return `${data.month}: Scheduled - ${data.count} inspections scheduled`;
+      case 'not_scheduled':
+      default:
+        return `${data.month}: Not Scheduled - No inspections scheduled`;
+    }
+  };
+
+  const statusLabel = getStatusLabel();
+
   return (
     <div 
       className={`flex items-center justify-center p-2 rounded-md border ${getStatusColor()} hover-elevate transition-all`}
-      title={`${data.month}: ${data.count} scheduled, ${data.completed || 0} completed${data.overdue ? `, ${data.overdue} overdue` : ''}`}
+      title={statusLabel}
+      aria-label={statusLabel}
+      role="status"
       data-testid={`cell-${data.status}-${data.month}`}
     >
       {getStatusIcon()}
