@@ -118,8 +118,8 @@ export function BroadcastDialog({
     let previewBod = body;
 
     Object.entries(variables).forEach(([key, value]) => {
-      previewSubj = previewSubj.replace(new RegExp(key, 'g'), value);
-      previewBod = previewBod.replace(new RegExp(key, 'g'), value);
+      previewSubj = previewSubj.replaceAll(key, value);
+      previewBod = previewBod.replaceAll(key, value);
     });
 
     setPreviewSubject(previewSubj);
