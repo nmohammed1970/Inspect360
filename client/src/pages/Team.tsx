@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText } from "lucide-react";
 import type { User } from "@shared/schema";
+import { ObjectUploader } from "@/components/ObjectUploader";
 
 export default function Team() {
   const { toast } = useToast();
@@ -219,8 +220,8 @@ export default function Team() {
       role,
       skills,
       education,
-      profileImageUrl,
-      certificateUrls,
+      profileImageUrl: profileImageUrl || "",
+      certificateUrls: certificateUrls.filter(url => url.trim() !== ""),
       address: formattedAddress,
     };
 
@@ -646,17 +647,71 @@ export default function Team() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="profileImage">Profile Image URL</Label>
-                <Input
-                  id="profileImage"
-                  value={profileImageUrl}
-                  onChange={(e) => setProfileImageUrl(e.target.value)}
-                  placeholder="https://example.com/profile.jpg"
-                  data-testid="input-profile-image"
-                />
-                <p className="text-xs text-muted-foreground">
-                  You can upload images in the Documents tab or paste a direct URL here
-                </p>
+                <Label htmlFor="profileImage">Profile Image</Label>
+                <ObjectUploader
+                  maxNumberOfFiles={1}
+                  onGetUploadParameters={async () => {
+                    const response = await fetch('/api/objects/upload', {
+                      method: 'POST',
+                      credentials: 'include',
+                    });
+                    const { uploadURL } = await response.json();
+                    return {
+                      method: 'PUT',
+                      url: uploadURL,
+                    };
+                  }}
+                  onComplete={async (result) => {
+                    try {
+                      if (result.successful && result.successful.length > 0) {
+                        const uploadURL = result.successful[0].uploadURL;
+                        const response = await fetch('/api/objects/set-acl', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          body: JSON.stringify({ photoUrl: uploadURL }),
+                        });
+                        
+                        if (!response.ok) {
+                          throw new Error('Failed to set photo permissions');
+                        }
+                        
+                        const { objectPath } = await response.json();
+                        setProfileImageUrl(objectPath);
+                      }
+                    } catch (error) {
+                      console.error('[Team] Profile image upload error:', error);
+                      toast({
+                        title: "Upload Error",
+                        description: "Failed to upload profile image. Please try again.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  buttonClassName="w-full"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Profile Image
+                </ObjectUploader>
+                {profileImageUrl && (
+                  <div className="relative inline-block">
+                    <img 
+                      src={profileImageUrl} 
+                      alt="Profile preview" 
+                      className="h-24 w-24 object-cover rounded-full border-2"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                      onClick={() => setProfileImageUrl("")}
+                      data-testid="button-remove-profile-image"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </TabsContent>
 
@@ -681,38 +736,79 @@ export default function Team() {
                 </div>
               </div>
 
-              {/* Manual URL Entry for Certificates */}
+              {/* Upload Certificates */}
               <div className="space-y-2">
-                <Label>Certificate URLs</Label>
-                {certificateUrls.map((url, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <Input
-                      value={url}
-                      onChange={(e) => {
-                        const newUrls = [...certificateUrls];
-                        newUrls[idx] = e.target.value;
-                        setCertificateUrls(newUrls);
-                      }}
-                      placeholder="https://example.com/certificate.pdf"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setCertificateUrls(certificateUrls.filter((_, i) => i !== idx))}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setCertificateUrls([...certificateUrls, ""])}
-                  className="w-full"
+                <Label>Upload Certificates</Label>
+                <ObjectUploader
+                  maxNumberOfFiles={10}
+                  onGetUploadParameters={async () => {
+                    const response = await fetch('/api/objects/upload', {
+                      method: 'POST',
+                      credentials: 'include',
+                    });
+                    const { uploadURL } = await response.json();
+                    return {
+                      method: 'PUT',
+                      url: uploadURL,
+                    };
+                  }}
+                  onComplete={async (result) => {
+                    try {
+                      if (result.successful && result.successful.length > 0) {
+                        const newPaths: string[] = [];
+                        for (const file of result.successful) {
+                          const uploadURL = file.uploadURL;
+                          const response = await fetch('/api/objects/set-acl', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ photoUrl: uploadURL }),
+                          });
+                          
+                          if (!response.ok) {
+                            throw new Error('Failed to set file permissions');
+                          }
+                          
+                          const { objectPath } = await response.json();
+                          newPaths.push(objectPath);
+                        }
+                        setCertificateUrls([...certificateUrls, ...newPaths]);
+                      }
+                    } catch (error) {
+                      console.error('[Team] Certificate upload error:', error);
+                      toast({
+                        title: "Upload Error",
+                        description: "Failed to upload one or more certificates. Please try again.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  buttonClassName="w-full"
                 >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Certificate URL
-                </Button>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Certificates
+                </ObjectUploader>
+                {certificateUrls.length > 0 && (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-sm text-muted-foreground">{certificateUrls.length} certificate(s) uploaded</p>
+                    {certificateUrls.map((url, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 border rounded">
+                        <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm flex-1 truncate">{url.split('/').pop()}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setCertificateUrls(certificateUrls.filter((_, i) => i !== idx))}
+                          data-testid={`button-remove-certificate-${idx}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>

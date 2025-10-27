@@ -1091,8 +1091,8 @@ export const createTeamMemberSchema = z.object({
   }).optional(),
   skills: z.array(z.string()).optional(),
   education: z.string().optional(),
-  profileImageUrl: z.string().url().optional(),
-  certificateUrls: z.array(z.string().url()).optional(),
+  profileImageUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  certificateUrls: z.array(z.union([z.string().url(), z.literal("")])).optional(),
 });
 
 export const updateTeamMemberSchema = z.object({
@@ -1109,8 +1109,8 @@ export const updateTeamMemberSchema = z.object({
   }).optional(),
   skills: z.array(z.string()).optional(),
   education: z.string().optional(),
-  profileImageUrl: z.string().url().optional(),
-  certificateUrls: z.array(z.string().url()).optional(),
+  profileImageUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  certificateUrls: z.array(z.union([z.string().url(), z.literal("")])).optional(),
   role: z.enum(["owner", "clerk", "compliance", "tenant", "contractor"]).optional(),
 });
 
