@@ -54,6 +54,16 @@ The platform utilizes a PWA-first approach built on a robust web architecture.
   - **Resend Integration**: Batch email sending to all active tenants in a block with individual tracking and error reporting
   - **Organization Isolation**: All templates and broadcasts scoped to organization with role-based access control (owner/clerk only)
   - **Block Tenants Page Integration**: "Broadcast Message" button on BlockTenants page (disabled when no active tenants)
+- **Inline Tenant Creation**: Property-level tenant assignment workflow with integrated user creation for BTR managers. Features include:
+  - **Two-Tab Interface**: "Select Existing" mode (dropdown of existing tenant users) and "Create New" mode (full user registration form)
+  - **Complete User Registration**: First/last name, email, username, password fields with comprehensive validation
+  - **Integrated Lease Details**: Lease start/end dates, monthly rent, deposit amount, and active status toggle
+  - **Sequential Mutations**: Creates tenant user via POST /api/team, then assigns to property via POST /api/tenant-assignments
+  - **Automatic Role Assignment**: New users automatically assigned 'tenant' role with organization scoping
+  - **Numeric Field Conversion**: HTML number inputs properly converted to decimal values using parseFloat() before API submission
+  - **Immediate UI Updates**: TanStack Query v5 cache invalidation with refetchType: "active" for instant tenant list refresh
+  - **Comprehensive Error Handling**: Duplicate email/username detection, validation feedback, and detailed error messages
+  - **Security**: Organization isolation enforced, owner/clerk role-based access control for tenant management
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
