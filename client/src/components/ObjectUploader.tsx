@@ -4,8 +4,9 @@ import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
 import Webcam from "@uppy/webcam";
-// NOTE: Uppy CSS not imported due to package export issues
-// Using locale string customization to clean up the UI instead
+import "@uppy/core/css/style.min.css";
+import "@uppy/dashboard/css/style.min.css";
+import "@uppy/webcam/css/style.min.css";
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
 
@@ -50,6 +51,7 @@ export function ObjectUploader({
       })
       .on("complete", (result) => {
         onComplete?.(result);
+        setShowModal(false);
       })
   );
 
