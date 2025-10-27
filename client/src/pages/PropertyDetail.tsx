@@ -1,10 +1,21 @@
+import { useState } from "react";
 import { useRoute, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
+import { insertComplianceDocumentSchema } from "@shared/schema";
+import { ObjectUploader } from "@/components/ObjectUploader";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ArrowLeft,
   Building2,
@@ -18,6 +29,7 @@ import {
   CheckCircle2,
   AlertCircle,
   User,
+  Upload,
 } from "lucide-react";
 
 interface Property {
@@ -87,9 +99,28 @@ interface MaintenanceRequest {
   assignedToName?: string;
 }
 
+const DOCUMENT_TYPES = [
+  "Fire Safety Certificate",
+  "Building Insurance",
+  "Electrical Safety Certificate",
+  "Gas Safety Certificate",
+  "EPC Certificate",
+  "HMO License",
+  "Planning Permission",
+  "Other",
+];
+
+const uploadFormSchema = insertComplianceDocumentSchema.extend({
+  documentUrl: z.string().min(1, "Please upload a document"),
+  expiryDate: z.string().optional(),
+});
+
+type UploadFormValues = z.infer<typeof uploadFormSchema>;
+
 export default function PropertyDetail() {
   const [, params] = useRoute("/properties/:id");
   const propertyId = params?.id;
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
   const { data: property, isLoading: propertyLoading } = useQuery<Property>({
     queryKey: ["/api/properties", propertyId],
@@ -170,6 +201,42 @@ export default function PropertyDetail() {
     },
     enabled: !!propertyId,
   });
+
+  const form = useForm<UploadFormValues>({
+    resolver: zodResolver(uploadFormSchema),
+    defaultValues: {
+      documentType: "",
+      documentUrl: "",
+      expiryDate: undefined,
+      propertyId: propertyId,
+      blockId: undefined,
+      status: "current",
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: (data: UploadFormValues) => apiRequest('POST', '/api/compliance', {
+      ...data,
+      expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/properties', propertyId, 'compliance'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/compliance'] });
+      setUploadDialogOpen(false);
+      form.reset({
+        documentType: "",
+        documentUrl: "",
+        expiryDate: undefined,
+        propertyId: propertyId,
+        blockId: undefined,
+        status: "current",
+      });
+    },
+  });
+
+  const onSubmit = (data: UploadFormValues) => {
+    uploadMutation.mutate(data);
+  };
 
   if (propertyLoading) {
     return (
@@ -474,12 +541,132 @@ export default function PropertyDetail() {
           {/* Compliance Documents Section */}
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">Compliance Documents</h2>
-            <Link href={`/compliance/new?propertyId=${propertyId}`}>
-              <Button data-testid="button-new-compliance">
-                <FileCheck className="mr-2 h-4 w-4" />
-                Add Document
-              </Button>
-            </Link>
+            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-new-compliance">
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload Document
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Upload Compliance Document</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="documentType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Document Type</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-document-type">
+                                <SelectValue placeholder="Select document type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {DOCUMENT_TYPES.map((type) => (
+                                <SelectItem key={type} value={type}>
+                                  {type}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="documentUrl"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Document File</FormLabel>
+                          <FormControl>
+                            <ObjectUploader
+                              onGetUploadParameters={async () => {
+                                const response = await fetch('/api/objects/upload', {
+                                  method: 'POST',
+                                  credentials: 'include',
+                                });
+                                const { uploadURL } = await response.json();
+                                return {
+                                  method: 'PUT',
+                                  url: uploadURL,
+                                };
+                              }}
+                              onComplete={async (result) => {
+                                if (result.successful && result.successful[0]) {
+                                  const uploadURL = result.successful[0].uploadURL;
+                                  const response = await fetch('/api/objects/set-acl', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({ photoUrl: uploadURL }),
+                                  });
+                                  const { objectPath } = await response.json();
+                                  field.onChange(objectPath);
+                                }
+                              }}
+                            >
+                              <Upload className="w-4 h-4 mr-2" />
+                              Select Document
+                            </ObjectUploader>
+                          </FormControl>
+                          {field.value && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              ✓ Document selected
+                            </p>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="expiryDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Expiry Date (Optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="date"
+                              {...field}
+                              data-testid="input-expiry-date"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setUploadDialogOpen(false)}
+                        data-testid="button-cancel"
+                        className="w-full sm:w-auto"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="bg-primary w-full sm:w-auto"
+                        disabled={uploadMutation.isPending}
+                        data-testid="button-submit-document"
+                      >
+                        {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
           </div>
           
           {compliance.length === 0 ? (

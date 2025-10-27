@@ -438,4 +438,13 @@
   .uppy-size--md .uppy-Dashboard-AddFiles {
     padding: 2rem !important;
   }
+
+  /* Ensure Uppy modal has correct z-index and doesn't block parent dialog */
+  .uppy-Dashboard--modal {
+    z-index: 10001 !important;
+  }
+
+  .uppy-Dashboard--modal .uppy-Dashboard-overlay {
+    z-index: 10000 !important;
+  }
 }
