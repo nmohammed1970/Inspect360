@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
@@ -49,11 +49,23 @@ export function ObjectUploader({
         shouldUseMultipart: false,
         getUploadParameters: onGetUploadParameters,
       })
-      .on("complete", (result) => {
-        onComplete?.(result);
-        setShowModal(false);
-      })
   );
+
+  useEffect(() => {
+    const handleComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
+      onComplete?.(result);
+      
+      if (result.successful && result.successful.length > 0) {
+        setShowModal(false);
+      }
+    };
+
+    uppy.on("complete", handleComplete);
+
+    return () => {
+      uppy.off("complete", handleComplete);
+    };
+  }, [uppy, onComplete]);
 
   return (
     <div>
