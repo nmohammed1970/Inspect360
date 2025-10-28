@@ -454,6 +454,7 @@ export const inspectionEntries = pgTable("inspection_entries", {
   videos: text("videos").array(), // Array of video URLs
   maintenanceFlag: boolean("maintenance_flag").default(false),
   markedForReview: boolean("marked_for_review").default(false), // For comparison report generation
+  assetInventoryId: varchar("asset_inventory_id"), // Link to asset for depreciation calculation
   defectsJson: jsonb("defects_json"), // Array of defect tags/types
   offlineId: varchar("offline_id").unique(), // For offline sync reconciliation (unique for idempotency)
   createdAt: timestamp("created_at").defaultNow(),

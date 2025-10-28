@@ -1885,9 +1885,51 @@ Be objective and specific. Focus on actionable repairs.`;
               }
             }
 
-            // Calculate depreciation if there's an associated asset
-            // For now, use a simple 10% depreciation factor (this will be enhanced with actual asset data)
-            depreciation = estimatedCost * 0.10;
+            // Calculate depreciation using actual asset data
+            if (checkOutEntry.assetInventoryId) {
+              try {
+                const asset = await storage.getAssetById(checkOutEntry.assetInventoryId);
+                if (asset && asset.purchasePrice && asset.datePurchased) {
+                  const purchasePrice = parseFloat(asset.purchasePrice);
+                  const purchaseDate = new Date(asset.datePurchased);
+                  const currentDate = new Date();
+                  
+                  // Calculate years since purchase
+                  const yearsSincePurchase = (currentDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+                  
+                  // Use asset's depreciation rate or calculate from expected lifespan
+                  let annualDepreciationAmount = 0;
+                  if (asset.depreciationPerYear) {
+                    annualDepreciationAmount = parseFloat(asset.depreciationPerYear);
+                  } else if (asset.expectedLifespanYears && asset.expectedLifespanYears > 0) {
+                    annualDepreciationAmount = purchasePrice / asset.expectedLifespanYears;
+                  }
+                  
+                  // If no depreciation data available, fall back to 10%
+                  if (annualDepreciationAmount > 0) {
+                    // Calculate total accumulated depreciation
+                    const accumulatedDepreciation = annualDepreciationAmount * yearsSincePurchase;
+                    
+                    // Apply depreciation as percentage of repair cost
+                    // If asset has depreciated 50% and repair costs $100, tenant pays $50
+                    const depreciationPercentage = Math.min(1.0, accumulatedDepreciation / purchasePrice);
+                    depreciation = estimatedCost * depreciationPercentage;
+                  } else {
+                    // Asset exists but has no depreciation metadata: use 10% fallback
+                    depreciation = estimatedCost * 0.10;
+                  }
+                } else {
+                  // Fallback: 10% depreciation if asset data is incomplete
+                  depreciation = estimatedCost * 0.10;
+                }
+              } catch (error) {
+                console.error("Error calculating asset depreciation:", error);
+                depreciation = estimatedCost * 0.10;
+              }
+            } else {
+              // No linked asset: use conservative 10% depreciation
+              depreciation = estimatedCost * 0.10;
+            }
 
             const finalCost = Math.max(0, estimatedCost - depreciation);
             totalCost += finalCost;
@@ -1962,6 +2004,227 @@ Be objective and specific. Focus on actionable repairs.`;
     } catch (error) {
       console.error("Error fetching comparisons:", error);
       res.status(500).json({ message: "Failed to fetch comparisons" });
+    }
+  });
+
+  // List all comparison reports for organization (operators only)
+  app.get("/api/comparison-reports", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const reports = await storage.getComparisonReportsByOrganization(user.organizationId);
+      res.json(reports);
+    } catch (error) {
+      console.error("Error fetching comparison reports:", error);
+      res.status(500).json({ message: "Failed to fetch comparison reports" });
+    }
+  });
+
+  // Get single comparison report with items
+  app.get("/api/comparison-reports/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify organization ownership
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Get report items
+      const items = await storage.getComparisonReportItems(id);
+
+      res.json({ ...report, items });
+    } catch (error) {
+      console.error("Error fetching comparison report:", error);
+      res.status(500).json({ message: "Failed to fetch comparison report" });
+    }
+  });
+
+  // Update comparison report status
+  app.patch("/api/comparison-reports/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify organization ownership
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Validate status updates
+      const { status } = req.body;
+      const validStatuses = ["draft", "under_review", "awaiting_signatures", "signed", "filed"];
+      if (status && !validStatuses.includes(status)) {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+
+      const updatedReport = await storage.updateComparisonReport(id, req.body);
+      res.json(updatedReport);
+    } catch (error) {
+      console.error("Error updating comparison report:", error);
+      res.status(500).json({ message: "Failed to update comparison report" });
+    }
+  });
+
+  // Get comparison report comments
+  app.get("/api/comparison-reports/:id/comments", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify organization ownership
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const comments = await storage.getComparisonComments(id);
+      res.json(comments);
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+      res.status(500).json({ message: "Failed to fetch comments" });
+    }
+  });
+
+  // Add comparison report comment
+  app.post("/api/comparison-reports/:id/comments", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { content } = req.body;
+      const user = await storage.getUser(req.user.id);
+      
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      if (!content || content.trim().length === 0) {
+        return res.status(400).json({ message: "Comment content is required" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify organization ownership
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const comment = await storage.createComparisonComment({
+        comparisonReportId: id,
+        userId: user.id,
+        content: content.trim(),
+        isInternal: user.role !== "tenant", // Tenant comments are visible, operator comments can be internal
+      });
+
+      res.json(comment);
+    } catch (error) {
+      console.error("Error creating comment:", error);
+      res.status(500).json({ message: "Failed to create comment" });
+    }
+  });
+
+  // Electronic signature for comparison reports
+  app.post("/api/comparison-reports/:id/sign", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { signature } = req.body; // Typed name
+      const user = await storage.getUser(req.user.id);
+      
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      if (!signature || signature.trim().length === 0) {
+        return res.status(400).json({ message: "Signature (typed name) is required" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify organization ownership
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Get IP address from request
+      const ipAddress = req.ip || req.connection?.remoteAddress || "unknown";
+
+      // Determine who is signing
+      const isOperator = user.role === "owner" || user.role === "clerk";
+      const isTenant = user.role === "tenant";
+
+      if (!isOperator && !isTenant) {
+        return res.status(403).json({ message: "Only operators and tenants can sign comparison reports" });
+      }
+
+      // Check if already signed by this party
+      if (isOperator && report.operatorSignature) {
+        return res.status(400).json({ message: "Operator has already signed this report" });
+      }
+      if (isTenant && report.tenantSignature) {
+        return res.status(400).json({ message: "Tenant has already signed this report" });
+      }
+
+      // Update signature fields
+      const updates: any = {};
+      const now = new Date();
+
+      if (isOperator) {
+        updates.operatorSignature = signature.trim();
+        updates.operatorSignedAt = now;
+        updates.operatorSignedIp = ipAddress;
+      } else if (isTenant) {
+        updates.tenantSignature = signature.trim();
+        updates.tenantSignedAt = now;
+        updates.tenantSignedIp = ipAddress;
+      }
+
+      // Check if both parties have now signed
+      const bothSigned = (
+        (isOperator || report.operatorSignature) && 
+        (isTenant || report.tenantSignature)
+      );
+
+      if (bothSigned) {
+        updates.status = "signed";
+      }
+
+      const updatedReport = await storage.updateComparisonReport(id, updates);
+      res.json(updatedReport);
+    } catch (error) {
+      console.error("Error signing comparison report:", error);
+      res.status(500).json({ message: "Failed to sign comparison report" });
     }
   });
 

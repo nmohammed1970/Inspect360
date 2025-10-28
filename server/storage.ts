@@ -177,6 +177,7 @@ export interface IStorage {
   // Comparison Report operations
   createComparisonReport(report: InsertComparisonReport): Promise<ComparisonReport>;
   getComparisonReportsByProperty(propertyId: string): Promise<ComparisonReport[]>;
+  getComparisonReportsByOrganization(organizationId: string): Promise<ComparisonReport[]>;
   getComparisonReport(id: string): Promise<ComparisonReport | undefined>;
   updateComparisonReport(id: string, updates: Partial<InsertComparisonReport>): Promise<ComparisonReport>;
   createComparisonReportItem(item: any): Promise<any>;
@@ -953,6 +954,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(comparisonReports.createdAt));
   }
 
+  async getComparisonReportsByOrganization(organizationId: string): Promise<ComparisonReport[]> {
+    return await db
+      .select()
+      .from(comparisonReports)
+      .where(eq(comparisonReports.organizationId, organizationId))
+      .orderBy(desc(comparisonReports.createdAt));
+  }
+
   async getComparisonReport(id: string): Promise<ComparisonReport | undefined> {
     const [report] = await db.select().from(comparisonReports).where(eq(comparisonReports.id, id));
     return report;
@@ -1627,6 +1636,10 @@ export class DatabaseStorage implements IStorage {
       .from(assetInventory)
       .where(eq(assetInventory.id, id));
     return asset;
+  }
+
+  async getAssetById(id: string): Promise<AssetInventory | undefined> {
+    return this.getAssetInventory(id);
   }
 
   async updateAssetInventory(id: string, updates: Partial<InsertAssetInventory>): Promise<AssetInventory> {
