@@ -47,7 +47,7 @@ The platform utilizes a PWA-first approach built on a robust web architecture, e
 - **Object Storage ACL**: Asset inventory photos use public visibility for organization-wide viewing.
 - **Tenant Broadcast Messaging**: Block-level tenant communication system with reusable email templates and variable replacement.
 - **Inline Tenant Creation**: Property-level tenant assignment workflow with integrated user creation, lease details, and automatic role assignment.
-- **Collaborative Comparison Reports (Backend Complete)**: Advanced check-out inspection comparison system with AI-powered analysis, asset-based depreciation, async discussion, and electronic signatures. Features include `comparison_reports` and `comparison_report_items` tables, AI image comparison for damage assessment and cost estimation, asset-based depreciation calculation, comment thread APIs, and electronic signature API.
+- **Collaborative Comparison Reports**: Complete end-to-end check-out inspection comparison system with AI-powered analysis, asset-based depreciation, async discussion, and electronic signatures. Features include database schema (`comparison_reports`, `comparison_report_items`, `comparison_comments`), full REST API (8 endpoints with organization isolation), AI image comparison using OpenAI GPT-4 Vision for damage assessment and cost estimation, asset-based depreciation calculation with intelligent fallbacks, threaded comment discussions, electronic signature workflow with duplicate prevention, and comprehensive UI with list view, detailed comparison viewer, side-by-side image display, status badges, and role-based access for owners, clerks, and tenants.
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
