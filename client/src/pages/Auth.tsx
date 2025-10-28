@@ -358,9 +358,10 @@ export default function Auth() {
 
       {/* Right Column - Hero */}
       <div className="hidden lg:flex lg:flex-1 items-center justify-center p-12 relative overflow-hidden">
-        {/* Navy gradient background */}
-        <div className="absolute inset-0 bg-[#003764]"></div>
-        <div className="absolute inset-0 bg-gradient-to-br from-[#003764] via-[#000092]/20 to-[#59B677]/10"></div>
+        {/* Inspect360 brand gradient - Bright Cyan to Teal */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#00D5CC] via-[#3B7A8C] to-[#06283F]"></div>
+        {/* Subtle overlay for better text contrast */}
+        <div className="absolute inset-0 bg-[#06283F]/40"></div>
 
         {/* Content */}
         <div className="relative z-10 max-w-lg space-y-8 text-white">
@@ -376,8 +377,8 @@ export default function Auth() {
 
           <div className="space-y-4">
             <div className="flex items-start gap-4">
-              <div className="bg-[#59B677] p-3 rounded-lg">
-                <Eye className="h-6 w-6 text-white" />
+              <div className="bg-[#4FE5DD] p-3 rounded-lg">
+                <Eye className="h-6 w-6 text-[#3B7A8C]" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">AI Photo Analysis</h3>
@@ -388,8 +389,8 @@ export default function Auth() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="bg-[#59B677] p-3 rounded-lg">
-                <Building2 className="h-6 w-6 text-white" />
+              <div className="bg-[#4FE5DD] p-3 rounded-lg">
+                <Building2 className="h-6 w-6 text-[#3B7A8C]" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">Offline Mobile Inspections</h3>
@@ -400,8 +401,8 @@ export default function Auth() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="bg-[#59B677] p-3 rounded-lg">
-                <FileCheck className="h-6 w-6 text-white" />
+              <div className="bg-[#4FE5DD] p-3 rounded-lg">
+                <FileCheck className="h-6 w-6 text-[#3B7A8C]" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">Compliance Tracking</h3>
@@ -412,8 +413,8 @@ export default function Auth() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="bg-[#59B677] p-3 rounded-lg">
-                <Lock className="h-6 w-6 text-white" />
+              <div className="bg-[#4FE5DD] p-3 rounded-lg">
+                <Lock className="h-6 w-6 text-[#3B7A8C]" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">Role-Based Access</h3>
