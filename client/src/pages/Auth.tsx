@@ -116,17 +116,19 @@ export default function Auth() {
   return (
     <div className="flex h-screen">
       {/* Left Column - Form */}
-      <div className="flex flex-1 items-center justify-center p-8 bg-background">
+      <div className="flex flex-1 items-center justify-center p-4 md:p-8 bg-background">
         <div className="w-full max-w-md">
-          <Card>
-            <CardHeader className="space-y-3">
-              <div className="flex justify-center mb-2">
-                <img src={logoUrl} alt="Inspect360" className="h-12" />
-              </div>
+          {/* Logo above card */}
+          <div className="flex justify-center mb-8">
+            <img src={logoUrl} alt="Inspect360" className="h-14" />
+          </div>
+          
+          <Card className="border-border/60">
+            <CardHeader className="space-y-3 pb-6">
               <CardTitle className="text-2xl font-bold text-center">
                 {isLogin ? "Welcome back" : "Create account"}
               </CardTitle>
-              <CardDescription className="text-center">
+              <CardDescription className="text-center text-base">
                 {isLogin
                   ? "Enter your credentials to access your account"
                   : "Fill in your details to create your Inspect360 account"}
@@ -164,7 +166,7 @@ export default function Auth() {
                   <div className="flex items-center justify-end">
                     <button
                       type="button"
-                      className="text-sm text-primary hover:underline"
+                      className="text-sm text-primary hover:underline transition-all"
                       onClick={() => navigate("/forgot-password")}
                       data-testid="button-forgot-password"
                     >
@@ -174,7 +176,7 @@ export default function Auth() {
 
                   <Button
                     type="submit"
-                    className="w-full"
+                    className="w-full h-11 font-medium"
                     disabled={loginMutation.isPending}
                     data-testid="button-login"
                   >
@@ -314,7 +316,7 @@ export default function Auth() {
 
                   <Button
                     type="submit"
-                    className="w-full"
+                    className="w-full h-11 font-medium"
                     disabled={registerMutation.isPending}
                     data-testid="button-register"
                   >
@@ -324,31 +326,36 @@ export default function Auth() {
                 </form>
               )}
 
-              <div className="text-center text-sm">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">
+                    {isLogin ? "New to Inspect360?" : "Already a member?"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-center">
                 {isLogin ? (
-                  <p className="text-muted-foreground">
-                    Don't have an account?{" "}
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => setIsLogin(false)}
-                      data-testid="button-switch-register"
-                    >
-                      Sign up
-                    </button>
-                  </p>
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:underline font-medium transition-all"
+                    onClick={() => setIsLogin(false)}
+                    data-testid="button-switch-register"
+                  >
+                    Create your account
+                  </button>
                 ) : (
-                  <p className="text-muted-foreground">
-                    Already have an account?{" "}
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => setIsLogin(true)}
-                      data-testid="button-switch-login"
-                    >
-                      Sign in
-                    </button>
-                  </p>
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:underline font-medium transition-all"
+                    onClick={() => setIsLogin(true)}
+                    data-testid="button-switch-login"
+                  >
+                    Sign in to your account
+                  </button>
                 )}
               </div>
             </CardContent>
@@ -356,8 +363,8 @@ export default function Auth() {
         </div>
       </div>
 
-      {/* Right Column - Hero */}
-      <div className="hidden lg:flex lg:flex-1 items-center justify-center p-12 relative overflow-hidden">
+      {/* Right Column - Hero (hidden on mobile/tablet) */}
+      <div className="hidden lg:flex flex-1 items-center justify-center p-12 relative overflow-hidden">
         {/* Inspect360 brand gradient - Bright Cyan to Teal */}
         <div className="absolute inset-0 bg-gradient-to-br from-[#00D5CC] via-[#3B7A8C] to-[#06283F]"></div>
         {/* Subtle overlay for better text contrast */}
@@ -365,8 +372,8 @@ export default function Auth() {
 
         {/* Content */}
         <div className="relative z-10 max-w-lg space-y-8 text-white">
-          <div className="mb-6">
-            <img src={logoUrl} alt="Inspect360" className="h-16 mb-6" />
+          <div className="mb-8">
+            <img src={logoUrl} alt="Inspect360" className="h-16 filter brightness-0 invert" />
           </div>
           <div>
             <h1 className="text-4xl font-bold mb-4">AI-Powered Building Inspections</h1>
