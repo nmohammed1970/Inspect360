@@ -12,6 +12,9 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Inspection } from "@shared/schema";
 import { FieldWidget } from "@/components/FieldWidget";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
+import { InspectionQuickActions } from "@/components/InspectionQuickActions";
+import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
+import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
 
 interface TemplateSection {
   id: string;
@@ -55,6 +58,8 @@ export default function InspectionCapture() {
   const isOnline = useOnlineStatus();
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showAssetSheet, setShowAssetSheet] = useState(false);
+  const [showMaintenanceSheet, setShowMaintenanceSheet] = useState(false);
 
   // Fetch inspection with template snapshot
   const { data: inspection, isLoading } = useQuery<Inspection>({
@@ -494,6 +499,30 @@ export default function InspectionCapture() {
           <ChevronRight className="w-4 h-4 ml-2" />
         </Button>
       </div>
+
+      {/* Quick Actions FAB */}
+      <InspectionQuickActions
+        onAddAsset={() => setShowAssetSheet(true)}
+        onLogMaintenance={() => setShowMaintenanceSheet(true)}
+      />
+
+      {/* Quick Add Asset Sheet */}
+      <QuickAddAssetSheet
+        open={showAssetSheet}
+        onOpenChange={setShowAssetSheet}
+        propertyId={inspection?.propertyId || undefined}
+        blockId={inspection?.blockId || undefined}
+        inspectionId={id}
+      />
+
+      {/* Quick Add Maintenance Sheet */}
+      <QuickAddMaintenanceSheet
+        open={showMaintenanceSheet}
+        onOpenChange={setShowMaintenanceSheet}
+        propertyId={inspection?.propertyId || undefined}
+        blockId={inspection?.blockId || undefined}
+        inspectionId={id}
+      />
     </div>
   );
 }

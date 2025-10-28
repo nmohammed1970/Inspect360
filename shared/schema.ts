@@ -545,6 +545,19 @@ export const insertMaintenanceRequestSchema = createInsertSchema(maintenanceRequ
 export type MaintenanceRequest = typeof maintenanceRequests.$inferSelect;
 export type InsertMaintenanceRequest = z.infer<typeof insertMaintenanceRequestSchema>;
 
+// Quick-add maintenance schema for in-inspection workflow (minimal fields)
+export const quickAddMaintenanceSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  propertyId: z.string().min(1, "Property is required"),
+  priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
+  photoUrls: z.array(z.string()).optional(),
+  inspectionId: z.string().optional(), // Auto-populated from inspection context
+  inspectionEntryId: z.string().optional(), // Optional specific entry link
+  source: z.enum(["manual", "inspection", "tenant_portal", "routine"]).default("inspection"),
+});
+export type QuickAddMaintenance = z.infer<typeof quickAddMaintenanceSchema>;
+
 // Comparison Reports (AI-generated comparison between check-in and check-out)
 export const comparisonReports = pgTable("comparison_reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -710,6 +723,8 @@ export const assetInventory = pgTable("asset_inventory", {
   maintenanceNotes: text("maintenance_notes"),
   photos: text("photos").array(), // Array of photo URLs
   documents: text("documents").array(), // Array of document URLs (manuals, warranties)
+  inspectionId: varchar("inspection_id"), // Link to source inspection for audit trail
+  inspectionEntryId: varchar("inspection_entry_id"), // Link to specific inspection entry if relevant
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -726,6 +741,22 @@ export const insertAssetInventorySchema = createInsertSchema(assetInventory).omi
 });
 export type AssetInventory = typeof assetInventory.$inferSelect;
 export type InsertAssetInventory = z.infer<typeof insertAssetInventorySchema>;
+
+// Quick-add asset schema for in-inspection workflow (minimal fields)
+export const quickAddAssetSchema = z.object({
+  name: z.string().min(1, "Asset name is required"),
+  category: z.string().optional(),
+  condition: z.enum(["excellent", "good", "fair", "poor", "needs_replacement"]),
+  cleanliness: z.enum(["very_clean", "clean", "acceptable", "needs_cleaning", "not_applicable"]).optional(),
+  location: z.string().optional(),
+  description: z.string().optional(),
+  propertyId: z.string().optional(), // Auto-populated from inspection context
+  blockId: z.string().optional(), // Auto-populated if block-level inspection
+  photos: z.array(z.string()).optional(),
+  inspectionId: z.string().optional(), // Auto-populated from inspection context
+  inspectionEntryId: z.string().optional(), // Optional specific entry link
+});
+export type QuickAddAsset = z.infer<typeof quickAddAssetSchema>;
 
 // Relations
 export const usersRelations = relations(users, ({ one }) => ({

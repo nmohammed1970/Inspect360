@@ -51,7 +51,9 @@ import {
   insertMessageTemplateSchema,
   updateMessageTemplateSchema,
   insertTenantAssignmentSchema,
-  updateTenantAssignmentSchema
+  updateTenantAssignmentSchema,
+  quickAddAssetSchema,
+  quickAddMaintenanceSchema
 } from "@shared/schema";
 
 // Initialize Stripe
@@ -2011,6 +2013,80 @@ Provide a structured comparison highlighting differences in condition ratings an
     }
   });
 
+  // Quick-add maintenance request from inspection (with offline support)
+  app.post("/api/maintenance/quick", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Get user to check organization
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Validate request body with quick-add schema
+      const validation = quickAddMaintenanceSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          message: "Invalid request data", 
+          errors: validation.error.errors 
+        });
+      }
+
+      const { propertyId, title, description, priority, photoUrls, inspectionId, inspectionEntryId, source } = validation.data;
+
+      // Verify property exists and belongs to the same organization
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      
+      if (property.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
+      }
+
+      // If inspectionId provided, verify it exists and belongs to the same organization
+      if (inspectionId) {
+        const inspection = await storage.getInspection(inspectionId);
+        if (!inspection) {
+          return res.status(404).json({ message: "Inspection not found" });
+        }
+
+        // Verify organization via property or block
+        let ownerOrgId: string | null = null;
+        if (inspection.propertyId) {
+          const inspectionProperty = await storage.getProperty(inspection.propertyId);
+          ownerOrgId = inspectionProperty?.organizationId || null;
+        } else if (inspection.blockId) {
+          const block = await storage.getBlock(inspection.blockId);
+          ownerOrgId = block?.organizationId || null;
+        }
+
+        if (ownerOrgId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied: Inspection does not belong to your organization" });
+        }
+      }
+
+      const request = await storage.createMaintenanceRequest({
+        organizationId: user.organizationId,
+        propertyId,
+        reportedBy: userId,
+        title,
+        description: description || null,
+        priority: priority || "medium",
+        photoUrls: photoUrls || null,
+        source: source || "inspection",
+        inspectionId: inspectionId || null,
+        inspectionEntryId: inspectionEntryId || null,
+      });
+
+      res.json(request);
+    } catch (error) {
+      console.error("Error creating quick-add maintenance request:", error);
+      res.status(500).json({ message: "Failed to create maintenance request" });
+    }
+  });
+
   app.get("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -2749,6 +2825,94 @@ Provide a structured comparison highlighting differences in condition ratings an
         return res.status(400).json({ error: "Invalid request data", details: error.errors });
       }
       res.status(500).json({ error: "Failed to create asset inventory" });
+    }
+  });
+
+  // Quick-add asset from inspection (with offline support)
+  app.post("/api/asset-inventory/quick", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Validate request body with quick-add schema
+      const validation = quickAddAssetSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          details: validation.error.errors 
+        });
+      }
+
+      const { name, category, condition, cleanliness, location, description, propertyId, blockId, photos, inspectionId, inspectionEntryId } = validation.data;
+
+      // Verify property or block exists and belongs to the same organization
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) {
+          return res.status(404).json({ error: "Property not found" });
+        }
+        if (property.organizationId !== user.organizationId) {
+          return res.status(403).json({ error: "Access denied: Property belongs to a different organization" });
+        }
+      }
+
+      if (blockId) {
+        const block = await storage.getBlock(blockId);
+        if (!block) {
+          return res.status(404).json({ error: "Block not found" });
+        }
+        if (block.organizationId !== user.organizationId) {
+          return res.status(403).json({ error: "Access denied: Block belongs to a different organization" });
+        }
+      }
+
+      // If inspectionId provided, verify it exists and belongs to the same organization
+      if (inspectionId) {
+        const inspection = await storage.getInspection(inspectionId);
+        if (!inspection) {
+          return res.status(404).json({ error: "Inspection not found" });
+        }
+
+        // Verify organization via property or block
+        let ownerOrgId: string | null = null;
+        if (inspection.propertyId) {
+          const inspectionProperty = await storage.getProperty(inspection.propertyId);
+          ownerOrgId = inspectionProperty?.organizationId || null;
+        } else if (inspection.blockId) {
+          const inspectionBlock = await storage.getBlock(inspection.blockId);
+          ownerOrgId = inspectionBlock?.organizationId || null;
+        }
+
+        if (ownerOrgId !== user.organizationId) {
+          return res.status(403).json({ error: "Access denied: Inspection does not belong to your organization" });
+        }
+      }
+
+      const asset = await storage.createAssetInventory({
+        organizationId: user.organizationId,
+        name,
+        category: category || null,
+        condition,
+        cleanliness: cleanliness || null,
+        location: location || null,
+        description: description || null,
+        propertyId: propertyId || null,
+        blockId: blockId || null,
+        photos: photos || null,
+        inspectionId: inspectionId || null,
+        inspectionEntryId: inspectionEntryId || null,
+      });
+
+      res.status(201).json(asset);
+    } catch (error: any) {
+      console.error("Error creating quick-add asset:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create asset" });
     }
   });
 

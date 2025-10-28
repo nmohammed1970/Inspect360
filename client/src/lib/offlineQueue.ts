@@ -1,20 +1,42 @@
 import { useState, useEffect } from "react";
 import { nanoid } from "nanoid";
+import type { QuickAddAsset, QuickAddMaintenance } from "@shared/schema";
 
-export interface QueuedEntry {
-  id: string; // Local queue ID
-  offlineId: string; // For server-side dedup
-  inspectionId: string;
-  sectionRef: string;
-  fieldKey: string;
-  fieldType: string;
-  valueJson: any;
-  note?: string;
-  photos?: string[];
-  timestamp: number;
-  synced: boolean;
-  attempts: number;
-}
+// Discriminated union for different queue entry types
+export type QueuedEntry =
+  | {
+      type: "inspection_entry";
+      id: string; // Local queue ID
+      offlineId: string; // For server-side dedup
+      inspectionId: string;
+      sectionRef: string;
+      fieldKey: string;
+      fieldType: string;
+      valueJson: any;
+      note?: string;
+      photos?: string[];
+      timestamp: number;
+      synced: boolean;
+      attempts: number;
+    }
+  | {
+      type: "asset";
+      id: string; // Local queue ID
+      offlineId: string; // For server-side dedup
+      payload: QuickAddAsset;
+      timestamp: number;
+      synced: boolean;
+      attempts: number;
+    }
+  | {
+      type: "maintenance";
+      id: string; // Local queue ID
+      offlineId: string; // For server-side dedup
+      payload: QuickAddMaintenance;
+      timestamp: number;
+      synced: boolean;
+      attempts: number;
+    };
 
 const QUEUE_KEY = "inspect360_offline_queue";
 const MAX_RETRY_ATTEMPTS = 3;
@@ -47,10 +69,14 @@ export class OfflineQueue {
     }
   }
 
-  enqueue(entry: Omit<QueuedEntry, "id" | "offlineId" | "timestamp" | "synced" | "attempts">) {
+  // Enqueue inspection entry
+  enqueueInspectionEntry(
+    entry: Omit<Extract<QueuedEntry, { type: "inspection_entry" }>, "id" | "offlineId" | "timestamp" | "synced" | "attempts" | "type">
+  ) {
     const queuedEntry: QueuedEntry = {
+      type: "inspection_entry",
       id: nanoid(),
-      offlineId: nanoid(16), // Unique offline ID for server deduplication
+      offlineId: nanoid(16),
       ...entry,
       timestamp: Date.now(),
       synced: false,
@@ -62,12 +88,55 @@ export class OfflineQueue {
     return queuedEntry;
   }
 
+  // Enqueue asset
+  enqueueAsset(payload: QuickAddAsset) {
+    const queuedEntry: QueuedEntry = {
+      type: "asset",
+      id: nanoid(),
+      offlineId: nanoid(16),
+      payload,
+      timestamp: Date.now(),
+      synced: false,
+      attempts: 0,
+    };
+
+    this.queue.push(queuedEntry);
+    this.saveQueue();
+    return queuedEntry;
+  }
+
+  // Enqueue maintenance request
+  enqueueMaintenance(payload: QuickAddMaintenance) {
+    const queuedEntry: QueuedEntry = {
+      type: "maintenance",
+      id: nanoid(),
+      offlineId: nanoid(16),
+      payload,
+      timestamp: Date.now(),
+      synced: false,
+      attempts: 0,
+    };
+
+    this.queue.push(queuedEntry);
+    this.saveQueue();
+    return queuedEntry;
+  }
+
+  // Legacy method for backward compatibility
+  enqueue(entry: Omit<Extract<QueuedEntry, { type: "inspection_entry" }>, "id" | "offlineId" | "timestamp" | "synced" | "attempts" | "type">) {
+    return this.enqueueInspectionEntry(entry);
+  }
+
   getQueue(): QueuedEntry[] {
     return [...this.queue];
   }
 
   getPendingCount(): number {
     return this.queue.filter((e) => !e.synced).length;
+  }
+
+  getPendingCountByType(type: "inspection_entry" | "asset" | "maintenance"): number {
+    return this.queue.filter((e) => e.type === type && !e.synced).length;
   }
 
   markAsSynced(id: string) {
@@ -97,41 +166,58 @@ export class OfflineQueue {
   async syncAll(apiRequest: (method: string, url: string, body?: any) => Promise<any>): Promise<{
     success: number;
     failed: number;
+    details: { inspectionEntries: number; assets: number; maintenance: number };
   }> {
     if (this.isSyncing) {
-      return { success: 0, failed: 0 };
+      return { success: 0, failed: 0, details: { inspectionEntries: 0, assets: 0, maintenance: 0 } };
     }
 
     this.isSyncing = true;
     const pending = this.queue.filter((e) => !e.synced && e.attempts < MAX_RETRY_ATTEMPTS);
-    
+
     let successCount = 0;
     let failedCount = 0;
+    const details = { inspectionEntries: 0, assets: 0, maintenance: 0 };
 
     for (const entry of pending) {
       try {
-        await apiRequest("POST", "/api/inspection-entries", {
-          inspectionId: entry.inspectionId,
-          sectionRef: entry.sectionRef,
-          fieldKey: entry.fieldKey,
-          fieldType: entry.fieldType,
-          valueJson: entry.valueJson,
-          note: entry.note,
-          photos: entry.photos,
-          offlineId: entry.offlineId, // For server-side deduplication
-        });
-        
+        if (entry.type === "inspection_entry") {
+          await apiRequest("POST", "/api/inspection-entries", {
+            inspectionId: entry.inspectionId,
+            sectionRef: entry.sectionRef,
+            fieldKey: entry.fieldKey,
+            fieldType: entry.fieldType,
+            valueJson: entry.valueJson,
+            note: entry.note,
+            photos: entry.photos,
+            offlineId: entry.offlineId,
+          });
+          details.inspectionEntries++;
+        } else if (entry.type === "asset") {
+          await apiRequest("POST", "/api/asset-inventory/quick", {
+            ...entry.payload,
+            offlineId: entry.offlineId,
+          });
+          details.assets++;
+        } else if (entry.type === "maintenance") {
+          await apiRequest("POST", "/api/maintenance/quick", {
+            ...entry.payload,
+            offlineId: entry.offlineId,
+          });
+          details.maintenance++;
+        }
+
         this.markAsSynced(entry.id);
         successCount++;
       } catch (error) {
-        console.error(`Failed to sync entry ${entry.id}:`, error);
+        console.error(`Failed to sync ${entry.type} entry ${entry.id}:`, error);
         this.markAsFailed(entry.id);
         failedCount++;
       }
     }
 
     this.isSyncing = false;
-    return { success: successCount, failed: failedCount };
+    return { success: successCount, failed: failedCount, details };
   }
 
   getIsSyncing(): boolean {
