@@ -38,10 +38,19 @@ import {
   dashboardPreferences,
   tenantAssignments,
   messageTemplates,
+  fixfloConfig,
+  fixfloWebhookLogs,
+  fixfloSyncState,
   type User,
   type UpsertUser,
   type AdminUser,
   type InsertAdminUser,
+  type FixfloConfig,
+  type InsertFixfloConfig,
+  type FixfloWebhookLog,
+  type InsertFixfloWebhookLog,
+  type FixfloSyncState,
+  type InsertFixfloSyncState,
   type Organization,
   type InsertOrganization,
   type Contact,
@@ -359,6 +368,16 @@ export interface IStorage {
   updateMessageTemplate(id: string, updates: any): Promise<any>;
   deleteMessageTemplate(id: string): Promise<void>;
   getBlockTenantsEmails(blockId: string, organizationId: string): Promise<{email: string; firstName?: string; lastName?: string;}[]>;
+  
+  // Fixflo Integration operations
+  getFixfloConfig(organizationId: string): Promise<FixfloConfig | undefined>;
+  upsertFixfloConfig(config: InsertFixfloConfig): Promise<FixfloConfig>;
+  updateFixfloHealthCheck(organizationId: string, updates: { lastHealthCheck: Date; healthCheckStatus: string; lastError: string | null; }): Promise<void>;
+  getFixfloSyncStates(organizationId: string): Promise<FixfloSyncState[]>;
+  upsertFixfloSyncState(syncState: InsertFixfloSyncState): Promise<FixfloSyncState>;
+  getFixfloWebhookLogs(organizationId: string, limit?: number): Promise<FixfloWebhookLog[]>;
+  createFixfloWebhookLog(log: InsertFixfloWebhookLog): Promise<FixfloWebhookLog>;
+  updateFixfloWebhookLog(id: string, updates: Partial<FixfloWebhookLog>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2400,6 +2419,90 @@ export class DatabaseStorage implements IStorage {
       firstName: t.firstName ?? undefined,
       lastName: t.lastName ?? undefined,
     }));
+  }
+
+  // Fixflo Integration operations
+  async getFixfloConfig(organizationId: string): Promise<FixfloConfig | undefined> {
+    const [config] = await db
+      .select()
+      .from(fixfloConfig)
+      .where(eq(fixfloConfig.organizationId, organizationId));
+    return config;
+  }
+
+  async upsertFixfloConfig(configData: InsertFixfloConfig): Promise<FixfloConfig> {
+    const [config] = await db
+      .insert(fixfloConfig)
+      .values(configData)
+      .onConflictDoUpdate({
+        target: fixfloConfig.organizationId,
+        set: {
+          ...configData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return config;
+  }
+
+  async updateFixfloHealthCheck(
+    organizationId: string, 
+    updates: { lastHealthCheck: Date; healthCheckStatus: string; lastError: string | null; }
+  ): Promise<void> {
+    await db
+      .update(fixfloConfig)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(fixfloConfig.organizationId, organizationId));
+  }
+
+  async getFixfloSyncStates(organizationId: string): Promise<FixfloSyncState[]> {
+    return await db
+      .select()
+      .from(fixfloSyncState)
+      .where(eq(fixfloSyncState.organizationId, organizationId))
+      .orderBy(desc(fixfloSyncState.lastSyncAt));
+  }
+
+  async upsertFixfloSyncState(syncStateData: InsertFixfloSyncState): Promise<FixfloSyncState> {
+    const [syncState] = await db
+      .insert(fixfloSyncState)
+      .values(syncStateData)
+      .onConflictDoUpdate({
+        target: [fixfloSyncState.organizationId, fixfloSyncState.entityType],
+        set: {
+          ...syncStateData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return syncState;
+  }
+
+  async getFixfloWebhookLogs(organizationId: string, limit: number = 50): Promise<FixfloWebhookLog[]> {
+    return await db
+      .select()
+      .from(fixfloWebhookLogs)
+      .where(eq(fixfloWebhookLogs.organizationId, organizationId))
+      .orderBy(desc(fixfloWebhookLogs.createdAt))
+      .limit(limit);
+  }
+
+  async createFixfloWebhookLog(logData: InsertFixfloWebhookLog): Promise<FixfloWebhookLog> {
+    const [log] = await db
+      .insert(fixfloWebhookLogs)
+      .values(logData)
+      .returning();
+    return log;
+  }
+
+  async updateFixfloWebhookLog(id: string, updates: Partial<FixfloWebhookLog>): Promise<void> {
+    await db
+      .update(fixfloWebhookLogs)
+      .set(updates)
+      .where(eq(fixfloWebhookLogs.id, id));
   }
 }
 

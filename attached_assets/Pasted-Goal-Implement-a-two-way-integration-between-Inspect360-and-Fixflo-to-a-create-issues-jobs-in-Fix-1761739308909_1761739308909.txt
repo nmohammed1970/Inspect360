@@ -1,0 +1,130 @@
+Goal
+
+Implement a two-way integration between Inspect360 and Fixflo to (a) create issues/jobs in Fixflo from inspection findings and (b) sync status/attachments/invoices back to Inspect360 via webhooks and periodic pulls.
+
+Environments & Secrets
+
+Use Fixflo Sandbox first; production later.
+
+Base URL (example): https://api-sandbox.fixflo.com/api/v2
+
+Store secrets in Replit environment variables:
+
+FIXFLO_BASE_URL
+
+FIXFLO_BEARER_TOKEN (scoped to the client’s Fixflo tenant)
+
+WEBHOOK_VERIFY_TOKEN (for verifying incoming webhooks)
+
+Add per-tenant config if we multi-tenant Inspect360.
+
+(Ref: Bearer token auth in Fixflo docs.) 
+api-docs.fixflo.com
+
+Data model mapping
+
+Create a mapping layer so we never hard-code strings:
+
+Inspect360.Property ↔ Fixflo.Property/Asset/Block (store fixfloPropertyId)
+
+Inspect360.Issue ↔ Fixflo.Issue/Job (store fixfloIssueId)
+
+Stakeholders: (optional) Tenant/Landlord/Contractor/Agent ↔ Fixflo equivalents (store external IDs)
+
+Attachments: map photos/videos from Inspect360 to Fixflo file uploads (where supported) and vice-versa using Fixflo binary download guidance. 
+api-docs.fixflo.com
+
+Outbound calls (Inspect360 → Fixflo)
+
+Create Issue
+
+Endpoint: use the Fixflo Issues API (per docs).
+
+Payload fields (minimum): propertyId, summary/description, priority, category, reporter (if known), and attachments (URLs or multipart as per API guidance).
+
+On success: persist fixfloIssueId in Inspect360.
+
+Update Issue
+
+Use Update endpoints to set AssignedAgent (contractor/agent), priority, due date, etc. (There is a documented endpoint for updating AssignedAgent.) 
+api-docs.fixflo.com
+
+Resync entities (optional)
+
+If we choose to push new properties/tenants to Fixflo, implement create/update endpoints accordingly (see entities list in docs). 
+api-docs.fixflo.com
+
+Inbound webhooks (Fixflo → Inspect360)
+
+Expose POST /integrations/fixflo/webhook in Inspect360 (public HTTPS).
+
+Verify requests (shared secret in header, IP allowlist if available; store delivery items & retry if necessary).
+
+Handle events such as: IssueCreated, IssueUpdated, ContractorAssigned, JobCompleted, InvoiceAdded, AttachmentAdded (event names vary; read the Webhook section and model in docs).
+
+Persist the payload, then update:
+
+Issue status & timestamps
+
+Assigned contractor info
+
+Costs/invoice totals
+
+Attachments (download using the secure binary guidance in docs)
+
+Activity log/audit trail
+
+Return 2xx quickly; queue internal processing.
+(Refs: Webhooks overview and delivery tracking.) 
+api-docs.fixflo.com
++1
+
+Pull endpoints (for dashboards/KPIs)
+
+Implement scheduled pulls for lists like JobCompleted to backfill or sanity-check webhook streams:
+
+Example: GET /Issues/JobCompleted with date filters.
+
+Reconcile with local state (idempotent upserts). 
+api-docs.fixflo.com
+
+Error handling & observability
+
+Retry policy for transient 5xx and 429 (respect Retry-After).
+
+Dead-letter queue for failed webhooks.
+
+Integration health page: last successful call, last webhook, error counts.
+
+Security
+
+Never log PII or tokens.
+
+Rotate FIXFLO_BEARER_TOKEN regularly.
+
+Validate all inbound webhook signatures/tokens.
+
+Respect any Fixflo rate limits.
+
+UI/UX in Inspect360
+
+When a BRE flags “Maintenance required,” show “Send to Fixflo” → confirm property mapping → allow user to:
+
+Edit summary/priority/category
+
+Attach inspection photos
+
+Select or auto-assign contractor (if your org rules allow)
+
+On the Issue detail, show Fixflo Status, Assigned Contractor, Target/SLA, Invoices, Attachments, with deep-link to Fixflo portal.
+
+Testing plan
+
+Use sandbox token + a test property; create an issue from a test inspection.
+
+Trigger Fixflo status changes in sandbox; confirm webhooks update the local record.
+
+Upload attachment in Fixflo; ensure Inspect360 ingests it.
+
+Try “AssignedAgent” update from Inspect360; verify in Fixflo. 
+api-docs.fixflo.com

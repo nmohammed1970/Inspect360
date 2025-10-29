@@ -5293,6 +5293,309 @@ Be objective and specific. Focus on actionable repairs.`;
     }
   });
 
+  // ==================== FIXFLO INTEGRATION ROUTES ====================
+
+  // Get Fixflo configuration for current organization
+  app.get("/api/fixflo/config", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      
+      const config = await storage.getFixfloConfig(user.organizationId);
+      if (!config) {
+        return res.status(404).json({ message: "Fixflo not configured for this organization" });
+      }
+
+      // Don't send the bearer token to the frontend
+      const { bearerToken: _, ...safeConfig } = config;
+      res.json(safeConfig);
+    } catch (error) {
+      console.error("Error fetching Fixflo config:", error);
+      res.status(500).json({ message: "Failed to fetch Fixflo configuration" });
+    }
+  });
+
+  // Update Fixflo configuration
+  app.post("/api/fixflo/config", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const { baseUrl, bearerToken, webhookVerifyToken, isEnabled } = req.body;
+      
+      if (!baseUrl || !bearerToken) {
+        return res.status(400).json({ message: "Base URL and Bearer Token are required" });
+      }
+
+      const config = await storage.upsertFixfloConfig({
+        organizationId: user.organizationId,
+        baseUrl,
+        bearerToken,
+        webhookVerifyToken,
+        isEnabled: isEnabled ?? false,
+      });
+
+      // Don't send the bearer token back
+      const { bearerToken: _, ...safeConfig } = config;
+      res.json(safeConfig);
+    } catch (error) {
+      console.error("Error updating Fixflo config:", error);
+      res.status(500).json({ message: "Failed to update Fixflo configuration" });
+    }
+  });
+
+  // Health check Fixflo API connection
+  app.post("/api/fixflo/health-check", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const config = await storage.getFixfloConfig(user.organizationId);
+      if (!config) {
+        return res.status(404).json({ message: "Fixflo not configured" });
+      }
+
+      const { createFixfloClient, FixfloClientError } = await import("./services/fixflo-client");
+      const client = await createFixfloClient(config);
+      const isHealthy = await client.healthCheck();
+
+      await storage.updateFixfloHealthCheck(user.organizationId, {
+        lastHealthCheck: new Date(),
+        healthCheckStatus: isHealthy ? "healthy" : "error",
+        lastError: isHealthy ? null : "Health check failed",
+      });
+
+      res.json({ healthy: isHealthy });
+    } catch (error: any) {
+      console.error("Error performing Fixflo health check:", error);
+      
+      const user = await storage.getUser(req.user.id);
+      if (user?.organizationId) {
+        await storage.updateFixfloHealthCheck(user.organizationId, {
+          lastHealthCheck: new Date(),
+          healthCheckStatus: "error",
+          lastError: error.message || "Unknown error",
+        });
+      }
+
+      res.status(500).json({ 
+        healthy: false, 
+        message: error.message || "Health check failed" 
+      });
+    }
+  });
+
+  // Create issue in Fixflo from maintenance request
+  app.post("/api/fixflo/issues", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const { maintenanceRequestId, propertyId, title, description, priority, category } = req.body;
+
+      if (!maintenanceRequestId || !propertyId) {
+        return res.status(400).json({ message: "Maintenance request ID and property ID are required" });
+      }
+
+      // Get Fixflo config
+      const config = await storage.getFixfloConfig(user.organizationId);
+      if (!config?.isEnabled) {
+        return res.status(400).json({ message: "Fixflo integration is not enabled" });
+      }
+
+      // Get property to check for Fixflo property ID
+      const property = await storage.getProperty(propertyId);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      if (!property.fixfloPropertyId) {
+        return res.status(400).json({ 
+          message: "Property is not mapped to Fixflo. Please configure property mapping first." 
+        });
+      }
+
+      // Create issue in Fixflo
+      const { createFixfloClient } = await import("./services/fixflo-client");
+      const client = await createFixfloClient(config);
+      
+      const fixfloResponse = await client.createIssue({
+        propertyId: property.fixfloPropertyId,
+        title,
+        description,
+        priority: priority || "medium",
+        category,
+        externalRef: maintenanceRequestId,
+      });
+
+      // Update maintenance request with Fixflo IDs
+      await storage.updateMaintenanceRequest(maintenanceRequestId, {
+        fixfloIssueId: fixfloResponse.id,
+        fixfloJobId: fixfloResponse.jobId,
+        fixfloStatus: fixfloResponse.status,
+        fixfloSyncedAt: new Date(),
+      });
+
+      res.json({
+        success: true,
+        fixfloIssueId: fixfloResponse.id,
+        fixfloJobId: fixfloResponse.jobId,
+        status: fixfloResponse.status,
+      });
+    } catch (error: any) {
+      console.error("Error creating Fixflo issue:", error);
+      res.status(500).json({ 
+        message: "Failed to create issue in Fixflo",
+        error: error.message 
+      });
+    }
+  });
+
+  // Update issue in Fixflo
+  app.patch("/api/fixflo/issues/:issueId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const { issueId } = req.params;
+      const { priority, status, assignedAgentId, notes } = req.body;
+
+      // Get Fixflo config
+      const config = await storage.getFixfloConfig(user.organizationId);
+      if (!config?.isEnabled) {
+        return res.status(400).json({ message: "Fixflo integration is not enabled" });
+      }
+
+      // Update issue in Fixflo
+      const { createFixfloClient } = await import("./services/fixflo-client");
+      const client = await createFixfloClient(config);
+      
+      const fixfloResponse = await client.updateIssue(issueId, {
+        priority,
+        status,
+        notes,
+      });
+
+      // If contractor was assigned, do that separately
+      if (assignedAgentId) {
+        await client.assignContractor(issueId, assignedAgentId);
+      }
+
+      res.json({
+        success: true,
+        status: fixfloResponse.status,
+      });
+    } catch (error: any) {
+      console.error("Error updating Fixflo issue:", error);
+      res.status(500).json({ 
+        message: "Failed to update issue in Fixflo",
+        error: error.message 
+      });
+    }
+  });
+
+  // Get Fixflo sync state for organization
+  app.get("/api/fixflo/sync-state", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const syncStates = await storage.getFixfloSyncStates(user.organizationId);
+      res.json(syncStates);
+    } catch (error) {
+      console.error("Error fetching Fixflo sync state:", error);
+      res.status(500).json({ message: "Failed to fetch sync state" });
+    }
+  });
+
+  // Get Fixflo webhook logs for debugging
+  app.get("/api/fixflo/webhook-logs", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getFixfloWebhookLogs(user.organizationId, limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching Fixflo webhook logs:", error);
+      res.status(500).json({ message: "Failed to fetch webhook logs" });
+    }
+  });
+
+  // Inbound webhook endpoint from Fixflo
+  app.post("/api/integrations/fixflo/webhook", async (req, res) => {
+    const { processFixfloWebhook } = await import("./services/fixflo-webhook-processor");
+    
+    try {
+      // Get the organization ID from webhook payload or headers
+      const organizationId = req.body.organizationId || req.headers["x-organization-id"];
+      
+      if (!organizationId) {
+        console.error("[Fixflo Webhook] No organization ID provided");
+        return res.status(400).json({ message: "Organization ID required" });
+      }
+
+      // Get Fixflo config to verify webhook token
+      const config = await storage.getFixfloConfig(organizationId as string);
+      if (!config) {
+        console.error("[Fixflo Webhook] No config found for organization:", organizationId);
+        return res.status(404).json({ message: "Fixflo not configured for this organization" });
+      }
+
+      // Verify webhook token if configured
+      const webhookToken = req.headers["x-fixflo-webhook-token"];
+      if (config.webhookVerifyToken && webhookToken !== config.webhookVerifyToken) {
+        console.error("[Fixflo Webhook] Invalid webhook token");
+        return res.status(403).json({ message: "Invalid webhook token" });
+      }
+
+      const payload = req.body;
+      const eventType = payload.eventType || payload.event || "Unknown";
+      
+      // Create webhook log for audit trail
+      const webhookLog = await storage.createFixfloWebhookLog({
+        organizationId: organizationId as string,
+        eventType,
+        fixfloIssueId: payload.issueId || payload.Issue?.Id,
+        fixfloJobId: payload.jobId || payload.Job?.Id,
+        payloadJson: payload,
+        processingStatus: "pending",
+        retryCount: 0,
+      });
+
+      // Return 200 immediately to acknowledge receipt
+      res.status(200).json({ received: true, webhookLogId: webhookLog.id });
+
+      // Process webhook asynchronously
+      processFixfloWebhook(webhookLog.id, organizationId as string, payload, storage)
+        .catch((error: any) => {
+          console.error("[Fixflo Webhook] Processing error:", error);
+        });
+
+    } catch (error: any) {
+      console.error("[Fixflo Webhook] Error receiving webhook:", error);
+      res.status(500).json({ 
+        message: "Failed to process webhook",
+        error: error.message 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

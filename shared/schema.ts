@@ -218,6 +218,8 @@ export const properties = pgTable("properties", {
   name: varchar("name").notNull(),
   address: text("address").notNull(),
   sqft: integer("sqft"), // Property area in square feet (for cost estimation)
+  fixfloPropertyId: varchar("fixflo_property_id"), // Fixflo external property/asset ID
+  fixfloSyncedAt: timestamp("fixflo_synced_at"), // Last successful sync timestamp
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -537,6 +539,11 @@ export const maintenanceRequests = pgTable("maintenance_requests", {
   source: maintenanceSourceEnum("source").notNull().default("manual"), // Track origin
   inspectionId: varchar("inspection_id"), // Link to source inspection if auto-created
   inspectionEntryId: varchar("inspection_entry_id"), // Link to specific entry that flagged it
+  fixfloIssueId: varchar("fixflo_issue_id"), // Fixflo external issue ID
+  fixfloJobId: varchar("fixflo_job_id"), // Fixflo job ID if escalated to job
+  fixfloStatus: varchar("fixflo_status"), // Last known Fixflo status
+  fixfloContractorName: varchar("fixflo_contractor_name"), // Assigned contractor from Fixflo
+  fixfloSyncedAt: timestamp("fixflo_synced_at"), // Last successful sync timestamp
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -845,6 +852,80 @@ export const quickUpdateAssetSchema = z.object({
   offlineId: z.string().optional(), // For offline deduplication
 });
 export type QuickUpdateAsset = z.infer<typeof quickUpdateAssetSchema>;
+
+// Fixflo Integration Configuration (per organization)
+export const fixfloConfig = pgTable("fixflo_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().unique(),
+  baseUrl: varchar("base_url").notNull().default("https://api-sandbox.fixflo.com/api/v2"),
+  bearerToken: varchar("bearer_token"), // Encrypted token for Fixflo API
+  webhookVerifyToken: varchar("webhook_verify_token"), // Token for webhook signature verification
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  lastHealthCheck: timestamp("last_health_check"),
+  healthCheckStatus: varchar("health_check_status"), // "healthy", "degraded", "error"
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertFixfloConfigSchema = createInsertSchema(fixfloConfig).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type FixfloConfig = typeof fixfloConfig.$inferSelect;
+export type InsertFixfloConfig = z.infer<typeof insertFixfloConfigSchema>;
+
+// Fixflo Webhook Logs (for debugging and audit trail)
+export const fixfloWebhookLogs = pgTable("fixflo_webhook_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  eventType: varchar("event_type").notNull(), // "IssueCreated", "IssueUpdated", "JobCompleted", etc.
+  fixfloIssueId: varchar("fixflo_issue_id"),
+  fixfloJobId: varchar("fixflo_job_id"),
+  payloadJson: jsonb("payload_json").notNull(),
+  processingStatus: varchar("processing_status").notNull().default("pending"), // "pending", "processed", "error", "retrying"
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("fixflo_webhook_logs_organization_id_idx").on(table.organizationId),
+  index("fixflo_webhook_logs_event_type_idx").on(table.eventType),
+  index("fixflo_webhook_logs_processing_status_idx").on(table.processingStatus),
+]);
+
+export const insertFixfloWebhookLogSchema = createInsertSchema(fixfloWebhookLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type FixfloWebhookLog = typeof fixfloWebhookLogs.$inferSelect;
+export type InsertFixfloWebhookLog = z.infer<typeof insertFixfloWebhookLogSchema>;
+
+// Fixflo Sync State (tracks last successful sync for different entity types)
+export const fixfloSyncState = pgTable("fixflo_sync_state", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  entityType: varchar("entity_type").notNull(), // "issues", "properties", "contractors", "invoices"
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSuccessfulSyncAt: timestamp("last_successful_sync_at"),
+  syncStatus: varchar("sync_status").notNull().default("idle"), // "idle", "syncing", "error"
+  errorMessage: text("error_message"),
+  recordsSynced: integer("records_synced").notNull().default(0),
+  recordsFailed: integer("records_failed").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  organizationIdIdx: index("fixflo_sync_state_organization_id_idx").on(table.organizationId),
+}));
+
+export const insertFixfloSyncStateSchema = createInsertSchema(fixfloSyncState).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type FixfloSyncState = typeof fixfloSyncState.$inferSelect;
+export type InsertFixfloSyncState = z.infer<typeof insertFixfloSyncStateSchema>;
 
 // Relations
 export const usersRelations = relations(users, ({ one }) => ({
