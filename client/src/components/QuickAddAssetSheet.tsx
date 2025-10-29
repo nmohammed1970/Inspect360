@@ -93,7 +93,16 @@ export function QuickAddAssetSheet({
       return await apiRequest("POST", "/api/asset-inventory/quick", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/asset-inventory"], refetchType: "active" });
+      // Invalidate global asset inventory query
+      queryClient.invalidateQueries({ queryKey: ["/api/asset-inventory"] });
+      // Invalidate property-specific inventory query if propertyId exists
+      if (propertyId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "inventory"] });
+      }
+      // Invalidate block-specific inventory query if blockId exists
+      if (blockId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/blocks", blockId, "inventory"] });
+      }
       toast({
         title: "Asset Added",
         description: "Asset has been added to the inventory successfully",

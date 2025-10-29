@@ -117,8 +117,28 @@ export default function AssetInventory() {
         return await res.json();
       }
     },
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
+      // Invalidate global asset inventory query
       queryClient.invalidateQueries({ queryKey: ["/api/asset-inventory"] });
+      
+      // Invalidate property-specific inventory query if propertyId exists in submitted data
+      if (variables.propertyId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.propertyId, "inventory"] });
+      }
+      
+      // Invalidate block-specific inventory query if blockId exists in submitted data
+      if (variables.blockId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/blocks", variables.blockId, "inventory"] });
+      }
+      
+      // Also invalidate URL-based context if different from submitted data
+      if (propertyIdFromUrl && propertyIdFromUrl !== variables.propertyId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyIdFromUrl, "inventory"] });
+      }
+      if (blockIdFromUrl && blockIdFromUrl !== variables.blockId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/blocks", blockIdFromUrl, "inventory"] });
+      }
+      
       toast({
         title: "Success",
         description: editingAsset ? "Asset updated successfully" : "Asset created successfully",
@@ -140,7 +160,17 @@ export default function AssetInventory() {
       return await res.json();
     },
     onSuccess: async () => {
+      // Refetch global asset inventory
       await queryClient.refetchQueries({ queryKey: ["/api/asset-inventory"] });
+      
+      // Invalidate all property and block inventory queries
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"], predicate: (query) => 
+        query.queryKey[2] === "inventory"
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"], predicate: (query) => 
+        query.queryKey[2] === "inventory"
+      });
+      
       toast({
         title: "Success",
         description: "Asset deleted successfully",
