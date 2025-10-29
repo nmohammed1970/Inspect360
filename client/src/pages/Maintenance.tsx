@@ -8,6 +8,7 @@ import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Penc
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { FixfloSyncButton } from "@/components/FixfloSyncButton";
 import {
   Dialog,
   DialogContent,
@@ -880,6 +881,16 @@ export default function Maintenance() {
                         {getStatusBadge(request.status)}
                       </div>
                     </div>
+                    {(user?.role === "owner" || user?.role === "clerk") && (
+                      <FixfloSyncButton
+                        requestId={request.id}
+                        propertyId={request.propertyId}
+                        fixfloIssueId={request.fixfloIssueId}
+                        fixfloStatus={request.fixfloStatus}
+                        fixfloContractorName={request.fixfloContractorName}
+                        title={request.title}
+                      />
+                    )}
                   </div>
                 </div>
               </CardHeader>
