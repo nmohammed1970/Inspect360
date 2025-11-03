@@ -39,6 +39,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import AdminTeam from "@/pages/AdminTeam";
 import { Button } from "@/components/ui/button";
 import { LogOut, Loader2 } from "lucide-react";
+import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 
 function AppContent() {
   // Always call hooks at the top level
@@ -62,6 +63,7 @@ function AppContent() {
           <Route path="/admin/team" component={AdminTeam} />
           <Route component={NotFound} />
         </Switch>
+        <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
     );
@@ -83,6 +85,7 @@ function AppContent() {
         <Switch>
           <Route path="*" component={OrganizationSetup} />
         </Switch>
+        <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
     );
@@ -140,6 +143,7 @@ function AppContent() {
           </div>
         </div>
       </SidebarProvider>
+      <PWAInstallPrompt />
       <Toaster />
     </TooltipProvider>
   );
