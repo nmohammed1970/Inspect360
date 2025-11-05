@@ -343,7 +343,7 @@ export default function Inspections() {
                         <SelectContent>
                           {clerks.map((clerk: any) => (
                             <SelectItem key={clerk.id} value={clerk.id}>
-                              {clerk.email}
+                              {clerk.firstName} {clerk.lastName}
                             </SelectItem>
                           ))}
                         </SelectContent>
