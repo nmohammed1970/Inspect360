@@ -107,9 +107,27 @@ import {
   type InsertDashboardPreferences,
   type TenantAssignment,
   type InsertTenantAssignment,
+  plans,
+  type Plan,
+  type InsertPlan,
+  subscriptions,
+  type Subscription,
+  type InsertSubscription,
+  creditBatches,
+  type CreditBatch,
+  type InsertCreditBatch,
+  creditLedger,
+  type CreditLedger,
+  type InsertCreditLedger,
+  topupOrders,
+  type TopupOrder,
+  type InsertTopupOrder,
+  countryPricingOverrides,
+  type CountryPricingOverride,
+  type InsertCountryPricingOverride,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, gte, lte, ne } from "drizzle-orm";
+import { eq, and, desc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
@@ -198,6 +216,49 @@ export interface IStorage {
   // Credit Transaction operations
   createCreditTransaction(transaction: InsertCreditTransaction): Promise<CreditTransaction>;
   getCreditTransactions(organizationId: string): Promise<CreditTransaction[]>;
+
+  // Subscription Plan operations
+  getPlans(): Promise<Plan[]>;
+  getActivePlans(): Promise<Plan[]>;
+  getPlan(id: string): Promise<Plan | undefined>;
+  getPlanByCode(code: string): Promise<Plan | undefined>;
+  createPlan(plan: InsertPlan): Promise<Plan>;
+  updatePlan(id: string, updates: Partial<InsertPlan>): Promise<Plan>;
+
+  // Country Pricing Override operations
+  getCountryPricingOverride(countryCode: string, planId: string): Promise<CountryPricingOverride | undefined>;
+  getCountryPricingOverridesByCountry(countryCode: string): Promise<CountryPricingOverride[]>;
+  getAllCountryPricingOverrides(): Promise<CountryPricingOverride[]>;
+  createCountryPricingOverride(override: InsertCountryPricingOverride): Promise<CountryPricingOverride>;
+  updateCountryPricingOverride(id: string, updates: Partial<InsertCountryPricingOverride>): Promise<CountryPricingOverride>;
+  deleteCountryPricingOverride(id: string): Promise<void>;
+
+  // Subscription operations
+  createSubscription(subscription: InsertSubscription): Promise<Subscription>;
+  getSubscription(id: string): Promise<Subscription | undefined>;
+  getSubscriptionByOrganization(organizationId: string): Promise<Subscription | undefined>;
+  getSubscriptionByStripeId(stripeSubscriptionId: string): Promise<Subscription | undefined>;
+  updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription>;
+  cancelSubscription(id: string): Promise<Subscription>;
+
+  // Credit Batch operations
+  createCreditBatch(batch: InsertCreditBatch): Promise<CreditBatch>;
+  getCreditBatch(id: string): Promise<CreditBatch | undefined>;
+  getCreditBatchesByOrganization(organizationId: string): Promise<CreditBatch[]>;
+  getAvailableCreditBatches(organizationId: string): Promise<CreditBatch[]>;
+  updateCreditBatch(id: string, updates: Partial<InsertCreditBatch>): Promise<CreditBatch>;
+  expireCreditBatch(id: string): Promise<CreditBatch>;
+
+  // Credit Ledger operations
+  createCreditLedgerEntry(entry: InsertCreditLedger): Promise<CreditLedger>;
+  getCreditLedgerByOrganization(organizationId: string, limit?: number): Promise<CreditLedger[]>;
+  getCreditBalance(organizationId: string): Promise<{ total: number; rolled: number; current: number; expiresOn: Date | null }>;
+
+  // Top-up Order operations
+  createTopupOrder(order: InsertTopupOrder): Promise<TopupOrder>;
+  getTopupOrder(id: string): Promise<TopupOrder | undefined>;
+  getTopupOrdersByOrganization(organizationId: string): Promise<TopupOrder[]>;
+  updateTopupOrder(id: string, updates: Partial<InsertTopupOrder>): Promise<TopupOrder>;
 
   // Block operations
   createBlock(block: InsertBlock & { organizationId: string }): Promise<Block>;
@@ -2458,6 +2519,295 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return config;
+  }
+
+  // ==================== SUBSCRIPTION SYSTEM OPERATIONS ====================
+  
+  // Subscription Plan operations
+  async getPlans(): Promise<Plan[]> {
+    return await db.select().from(plans).orderBy(plans.monthlyPriceGbp);
+  }
+
+  async getActivePlans(): Promise<Plan[]> {
+    return await db
+      .select()
+      .from(plans)
+      .where(eq(plans.isActive, true))
+      .orderBy(plans.monthlyPriceGbp);
+  }
+
+  async getPlan(id: string): Promise<Plan | undefined> {
+    const [plan] = await db.select().from(plans).where(eq(plans.id, id));
+    return plan;
+  }
+
+  async getPlanByCode(code: string): Promise<Plan | undefined> {
+    const [plan] = await db.select().from(plans).where(eq(plans.code, code as any));
+    return plan;
+  }
+
+  async createPlan(planData: InsertPlan): Promise<Plan> {
+    const [plan] = await db.insert(plans).values(planData).returning();
+    return plan;
+  }
+
+  async updatePlan(id: string, updates: Partial<InsertPlan>): Promise<Plan> {
+    const [plan] = await db
+      .update(plans)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(plans.id, id))
+      .returning();
+    return plan;
+  }
+
+  // Country Pricing Override operations
+  async getCountryPricingOverride(countryCode: string, planId: string): Promise<CountryPricingOverride | undefined> {
+    const now = new Date();
+    const [override] = await db
+      .select()
+      .from(countryPricingOverrides)
+      .where(
+        and(
+          eq(countryPricingOverrides.countryCode, countryCode),
+          eq(countryPricingOverrides.planId, planId),
+          lte(countryPricingOverrides.activeFrom, now),
+          or(
+            isNull(countryPricingOverrides.activeTo),
+            gte(countryPricingOverrides.activeTo, now)
+          )
+        )
+      );
+    return override;
+  }
+
+  async getCountryPricingOverridesByCountry(countryCode: string): Promise<CountryPricingOverride[]> {
+    const now = new Date();
+    return await db
+      .select()
+      .from(countryPricingOverrides)
+      .where(
+        and(
+          eq(countryPricingOverrides.countryCode, countryCode),
+          lte(countryPricingOverrides.activeFrom, now),
+          or(
+            isNull(countryPricingOverrides.activeTo),
+            gte(countryPricingOverrides.activeTo, now)
+          )
+        )
+      );
+  }
+
+  async getAllCountryPricingOverrides(): Promise<CountryPricingOverride[]> {
+    return await db
+      .select()
+      .from(countryPricingOverrides)
+      .orderBy(countryPricingOverrides.countryCode, countryPricingOverrides.planId);
+  }
+
+  async createCountryPricingOverride(overrideData: InsertCountryPricingOverride): Promise<CountryPricingOverride> {
+    const [override] = await db.insert(countryPricingOverrides).values(overrideData).returning();
+    return override;
+  }
+
+  async updateCountryPricingOverride(id: string, updates: Partial<InsertCountryPricingOverride>): Promise<CountryPricingOverride> {
+    const [override] = await db
+      .update(countryPricingOverrides)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(countryPricingOverrides.id, id))
+      .returning();
+    return override;
+  }
+
+  async deleteCountryPricingOverride(id: string): Promise<void> {
+    await db.delete(countryPricingOverrides).where(eq(countryPricingOverrides.id, id));
+  }
+
+  // Subscription operations
+  async createSubscription(subscriptionData: InsertSubscription): Promise<Subscription> {
+    const [subscription] = await db.insert(subscriptions).values(subscriptionData).returning();
+    return subscription;
+  }
+
+  async getSubscription(id: string): Promise<Subscription | undefined> {
+    const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.id, id));
+    return subscription;
+  }
+
+  async getSubscriptionByOrganization(organizationId: string): Promise<Subscription | undefined> {
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.organizationId, organizationId))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(1);
+    return subscription;
+  }
+
+  async getSubscriptionByStripeId(stripeSubscriptionId: string): Promise<Subscription | undefined> {
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId));
+    return subscription;
+  }
+
+  async updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription> {
+    const [subscription] = await db
+      .update(subscriptions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return subscription;
+  }
+
+  async cancelSubscription(id: string): Promise<Subscription> {
+    const [subscription] = await db
+      .update(subscriptions)
+      .set({ 
+        cancelAtPeriodEnd: true,
+        status: 'cancelled' as any,
+        updatedAt: new Date() 
+      })
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return subscription;
+  }
+
+  // Credit Batch operations
+  async createCreditBatch(batchData: InsertCreditBatch): Promise<CreditBatch> {
+    const [batch] = await db.insert(creditBatches).values(batchData).returning();
+    return batch;
+  }
+
+  async getCreditBatch(id: string): Promise<CreditBatch | undefined> {
+    const [batch] = await db.select().from(creditBatches).where(eq(creditBatches.id, id));
+    return batch;
+  }
+
+  async getCreditBatchesByOrganization(organizationId: string): Promise<CreditBatch[]> {
+    return await db
+      .select()
+      .from(creditBatches)
+      .where(eq(creditBatches.organizationId, organizationId))
+      .orderBy(desc(creditBatches.grantedAt));
+  }
+
+  async getAvailableCreditBatches(organizationId: string): Promise<CreditBatch[]> {
+    const now = new Date();
+    return await db
+      .select()
+      .from(creditBatches)
+      .where(
+        and(
+          eq(creditBatches.organizationId, organizationId),
+          sql`${creditBatches.remainingQuantity} > 0`,
+          or(
+            isNull(creditBatches.expiresAt),
+            gte(creditBatches.expiresAt, now)
+          )
+        )
+      )
+      .orderBy(creditBatches.expiresAt, creditBatches.grantedAt); // FIFO: oldest expiry first
+  }
+
+  async updateCreditBatch(id: string, updates: Partial<InsertCreditBatch>): Promise<CreditBatch> {
+    const [batch] = await db
+      .update(creditBatches)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(creditBatches.id, id))
+      .returning();
+    return batch;
+  }
+
+  async expireCreditBatch(id: string): Promise<CreditBatch> {
+    const [batch] = await db
+      .update(creditBatches)
+      .set({ 
+        remainingQuantity: 0,
+        updatedAt: new Date() 
+      })
+      .where(eq(creditBatches.id, id))
+      .returning();
+    return batch;
+  }
+
+  // Credit Ledger operations
+  async createCreditLedgerEntry(entryData: InsertCreditLedger): Promise<CreditLedger> {
+    const [entry] = await db.insert(creditLedger).values(entryData).returning();
+    return entry;
+  }
+
+  async getCreditLedgerByOrganization(organizationId: string, limit: number = 100): Promise<CreditLedger[]> {
+    return await db
+      .select()
+      .from(creditLedger)
+      .where(eq(creditLedger.organizationId, organizationId))
+      .orderBy(desc(creditLedger.createdAt))
+      .limit(limit);
+  }
+
+  async getCreditBalance(organizationId: string): Promise<{ total: number; rolled: number; current: number; expiresOn: Date | null }> {
+    const now = new Date();
+    const batches = await db
+      .select()
+      .from(creditBatches)
+      .where(
+        and(
+          eq(creditBatches.organizationId, organizationId),
+          sql`${creditBatches.remainingQuantity} > 0`,
+          or(
+            isNull(creditBatches.expiresAt),
+            gte(creditBatches.expiresAt, now)
+          )
+        )
+      );
+
+    let total = 0;
+    let rolled = 0;
+    let current = 0;
+    let earliestExpiry: Date | null = null;
+
+    for (const batch of batches) {
+      total += batch.remainingQuantity;
+      if (batch.rolled) {
+        rolled += batch.remainingQuantity;
+      } else {
+        current += batch.remainingQuantity;
+      }
+      if (batch.expiresAt && (!earliestExpiry || batch.expiresAt < earliestExpiry)) {
+        earliestExpiry = batch.expiresAt;
+      }
+    }
+
+    return { total, rolled, current, expiresOn: earliestExpiry };
+  }
+
+  // Top-up Order operations
+  async createTopupOrder(orderData: InsertTopupOrder): Promise<TopupOrder> {
+    const [order] = await db.insert(topupOrders).values(orderData).returning();
+    return order;
+  }
+
+  async getTopupOrder(id: string): Promise<TopupOrder | undefined> {
+    const [order] = await db.select().from(topupOrders).where(eq(topupOrders.id, id));
+    return order;
+  }
+
+  async getTopupOrdersByOrganization(organizationId: string): Promise<TopupOrder[]> {
+    return await db
+      .select()
+      .from(topupOrders)
+      .where(eq(topupOrders.organizationId, organizationId))
+      .orderBy(desc(topupOrders.createdAt));
+  }
+
+  async updateTopupOrder(id: string, updates: Partial<InsertTopupOrder>): Promise<TopupOrder> {
+    const [order] = await db
+      .update(topupOrders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(topupOrders.id, id))
+      .returning();
+    return order;
   }
 
   async updateFixfloHealthCheck(
