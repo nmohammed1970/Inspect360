@@ -29,8 +29,9 @@ export function TagInput({ selectedTags, onTagsChange, placeholder = "Add tags..
       const res = await apiRequest("POST", "/api/tags", { name, color: getRandomColor() });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tags"] });
+    onSuccess: async () => {
+      // Wait for the tags query to refetch so new tag appears in dropdown
+      await queryClient.refetchQueries({ queryKey: ["/api/tags"] });
     },
   });
 
@@ -41,6 +42,7 @@ export function TagInput({ selectedTags, onTagsChange, placeholder = "Add tags..
     onTagsChange([...selectedTags, tag]);
     setNewTagName("");
     setSearchQuery("");
+    setOpen(false); // Close popover after creating tag
   };
 
   const handleAddTag = (tag: Tag) => {

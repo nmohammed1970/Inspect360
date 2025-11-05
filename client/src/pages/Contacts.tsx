@@ -59,15 +59,6 @@ export default function Contacts() {
       const res = await apiRequest("POST", "/api/contacts", data);
       return await res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      setDialogOpen(false);
-      setEditingContact(null);
-      toast({
-        title: "Success",
-        description: "Contact saved successfully",
-      });
-    },
     onError: (error: Error) => {
       toast({
         variant: "destructive",
@@ -81,15 +72,6 @@ export default function Contacts() {
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
       const res = await apiRequest("PATCH", `/api/contacts/${id}`, data);
       return await res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      setDialogOpen(false);
-      setEditingContact(null);
-      toast({
-        title: "Success",
-        description: "Contact updated successfully",
-      });
     },
     onError: (error: Error) => {
       toast({
@@ -228,10 +210,18 @@ export default function Contacts() {
         }
       }
       
+      // Invalidate and refetch contacts to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/contacts"] });
+      
       setDialogOpen(false);
       setEditingContact(null);
       setSelectedTags([]);
-      await queryClient.refetchQueries({ queryKey: ["/api/contacts"] });
+      
+      toast({
+        title: "Success",
+        description: editingContact ? "Contact updated successfully" : "Contact created successfully",
+      });
     } catch (error) {
       // Error handling is done in mutations
     }
