@@ -1,0 +1,380 @@
+Got it. Here’s a **plain-English, build-ready brief for Replit** to implement the “Subscription + Inspection Credits” pricing for Inspect360.
+
+---
+
+# Inspect360 – Subscription & Inspection Credits (Build Brief for Replit)
+
+## 0) Tech + ENV
+
+* **Stack**: Next.js (App Router) + Node/Express (API) + PostgreSQL (Prisma ORM) + Stripe Billing + Clerk/Auth0 (auth) + cron jobs (Bree/Cloudflare cron) + Redis (rate-limits/caching).
+* **Timezone**: All credit windows and renewals use **Europe/London**.
+* **ENV VARS**:
+
+  ```
+  DATABASE_URL=postgres://...
+  STRIPE_SECRET_KEY=sk_live_...
+  STRIPE_WEBHOOK_SECRET=whsec_...
+  APP_BASE_URL=https://inspect360.ai
+  DEFAULT_TIMEZONE=Europe/London
+  REDIS_URL=...
+  EMAIL_FROM=noreply@inspect360.ai
+  ```
+* **Feature Flags** (table `feature_flags`): `credit_rollover_enabled`, `country_pricing_overrides_enabled`, `ai_addon_costing_enabled`.
+
+---
+
+## 1) Pricing Model (Business Rules)
+
+* Customers subscribe to one of the monthly plans (billed via Stripe):
+
+  * **Starter**: £49/month → **50 credits**/billing cycle
+  * **Professional**: £149/month → **200 credits**
+  * **Enterprise**: £349/month → **500 credits**
+  * **Enterprise+ (custom)**: Contracted allowance (nullable fields)
+* **1 inspection = 1 credit** by default.
+* Optional complexity multipliers:
+
+  * Large/Complex inspection = **2 credits**
+  * Large + AI intensive = **3 credits**
+* **Top-ups**: customers can buy credit packs anytime (100/500/1000) at admin-set prices (default £0.75/credit; volume discounts allowed).
+* **Rollover**: Unused credits **roll over for up to 1 cycle** (one month). Oldest credits are consumed first (FIFO). After the next renewal, any remaining rolled credits **expire**.
+* **Country pricing**: Prices and default allowances can be overridden per country at **Eco-Admin** level. Ex: ZA pricing/allowance may differ from UK/US.
+* **Fair usage**: If a plan is flagged “unlimited”, set a soft cap (e.g., 5,000 inspections/cycle). On exceed, require upgrade or enable pay-as-you-go.
+
+---
+
+## 2) Data Model (Prisma schema outline)
+
+Create/extend tables:
+
+### `plans`
+
+* `id`, `code` (starter|pro|enterprise|enterprise_plus), `name`, `monthly_price_gbp`, `included_credits`, `soft_cap`, `is_custom`, `is_active`
+
+### `country_pricing_overrides`
+
+* `id`, `country_code` (GB, US, ZA, …), `plan_id`, `monthly_price_minor_units`, `included_credits_override`, `topup_price_per_credit_minor_units`, `currency` (GBP/ZAR/USD), `active_from`, `active_to`
+
+### `organisations`
+
+* `id`, `name`, `country_code`, `stripe_customer_id`, `current_plan_id`, `status` (trialing|active|past_due|canceled), `trial_end_at`, `created_at`
+
+### `subscriptions`
+
+* `id`, `org_id`, `plan_snapshot_json` (price, allowance, currency at purchase), `stripe_subscription_id`, `billing_cycle_anchor`, `current_period_start`, `current_period_end`, `status`, `cancel_at_period_end`
+
+### `credit_ledger`
+
+* Records every movement of credits.
+* `id`, `org_id`, `source` (plan_inclusion|topup|admin_grant|refund|adjustment|consumption|expiry),
+  `quantity` (signed int; positive for grants, negative for consumption),
+  `unit_cost_minor_units` (nullable; for valuation),
+  `batch_id` (groups grants), `notes`, `created_at`
+
+### `credit_batches`
+
+* Tracks grant lots for FIFO & expiry.
+* `id`, `org_id`, `granted_quantity`, `remaining_quantity`, `grant_source` (plan|topup|admin), `granted_at`, `expires_at`, `unit_cost_minor_units`, `metadata_json`
+
+### `inspections`
+
+* `id`, `org_id`, `type` (check-in|check-out|routine|void|compliance),
+  `complexity` (1|2|3), `status` (draft|submitted|final),
+  `credit_cost` (denormalised, default 1..3), `consumed_credit_ledger_id` (link),
+  `performed_at`, `created_at`
+
+### `topup_orders`
+
+* `id`, `org_id`, `pack_size` (100|500|1000|custom), `unit_price_minor_units`, `currency`,
+  `stripe_payment_intent_id`, `status` (pending|paid|failed|refunded), `delivered_batch_id`, `created_at`
+
+### `feature_flags` (global)
+
+* `key` (PK), `value_json`, `updated_at`
+
+---
+
+## 3) API Endpoints (REST; secure with org-scoped auth)
+
+### Subscriptions
+
+* `POST /api/billing/checkout-session`
+  **Body**: `{ planCode, billingCycle: 'monthly'|'annual' }`
+  **Action**: Creates Stripe Checkout for the plan; attaches to org; returns checkout URL.
+
+* `POST /api/billing/portal`
+  Returns Stripe Billing Portal URL for plan changes, card updates, cancel/pause.
+
+* **Stripe Webhooks** `POST /api/billing/webhook`
+
+  * Handle: `checkout.session.completed`, `customer.subscription.created|updated|deleted`, `invoice.paid`, `invoice.payment_failed`.
+  * On `…subscription.created` or new cycle (from `invoice.paid`):
+
+    1. Calculate **included credits** (respect country overrides).
+    2. Grant a **new credit batch** with `expires_at = next_cycle_end` (if rollover enabled, see §4).
+    3. If rollover: carry unused balance from previous cycle into **rolled batch** with `expires_at = next_cycle_end` (and mark the previous rolled batch expired).
+
+### Credits
+
+* `GET /api/credits/balance` → `{ activeCredits, rolledCredits, total, expiresOn }`
+* `GET /api/credits/ledger?cursor=…` → paginated movements
+* `POST /api/credits/topup/checkout`
+  **Body**: `{ packSize: 100|500|1000 }` → Stripe Checkout session URL
+* `POST /api/credits/admin/grant` (admin only)
+  **Body**: `{ orgId, quantity, reason }`
+
+### Inspections (credit consumption)
+
+* `POST /api/inspections` (create draft; **no credits consumed**)
+
+* `POST /api/inspections/:id/submit`
+  **Action**:
+
+  1. Compute `credit_cost` based on `complexity` and enabled add-ons (AI).
+  2. **Consume credits FIFO** from `credit_batches`: decrement `remaining_quantity`; write negative entry to `credit_ledger` with `source='consumption'` and link to inspection.
+  3. If insufficient credits, respond `402 Payment Required` with `{ neededCredits, options: ['topup','upgrade'] }`.
+
+* `POST /api/inspections/:id/revert`
+  If inspection was **submitted within 24h** and not viewed by client, restore credits by reversing ledger movement (write `adjustment` credit).
+
+---
+
+## 4) Rollover Mechanics (one-cycle FIFO)
+
+* At the moment a new cycle starts:
+
+  1. **Expire** any leftover “rolled” batch from prior cycle (write `expiry` negative ledger, set batch `remaining_quantity=0`).
+  2. **Roll** any `remaining_quantity` from last cycle’s “main” batch into a **new batch** with `expires_at = current_period_end`. Flag it `rolled=true`.
+  3. **Grant** the new cycle’s normal allowance as a fresh batch with `expires_at = current_period_end`.
+* **Consumption order**:
+
+  * Consume from **oldest expiring batches first** → typically the **rolled batch** first, then the new cycle batch, then any admin/top-up batches with earlier expiry.
+* If `feature_flags.credit_rollover_enabled=false`, **skip step 2** entirely.
+
+---
+
+## 5) Country-Level Pricing (Eco-Admin)
+
+* Build an **Eco-Admin UI** to:
+
+  * Select **country** and **plan**, set:
+
+    * `monthly_price`, `included_credits_override`, `currency`, `topup_price_per_credit`, and date range.
+  * Save to `country_pricing_overrides`.
+* API must resolve pricing/allowance in this order:
+
+  1. country override active for org.country_code → use override
+  2. else use base plan defaults
+
+---
+
+## 6) Stripe Objects
+
+* **Products/Prices** for each plan per country/currency (or dynamically set via overrides if using metered billing is out-of-scope).
+* **Checkout Session** for subscription sign-up, and for **one-time** top-ups.
+* **Billing Portal** for self-serve upgrades/downgrades/cancel.
+* Webhook idempotency: store `webhook_events(idempotency_key)` to avoid double-granting.
+
+---
+
+## 7) Credit Costing Rules (extensible)
+
+* Base: `credit_cost = complexity` where `complexity ∈ {1,2,3}`
+* If `ai_addon_costing_enabled=true` and inspection uses heavy AI:
+
+  * add `+1` credit (cap at 3 unless admin overrides)
+* Allow **per-template** overrides:
+
+  * `templates.credit_cost_override` nullable int; if present, use that.
+
+Admin UI for rule editing:
+
+* Toggle AI add-on costing
+* Set credit cost per inspection type/template
+* Preview: show example properties → expected credit costs
+
+---
+
+## 8) Jobs/Crons
+
+* **Daily at 02:00 Europe/London**:
+
+  * Expire batches where `expires_at < now()`, write `expiry` ledger line.
+  * Send **low balance alerts** at thresholds (75%, 90%, 100%) via email/in-app.
+* **Hourly**:
+
+  * Recalculate and cache `org.credit_balance_summary` in Redis for snappy UI.
+* **On period start (via webhook)**:
+
+  * Apply rollover processing (§4).
+
+---
+
+## 9) UI/UX Requirements
+
+* **Billing page** (org scope):
+
+  * Current plan, renewal date, country currency, change-plan button (Stripe portal)
+  * **Credits widget**: total, rolled vs current cycle, days until expiry, usage chart
+  * **Top-up** CTA with 100/500/1000 packs
+* **At point of submit** (inspection):
+
+  * Show **credit cost** and **remaining after submit**
+  * If short, show modal → “Buy Top-Up” or “Upgrade Plan”
+* **Receipts**:
+
+  * For top-ups, show invoice (Stripe URL) + ledger link
+* **Audit**:
+
+  * Ledger table with filters: source, date, inspection id
+
+---
+
+## 10) Security & Limits
+
+* All endpoints org-scoped; users must belong to org.
+* Rate-limit: `POST /submit` 5/min per user.
+* Idempotency: client sends `Idempotency-Key` on submit.
+* Validation: never allow negative batch `remaining_quantity`.
+
+---
+
+## 11) Tests (high-priority)
+
+* **Unit**:
+
+  * FIFO consumption across multiple batches
+  * Rollover grant/expire correctness
+  * Downgrade plan mid-cycle → **no retro changes**, new plan at next cycle
+  * Revert inspection within 24h returns credits correctly
+* **Integration**:
+
+  * Webhook sequences: `invoice.paid` → grant; `…payment_failed` → freeze top-ups; `…deleted` → stop grants
+  * Country overrides selection logic
+* **Edge Cases**:
+
+  * Submit with exactly 0 remaining after consumption
+  * Submit with deficit of 1 credit → 402 path
+  * Admin manual grant then consumption order
+
+---
+
+## 12) Seed Data (for Dev)
+
+* Plans:
+
+  * starter(£49, 50), pro(£149, 200), enterprise(£349, 500)
+* Country overrides:
+
+  * ZA: starter ZAR 799, 60 credits; top-up ZAR price per credit override
+* One test org in GB and one in ZA
+* A few inspections of different complexity
+
+---
+
+## 13) Migration Order (Prisma)
+
+1. `plans`, `country_pricing_overrides`, `organisations`, `subscriptions`
+2. `credit_batches`, `credit_ledger`
+3. `inspections`
+4. `topup_orders`, `feature_flags`
+5. Add indexes:
+
+   * `credit_batches(org_id, expires_at)`
+   * `credit_ledger(org_id, created_at)`
+   * `subscriptions(org_id, current_period_end)`
+
+---
+
+## 14) Pseudocode – Submit Inspection
+
+```ts
+function submitInspection(orgId, inspectionId) {
+  const insp = db.inspections.find(inspectionId, orgId);
+  assert(insp.status === 'draft');
+
+  const creditCost = computeCreditCost(insp); // 1..3 with rules
+  let remainingToConsume = creditCost;
+
+  const batches = db.credit_batches
+    .where({ org_id: orgId, remaining_quantity > 0, expires_at >= now })
+    .orderBy('expires_at ASC, granted_at ASC');
+
+  for (const b of batches) {
+    const take = Math.min(b.remaining_quantity, remainingToConsume);
+    if (take > 0) {
+      db.credit_batches.update(b.id, { remaining_quantity: b.remaining_quantity - take });
+      db.credit_ledger.insert({
+        org_id: orgId,
+        source: 'consumption',
+        quantity: -take,
+        batch_id: b.id,
+        notes: `inspection:${inspectionId}`
+      });
+      remainingToConsume -= take;
+      if (remainingToConsume === 0) break;
+    }
+  }
+
+  if (remainingToConsume > 0) {
+    throw PaymentRequiredError({ neededCredits: remainingToConsume });
+  }
+
+  db.inspections.update(inspectionId, {
+    status: 'submitted',
+    credit_cost: creditCost
+  });
+}
+```
+
+---
+
+## 15) Admin & Eco-Admin Screens
+
+* **Plan catalogue**: create/edit base plans, toggle active
+* **Country overrides**: CRUD with date ranges
+* **Credit rules**: AI toggle, template overrides
+* **Manual credit grant/adjust** with notes
+* **Reports**:
+
+  * MRR by country/plan
+  * Credits purchased vs consumed
+  * Expired credits (liability reduction)
+  * Orgs at 75%/90% usage (upsell list)
+
+---
+
+## 16) Events & Notifications
+
+* **Low credits** at 75%, 90%, 100% (email + in-app)
+* **Cycle start**: email summary of new allowance + rolled amount + expiry date
+* **Payment failed**: dunning email + banner; block top-ups until resolved
+* **Approaching expiry** (3 days before): prompt consumption/top-up
+
+---
+
+## 17) Copy/Labels (product)
+
+* “Inspection Credits” = currency to submit final inspections.
+* “Rolled Credits” = last cycle’s leftover, auto-used first, expires end of current cycle.
+* “Top-Up Credits” = purchased anytime, same expiry rule as plan-granted unless admin sets longer.
+
+---
+
+## 18) Acceptance Criteria
+
+* New subscription → **auto grant** credits (consider country overrides)
+* End of cycle with rollover on → prior remainder becomes **rolled batch**, previous rolled expires
+* Submit inspection consumes credits FIFO; block and surface top-up/upgrade path if insufficient
+* Stripe webhooks idempotent; no duplicate grants
+* Admin can change override pricing; new subscribers use new pricing, existing keep current until change
+* Balance endpoint reflects true available credits within **<100ms p95** using Redis cache
+
+---
+
+If you want, I can also generate:
+
+* Prisma schema boilerplate,
+* Stripe product/price seed script,
+* Next.js pages for Billing & Credits,
+* A Postman collection for all endpoints.
