@@ -1704,6 +1704,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate request body
       const validation = inspectFieldSchema.safeParse(req.body);
       if (!validation.success) {
+        console.error("[InspectAI] Validation failed:", validation.error.errors);
+        console.error("[InspectAI] Request body:", req.body);
         return res.status(400).json({ 
           message: "Invalid request data", 
           errors: validation.error.errors 
@@ -1754,12 +1756,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(402).json({ message: "Insufficient credits" });
       }
 
-      // Construct full photo URLs
-      const photoUrls = photos.map(photo => 
-        photo.startsWith("http") 
-          ? photo 
-          : `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/objects/${photo}`
-      );
+      // Construct full photo URLs - convert /objects/ paths to publicly accessible Google Storage URLs
+      const objectStorageService = new ObjectStorageService();
+      const photoUrls = await Promise.all(photos.map(async (photo) => {
+        // If already a full URL, use it directly
+        if (photo.startsWith("http")) {
+          return photo;
+        }
+        
+        // If it's an /objects/ path, get the publicly accessible Google Storage URL
+        try {
+          const objectFile = await objectStorageService.getObjectEntityFile(photo);
+          // Get the public URL for the file (this will be the Google Storage URL)
+          const publicUrl = objectFile.publicUrl();
+          return publicUrl;
+        } catch (error) {
+          console.error("[InspectAI] Error getting public URL for photo:", photo, error);
+          // Fallback: construct URL to our proxy (may not work for OpenAI)
+          const path = photo.startsWith("/objects/") ? photo : `/objects/${photo}`;
+          const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+          const baseUrl = domain 
+            ? (domain.startsWith("http") ? domain : `https://${domain}`)
+            : "http://localhost:5000";
+          return `${baseUrl}${path}`;
+        }
+      }));
 
       // Build the prompt with field context
       let promptText = `Analyze the following inspection point: "${fieldLabel}"`;
@@ -1792,6 +1813,8 @@ Be thorough, specific, and objective. This will be used in a professional proper
           }
         });
       });
+
+      console.log("[InspectAI] Sending to OpenAI - Photo URLs:", photoUrls);
 
       // Call OpenAI Vision API
       const response = await getOpenAI().chat.completions.create({

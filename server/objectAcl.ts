@@ -22,11 +22,25 @@ export async function setObjectAclPolicy(
     throw new Error(`Object not found: ${objectFile.name}`);
   }
 
+  // Set custom metadata for our app's ACL logic
   await objectFile.setMetadata({
     metadata: {
       [ACL_POLICY_METADATA_KEY]: JSON.stringify(aclPolicy),
     },
   });
+
+  // If visibility is public, actually make the file publicly readable in Google Cloud Storage
+  // This allows external services like OpenAI to access the file
+  if (aclPolicy.visibility === "public") {
+    try {
+      await objectFile.makePublic();
+      console.log(`[ObjectStorage] Made file public: ${objectFile.name}`);
+    } catch (error) {
+      console.error(`[ObjectStorage] Error making file public:`, error);
+      // Throw the error - if we can't make it public, OpenAI won't be able to access it
+      throw new Error(`Failed to make file publicly accessible: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
 }
 
 export async function getObjectAclPolicy(

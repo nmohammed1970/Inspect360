@@ -1359,7 +1359,7 @@ export const inspectFieldSchema = z.object({
   fieldKey: z.string().min(1, "Field key is required"),
   fieldLabel: z.string().min(1, "Field label is required"),
   fieldDescription: z.string().optional(),
-  photos: z.array(z.string().url("Invalid photo URL")).min(1, "At least one photo is required"),
+  photos: z.array(z.string().min(1, "Photo path or URL is required")).min(1, "At least one photo is required"),
 });
 
 export const generateComparisonSchema = z.object({

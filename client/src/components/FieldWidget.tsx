@@ -240,19 +240,38 @@ export function FieldWidget({
       const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
       if (uploadUrl) {
         const rawPhotoUrl = uploadUrl.split("?")[0];
-        // Normalize Google Storage URL to local /objects/ path
+        
+        // Set ACL to public so OpenAI can access the photo
         try {
-          const normalizeRes = await fetch("/api/objects/normalize", {
-            method: "POST",
+          const aclResponse = await fetch("/api/objects/set-acl", {
+            method: "PUT",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({ photoUrl: rawPhotoUrl }),
           });
-          const { normalizedPath } = await normalizeRes.json();
-          handlePhotoAdd(normalizedPath || rawPhotoUrl);
-        } catch (err) {
-          // Fallback to raw URL if normalization fails
-          handlePhotoAdd(rawPhotoUrl);
+          
+          if (!aclResponse.ok) {
+            const errorData = await aclResponse.json().catch(() => ({ error: "Unknown error" }));
+            throw new Error(errorData.error || `ACL setting failed with status ${aclResponse.status}`);
+          }
+          
+          const { objectPath } = await aclResponse.json();
+          
+          if (!objectPath) {
+            throw new Error("No object path returned from ACL setting");
+          }
+          
+          // Use the object path (which is now publicly accessible)
+          handlePhotoAdd(objectPath);
+        } catch (err: any) {
+          console.error("Error setting photo ACL:", err);
+          toast({
+            title: "Upload Error",
+            description: err.message || "Failed to make photo accessible for AI analysis. Please try again.",
+            variant: "destructive",
+          });
+          // Do NOT add the photo to the list if ACL setting failed
+          // This prevents non-public photos from breaking the AI analysis pipeline
         }
       }
     });
