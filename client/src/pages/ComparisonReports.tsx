@@ -1,11 +1,29 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FileText, ArrowRight, User, Building2, Calendar, DollarSign } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { FileText, ArrowRight, User, Building2, Calendar, DollarSign, Plus } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface ComparisonReport {
   id: string;
@@ -28,12 +46,61 @@ const statusConfig = {
 };
 
 export default function ComparisonReports() {
+  const { toast } = useToast();
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState("");
+  const [selectedCheckInId, setSelectedCheckInId] = useState("");
+  const [selectedCheckOutId, setSelectedCheckOutId] = useState("");
+
   const { data: reports = [], isLoading } = useQuery<ComparisonReport[]>({
     queryKey: ["/api/comparison-reports"],
   });
 
   const { data: properties = [] } = useQuery<any[]>({
     queryKey: ["/api/properties"],
+  });
+
+  // Fetch all inspections
+  const { data: allInspections = [] } = useQuery<any[]>({
+    queryKey: ["/api/inspections/my"],
+  });
+
+  // Filter inspections by selected property and type
+  const checkInInspections = allInspections.filter(
+    (i) => i.propertyId === selectedPropertyId && i.type === "check_in" && i.status === "completed"
+  );
+  
+  const checkOutInspections = allInspections.filter(
+    (i) => i.propertyId === selectedPropertyId && i.type === "check_out" && i.status === "completed"
+  );
+
+  const generateReportMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/comparison-reports", {
+        propertyId: selectedPropertyId,
+        checkInInspectionId: selectedCheckInId,
+        checkOutInspectionId: selectedCheckOutId,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/comparison-reports"] });
+      setIsDialogOpen(false);
+      setSelectedPropertyId("");
+      setSelectedCheckInId("");
+      setSelectedCheckOutId("");
+      toast({
+        title: "Success",
+        description: "Comparison report generated successfully. AI analysis is processing...",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to generate comparison report",
+      });
+    },
   });
 
   const getPropertyName = (propertyId: string) => {
@@ -53,6 +120,96 @@ export default function ComparisonReports() {
             AI-powered check-in vs check-out analysis with cost estimation and signatures
           </p>
         </div>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button data-testid="button-generate-report">
+              <Plus className="w-4 h-4 mr-2" />
+              Generate Report
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Generate Comparison Report</DialogTitle>
+              <DialogDescription>
+                Compare check-in and check-out inspections to analyze damages and estimate costs. Costs 2 credits.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Property</label>
+                <Select value={selectedPropertyId} onValueChange={setSelectedPropertyId}>
+                  <SelectTrigger data-testid="select-property">
+                    <SelectValue placeholder="Select property" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {properties.map((property) => (
+                      <SelectItem key={property.id} value={property.id}>
+                        {property.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedPropertyId && (
+                <>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Check-In Inspection</label>
+                    <Select value={selectedCheckInId} onValueChange={setSelectedCheckInId}>
+                      <SelectTrigger data-testid="select-check-in">
+                        <SelectValue placeholder="Select check-in inspection" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {checkInInspections.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No completed check-in inspections
+                          </div>
+                        ) : (
+                          checkInInspections.map((inspection) => (
+                            <SelectItem key={inspection.id} value={inspection.id}>
+                              {format(new Date(inspection.scheduledDate), "MMM d, yyyy")}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Check-Out Inspection</label>
+                    <Select value={selectedCheckOutId} onValueChange={setSelectedCheckOutId}>
+                      <SelectTrigger data-testid="select-check-out">
+                        <SelectValue placeholder="Select check-out inspection" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {checkOutInspections.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No completed check-out inspections
+                          </div>
+                        ) : (
+                          checkOutInspections.map((inspection) => (
+                            <SelectItem key={inspection.id} value={inspection.id}>
+                              {format(new Date(inspection.scheduledDate), "MMM d, yyyy")}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+
+              <Button
+                className="w-full"
+                onClick={() => generateReportMutation.mutate()}
+                disabled={!selectedPropertyId || !selectedCheckInId || !selectedCheckOutId || generateReportMutation.isPending}
+                data-testid="button-confirm-generate"
+              >
+                {generateReportMutation.isPending ? "Generating..." : "Generate Report (2 credits)"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {isLoading ? (
@@ -74,9 +231,13 @@ export default function ComparisonReports() {
           <CardContent className="flex flex-col items-center justify-center py-16">
             <FileText className="w-16 h-16 text-muted-foreground/50 mb-4" />
             <h3 className="text-xl font-semibold mb-2">No Comparison Reports</h3>
-            <p className="text-muted-foreground text-center max-w-md">
-              Comparison reports are automatically generated when a check-out inspection is completed with items marked for review.
+            <p className="text-muted-foreground text-center max-w-md mb-4">
+              Generate comparison reports to analyze check-in vs check-out inspections with AI-powered cost estimation.
             </p>
+            <Button onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
+              <Plus className="w-4 h-4 mr-2" />
+              Generate Your First Report
+            </Button>
           </CardContent>
         </Card>
       ) : (
