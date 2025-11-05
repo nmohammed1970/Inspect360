@@ -48,6 +48,7 @@ interface InspectionEntry {
   note?: string;
   photos?: string[];
   maintenanceFlag?: boolean;
+  markedForReview?: boolean;
 }
 
 export default function InspectionCapture() {
@@ -256,6 +257,7 @@ export default function InspectionCapture() {
       return;
     }
 
+    const existingEntry = entries[entryKey];
     const entry: InspectionEntry = {
       sectionRef: currentSection.id,
       fieldKey,
@@ -263,6 +265,7 @@ export default function InspectionCapture() {
       valueJson: value,
       note,
       photos,
+      markedForReview: existingEntry?.markedForReview || false,
     };
 
     // Update local state optimistically
@@ -273,6 +276,51 @@ export default function InspectionCapture() {
 
     // Save to backend
     updateEntry.mutate(entry);
+  };
+
+  // Handle mark for review change
+  const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean) => {
+    const entryKey = `${currentSection.id}-${fieldKey}`;
+    const entry = entries[entryKey];
+    
+    // Update local state optimistically
+    setEntries(prev => ({
+      ...prev,
+      [entryKey]: {
+        ...prev[entryKey],
+        markedForReview: marked,
+      }
+    }));
+
+    if (!entry?.id) {
+      // Entry doesn't exist yet - will be saved with markedForReview when created
+      return;
+    }
+
+    // Update on server
+    try {
+      const response = await fetch(`/api/inspection-entries/${entry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markedForReview: marked }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update mark for review",
+      });
+      // Revert optimistic update
+      setEntries(prev => ({
+        ...prev,
+        [entryKey]: {
+          ...prev[entryKey],
+          markedForReview: !marked,
+        }
+      }));
+    }
   };
 
   // Navigate sections
@@ -476,7 +524,10 @@ export default function InspectionCapture() {
                   photos={entry?.photos}
                   inspectionId={id}
                   entryId={entry?.id}
+                  isCheckOut={inspection?.type === "check_out"}
+                  markedForReview={entry?.markedForReview || false}
                   onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
+                  onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
                 />
               );
             })}

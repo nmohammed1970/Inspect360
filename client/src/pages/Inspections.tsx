@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,6 +83,36 @@ export default function Inspections() {
       notes: "",
     },
   });
+
+  // Auto-select matching template when inspection type changes
+  const watchedType = form.watch("type");
+  useEffect(() => {
+    if (templates.length === 0) return;
+    
+    // Map inspection types to template names
+    const typeToTemplateName: Record<string, string> = {
+      check_in: "Check In",
+      check_out: "Check Out",
+    };
+    
+    const expectedTemplateName = typeToTemplateName[watchedType];
+    
+    if (expectedTemplateName) {
+      // Auto-select matching template for check-in/check-out
+      const matchingTemplate = templates.find(
+        (t: any) => t.name === expectedTemplateName && t.isActive
+      );
+      if (matchingTemplate) {
+        form.setValue("templateId", matchingTemplate.id);
+      } else {
+        // No matching template found - clear selection
+        form.setValue("templateId", "__none__");
+      }
+    } else {
+      // Clear template selection for other types (routine, maintenance)
+      form.setValue("templateId", "__none__");
+    }
+  }, [watchedType, templates]);
 
   const createInspection = useMutation({
     mutationFn: async (data: CreateInspectionData) => {

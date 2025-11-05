@@ -35,10 +35,24 @@ interface FieldWidgetProps {
   photos?: string[];
   inspectionId?: string;
   entryId?: string;
+  isCheckOut?: boolean; // Only show mark-for-review in Check Out inspections
+  markedForReview?: boolean;
   onChange: (value: any, note?: string, photos?: string[]) => void;
+  onMarkedForReviewChange?: (marked: boolean) => void;
 }
 
-export function FieldWidget({ field, value, note, photos, inspectionId, entryId, onChange }: FieldWidgetProps) {
+export function FieldWidget({ 
+  field, 
+  value, 
+  note, 
+  photos, 
+  inspectionId, 
+  entryId, 
+  isCheckOut,
+  markedForReview,
+  onChange,
+  onMarkedForReviewChange 
+}: FieldWidgetProps) {
   // Parse value - if field includes condition/cleanliness, value might be an object
   const parseValue = (val: any) => {
     if (val && typeof val === 'object' && (field.includeCondition || field.includeCleanliness)) {
@@ -57,6 +71,7 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
   const [localCleanliness, setLocalCleanliness] = useState(parsed.cleanliness);
   const [localNote, setLocalNote] = useState(note || "");
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
+  const [localMarkedForReview, setLocalMarkedForReview] = useState(markedForReview || false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
@@ -78,6 +93,18 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
   useEffect(() => {
     setLocalPhotos(photos || []);
   }, [photos]);
+
+  useEffect(() => {
+    setLocalMarkedForReview(markedForReview || false);
+  }, [markedForReview]);
+
+  // Auto-clear markedForReview when all photos are deleted
+  useEffect(() => {
+    if (isCheckOut && localPhotos.length === 0 && localMarkedForReview) {
+      setLocalMarkedForReview(false);
+      onMarkedForReviewChange?.(false);
+    }
+  }, [localPhotos, localMarkedForReview, isCheckOut, onMarkedForReviewChange]);
 
   const composeValue = (val: any, condition?: string, cleanliness?: string) => {
     if (field.includeCondition || field.includeCleanliness) {
@@ -721,6 +748,28 @@ export function FieldWidget({ field, value, note, photos, inspectionId, entryId,
           data-testid={`textarea-note-${field.id}`}
         />
       </div>
+
+      {/* Mark for Review - Only for Check Out inspections WITH photos */}
+      {isCheckOut && localPhotos.length > 0 && (
+        <div className="pt-3 flex items-center space-x-2">
+          <Checkbox
+            id={`mark-review-${field.id}`}
+            checked={localMarkedForReview}
+            onCheckedChange={(checked) => {
+              const isChecked = checked === true;
+              setLocalMarkedForReview(isChecked);
+              onMarkedForReviewChange?.(isChecked);
+            }}
+            data-testid={`checkbox-mark-review-${field.id}`}
+          />
+          <Label 
+            htmlFor={`mark-review-${field.id}`} 
+            className="text-sm font-medium cursor-pointer"
+          >
+            Mark for Comparison Report
+          </Label>
+        </div>
+      )}
     </div>
   );
 }
