@@ -44,6 +44,10 @@ export const templateScopeEnum = pgEnum("template_scope", ["block", "property", 
 export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature"]);
 export const maintenanceSourceEnum = pgEnum("maintenance_source", ["manual", "inspection", "tenant_portal", "routine"]);
 export const comparisonReportStatusEnum = pgEnum("comparison_report_status", ["draft", "under_review", "awaiting_signatures", "signed", "filed"]);
+export const currencyEnum = pgEnum("currency", ["GBP", "USD", "AED"]);
+export const planCodeEnum = pgEnum("plan_code", ["starter", "professional", "enterprise", "enterprise_plus"]);
+export const creditSourceEnum = pgEnum("credit_source", ["plan_inclusion", "topup", "admin_grant", "refund", "adjustment", "consumption", "expiry"]);
+export const topupStatusEnum = pgEnum("topup_status", ["pending", "paid", "failed", "refunded"]);
 
 // User storage table
 export const users = pgTable("users", {
@@ -140,6 +144,9 @@ export const organizations = pgTable("organizations", {
   stripeCustomerId: varchar("stripe_customer_id"),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").default("inactive"),
   subscriptionLevel: subscriptionLevelEnum("subscription_level").default("free"),
+  countryCode: varchar("country_code", { length: 2 }).default("GB"), // ISO 3166-1 alpha-2
+  currentPlanId: varchar("current_plan_id"),
+  trialEndAt: timestamp("trial_end_at"),
   isActive: boolean("is_active").default(true),
   creditsRemaining: integer("credits_remaining").default(5),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1429,6 +1436,166 @@ export const updateBlockSchema = z.object({
   address: z.string().min(1).optional(),
   notes: z.string().optional(),
 });
+
+// Subscription Plans
+export const plans = pgTable("plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: planCodeEnum("code").notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  monthlyPriceGbp: integer("monthly_price_gbp").notNull(), // Price in pence
+  includedCredits: integer("included_credits").notNull(),
+  softCap: integer("soft_cap").default(5000), // Fair usage limit for "unlimited" plans
+  isCustom: boolean("is_custom").default(false),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPlanSchema = createInsertSchema(plans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type Plan = typeof plans.$inferSelect;
+export type InsertPlan = z.infer<typeof insertPlanSchema>;
+
+// Country Pricing Overrides
+export const countryPricingOverrides = pgTable("country_pricing_overrides", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  countryCode: varchar("country_code", { length: 2 }).notNull(), // ISO 3166-1 alpha-2
+  planId: varchar("plan_id").notNull(),
+  currency: currencyEnum("currency").notNull(),
+  monthlyPriceMinorUnits: integer("monthly_price_minor_units").notNull(), // Price in smallest currency unit (pence, cents, fils)
+  includedCreditsOverride: integer("included_credits_override"),
+  topupPricePerCreditMinorUnits: integer("topup_price_per_credit_minor_units"), // Per-credit price for top-ups
+  activeFrom: timestamp("active_from").notNull().defaultNow(),
+  activeTo: timestamp("active_to"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_country_pricing_country_plan").on(table.countryCode, table.planId),
+]);
+
+export const insertCountryPricingOverrideSchema = createInsertSchema(countryPricingOverrides).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type CountryPricingOverride = typeof countryPricingOverrides.$inferSelect;
+export type InsertCountryPricingOverride = z.infer<typeof insertCountryPricingOverrideSchema>;
+
+// Subscriptions
+export const subscriptions = pgTable("subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  planSnapshotJson: jsonb("plan_snapshot_json").$type<{
+    planId: string;
+    planCode: string;
+    planName: string;
+    monthlyPrice: number;
+    includedCredits: number;
+    currency: string;
+  }>().notNull(),
+  stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
+  billingCycleAnchor: timestamp("billing_cycle_anchor").notNull(),
+  currentPeriodStart: timestamp("current_period_start").notNull(),
+  currentPeriodEnd: timestamp("current_period_end").notNull(),
+  status: subscriptionStatusEnum("status").notNull().default("active"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_subscriptions_org").on(table.organizationId),
+  index("idx_subscriptions_period_end").on(table.currentPeriodEnd),
+]);
+
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+
+// Credit Batches (for FIFO consumption and rollover tracking)
+export const creditBatches = pgTable("credit_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  grantedQuantity: integer("granted_quantity").notNull(),
+  remainingQuantity: integer("remaining_quantity").notNull(),
+  grantSource: creditSourceEnum("grant_source").notNull(), // plan_inclusion, topup, admin_grant
+  grantedAt: timestamp("granted_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"), // null for non-expiring batches
+  unitCostMinorUnits: integer("unit_cost_minor_units"), // For valuation
+  rolled: boolean("rolled").default(false), // Indicates if this batch came from a rollover
+  metadataJson: jsonb("metadata_json").$type<{
+    subscriptionId?: string;
+    topupOrderId?: string;
+    adminNotes?: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_credit_batches_org_expires").on(table.organizationId, table.expiresAt),
+  index("idx_credit_batches_org_granted").on(table.organizationId, table.grantedAt),
+]);
+
+export const insertCreditBatchSchema = createInsertSchema(creditBatches).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type CreditBatch = typeof creditBatches.$inferSelect;
+export type InsertCreditBatch = z.infer<typeof insertCreditBatchSchema>;
+
+// Credit Ledger (transaction log for all credit movements)
+export const creditLedger = pgTable("credit_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  source: creditSourceEnum("source").notNull(),
+  quantity: integer("quantity").notNull(), // Positive for grants, negative for consumption
+  batchId: varchar("batch_id"), // Links to credit_batches
+  unitCostMinorUnits: integer("unit_cost_minor_units"), // For valuation
+  notes: text("notes"),
+  linkedEntityType: varchar("linked_entity_type"), // e.g., "inspection", "topup_order"
+  linkedEntityId: varchar("linked_entity_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_credit_ledger_org_created").on(table.organizationId, table.createdAt),
+  index("idx_credit_ledger_batch").on(table.batchId),
+]);
+
+export const insertCreditLedgerSchema = createInsertSchema(creditLedger).omit({
+  id: true,
+  createdAt: true,
+});
+export type CreditLedger = typeof creditLedger.$inferSelect;
+export type InsertCreditLedger = z.infer<typeof insertCreditLedgerSchema>;
+
+// Top-up Orders
+export const topupOrders = pgTable("topup_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  packSize: integer("pack_size").notNull(), // 100, 500, 1000, or custom
+  currency: currencyEnum("currency").notNull(),
+  unitPriceMinorUnits: integer("unit_price_minor_units").notNull(),
+  totalPriceMinorUnits: integer("total_price_minor_units").notNull(),
+  stripePaymentIntentId: varchar("stripe_payment_intent_id"),
+  status: topupStatusEnum("status").notNull().default("pending"),
+  deliveredBatchId: varchar("delivered_batch_id"), // Links to credit_batches when delivered
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_topup_orders_org").on(table.organizationId),
+]);
+
+export const insertTopupOrderSchema = createInsertSchema(topupOrders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type TopupOrder = typeof topupOrders.$inferSelect;
+export type InsertTopupOrder = z.infer<typeof insertTopupOrderSchema>;
 
 // Message Templates (for broadcasting to tenants)
 export const messageTemplates = pgTable("message_templates", {
