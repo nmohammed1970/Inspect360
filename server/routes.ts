@@ -63,7 +63,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 // Initialize OpenAI using Replit AI Integrations (lazy initialization)
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+// Using gpt-4o for vision analysis - supports images and provides excellent results
 let openai: OpenAI | null = null;
 function getOpenAI(): OpenAI {
   if (!openai) {
@@ -1652,7 +1652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Call OpenAI Vision API
       const response = await getOpenAI().chat.completions.create({
-        model: "gpt-5",
+        model: "gpt-4o",
         messages: [
           {
             role: "user",
@@ -1670,7 +1670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ]
           }
         ],
-        max_completion_tokens: 300,
+        max_tokens: 300,
       });
 
       const analysis = response.choices[0]?.message?.content || "Unable to analyze image";
@@ -1823,14 +1823,14 @@ Be thorough, specific, and objective. This will be used in a professional proper
 
       // Call OpenAI Vision API
       const response = await getOpenAI().chat.completions.create({
-        model: "gpt-5",
+        model: "gpt-4o",
         messages: [
           {
             role: "user",
             content: content
           }
         ],
-        max_completion_tokens: 500,
+        max_tokens: 500,
       });
 
       const analysis = response.choices[0]?.message?.content || "Unable to analyze images";
@@ -1990,7 +1990,7 @@ Provide a detailed analysis in JSON format:
 Be objective and specific. Focus on actionable repairs.`;
 
                 const response = await getOpenAI().chat.completions.create({
-                  model: "gpt-5",
+                  model: "gpt-4o",
                   messages: [
                     {
                       role: "user",
@@ -5077,7 +5077,7 @@ Be objective and specific. Focus on actionable repairs.`;
       // Call OpenAI Vision API
       const openaiClient = getOpenAI();
       const response = await openaiClient.chat.completions.create({
-        model: "gpt-5",
+        model: "gpt-4o",
         messages: [
           {
             role: "user",
@@ -5106,7 +5106,7 @@ Be objective and specific. Focus on actionable repairs.`;
         inspectionId,
         inspectionEntryId,
         imageUrl,
-        analysisJson: { text: analysisText, model: "gpt-5" },
+        analysisJson: { text: analysisText, model: "gpt-4o" },
         createdBy: req.user.id
       });
       const analysis = await storage.createAiImageAnalysis(validatedData);
