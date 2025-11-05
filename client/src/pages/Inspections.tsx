@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +33,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, ClipboardList, Calendar, MapPin, User, Play, FileText } from "lucide-react";
+import { Plus, ClipboardList, Calendar, MapPin, User, Play, FileText, Filter } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 
@@ -56,6 +56,10 @@ export default function Inspections() {
   const shouldCreate = new URLSearchParams(searchParams).get("create");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
+  
+  // Filter state
+  const [filterBlockId, setFilterBlockId] = useState<string>("");
+  const [filterPropertyId, setFilterPropertyId] = useState<string>("");
 
   const { data: inspections = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inspections/my"],
@@ -63,6 +67,10 @@ export default function Inspections() {
 
   const { data: properties = [] } = useQuery<any[]>({
     queryKey: ["/api/properties"],
+  });
+
+  const { data: blocks = [] } = useQuery<any[]>({
+    queryKey: ["/api/blocks"],
   });
 
 
@@ -102,6 +110,45 @@ export default function Inspections() {
       }
     }
   }, [urlPropertyId, shouldCreate, properties, navigate]);
+
+  // Filter properties based on selected block
+  const filteredProperties = useMemo(() => {
+    if (!filterBlockId) return properties;
+    return properties.filter((p: any) => p.blockId === filterBlockId);
+  }, [properties, filterBlockId]);
+
+  // Filter inspections based on selected block and property
+  const filteredInspections = useMemo(() => {
+    let filtered = inspections;
+
+    if (filterBlockId) {
+      filtered = filtered.filter((inspection: any) => {
+        // Include inspections directly linked to the block
+        if (inspection.blockId === filterBlockId) return true;
+        // Include inspections linked to properties in this block
+        if (inspection.property?.blockId === filterBlockId) return true;
+        return false;
+      });
+    }
+
+    if (filterPropertyId) {
+      filtered = filtered.filter((inspection: any) => 
+        inspection.propertyId === filterPropertyId
+      );
+    }
+
+    return filtered;
+  }, [inspections, filterBlockId, filterPropertyId]);
+
+  // Clear property filter when block filter changes
+  useEffect(() => {
+    if (filterBlockId && filterPropertyId) {
+      const property = properties.find((p: any) => p.id === filterPropertyId);
+      if (property && property.blockId !== filterBlockId) {
+        setFilterPropertyId("");
+      }
+    }
+  }, [filterBlockId, filterPropertyId, properties]);
 
   // Auto-select matching template when inspection type changes
   const watchedType = form.watch("type");
@@ -394,19 +441,85 @@ export default function Inspections() {
         </Dialog>
       </div>
 
-      {inspections.length === 0 ? (
+      {/* Filters */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Filter className="w-4 h-4" />
+              <span className="text-sm font-medium">Filter by:</span>
+            </div>
+            <div className="flex-1 min-w-[200px] max-w-xs">
+              <label className="text-sm font-medium mb-1.5 block">Block</label>
+              <Select value={filterBlockId || "__all__"} onValueChange={(value) => setFilterBlockId(value === "__all__" ? "" : value)}>
+                <SelectTrigger data-testid="filter-block">
+                  <SelectValue placeholder="All blocks" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All blocks</SelectItem>
+                  {blocks.map((block: any) => (
+                    <SelectItem key={block.id} value={block.id}>
+                      {block.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex-1 min-w-[200px] max-w-xs">
+              <label className="text-sm font-medium mb-1.5 block">Property</label>
+              <Select 
+                value={filterPropertyId || "__all__"} 
+                onValueChange={(value) => setFilterPropertyId(value === "__all__" ? "" : value)}
+                disabled={!filterBlockId && filteredProperties.length === 0}
+              >
+                <SelectTrigger data-testid="filter-property">
+                  <SelectValue placeholder="All properties" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All properties</SelectItem>
+                  {filteredProperties.map((property: any) => (
+                    <SelectItem key={property.id} value={property.id}>
+                      {property.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(filterBlockId || filterPropertyId) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFilterBlockId("");
+                  setFilterPropertyId("");
+                }}
+                data-testid="button-clear-filters"
+              >
+                Clear Filters
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {filteredInspections.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
-            <p className="text-lg font-medium" data-testid="text-empty-state">No inspections yet</p>
+            <p className="text-lg font-medium" data-testid="text-empty-state">
+              {inspections.length === 0 ? "No inspections yet" : "No inspections match your filters"}
+            </p>
             <p className="text-sm text-muted-foreground mb-4">
-              Create your first inspection to get started
+              {inspections.length === 0 
+                ? "Create your first inspection to get started"
+                : "Try adjusting your filters or create a new inspection"
+              }
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {inspections.map((inspection: any) => (
+          {filteredInspections.map((inspection: any) => (
             <Card key={inspection.id} className="hover-elevate" data-testid={`card-inspection-${inspection.id}`}>
               <CardHeader>
                 <div className="flex justify-between items-start gap-2">
