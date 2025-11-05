@@ -1645,10 +1645,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(402).json({ message: "Insufficient credits" });
       }
 
-      // Construct full photo URL
-      const photoUrl = item.photoUrl.startsWith("http") 
-        ? item.photoUrl 
-        : `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/objects/${item.photoUrl}`;
+      // Convert photo to base64 data URL
+      console.log("[Inspection Item Analysis] Converting photo to base64:", item.photoUrl);
+      
+      let photoUrl: string;
+      if (item.photoUrl.startsWith("http")) {
+        // External URL - use directly
+        photoUrl = item.photoUrl;
+      } else {
+        // Internal object storage - convert to base64
+        const objectStorageService = new ObjectStorageService();
+        const photoPath = item.photoUrl.replace(/^\/objects\//, '');
+        const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+        
+        // Download the file contents
+        const [photoBuffer] = await objectFile.download();
+        
+        // Get the content type from metadata
+        const [metadata] = await objectFile.getMetadata();
+        const mimeType = metadata.contentType || 'image/jpeg';
+        
+        // Convert to base64 data URL
+        const base64Image = photoBuffer.toString('base64');
+        photoUrl = `data:${mimeType};base64,${base64Image}`;
+        
+        console.log("[Inspection Item Analysis] Converted to base64 data URL:", photoPath, `(${mimeType})`);
+      }
 
       // Call OpenAI Vision API
       const response = await getOpenAI().chat.completions.create({
@@ -1673,7 +1695,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         max_tokens: 300,
       });
 
-      const analysis = response.choices[0]?.message?.content || "Unable to analyze image";
+      let analysis = response.choices[0]?.message?.content || "Unable to analyze image";
+      
+      // Strip markdown asterisks from the response
+      analysis = analysis.replace(/\*\*/g, '');
 
       // Update the item with AI analysis
       await storage.updateInspectionItemAI(itemId, analysis);
@@ -1833,7 +1858,10 @@ Be thorough, specific, and objective. This will be used in a professional proper
         max_tokens: 500,
       });
 
-      const analysis = response.choices[0]?.message?.content || "Unable to analyze images";
+      let analysis = response.choices[0]?.message?.content || "Unable to analyze images";
+      
+      // Strip markdown asterisks from the response
+      analysis = analysis.replace(/\*\*/g, '');
 
       // Deduct credit
       await storage.updateOrganizationCredits(
@@ -2003,7 +2031,10 @@ Be objective and specific. Focus on actionable repairs.`;
                   max_tokens: 600,
                 });
 
-                const aiResponse = response.choices[0]?.message?.content || "{}";
+                let aiResponse = response.choices[0]?.message?.content || "{}";
+                
+                // Strip markdown asterisks from the response
+                aiResponse = aiResponse.replace(/\*\*/g, '');
                 
                 try {
                   aiComparison = JSON.parse(aiResponse);
@@ -5074,6 +5105,34 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(402).json({ message: "Insufficient AI credits" });
       }
 
+      // Convert image URL to base64 data URL (for internal object storage)
+      console.log("[Individual Photo Analysis] Processing photo:", imageUrl);
+      
+      let dataUrl: string;
+      if (imageUrl.startsWith("http")) {
+        // External URL - use directly
+        dataUrl = imageUrl;
+        console.log("[Individual Photo Analysis] Using external URL directly");
+      } else {
+        // Internal object storage - convert to base64
+        const objectStorageService = new ObjectStorageService();
+        const photoPath = imageUrl.replace(/^\/objects\//, '');
+        const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+        
+        // Download the file contents
+        const [photoBuffer] = await objectFile.download();
+        
+        // Get the content type from metadata
+        const [metadata] = await objectFile.getMetadata();
+        const mimeType = metadata.contentType || 'image/jpeg';
+        
+        // Convert to base64 data URL
+        const base64Image = photoBuffer.toString('base64');
+        dataUrl = `data:${mimeType};base64,${base64Image}`;
+        
+        console.log("[Individual Photo Analysis] Converted to base64 data URL:", photoPath, `(${mimeType})`);
+      }
+
       // Call OpenAI Vision API
       const openaiClient = getOpenAI();
       const response = await openaiClient.chat.completions.create({
@@ -5088,7 +5147,7 @@ Be objective and specific. Focus on actionable repairs.`;
               },
               {
                 type: "image_url",
-                image_url: { url: imageUrl }
+                image_url: { url: dataUrl }
               }
             ]
           }
@@ -5096,7 +5155,10 @@ Be objective and specific. Focus on actionable repairs.`;
         max_tokens: 500
       });
 
-      const analysisText = response.choices[0]?.message?.content || "";
+      let analysisText = response.choices[0]?.message?.content || "";
+      
+      // Strip markdown asterisks from the response
+      analysisText = analysisText.replace(/\*\*/g, '');
 
       // Deduct credit
       await storage.updateOrganizationCredits(user.organizationId, (org.creditsRemaining ?? 0) - 1);
