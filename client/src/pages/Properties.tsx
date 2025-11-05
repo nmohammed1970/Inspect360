@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft } from "lucide-react";
+import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useSearch } from "wouter";
@@ -32,6 +32,7 @@ export default function Properties() {
   const urlBlockId = new URLSearchParams(searchParams).get("blockId");
   
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingProperty, setEditingProperty] = useState<any | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [blockId, setBlockId] = useState<string | undefined>();
@@ -72,13 +73,13 @@ export default function Properties() {
     return filtered;
   }, [properties, urlBlockId, searchQuery]);
 
-  // Prepopulate form when dialog opens and we have a selected block
+  // Prepopulate form when dialog opens and we have a selected block (only for new properties, not edits)
   useEffect(() => {
-    if (dialogOpen && urlBlockId && selectedBlock) {
+    if (dialogOpen && !editingProperty && urlBlockId && selectedBlock) {
       setAddress(selectedBlock.address || "");
       setBlockId(urlBlockId);
     }
-  }, [dialogOpen, urlBlockId, selectedBlock]);
+  }, [dialogOpen, editingProperty, urlBlockId, selectedBlock]);
 
   const createProperty = useMutation({
     mutationFn: async (data: { name: string; address: string; blockId?: string }) => {
@@ -90,10 +91,7 @@ export default function Properties() {
         title: "Success",
         description: "Property created successfully",
       });
-      setDialogOpen(false);
-      setName("");
-      setAddress("");
-      setBlockId(undefined);
+      handleCloseDialog();
     },
     onError: () => {
       toast({
@@ -103,6 +101,55 @@ export default function Properties() {
       });
     },
   });
+
+  const updateProperty = useMutation({
+    mutationFn: async (data: { id: string; name: string; address: string; blockId?: string }) => {
+      return await apiRequest("PATCH", `/api/properties/${data.id}`, {
+        name: data.name,
+        address: data.address,
+        blockId: data.blockId,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Success",
+        description: "Property updated successfully",
+      });
+      handleCloseDialog();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update property",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleOpenCreate = () => {
+    setEditingProperty(null);
+    setName("");
+    setAddress("");
+    setBlockId(urlBlockId || undefined);
+    setDialogOpen(true);
+  };
+
+  const handleOpenEdit = (property: any) => {
+    setEditingProperty(property);
+    setName(property.name);
+    setAddress(property.address);
+    setBlockId(property.blockId || undefined);
+    setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setEditingProperty(null);
+    setName("");
+    setAddress("");
+    setBlockId(undefined);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,7 +163,12 @@ export default function Properties() {
     }
     // Don't send blockId if "none" or undefined
     const finalBlockId = blockId === "none" ? undefined : blockId;
-    createProperty.mutate({ name, address, blockId: finalBlockId });
+    
+    if (editingProperty) {
+      updateProperty.mutate({ id: editingProperty.id, name, address, blockId: finalBlockId });
+    } else {
+      createProperty.mutate({ name, address, blockId: finalBlockId });
+    }
   };
 
   if (isLoading) {
@@ -153,14 +205,14 @@ export default function Properties() {
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-accent" data-testid="button-create-property">
+            <Button className="bg-accent" data-testid="button-create-property" onClick={handleOpenCreate}>
               <Plus className="w-4 h-4 mr-2" />
               Add Property
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New Property</DialogTitle>
+              <DialogTitle>{editingProperty ? "Edit Property" : "Create New Property"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -207,10 +259,13 @@ export default function Properties() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={createProperty.isPending}
+                disabled={createProperty.isPending || updateProperty.isPending}
                 data-testid="button-submit-property"
               >
-                {createProperty.isPending ? "Creating..." : "Create Property"}
+                {editingProperty 
+                  ? (updateProperty.isPending ? "Updating..." : "Update Property")
+                  : (createProperty.isPending ? "Creating..." : "Create Property")
+                }
               </Button>
             </form>
           </DialogContent>
@@ -258,9 +313,24 @@ export default function Properties() {
               <Card key={property.id} className="hover-elevate" data-testid={`card-property-${property.id}`}>
                 <Link href={`/properties/${property.id}`}>
                   <CardHeader className="cursor-pointer">
-                    <CardTitle className="flex items-center gap-2">
-                      <Building2 className="w-5 h-5 text-primary" />
-                      {property.name}
+                    <CardTitle className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-5 h-5 text-primary" />
+                        {property.name}
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleOpenEdit(property);
+                        }}
+                        data-testid={`button-edit-property-${property.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2 cursor-pointer pb-4">

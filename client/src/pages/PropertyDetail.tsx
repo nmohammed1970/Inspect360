@@ -30,7 +30,11 @@ import {
   AlertCircle,
   User,
   Upload,
+  Pencil,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 
 interface Property {
   id: string;
@@ -121,6 +125,11 @@ export default function PropertyDetail() {
   const [, params] = useRoute("/properties/:id");
   const propertyId = params?.id;
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const { toast } = useToast();
 
   const { data: property, isLoading: propertyLoading } = useQuery<Property>({
     queryKey: ["/api/properties", propertyId],
@@ -238,6 +247,54 @@ export default function PropertyDetail() {
     uploadMutation.mutate(data);
   };
 
+  const updatePropertyMutation = useMutation({
+    mutationFn: async (data: { name: string; address: string; notes?: string }) => {
+      return await apiRequest("PATCH", `/api/properties/${propertyId}`, data);
+    },
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ["/api/properties", propertyId] });
+      await queryClient.refetchQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Success",
+        description: "Property updated successfully",
+      });
+      setEditDialogOpen(false);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update property",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleOpenEditDialog = () => {
+    if (property) {
+      setEditName(property.name);
+      setEditAddress(property.address);
+      setEditNotes(property.notes || "");
+      setEditDialogOpen(true);
+    }
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName || !editAddress) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+    updatePropertyMutation.mutate({
+      name: editName,
+      address: editAddress,
+      notes: editNotes || undefined,
+    });
+  };
+
   if (propertyLoading) {
     return (
       <div className="container mx-auto p-6">
@@ -294,6 +351,14 @@ export default function PropertyDetail() {
               </div>
             )}
           </div>
+          <Button
+            variant="outline"
+            onClick={handleOpenEditDialog}
+            data-testid="button-edit-property"
+          >
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit Property
+          </Button>
         </div>
         {property.notes && (
           <Card className="mt-4">
@@ -796,6 +861,57 @@ export default function PropertyDetail() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Edit Property Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Property</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Property Name *</Label>
+              <Input
+                id="edit-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="e.g., Flat 12, Unit 5B"
+                data-testid="input-edit-property-name"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-address">Address *</Label>
+              <Textarea
+                id="edit-address"
+                value={editAddress}
+                onChange={(e) => setEditAddress(e.target.value)}
+                placeholder="123 Main St, City, State ZIP"
+                data-testid="input-edit-property-address"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-notes">Notes</Label>
+              <Textarea
+                id="edit-notes"
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Additional notes about this property..."
+                data-testid="input-edit-property-notes"
+              />
+            </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={updatePropertyMutation.isPending}
+              data-testid="button-submit-edit-property"
+            >
+              {updatePropertyMutation.isPending ? "Updating..." : "Update Property"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
