@@ -25,32 +25,50 @@ export class SubscriptionService {
     // Get available batches ordered by FIFO (earliest expiry first)
     const batches = await storage.getAvailableCreditBatches(organizationId);
     
+    // First, calculate total available credits and plan deductions WITHOUT modifying database
+    let totalAvailable = 0;
+    const plannedDeductions: Array<{ 
+      batch: CreditBatch; 
+      toConsume: number; 
+      newRemaining: number;
+      unitCost?: number;
+    }> = [];
+    
     let remainingToConsume = quantity;
-    const consumedBatches: Array<{ batchId: string; consumed: number; unitCost?: number }> = [];
-
-    // Consume from batches using FIFO
+    
     for (const batch of batches) {
-      if (remainingToConsume <= 0) break;
-
-      const toConsume = Math.min(batch.remainingQuantity, remainingToConsume);
+      totalAvailable += batch.remainingQuantity;
       
-      // Update batch remaining quantity
-      await storage.updateCreditBatch(batch.id, {
-        remainingQuantity: batch.remainingQuantity - toConsume,
+      if (remainingToConsume > 0) {
+        const toConsume = Math.min(batch.remainingQuantity, remainingToConsume);
+        plannedDeductions.push({
+          batch,
+          toConsume,
+          newRemaining: batch.remainingQuantity - toConsume,
+          unitCost: batch.unitCostMinorUnits ?? undefined,
+        });
+        remainingToConsume -= toConsume;
+      }
+    }
+
+    // Check if we have insufficient credits BEFORE making any changes
+    if (remainingToConsume > 0) {
+      throw new Error(`Insufficient credits. Needed ${quantity}, available ${totalAvailable}.`);
+    }
+
+    // Only NOW apply the planned deductions to the database
+    const consumedBatches: Array<{ batchId: string; consumed: number; unitCost?: number }> = [];
+    
+    for (const deduction of plannedDeductions) {
+      await storage.updateCreditBatch(deduction.batch.id, {
+        remainingQuantity: deduction.newRemaining,
       });
 
       consumedBatches.push({
-        batchId: batch.id,
-        consumed: toConsume,
-        unitCost: batch.unitCostMinorUnits ?? undefined,
+        batchId: deduction.batch.id,
+        consumed: deduction.toConsume,
+        unitCost: deduction.unitCost,
       });
-
-      remainingToConsume -= toConsume;
-    }
-
-    // Check if we have insufficient credits
-    if (remainingToConsume > 0) {
-      throw new Error(`Insufficient credits. Needed ${quantity}, only ${quantity - remainingToConsume} available.`);
     }
 
     // Record consumption in credit ledger

@@ -2675,7 +2675,7 @@ export class DatabaseStorage implements IStorage {
 
   // Credit Batch operations
   async createCreditBatch(batchData: InsertCreditBatch): Promise<CreditBatch> {
-    const [batch] = await db.insert(creditBatches).values(batchData).returning();
+    const [batch] = await db.insert(creditBatches).values(batchData as any).returning();
     return batch;
   }
 
@@ -2713,7 +2713,7 @@ export class DatabaseStorage implements IStorage {
   async updateCreditBatch(id: string, updates: Partial<InsertCreditBatch>): Promise<CreditBatch> {
     const [batch] = await db
       .update(creditBatches)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() } as any)
       .where(eq(creditBatches.id, id))
       .returning();
     return batch;

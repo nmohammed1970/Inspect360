@@ -102,8 +102,8 @@ export function AppSidebar() {
       roles: ["owner", "clerk", "compliance"],
     },
     {
-      title: "Credits",
-      url: "/credits",
+      title: "Billing",
+      url: "/billing",
       icon: CreditCard,
       roles: ["owner"],
     },

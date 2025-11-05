@@ -1264,6 +1264,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updates.submittedAt = new Date(updates.submittedAt);
       }
 
+      // Consume credits if inspection is being marked as completed
+      if (validation.data.status === "completed" && inspection.status !== "completed") {
+        try {
+          // Calculate credit cost (default complexity is 1)
+          const creditCost = subscriptionService.calculateInspectionCreditCost(
+            inspection.type,
+            1 // Can be extended to support complexity levels
+          );
+
+          // Attempt to consume credits
+          await subscriptionService.consumeCredits(
+            ownerOrgId!,
+            creditCost,
+            "inspection",
+            inspection.id,
+            `Completed ${inspection.type} inspection`
+          );
+
+          console.log(`[Credit Consumption] Consumed ${creditCost} credit(s) for inspection ${inspection.id}`);
+        } catch (creditError: any) {
+          // Insufficient credits - return 402 Payment Required
+          if (creditError.message.includes("Insufficient credits")) {
+            return res.status(402).json({ 
+              message: "Insufficient credits to complete inspection",
+              neededCredits: subscriptionService.calculateInspectionCreditCost(inspection.type, 1),
+              error: creditError.message
+            });
+          }
+          // Other errors - log but continue (graceful degradation)
+          console.error("[Credit Consumption] Error consuming credits:", creditError);
+        }
+      }
+
       const updatedInspection = await storage.updateInspection(id, updates);
       
       // Send email if status changed to completed
@@ -1325,6 +1358,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Inspection not found" });
       }
       
+      // Consume credits if marking as completed
+      if (status === "completed" && inspection.status !== "completed") {
+        try {
+          // Get organizationId
+          let organizationId: string | undefined;
+          if (inspection.propertyId) {
+            const property = await storage.getProperty(inspection.propertyId);
+            organizationId = property?.organizationId;
+          } else if (inspection.blockId) {
+            const block = await storage.getBlock(inspection.blockId);
+            organizationId = block?.organizationId;
+          }
+
+          if (organizationId) {
+            // Calculate credit cost
+            const creditCost = subscriptionService.calculateInspectionCreditCost(
+              inspection.type,
+              1 // Default complexity
+            );
+
+            // Consume credits
+            await subscriptionService.consumeCredits(
+              organizationId,
+              creditCost,
+              "inspection",
+              inspection.id,
+              `Completed ${inspection.type} inspection`
+            );
+
+            console.log(`[Credit Consumption] Consumed ${creditCost} credit(s) for inspection ${inspection.id}`);
+          }
+        } catch (creditError: any) {
+          // Insufficient credits - return 402
+          if (creditError.message.includes("Insufficient credits")) {
+            return res.status(402).json({ 
+              message: "Insufficient credits to complete inspection",
+              neededCredits: subscriptionService.calculateInspectionCreditCost(inspection.type, 1),
+              error: creditError.message
+            });
+          }
+          console.error("[Credit Consumption] Error consuming credits:", creditError);
+        }
+      }
+
       // Update status
       const updatedInspection = await storage.updateInspectionStatus(
         id,
@@ -5800,6 +5877,518 @@ Be objective and specific. Focus on actionable repairs.`;
         message: "Failed to process webhook",
         error: error.message 
       });
+    }
+  });
+
+  // ==================== SUBSCRIPTION & BILLING ROUTES ====================
+  
+  const { subscriptionService } = await import("./subscriptionService");
+
+  // Get all active subscription plans
+  app.get("/api/billing/plans", async (req, res) => {
+    try {
+      const plans = await storage.getActivePlans();
+      res.json(plans);
+    } catch (error: any) {
+      console.error("Error fetching plans:", error);
+      res.status(500).json({ message: "Failed to fetch plans" });
+    }
+  });
+
+  // Get pricing for a specific plan and country
+  app.get("/api/billing/plans/:planId/pricing", async (req, res) => {
+    try {
+      const { planId } = req.params;
+      const countryCode = (req.query.country as string) || "GB";
+      
+      const pricing = await subscriptionService.getEffectivePricing(planId, countryCode);
+      res.json(pricing);
+    } catch (error: any) {
+      console.error("Error fetching pricing:", error);
+      res.status(500).json({ message: "Failed to fetch pricing", error: error.message });
+    }
+  });
+
+  // Create Stripe checkout session for subscription
+  app.post("/api/billing/checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { planCode } = req.body;
+      if (!planCode) {
+        return res.status(400).json({ message: "Plan code is required" });
+      }
+
+      const org = await storage.getOrganization(user.organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      // Get plan
+      const plan = await storage.getPlanByCode(planCode);
+      if (!plan) {
+        return res.status(404).json({ message: "Plan not found" });
+      }
+
+      // Get effective pricing based on organization's country
+      const pricing = await subscriptionService.getEffectivePricing(
+        plan.id,
+        org.countryCode || "GB"
+      );
+
+      // Create or get Stripe customer
+      let stripeCustomerId = org.stripeCustomerId;
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: org.name,
+          metadata: {
+            organizationId: org.id,
+            countryCode: org.countryCode || "GB",
+          },
+        });
+        stripeCustomerId = customer.id;
+        await storage.updateOrganizationStripe(org.id, stripeCustomerId, "inactive");
+      }
+
+      // Create checkout session
+      const session = await stripe.checkout.sessions.create({
+        customer: stripeCustomerId,
+        mode: "subscription",
+        line_items: [
+          {
+            price_data: {
+              currency: pricing.currency.toLowerCase(),
+              product_data: {
+                name: plan.name,
+                description: `${pricing.includedCredits} inspection credits per month`,
+              },
+              recurring: {
+                interval: "month",
+              },
+              unit_amount: pricing.monthlyPrice,
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/billing?success=true`,
+        cancel_url: `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/billing?canceled=true`,
+        metadata: {
+          organizationId: org.id,
+          planId: plan.id,
+          planCode: plan.code,
+          includedCredits: pricing.includedCredits.toString(),
+        },
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Error creating checkout session:", error);
+      res.status(500).json({ message: "Failed to create checkout session", error: error.message });
+    }
+  });
+
+  // Create Stripe customer portal session
+  app.post("/api/billing/portal", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const org = await storage.getOrganization(user.organizationId);
+      if (!org?.stripeCustomerId) {
+        return res.status(400).json({ message: "No active Stripe customer" });
+      }
+
+      const session = await stripe.billingPortal.sessions.create({
+        customer: org.stripeCustomerId,
+        return_url: `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/billing`,
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Error creating portal session:", error);
+      res.status(500).json({ message: "Failed to create portal session", error: error.message });
+    }
+  });
+
+  // Stripe webhook handler
+  app.post("/api/billing/webhook", async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string;
+    
+    let event: any;
+    try {
+      // In production, verify the webhook signature
+      // For now, we'll accept the event as-is
+      event = req.body;
+
+      console.log(`[Stripe Webhook] Received event: ${event.type}`);
+
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object;
+          const { organizationId, planId, includedCredits } = session.metadata;
+
+          console.log(`[Stripe Webhook] Checkout completed for org: ${organizationId}`);
+
+          // Update organization subscription status
+          await storage.updateOrganizationStripe(organizationId, session.customer, "active");
+
+          // Get subscription details
+          if (session.subscription) {
+            const subscription = await stripe.subscriptions.retrieve(session.subscription);
+            
+            // Create subscription record
+            const plan = await storage.getPlan(planId);
+            const org = await storage.getOrganization(organizationId);
+            
+            if (plan && org) {
+              await storage.createSubscription({
+                organizationId,
+                planSnapshotJson: {
+                  planId: plan.id,
+                  planCode: plan.code,
+                  planName: plan.name,
+                  monthlyPrice: plan.monthlyPriceGbp,
+                  includedCredits: parseInt(includedCredits),
+                  currency: (subscription as any).currency.toUpperCase(),
+                },
+                stripeSubscriptionId: (subscription as any).id,
+                billingCycleAnchor: new Date((subscription as any).billing_cycle_anchor * 1000),
+                currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+                currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+                status: (subscription as any).status as any,
+                cancelAtPeriodEnd: (subscription as any).cancel_at_period_end,
+              });
+
+              // Grant initial credits
+              await subscriptionService.grantCredits(
+                organizationId,
+                parseInt(includedCredits),
+                "plan_inclusion",
+                new Date((subscription as any).current_period_end * 1000),
+                { subscriptionId: (subscription as any).id }
+              );
+
+              console.log(`[Stripe Webhook] Granted ${includedCredits} credits to org ${organizationId}`);
+            }
+          }
+          break;
+        }
+
+        case "invoice.paid": {
+          const invoice = event.data.object;
+          
+          if (invoice.subscription) {
+            const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+            const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
+
+            if (dbSubscription) {
+              // Update subscription period
+              await storage.updateSubscription(dbSubscription.id, {
+                currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+                currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+                status: (subscription as any).status as any,
+              });
+
+              // Process rollover and grant new cycle credits
+              await subscriptionService.processRollover(
+                dbSubscription.organizationId,
+                new Date((subscription as any).current_period_end * 1000)
+              );
+
+              // Grant new cycle credits
+              await subscriptionService.grantCredits(
+                dbSubscription.organizationId,
+                dbSubscription.planSnapshotJson.includedCredits,
+                "plan_inclusion",
+                new Date((subscription as any).current_period_end * 1000),
+                { subscriptionId: (subscription as any).id }
+              );
+
+              console.log(`[Stripe Webhook] New billing cycle for org ${dbSubscription.organizationId}`);
+            }
+          }
+          break;
+        }
+
+        case "invoice.payment_failed": {
+          const invoice = event.data.object;
+          
+          if (invoice.subscription) {
+            const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+            const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
+
+            if (dbSubscription) {
+              await storage.updateSubscription(dbSubscription.id, {
+                status: "inactive" as any,
+              });
+              
+              console.log(`[Stripe Webhook] Payment failed for org ${dbSubscription.organizationId}`);
+            }
+          }
+          break;
+        }
+
+        case "customer.subscription.deleted": {
+          const subscription = event.data.object;
+          const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
+
+          if (dbSubscription) {
+            await storage.cancelSubscription(dbSubscription.id);
+            console.log(`[Stripe Webhook] Subscription canceled for org ${dbSubscription.organizationId}`);
+          }
+          break;
+        }
+      }
+
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error(`[Stripe Webhook] Error processing webhook:`, error);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get credit balance
+  app.get("/api/credits/balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const balance = await storage.getCreditBalance(user.organizationId);
+      res.json(balance);
+    } catch (error: any) {
+      console.error("Error fetching credit balance:", error);
+      res.status(500).json({ message: "Failed to fetch credit balance" });
+    }
+  });
+
+  // Get credit ledger
+  app.get("/api/credits/ledger", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const ledger = await storage.getCreditLedgerByOrganization(user.organizationId, limit);
+      res.json(ledger);
+    } catch (error: any) {
+      console.error("Error fetching credit ledger:", error);
+      res.status(500).json({ message: "Failed to fetch credit ledger" });
+    }
+  });
+
+  // Create top-up checkout session
+  app.post("/api/credits/topup/checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { packSize } = req.body;
+      if (!packSize || ![100, 500, 1000].includes(packSize)) {
+        return res.status(400).json({ message: "Invalid pack size. Must be 100, 500, or 1000" });
+      }
+
+      const org = await storage.getOrganization(user.organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      // Get pricing (75 pence per credit by default, could be overridden by country)
+      const unitPrice = 75; // pence
+      const totalPrice = packSize * unitPrice;
+      const currency = "GBP"; // Could be determined by country
+
+      // Create top-up order
+      const order = await storage.createTopupOrder({
+        organizationId: org.id,
+        packSize,
+        currency: currency as any,
+        unitPriceMinorUnits: unitPrice,
+        totalPriceMinorUnits: totalPrice,
+        status: "pending" as any,
+      });
+
+      // Create Stripe checkout session
+      const session = await stripe.checkout.sessions.create({
+        customer: org.stripeCustomerId || undefined,
+        mode: "payment",
+        line_items: [
+          {
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: `${packSize} Inspection Credits`,
+                description: "Credit top-up for inspections",
+              },
+              unit_amount: totalPrice,
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/billing?topup_success=true`,
+        cancel_url: `${process.env.REPLIT_DOMAINS?.split(",")[0] || "http://localhost:5000"}/billing?topup_canceled=true`,
+        metadata: {
+          organizationId: org.id,
+          topupOrderId: order.id,
+          packSize: packSize.toString(),
+        },
+      });
+
+      // Update order with payment intent
+      await storage.updateTopupOrder(order.id, {
+        stripePaymentIntentId: session.payment_intent as string,
+      });
+
+      res.json({ url: session.url, orderId: order.id });
+    } catch (error: any) {
+      console.error("Error creating topup checkout:", error);
+      res.status(500).json({ message: "Failed to create topup checkout", error: error.message });
+    }
+  });
+
+  // Admin: Grant credits
+  app.post("/api/admin/credits/grant", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const { organizationId, quantity, reason } = req.body;
+      
+      if (!organizationId || !quantity || quantity <= 0) {
+        return res.status(400).json({ message: "Invalid request" });
+      }
+
+      await subscriptionService.grantCredits(
+        organizationId,
+        quantity,
+        "admin_grant",
+        undefined,
+        { adminNotes: reason || "Admin grant" }
+      );
+
+      res.json({ success: true, granted: quantity });
+    } catch (error: any) {
+      console.error("Error granting credits:", error);
+      res.status(500).json({ message: "Failed to grant credits", error: error.message });
+    }
+  });
+
+  // ==================== ECO-ADMIN ROUTES (Country Pricing Configuration) ====================
+
+  // Get all country pricing overrides
+  app.get("/api/admin/country-pricing", isAuthenticated, async (req: any, res) => {
+    try {
+      // Check if user is admin
+      const adminUser = await storage.getAdminByEmail(req.user.email);
+      if (!adminUser) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const overrides = await storage.getAllCountryPricingOverrides();
+      res.json(overrides);
+    } catch (error: any) {
+      console.error("Error fetching country pricing:", error);
+      res.status(500).json({ message: "Failed to fetch country pricing" });
+    }
+  });
+
+  // Create country pricing override
+  app.post("/api/admin/country-pricing", isAuthenticated, async (req: any, res) => {
+    try {
+      // Check if user is admin
+      const adminUser = await storage.getAdminByEmail(req.user.email);
+      if (!adminUser) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { 
+        countryCode, 
+        planId, 
+        currency, 
+        monthlyPriceMinorUnits, 
+        includedCreditsOverride, 
+        topupPricePerCreditMinorUnits,
+        activeFrom,
+        activeTo
+      } = req.body;
+
+      const override = await storage.createCountryPricingOverride({
+        countryCode,
+        planId,
+        currency: currency as any,
+        monthlyPriceMinorUnits,
+        includedCreditsOverride: includedCreditsOverride || null,
+        topupPricePerCreditMinorUnits: topupPricePerCreditMinorUnits || null,
+        activeFrom: activeFrom ? new Date(activeFrom) : new Date(),
+        activeTo: activeTo ? new Date(activeTo) : null,
+      });
+
+      res.json(override);
+    } catch (error: any) {
+      console.error("Error creating country pricing:", error);
+      res.status(500).json({ message: "Failed to create country pricing", error: error.message });
+    }
+  });
+
+  // Update country pricing override
+  app.patch("/api/admin/country-pricing/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      // Check if user is admin
+      const adminUser = await storage.getAdminByEmail(req.user.email);
+      if (!adminUser) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { id } = req.params;
+      const updates = req.body;
+
+      const override = await storage.updateCountryPricingOverride(id, updates);
+      res.json(override);
+    } catch (error: any) {
+      console.error("Error updating country pricing:", error);
+      res.status(500).json({ message: "Failed to update country pricing", error: error.message });
+    }
+  });
+
+  // Delete country pricing override
+  app.delete("/api/admin/country-pricing/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      // Check if user is admin
+      const adminUser = await storage.getAdminByEmail(req.user.email);
+      if (!adminUser) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { id } = req.params;
+      await storage.deleteCountryPricingOverride(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting country pricing:", error);
+      res.status(500).json({ message: "Failed to delete country pricing", error: error.message });
+    }
+  });
+
+  // Get current organization subscription
+  app.get("/api/billing/subscription", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const subscription = await storage.getSubscriptionByOrganization(user.organizationId);
+      res.json(subscription || null);
+    } catch (error: any) {
+      console.error("Error fetching subscription:", error);
+      res.status(500).json({ message: "Failed to fetch subscription" });
     }
   });
 

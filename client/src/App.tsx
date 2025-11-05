@@ -14,6 +14,7 @@ import Dashboard from "@/pages/Dashboard";
 import Properties from "@/pages/Properties";
 import PropertyDetail from "@/pages/PropertyDetail";
 import Credits from "@/pages/Credits";
+import Billing from "@/pages/Billing";
 import Inspections from "@/pages/Inspections";
 import InspectionDetail from "@/pages/InspectionDetail";
 import Compliance from "@/pages/Compliance";
@@ -134,6 +135,7 @@ function AppContent() {
                 <Route path="/contacts" component={Contacts} />
                 <Route path="/asset-inventory" component={AssetInventory} />
                 <Route path="/inspection-templates" component={InspectionTemplates} />
+                <Route path="/billing" component={Billing} />
                 <Route path="/settings" component={Settings} />
                 <Route component={NotFound} />
               </Switch>
