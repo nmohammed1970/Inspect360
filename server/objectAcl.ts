@@ -29,18 +29,10 @@ export async function setObjectAclPolicy(
     },
   });
 
-  // If visibility is public, actually make the file publicly readable in Google Cloud Storage
-  // This allows external services like OpenAI to access the file
-  if (aclPolicy.visibility === "public") {
-    try {
-      await objectFile.makePublic();
-      console.log(`[ObjectStorage] Made file public: ${objectFile.name}`);
-    } catch (error) {
-      console.error(`[ObjectStorage] Error making file public:`, error);
-      // Throw the error - if we can't make it public, OpenAI won't be able to access it
-      throw new Error(`Failed to make file publicly accessible: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
+  // Note: We do NOT use makePublic() because the bucket has Public Access Prevention enabled.
+  // Instead, we'll generate signed URLs when needed for external access (e.g., OpenAI).
+  // The metadata above marks this file as "public" within our application's logic,
+  // meaning authorized users can access it via our /objects/ proxy.
 }
 
 export async function getObjectAclPolicy(

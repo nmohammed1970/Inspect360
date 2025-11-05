@@ -1756,7 +1756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(402).json({ message: "Insufficient credits" });
       }
 
-      // Construct full photo URLs - convert /objects/ paths to publicly accessible Google Storage URLs
+      // Construct full photo URLs - convert /objects/ paths to signed URLs
       const objectStorageService = new ObjectStorageService();
       const photoUrls = await Promise.all(photos.map(async (photo) => {
         // If already a full URL, use it directly
@@ -1764,14 +1764,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return photo;
         }
         
-        // If it's an /objects/ path, get the publicly accessible Google Storage URL
+        // If it's an /objects/ path, generate a signed URL for temporary access
         try {
           const objectFile = await objectStorageService.getObjectEntityFile(photo);
-          // Get the public URL for the file (this will be the Google Storage URL)
-          const publicUrl = objectFile.publicUrl();
-          return publicUrl;
+          // Generate a signed URL valid for 1 hour (enough for OpenAI to download)
+          const [signedUrl] = await objectFile.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 60 * 60 * 1000, // 1 hour
+          });
+          console.log(`[InspectAI] Generated signed URL for: ${photo}`);
+          return signedUrl;
         } catch (error) {
-          console.error("[InspectAI] Error getting public URL for photo:", photo, error);
+          console.error("[InspectAI] Error generating signed URL for photo:", photo, error);
           // Fallback: construct URL to our proxy (may not work for OpenAI)
           const path = photo.startsWith("/objects/") ? photo : `/objects/${photo}`;
           const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
