@@ -5121,6 +5121,16 @@ Be objective and specific. Focus on actionable repairs.`;
     res.json({ uploadURL });
   });
 
+  app.post("/api/objects/normalize", isAuthenticated, async (req, res) => {
+    const { photoUrl } = req.body;
+    if (!photoUrl) {
+      return res.status(400).json({ error: "photoUrl is required" });
+    }
+    const objectStorageService = new ObjectStorageService();
+    const normalizedPath = objectStorageService.normalizeObjectEntityPath(photoUrl);
+    res.json({ normalizedPath });
+  });
+
   app.put("/api/objects/set-acl", isAuthenticated, async (req: any, res) => {
     if (!req.body.photoUrl) {
       return res.status(400).json({ error: "photoUrl is required" });

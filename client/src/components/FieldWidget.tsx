@@ -236,11 +236,24 @@ export function FieldWidget({
         },
       });
 
-    uppy.on("upload-success", (_file: any, response: any) => {
+    uppy.on("upload-success", async (_file: any, response: any) => {
       const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
       if (uploadUrl) {
-        const photoUrl = uploadUrl.split("?")[0];
-        handlePhotoAdd(photoUrl);
+        const rawPhotoUrl = uploadUrl.split("?")[0];
+        // Normalize Google Storage URL to local /objects/ path
+        try {
+          const normalizeRes = await fetch("/api/objects/normalize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ photoUrl: rawPhotoUrl }),
+          });
+          const { normalizedPath } = await normalizeRes.json();
+          handlePhotoAdd(normalizedPath || rawPhotoUrl);
+        } catch (err) {
+          // Fallback to raw URL if normalization fails
+          handlePhotoAdd(rawPhotoUrl);
+        }
       }
     });
 
