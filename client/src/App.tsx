@@ -15,6 +15,7 @@ import Properties from "@/pages/Properties";
 import PropertyDetail from "@/pages/PropertyDetail";
 import Credits from "@/pages/Credits";
 import Billing from "@/pages/Billing";
+import Profile from "@/pages/Profile";
 import Inspections from "@/pages/Inspections";
 import InspectionDetail from "@/pages/InspectionDetail";
 import Compliance from "@/pages/Compliance";
@@ -37,9 +38,9 @@ import PropertyTenants from "@/pages/PropertyTenants";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminTeam from "@/pages/AdminTeam";
-import { Button } from "@/components/ui/button";
-import { LogOut, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { UserProfileMenu } from "@/components/UserProfileMenu";
 
 function AppContent() {
   // Always call hooks at the top level
@@ -100,16 +101,7 @@ function AppContent() {
           <div className="flex flex-col flex-1">
             <header className="flex items-center justify-between p-4 border-b bg-card">
               <SidebarTrigger data-testid="button-sidebar-toggle" />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => logoutMutation.mutate()}
-                disabled={logoutMutation.isPending}
-                data-testid="button-logout"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
+              <UserProfileMenu />
             </header>
             <main className="flex-1 overflow-auto bg-background">
               <Switch>
@@ -122,6 +114,7 @@ function AppContent() {
                 <Route path="/properties/:id" component={PropertyDetail} />
                 <Route path="/properties" component={Properties} />
                 <Route path="/credits" component={Credits} />
+                <Route path="/profile" component={Profile} />
                 <Route path="/inspections" component={Inspections} />
                 <Route path="/inspections/:id/capture" component={InspectionCapture} />
                 <Route path="/inspections/:id/review" component={InspectionReview} />
