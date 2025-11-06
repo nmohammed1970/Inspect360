@@ -328,13 +328,17 @@ export default function Billing() {
       <div id="plans">
         <h2 className="text-2xl font-bold mb-4">Available Plans</h2>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {plans.map((plan) => {
+          {plans
+            .sort((a, b) => {
+              const order = ['starter', 'professional', 'enterprise', 'enterprise_plus'];
+              return order.indexOf(a.code) - order.indexOf(b.code);
+            })
+            .map((plan) => {
             const planDescriptions: Record<string, { idealFor: string; features: string[] }> = {
               starter: {
                 idealFor: "Ideal for Small Property Managers or Local Agents",
                 features: [
                   "50 Inspection Credits per month",
-                  "1-month credit rollover",
                   "AI-powered inspections",
                   "Basic support"
                 ]
@@ -343,7 +347,6 @@ export default function Billing() {
                 idealFor: "Ideal for Medium Sized Agency / Facilities Manager",
                 features: [
                   "200 Inspection Credits per month",
-                  "1-month credit rollover",
                   "AI-powered inspections",
                   "Priority support"
                 ]
@@ -352,7 +355,6 @@ export default function Billing() {
                 idealFor: "Ideal for BTR, Housing Association, or Student Accommodation Provider",
                 features: [
                   "500 Inspection Credits per month",
-                  "1-month credit rollover",
                   "AI-powered inspections",
                   "Dedicated account manager"
                 ]
@@ -361,7 +363,6 @@ export default function Billing() {
                 idealFor: "Ideal for National or Multi-Site Operator",
                 features: [
                   "2000+ Inspection Credits per month",
-                  "1-month credit rollover",
                   "AI-powered inspections",
                   "White-label options",
                   "Custom integrations"
@@ -371,7 +372,7 @@ export default function Billing() {
 
             const description = planDescriptions[plan.code] || {
               idealFor: "Custom plan for your organization",
-              features: [`${plan.includedCreditsPerMonth} credits/month`, "1-month rollover", "AI-powered inspections"]
+              features: [`${plan.includedCreditsPerMonth} credits/month`, "AI-powered inspections"]
             };
 
             return (
