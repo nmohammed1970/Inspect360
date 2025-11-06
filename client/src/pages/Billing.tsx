@@ -327,45 +327,171 @@ export default function Billing() {
       {/* Available Plans */}
       <div id="plans">
         <h2 className="text-2xl font-bold mb-4">Available Plans</h2>
-        <div className="grid gap-6 md:grid-cols-3">
-          {plans.map((plan) => (
-            <Card key={plan.id} data-testid={`card-plan-${plan.code}`} className={subscription?.planSnapshotJson.planName === plan.name ? "border-primary" : ""}>
-              <CardHeader>
-                <CardTitle>{plan.name}</CardTitle>
-                <CardDescription>
-                  <span className="text-3xl font-bold">{formatCurrency(plan.monthlyPriceGbp)}</span>/month
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                    <span className="text-sm">{plan.includedCreditsPerMonth} credits/month</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                    <span className="text-sm">1-month rollover</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-primary" />
-                    <span className="text-sm">AI-powered inspections</span>
-                  </div>
-                </div>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          {plans.map((plan) => {
+            const planDescriptions: Record<string, { idealFor: string; features: string[] }> = {
+              starter: {
+                idealFor: "Ideal for Small Property Managers or Local Agents",
+                features: [
+                  "50 Inspection Credits per month",
+                  "1-month credit rollover",
+                  "AI-powered inspections",
+                  "Basic support"
+                ]
+              },
+              professional: {
+                idealFor: "Ideal for Medium Sized Agency / Facilities Manager",
+                features: [
+                  "200 Inspection Credits per month",
+                  "1-month credit rollover",
+                  "AI-powered inspections",
+                  "Priority support"
+                ]
+              },
+              enterprise: {
+                idealFor: "Ideal for BTR, Housing Association, or Student Accommodation Provider",
+                features: [
+                  "500 Inspection Credits per month",
+                  "1-month credit rollover",
+                  "AI-powered inspections",
+                  "Dedicated account manager"
+                ]
+              },
+              enterprise_plus: {
+                idealFor: "Ideal for National or Multi-Site Operator",
+                features: [
+                  "2000+ Inspection Credits per month",
+                  "1-month credit rollover",
+                  "AI-powered inspections",
+                  "White-label options",
+                  "Custom integrations"
+                ]
+              }
+            };
 
-                <Button
-                  className="w-full"
-                  variant={subscription?.planSnapshotJson.planName === plan.name ? "outline" : "default"}
-                  onClick={() => checkoutMutation.mutate(plan.code)}
-                  disabled={checkoutMutation.isPending || subscription?.planSnapshotJson.planName === plan.name}
-                  data-testid={`button-select-plan-${plan.code}`}
-                >
-                  {subscription?.planSnapshotJson.planName === plan.name ? "Current Plan" : "Select Plan"}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+            const description = planDescriptions[plan.code] || {
+              idealFor: "Custom plan for your organization",
+              features: [`${plan.includedCreditsPerMonth} credits/month`, "1-month rollover", "AI-powered inspections"]
+            };
+
+            return (
+              <Card key={plan.id} data-testid={`card-plan-${plan.code}`} className={subscription?.planSnapshotJson.planName === plan.name ? "border-primary" : ""}>
+                <CardHeader>
+                  <CardTitle>{plan.name}</CardTitle>
+                  {plan.code === "enterprise_plus" ? (
+                    <CardDescription>
+                      <span className="text-2xl font-bold">Custom Pricing</span>
+                    </CardDescription>
+                  ) : (
+                    <CardDescription>
+                      <span className="text-3xl font-bold">{formatCurrency(plan.monthlyPriceGbp)}</span>/month
+                    </CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground italic">{description.idealFor}</p>
+                  <Separator />
+                  <div className="space-y-2">
+                    {description.features.map((feature, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0" />
+                        <span className="text-sm">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Button
+                    className="w-full"
+                    variant={subscription?.planSnapshotJson.planName === plan.name ? "outline" : "default"}
+                    onClick={() => plan.code === "enterprise_plus" ? window.location.href = "mailto:sales@inspect360.com?subject=Enterprise+ Inquiry" : checkoutMutation.mutate(plan.code)}
+                    disabled={checkoutMutation.isPending || subscription?.planSnapshotJson.planName === plan.name}
+                    data-testid={`button-select-plan-${plan.code}`}
+                  >
+                    {subscription?.planSnapshotJson.planName === plan.name 
+                      ? "Current Plan" 
+                      : plan.code === "enterprise_plus" 
+                        ? "Contact Sales" 
+                        : "Select Plan"}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
+
+      {/* FAQ Section */}
+      <Card data-testid="card-credits-faq">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5" />
+            How Inspection Credits Work
+          </CardTitle>
+          <CardDescription>Frequently asked questions about credits</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div>
+            <h3 className="font-semibold mb-2">What are Inspection Credits?</h3>
+            <p className="text-sm text-muted-foreground">
+              Inspection Credits are used to perform property inspections in Inspect360. Each time you complete an inspection, 
+              credits are automatically deducted from your account based on the inspection type and complexity.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h3 className="font-semibold mb-2">How many credits does each inspection cost?</h3>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>• <strong>Routine Inspection:</strong> 1 credit</p>
+              <p>• <strong>Check-In / Check-Out Inspection:</strong> 2 credits</p>
+              <p>• <strong>Maintenance Inspection:</strong> 3 credits</p>
+              <p className="pt-2">AI-powered features like photo analysis and comparison reports may use additional credits.</p>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h3 className="font-semibold mb-2">What happens to unused credits?</h3>
+            <p className="text-sm text-muted-foreground">
+              Unused credits automatically roll over to the next month, giving you an additional month to use them. 
+              After that, any remaining credits from that batch will expire. This ensures you always have flexibility 
+              while keeping your account current.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h3 className="font-semibold mb-2">Can I purchase additional credits?</h3>
+            <p className="text-sm text-muted-foreground">
+              Yes! You can purchase credit top-up packs at any time (100, 500, or 1000 credits) at £0.75 per credit. 
+              Top-up credits never expire and are consumed using FIFO (first-in, first-out) logic after your monthly credits.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h3 className="font-semibold mb-2">What happens if I run out of credits?</h3>
+            <p className="text-sm text-muted-foreground">
+              If you run out of credits, you won't be able to complete new inspections until you purchase a top-up pack 
+              or wait for your next monthly credit allocation. You can monitor your credit balance on this page at any time.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div>
+            <h3 className="font-semibold mb-2">Can I upgrade or downgrade my plan?</h3>
+            <p className="text-sm text-muted-foreground">
+              Yes! You can upgrade or downgrade your plan at any time through the Stripe customer portal. Changes will be 
+              prorated, and your credit allocation will adjust with your next billing cycle.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Credit History */}
       <Card data-testid="card-credit-ledger">
