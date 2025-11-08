@@ -427,6 +427,17 @@ export default function InspectionReport() {
       case "date":
         displayValue = actualValue ? format(new Date(actualValue), "MMM dd, yyyy") : <span className="text-muted-foreground italic">Not set</span>;
         break;
+      case "signature":
+        displayValue = actualValue ? (
+          <img 
+            src={actualValue} 
+            alt="Signature" 
+            className="max-w-md h-32 object-contain border rounded bg-background p-2"
+          />
+        ) : (
+          <span className="text-muted-foreground italic">Not signed</span>
+        );
+        break;
       default:
         // Handle objects that don't match composite structure
         if (typeof actualValue === 'object' && actualValue !== null) {

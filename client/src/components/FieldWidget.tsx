@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles } from "lucide-react";
+import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles, Trash2, Save } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import Uppy from "@uppy/core";
 import { Dashboard } from "@uppy/react";
@@ -14,6 +14,7 @@ import AwsS3 from "@uppy/aws-s3";
 import Webcam from "@uppy/webcam";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import SignatureCanvas from "react-signature-canvas";
 
 interface TemplateField {
   id: string;
@@ -73,6 +74,7 @@ export function FieldWidget({
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
   const [localMarkedForReview, setLocalMarkedForReview] = useState(markedForReview || false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const signaturePadRef = useRef<SignatureCanvas>(null);
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
   const [analyzingField, setAnalyzingField] = useState(false);
@@ -670,22 +672,90 @@ export function FieldWidget({
         );
 
       case "signature":
+        const handleClearSignature = () => {
+          if (signaturePadRef.current) {
+            signaturePadRef.current.clear();
+            handleValueChange("");
+          }
+        };
+
+        const handleSaveSignature = () => {
+          if (signaturePadRef.current && !signaturePadRef.current.isEmpty()) {
+            const signatureData = signaturePadRef.current.toDataURL();
+            handleValueChange(signatureData);
+            toast({
+              title: "Signature saved",
+              description: "Your signature has been captured successfully.",
+            });
+          }
+        };
+
         return (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-4">
-                <div className="w-8 h-8 rounded border-2 border-dashed flex items-center justify-center text-muted-foreground">
-                  ✍
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Signature capture coming soon</p>
-                  <p className="text-xs text-muted-foreground">
-                    Signature pad will be added in the next task
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-3">
+            {localValue ? (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <img 
+                      src={localValue} 
+                      alt="Signature" 
+                      className="w-full h-40 object-contain border rounded bg-background"
+                      data-testid={`img-signature-${field.id}`}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleClearSignature}
+                      data-testid={`button-clear-signature-${field.id}`}
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Clear Signature
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <div className="border-2 border-dashed rounded bg-background">
+                      <SignatureCanvas
+                        ref={signaturePadRef}
+                        canvasProps={{
+                          className: "w-full h-40 cursor-crosshair",
+                          "data-testid": `canvas-signature-${field.id}`
+                        }}
+                        backgroundColor="transparent"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleClearSignature}
+                        data-testid={`button-clear-signature-${field.id}`}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Clear
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleSaveSignature}
+                        data-testid={`button-save-signature-${field.id}`}
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Signature
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Draw your signature above and click "Save Signature" to capture it.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         );
 
       default:

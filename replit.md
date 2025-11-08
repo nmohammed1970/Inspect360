@@ -38,6 +38,7 @@ The platform utilizes a PWA-first approach built on a robust web architecture, e
 - **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal with basic issue description, multi-image upload, and AI-powered fix suggestions.
 - **InspectAI Field Analysis**: Field-level AI inspection analysis button using OpenAI GPT-5 Vision for comprehensive reports on uploaded images, integrated into notes.
 - **Condition & Cleanliness Ratings**: Optional per-field ratings configurable in the Template Builder.
+- **Signature Capture**: Interactive signature pad for inspection sign-offs supporting Tenant and Inspector signatures using react-signature-canvas, with base64 data URL storage and both drawing mode and read-only display.
 - **Inspection Reports**: Generates formatted HTML reports with print-friendly CSS and professional PDF cover pages.
 - **PDF Generation**: Server-side PDF generation using Puppeteer and Chromium with security measures like XSS protection, URL whitelisting, image handling, text formatting, and smart content filtering.
 - **Annual Compliance Calendar**: Visual compliance tracking grid with color-coded status badges and compliance rates.
