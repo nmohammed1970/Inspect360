@@ -111,28 +111,11 @@ export default function SettingsTeamsPanel() {
     queryKey: ['/api/inspection-categories'],
   });
 
-  // Create team mutation
+  // Create team mutation - uses single atomic endpoint
   const createMutation = useMutation({
     mutationFn: async (data: TeamFormValues) => {
-      const { userIds, contactIds, categories, ...teamData } = data;
-      
-      // Create team
-      const team: any = await apiRequest("POST", "/api/teams", teamData);
-      
-      // Add members
-      for (const userId of userIds) {
-        await apiRequest("POST", `/api/teams/${team.id}/members`, { userId, role: 'member' });
-      }
-      for (const contactId of contactIds) {
-        await apiRequest("POST", `/api/teams/${team.id}/members`, { contactId, role: 'contractor' });
-      }
-      
-      // Add categories
-      for (const category of categories) {
-        await apiRequest("POST", `/api/teams/${team.id}/categories`, { category });
-      }
-      
-      return team;
+      // Single server-side transactional create
+      return await apiRequest("POST", "/api/teams/full", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/teams'] });

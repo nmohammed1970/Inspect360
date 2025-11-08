@@ -7220,6 +7220,116 @@ Be objective and specific. Focus on actionable repairs.`;
   });
 
   // Create team
+  // Create team with members and categories (atomic transaction)
+  app.post("/api/teams/full", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can create teams
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Validate request body
+      const bodySchema = z.object({
+        name: z.string().min(1),
+        description: z.string().optional(),
+        email: z.string().email(),
+        isActive: z.boolean().optional(),
+        userIds: z.array(z.string()).optional(),
+        contactIds: z.array(z.string()).optional(),
+        categories: z.array(z.string()).optional(),
+      });
+
+      const validationResult = bodySchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validationResult.error.errors,
+        });
+      }
+
+      const { name, description, email, isActive, userIds, contactIds, categories } = validationResult.data;
+
+      // Create team with members and categories in a single transaction
+      try {
+        const result = await db.transaction(async (tx) => {
+          // 1. Create team
+          const [createdTeam] = await tx.insert(teams).values({
+            organizationId: user.organizationId,
+            name,
+            description,
+            email,
+            isActive: isActive ?? true,
+          }).returning();
+
+          // 2. Add user members
+          if (userIds && Array.isArray(userIds) && userIds.length > 0) {
+            await tx.insert(teamMembers).values(
+              userIds.map(userId => ({
+                teamId: createdTeam.id,
+                userId,
+                contactId: null,
+                role: 'member' as const,
+              }))
+            );
+          }
+
+          // 3. Add contractor members
+          if (contactIds && Array.isArray(contactIds) && contactIds.length > 0) {
+            await tx.insert(teamMembers).values(
+              contactIds.map(contactId => ({
+                teamId: createdTeam.id,
+                userId: null,
+                contactId,
+                role: 'contractor' as const,
+              }))
+            );
+          }
+
+          // 4. Add categories
+          if (categories && Array.isArray(categories) && categories.length > 0) {
+            await tx.insert(teamCategories).values(
+              categories.map(category => ({
+                teamId: createdTeam.id,
+                category,
+              }))
+            );
+          }
+
+          // Return created team with counts
+          const finalMembers = await tx
+            .select()
+            .from(teamMembers)
+            .where(eq(teamMembers.teamId, createdTeam.id));
+
+          const finalCategories = await tx
+            .select()
+            .from(teamCategories)
+            .where(eq(teamCategories.teamId, createdTeam.id));
+
+          return {
+            ...createdTeam,
+            memberCount: finalMembers.length,
+            categories: finalCategories.map(c => c.category),
+          };
+        });
+
+        res.status(201).json(result);
+      } catch (error: any) {
+        // Transaction automatically rolled back on error
+        throw error;
+      }
+    } catch (error: any) {
+      console.error("Error creating team:", error);
+      res.status(500).json({ message: "Failed to create team", error: error.message });
+    }
+  });
+
+  // Simple team creation (without members/categories)
   app.post("/api/teams", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
