@@ -63,6 +63,7 @@ export default function Billing() {
     if (!user) return;
     
     const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
     
     // Helper function to poll for updated data
     const pollForUpdates = async (queryKeys: string[], maxAttempts = 5) => {
@@ -89,10 +90,32 @@ export default function Billing() {
       
       return () => clearInterval(pollInterval);
     };
+
+    // Helper function to process the session directly
+    const processSession = async (sessionId: string) => {
+      try {
+        const response = await apiRequest("POST", "/api/billing/process-session", { sessionId });
+        const result = await response.json();
+        console.log('[Billing] Session processed:', result);
+        
+        // Invalidate queries after processing
+        const orgQueryKey = `/api/organizations/${user.organizationId}`;
+        await queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+        await queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
+        await queryClient.invalidateQueries({ queryKey: ['/api/credits/ledger'] });
+        await queryClient.invalidateQueries({ queryKey: [orgQueryKey] });
+      } catch (error) {
+        console.error('[Billing] Error processing session:', error);
+      }
+    };
     
     if (params.get('topup_success') === 'true') {
-      // Poll for credit updates (webhook may take a moment)
-      // Also invalidate organization query used by Dashboard
+      // Process the session immediately if we have a session_id
+      if (sessionId) {
+        processSession(sessionId);
+      }
+      
+      // Also poll for updates (in case webhook fires)
       const orgQueryKey = `/api/organizations/${user.organizationId}`;
       pollForUpdates(['/api/credits/balance', '/api/credits/ledger', orgQueryKey]);
       
@@ -115,8 +138,12 @@ export default function Billing() {
       // Clean up URL
       setLocation('/billing', { replace: true });
     } else if (params.get('success') === 'true') {
-      // Subscription success - poll for updates
-      // Also invalidate organization query used by Dashboard
+      // Process the session immediately if we have a session_id
+      if (sessionId) {
+        processSession(sessionId);
+      }
+      
+      // Also poll for updates (in case webhook fires)
       const orgQueryKey = `/api/organizations/${user.organizationId}`;
       pollForUpdates(['/api/billing/subscription', '/api/credits/balance', '/api/credits/ledger', orgQueryKey]);
       

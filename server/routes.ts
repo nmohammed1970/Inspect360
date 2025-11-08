@@ -6256,7 +6256,7 @@ Be objective and specific. Focus on actionable repairs.`;
         ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
         : "http://localhost:5000";
       
-      const successUrl = `${baseUrl}/billing?success=true`;
+      const successUrl = `${baseUrl}/billing?success=true&session_id={CHECKOUT_SESSION_ID}`;
       const cancelUrl = `${baseUrl}/billing?canceled=true`;
       
       console.log(`[Subscription Checkout] Creating session with:`, {
@@ -6333,6 +6333,133 @@ Be objective and specific. Focus on actionable repairs.`;
     } catch (error: any) {
       console.error("Error creating portal session:", error);
       res.status(500).json({ message: "Failed to create portal session", error: error.message });
+    }
+  });
+
+  // Process completed checkout session (fallback for when webhooks don't fire)
+  app.post("/api/billing/process-session", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { sessionId } = req.body;
+      if (!sessionId) {
+        return res.status(400).json({ message: "Session ID is required" });
+      }
+
+      console.log(`[Process Session] Retrieving session ${sessionId} for org ${user.organizationId}`);
+
+      // Retrieve the session from Stripe
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      // Verify the session belongs to this organization
+      if (session.metadata?.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Session does not belong to your organization" });
+      }
+
+      // Check if payment was successful
+      if (session.payment_status !== "paid") {
+        return res.status(400).json({ message: "Payment not completed", status: session.payment_status });
+      }
+
+      const { organizationId, planId, includedCredits, topupOrderId, packSize } = session.metadata;
+
+      console.log(`[Process Session] Processing session:`, {
+        sessionId,
+        mode: session.mode,
+        topupOrderId,
+        planId,
+        packSize
+      });
+
+      // Check if this is a top-up payment (one-time) vs subscription
+      if (topupOrderId && packSize) {
+        // Check if already processed
+        const existingOrder = await storage.getTopupOrder(topupOrderId);
+        if (existingOrder && existingOrder.status === "completed") {
+          console.log(`[Process Session] Top-up already processed: ${topupOrderId}`);
+          return res.json({ message: "Already processed", processed: true });
+        }
+
+        // Handle top-up payment
+        console.log(`[Process Session] Processing top-up of ${packSize} credits`);
+        
+        await storage.updateTopupOrder(topupOrderId, {
+          status: "completed" as any,
+        });
+
+        await subscriptionService.grantCredits(
+          organizationId,
+          parseInt(packSize),
+          "topup",
+          undefined,
+          { orderId: topupOrderId, stripeSessionId: sessionId }
+        );
+
+        console.log(`[Process Session] Granted ${packSize} credits to org ${organizationId}`);
+        return res.json({ message: "Credits granted successfully", processed: true });
+      } 
+      
+      // Handle subscription payment
+      if (session.subscription && planId) {
+        // Check if subscription already exists
+        const existingSubscription = await storage.getSubscriptionByStripeId(session.subscription as string);
+        if (existingSubscription) {
+          console.log(`[Process Session] Subscription already exists: ${session.subscription}`);
+          return res.json({ message: "Already processed", processed: true });
+        }
+
+        console.log(`[Process Session] Creating subscription from session`);
+
+        // Update organization with Stripe customer ID
+        await storage.updateOrganizationStripe(organizationId, session.customer as string, "active");
+
+        // Retrieve full subscription details
+        const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+        
+        // Get plan details
+        const plan = await storage.getPlan(planId);
+        if (!plan) {
+          throw new Error("Plan not found");
+        }
+
+        // Create subscription record
+        await storage.createSubscription({
+          organizationId,
+          planSnapshotJson: {
+            planCode: plan.code,
+            planName: plan.name,
+            monthlyPrice: subscription.items.data[0].price.unit_amount || 0,
+            includedCredits: parseInt(includedCredits),
+            currency: (subscription.currency || "gbp").toUpperCase(),
+          },
+          stripeSubscriptionId: subscription.id,
+          billingCycleAnchor: new Date(subscription.billing_cycle_anchor * 1000),
+          currentPeriodStart: new Date(subscription.current_period_start * 1000),
+          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          status: subscription.status as any,
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        });
+
+        // Grant initial credits
+        await subscriptionService.grantCredits(
+          organizationId,
+          parseInt(includedCredits),
+          "plan_inclusion",
+          new Date(subscription.current_period_end * 1000),
+          { subscriptionId: subscription.id }
+        );
+
+        console.log(`[Process Session] Created subscription and granted ${includedCredits} credits`);
+        return res.json({ message: "Subscription activated successfully", processed: true });
+      }
+
+      res.json({ message: "Session processed", processed: false });
+    } catch (error: any) {
+      console.error("Error processing session:", error);
+      res.status(500).json({ message: "Failed to process session", error: error.message });
     }
   });
 
@@ -6590,7 +6717,7 @@ Be objective and specific. Focus on actionable repairs.`;
             quantity: 1,
           },
         ],
-        success_url: `${baseUrl}/billing?topup_success=true`,
+        success_url: `${baseUrl}/billing?topup_success=true&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl}/billing?topup_canceled=true`,
         metadata: {
           organizationId: org.id,
