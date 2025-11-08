@@ -789,7 +789,7 @@ export default function Dashboard() {
               {workOrders.length > 0 ? (
                 <div className="space-y-2 md:space-y-3">
                   {workOrders.filter(wo => wo.status !== "completed").slice(0, 5).map((workOrder) => (
-                    <Link key={workOrder.id} href="/work-orders">
+                    <Link key={workOrder.id} href="/maintenance?tab=work-orders">
                       <div
                         className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
                         data-testid={`card-work-order-${workOrder.id}`}
@@ -821,8 +821,8 @@ export default function Dashboard() {
                 <div className="text-center py-8 md:py-12" data-testid="empty-work-orders">
                   <Users className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
                   <p className="text-sm md:text-base text-muted-foreground">No active work orders</p>
-                  <Link href="/work-orders">
-                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
+                  <Link href="/maintenance?tab=work-orders">
+                    <Button variant="outline" size="sm" className="mt-3 md:mt-4" data-testid="button-create-work-order">
                       Create Work Order
                     </Button>
                   </Link>
