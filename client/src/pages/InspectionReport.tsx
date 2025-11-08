@@ -690,24 +690,30 @@ export default function InspectionReport() {
                           {/* Action Buttons - Hidden in print and edit mode */}
                           {!editMode && entry && (
                             <div className="flex gap-2 flex-wrap no-print">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => navigate(`/maintenance/new?inspectionId=${id}&fieldKey=${field.id || field.key}&sectionRef=${section.id}`)}
-                                data-testid={`button-maintenance-${field.id || field.key}`}
-                              >
-                                <Wrench className="w-4 h-4 mr-2" />
-                                Raise Maintenance Request
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => navigate(`/comparisons/new?inspectionId=${id}&fieldKey=${field.id || field.key}`)}
-                                data-testid={`button-comparison-${field.id || field.key}`}
-                              >
-                                <GitCompare className="w-4 h-4 mr-2" />
-                                Add to Comparison
-                              </Button>
+                              {/* Raise Maintenance Request - only if property exists */}
+                              {inspection.propertyId && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigate(`/maintenance?propertyId=${inspection.propertyId}&create=true`)}
+                                  data-testid={`button-maintenance-${field.id || field.key}`}
+                                >
+                                  <Wrench className="w-4 h-4 mr-2" />
+                                  Raise Maintenance Request
+                                </Button>
+                              )}
+                              {/* Add to Comparison - only on check-out inspections with photos */}
+                              {inspection.type === 'check_out' && entry.photos && entry.photos.length > 0 && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigate(`/comparisons/new?inspectionId=${id}&fieldKey=${field.id || field.key}`)}
+                                  data-testid={`button-comparison-${field.id || field.key}`}
+                                >
+                                  <GitCompare className="w-4 h-4 mr-2" />
+                                  Add to Comparison
+                                </Button>
+                              )}
                             </div>
                           )}
 

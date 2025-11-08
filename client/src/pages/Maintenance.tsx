@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +112,12 @@ const createMaintenanceSchema = insertMaintenanceRequestSchema
 export default function Maintenance() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const searchParams = useSearch();
+  const urlPropertyId = new URLSearchParams(searchParams).get("propertyId");
+  const shouldCreate = new URLSearchParams(searchParams).get("create");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isAutoOpening, setIsAutoOpening] = useState(false);
   const [editingRequest, setEditingRequest] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
@@ -123,8 +129,8 @@ export default function Maintenance() {
   // Handle dialog state change
   const handleDialogChange = (open: boolean) => {
     setIsCreateOpen(open);
-    if (open && !editingRequest) {
-      // Reset form when opening dialog for a new request
+    if (open && !editingRequest && !isAutoOpening) {
+      // Reset form when opening dialog for a new request (unless auto-opening from URL)
       form.reset();
       setCurrentStep("form");
       setUploadedImages([]);
@@ -135,6 +141,7 @@ export default function Maintenance() {
       setEditingRequest(null);
       setUploadedImages([]);
       setAiSuggestions("");
+      setIsAutoOpening(false);
     }
     // Don't reset when closing - it would cancel any pending form submission
     // Form will be reset in the mutation onSuccess callback after successful submission
@@ -378,6 +385,20 @@ export default function Maintenance() {
       reportedBy: user?.id || "",
     },
   });
+
+  // Handle URL parameters for auto-opening dialog and pre-populating
+  useEffect(() => {
+    if (urlPropertyId && shouldCreate === "true" && properties.length > 0) {
+      // Set flag to prevent form reset
+      setIsAutoOpening(true);
+      // Pre-populate property before opening dialog
+      form.setValue("propertyId", urlPropertyId);
+      // Auto-open dialog
+      setIsCreateOpen(true);
+      // Clear URL parameters after opening to keep URL clean
+      navigate("/maintenance", { replace: true });
+    }
+  }, [urlPropertyId, shouldCreate, properties, navigate]);
 
   const handleImageStep = async () => {
     if (uploadedImages.length === 0) {
