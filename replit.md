@@ -40,6 +40,7 @@ The platform utilizes a PWA-first approach built on a robust web architecture, e
 - **InspectAI Field Analysis**: Field-level AI inspection analysis button using OpenAI GPT-5 Vision for comprehensive reports on uploaded images, integrated into notes.
 - **Condition & Cleanliness Ratings**: Optional per-field ratings configurable in the Template Builder.
 - **Inspection Reports**: Generates formatted HTML reports with print-friendly CSS, interactive action buttons, and professional PDF cover pages. Enhanced renderFieldValue function properly handles complex object structures (displays as formatted JSON in styled code blocks), arrays (comma-separated values), and improves null/undefined handling to prevent "[object Object]" display errors.
+- **PDF Generation**: Server-side PDF generation using Puppeteer and Chromium for professional inspection reports. **Security**: Implements comprehensive XSS protection with HTML escaping for all user content and strict URL whitelisting (allows only https://, http://, and safe data:image types - blocks SVG/javascript/vbscript). **Backend**: PDF service (`server/pdfService.ts`) with `escapeHtml()` and `sanitizeUrl()` utilities, endpoint `/api/inspections/:id/pdf` with organization isolation. **Frontend**: Print button downloads PDF instead of browser print dialog. **Output**: Branded cover page with Inspect360 logo, property information grid, section headers, field values with photos/ratings/notes, all professionally formatted for A4 printing.
 - **Annual Compliance Calendar**: Visual compliance tracking grid with color-coded status badges and compliance rates.
 - **Block-Level Filtering**: Supports filtering of properties, asset inventory, and compliance documents by `blockId` and `propertyId` with contextual form pre-population.
 - **Block Tenant Management**: Comprehensive tenant occupancy tracking, KPIs, and roster management.
@@ -71,3 +72,4 @@ The platform utilizes a PWA-first approach built on a robust web architecture, e
 - **Shadcn UI**: UI component library.
 - **Tailwind CSS**: Utility-first CSS framework.
 - **Uppy**: File upload library, including Webcam plugin.
+- **Puppeteer**: Headless browser for server-side PDF generation with Chromium.
