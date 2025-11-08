@@ -174,6 +174,30 @@ export default function InspectionReport() {
     },
   });
 
+  // Update inspection status mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: async (newStatus: string) => {
+      return await apiRequest("PATCH", `/api/inspections/${id}/status`, {
+        status: newStatus,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
+      toast({
+        title: "Success",
+        description: "Inspection status updated successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update inspection status",
+        variant: "destructive",
+      });
+    },
+  });
+
   const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
 
@@ -674,10 +698,30 @@ export default function InspectionReport() {
                   {propertyName}
                 </CardDescription>
               </div>
-              {inspection.status && (
-                <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
-                  {inspection.status.replace(/_/g, ' ').toUpperCase()}
-                </Badge>
+              {canEdit ? (
+                <div className="flex flex-col gap-1 min-w-[180px]">
+                  <Label className="text-xs text-muted-foreground">Status</Label>
+                  <Select
+                    value={inspection.status}
+                    onValueChange={(value) => updateStatusMutation.mutate(value)}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    <SelectTrigger data-testid="select-inspection-status" className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="scheduled">Scheduled</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                inspection.status && (
+                  <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
+                    {inspection.status.replace(/_/g, ' ').toUpperCase()}
+                  </Badge>
+                )
               )}
             </div>
 
