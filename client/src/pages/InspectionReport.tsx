@@ -5,6 +5,23 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, 
@@ -20,7 +37,8 @@ import {
   MapPin,
   Building,
   Wrench,
-  GitCompare
+  GitCompare,
+  ExternalLink
 } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -89,6 +107,17 @@ export default function InspectionReport() {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(false);
   const [editedNotes, setEditedNotes] = useState<Record<string, string>>({});
+  const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
+  const [selectedEntryForMaintenance, setSelectedEntryForMaintenance] = useState<{
+    entryId: string;
+    fieldLabel: string;
+    sectionTitle: string;
+  } | null>(null);
+  const [maintenanceForm, setMaintenanceForm] = useState({
+    title: "",
+    description: "",
+    priority: "medium" as "low" | "medium" | "high" | "urgent",
+  });
 
   // Fetch inspection data
   const { data: inspection, isLoading: inspectionLoading } = useQuery<Inspection>({
@@ -104,6 +133,45 @@ export default function InspectionReport() {
   // Fetch user role for edit permissions
   const { data: currentUser } = useQuery<any>({
     queryKey: ["/api/auth/user"],
+  });
+
+  // Fetch maintenance requests linked to this inspection
+  const { data: maintenanceRequests = [] } = useQuery<any[]>({
+    queryKey: [`/api/maintenance?inspectionId=${id}`],
+    enabled: !!id,
+  });
+
+  // Create maintenance request mutation
+  const createMaintenanceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await fetch(`/api/maintenance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create maintenance request");
+      }
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/maintenance?inspectionId=${id}`] });
+      toast({
+        title: "Success",
+        description: "Maintenance request created successfully",
+      });
+      setMaintenanceDialogOpen(false);
+      setMaintenanceForm({ title: "", description: "", priority: "medium" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create maintenance request",
+        variant: "destructive",
+      });
+    },
   });
 
   const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
@@ -171,6 +239,33 @@ export default function InspectionReport() {
       }
     });
     setEditedNotes(initialNotes);
+  };
+
+  const handleOpenMaintenanceDialog = (entryId: string, fieldLabel: string, sectionTitle: string) => {
+    setSelectedEntryForMaintenance({ entryId, fieldLabel, sectionTitle });
+    setMaintenanceForm({
+      title: `${sectionTitle} - ${fieldLabel}`,
+      description: "",
+      priority: "medium",
+    });
+    setMaintenanceDialogOpen(true);
+  };
+
+  const handleSubmitMaintenance = () => {
+    if (!inspection || !selectedEntryForMaintenance) return;
+
+    createMaintenanceMutation.mutate({
+      title: maintenanceForm.title,
+      description: maintenanceForm.description,
+      priority: maintenanceForm.priority,
+      status: "open",
+      propertyId: inspection.propertyId,
+      organizationId: inspection.organizationId,
+      reportedBy: currentUser?.id,
+      source: "inspection",
+      inspectionId: inspection.id,
+      inspectionEntryId: selectedEntryForMaintenance.entryId,
+    });
   };
 
   const handlePrint = async () => {
@@ -733,7 +828,7 @@ export default function InspectionReport() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => navigate(`/maintenance?propertyId=${inspection.propertyId}&create=true`)}
+                                  onClick={() => handleOpenMaintenanceDialog(entry.id, field.label, section.title)}
                                   data-testid={`button-maintenance-${field.id || field.key}`}
                                 >
                                   <Wrench className="w-4 h-4 mr-2" />
@@ -762,6 +857,58 @@ export default function InspectionReport() {
                               <span>Flagged for maintenance</span>
                             </div>
                           )}
+
+                          {/* Linked Maintenance Requests */}
+                          {(() => {
+                            const linkedRequests = maintenanceRequests.filter(
+                              (req: any) => req.inspectionEntryId === entry.id
+                            );
+                            if (linkedRequests.length === 0) return null;
+
+                            return (
+                              <div className="space-y-2 mt-4 border-t pt-4">
+                                <div className="text-sm font-medium text-muted-foreground">
+                                  Related Maintenance Requests ({linkedRequests.length})
+                                </div>
+                                {linkedRequests.map((request: any) => (
+                                  <Card key={request.id} className="bg-muted/30">
+                                    <CardContent className="p-3">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="flex-1">
+                                          <div className="font-medium text-sm">{request.title}</div>
+                                          {request.description && (
+                                            <div className="text-xs text-muted-foreground mt-1">
+                                              {request.description}
+                                            </div>
+                                          )}
+                                          <div className="flex items-center gap-2 mt-2">
+                                            <Badge variant={
+                                              request.status === 'open' ? 'default' :
+                                              request.status === 'in_progress' ? 'secondary' :
+                                              request.status === 'resolved' ? 'outline' : 'default'
+                                            }>
+                                              {request.status}
+                                            </Badge>
+                                            <Badge variant="outline" className="text-xs">
+                                              {request.priority}
+                                            </Badge>
+                                          </div>
+                                        </div>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => navigate(`/maintenance`)}
+                                          data-testid={`link-maintenance-${request.id}`}
+                                        >
+                                          <ExternalLink className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );
@@ -772,6 +919,74 @@ export default function InspectionReport() {
           })
         )}
       </div>
+
+      {/* Maintenance Request Dialog */}
+      <Dialog open={maintenanceDialogOpen} onOpenChange={setMaintenanceDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Raise Maintenance Request</DialogTitle>
+            <DialogDescription>
+              Create a maintenance request for this inspection item
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="maintenance-title">Title</Label>
+              <Input
+                id="maintenance-title"
+                value={maintenanceForm.title}
+                onChange={(e) => setMaintenanceForm({ ...maintenanceForm, title: e.target.value })}
+                placeholder="Brief description of the issue"
+                data-testid="input-maintenance-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="maintenance-description">Description</Label>
+              <Textarea
+                id="maintenance-description"
+                value={maintenanceForm.description}
+                onChange={(e) => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })}
+                placeholder="Detailed description of the maintenance issue..."
+                className="min-h-[100px]"
+                data-testid="textarea-maintenance-description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="maintenance-priority">Priority</Label>
+              <Select
+                value={maintenanceForm.priority}
+                onValueChange={(value: any) => setMaintenanceForm({ ...maintenanceForm, priority: value })}
+              >
+                <SelectTrigger id="maintenance-priority" data-testid="select-maintenance-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setMaintenanceDialogOpen(false)}
+              data-testid="button-cancel-maintenance"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitMaintenance}
+              disabled={!maintenanceForm.title || createMaintenanceMutation.isPending}
+              data-testid="button-submit-maintenance"
+            >
+              {createMaintenanceMutation.isPending ? "Creating..." : "Create Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
