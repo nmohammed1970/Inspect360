@@ -200,12 +200,20 @@ export default function InspectionReport() {
 
   // Auto-create comparison report mutation
   const autoCreateComparisonMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (context: { inspectionId: string; fieldKey: string }) => {
+      if (!inspection?.propertyId) {
+        throw new Error("This inspection must be assigned to a property before creating a comparison report");
+      }
+      
       const response = await fetch(`/api/comparison-reports/auto`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ propertyId: inspection?.propertyId }),
+        body: JSON.stringify({ 
+          propertyId: inspection.propertyId,
+          checkOutInspectionId: context.inspectionId,
+          fieldKey: context.fieldKey
+        }),
       });
       if (!response.ok) {
         const error = await response.json();
@@ -919,12 +927,15 @@ export default function InspectionReport() {
                                   Raise Maintenance Request
                                 </Button>
                               )}
-                              {/* Add to Comparison - only on check-out inspections with photos */}
+                              {/* Add to Comparison - only on check-out inspections with photos and property */}
                               {inspection.type === 'check_out' && entry.photos && entry.photos.length > 0 && inspection.propertyId && (
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => autoCreateComparisonMutation.mutate()}
+                                  onClick={() => autoCreateComparisonMutation.mutate({ 
+                                    inspectionId: id!, 
+                                    fieldKey: field.id || field.key 
+                                  })}
                                   disabled={autoCreateComparisonMutation.isPending}
                                   data-testid={`button-comparison-${field.id || field.key}`}
                                 >

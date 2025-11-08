@@ -2076,11 +2076,14 @@ Be thorough, specific, and objective. This will be used in a professional proper
   // Auto-create comparison report for a property (finds last check-in and check-out)
   app.post("/api/comparison-reports/auto", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
-      const { propertyId } = req.body;
+      const { propertyId, checkOutInspectionId, fieldKey } = req.body;
       
       if (!propertyId) {
         return res.status(400).json({ message: "Property ID is required" });
       }
+      
+      // Store context for potential future use (e.g., auto-scrolling to the field)
+      const context = { checkOutInspectionId, fieldKey };
 
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -2225,6 +2228,10 @@ ACTION: [recommendation]`;
                   type: "text",
                   text: prompt
                 });
+
+                if (!openai) {
+                  throw new Error("OpenAI client not initialized");
+                }
 
                 const visionResponse = await openai.chat.completions.create({
                   model: "gpt-4o",
