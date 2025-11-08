@@ -252,6 +252,27 @@ function generateInspectionHTML(
       const condition = entry?.condition;
       const cleanliness = entry?.cleanliness;
 
+      // Helper function to check if a value is truly empty
+      const isEmpty = (val: any): boolean => {
+        if (val === null || val === undefined) return true;
+        if (typeof val === 'string') return val.trim() === '';
+        if (Array.isArray(val)) return val.length === 0;
+        if (typeof val === 'object') return Object.keys(val).length === 0;
+        if (typeof val === 'boolean') return false; // booleans are always valid
+        return false;
+      };
+
+      // Skip fields with no data, photos, notes, or ratings
+      const hasValue = !isEmpty(value);
+      const hasPhotos = photos.length > 0;
+      const hasNote = !isEmpty(note);
+      const hasCondition = !isEmpty(condition);
+      const hasCleanliness = !isEmpty(cleanliness);
+      
+      if (!hasValue && !hasPhotos && !hasNote && !hasCondition && !hasCleanliness) {
+        return; // Skip this field
+      }
+
       fieldsHTML += `
         <div style="margin-bottom: 24px; page-break-inside: avoid;">
           <div style="font-weight: 600; color: #1a1a1a; margin-bottom: 8px;">
@@ -307,15 +328,18 @@ function generateInspectionHTML(
       `;
     });
 
-    sectionsHTML += `
-      <div style="margin-bottom: 32px; page-break-inside: avoid;">
-        <h2 style="font-size: 20px; font-weight: 700; color: #00D5CC; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #00D5CC;">
-          ${escapeHtml(section.title)}
-        </h2>
-        ${section.description ? `<p style="color: #666; margin-bottom: 16px;">${escapeHtml(section.description)}</p>` : ""}
-        ${fieldsHTML}
-      </div>
-    `;
+    // Only include section if it has fields with data
+    if (fieldsHTML.trim()) {
+      sectionsHTML += `
+        <div style="margin-bottom: 32px; page-break-inside: avoid;">
+          <h2 style="font-size: 20px; font-weight: 700; color: #00D5CC; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #00D5CC;">
+            ${escapeHtml(section.title)}
+          </h2>
+          ${section.description ? `<p style="color: #666; margin-bottom: 16px;">${escapeHtml(section.description)}</p>` : ""}
+          ${fieldsHTML}
+        </div>
+      `;
+    }
   });
 
   return `
