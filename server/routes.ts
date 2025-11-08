@@ -6881,6 +6881,387 @@ Be objective and specific. Focus on actionable repairs.`;
     }
   });
 
+  // Team Management Routes
+  
+  // Get all teams for organization
+  app.get("/api/teams", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can view teams
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const teams = await storage.getTeamsByOrganization(user.organizationId);
+      res.json(teams);
+    } catch (error: any) {
+      console.error("Error fetching teams:", error);
+      res.status(500).json({ message: "Failed to fetch teams" });
+    }
+  });
+
+  // Get single team
+  app.get("/api/teams/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can view teams
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { id } = req.params;
+      const team = await storage.getTeam(id);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(team);
+    } catch (error: any) {
+      console.error("Error fetching team:", error);
+      res.status(500).json({ message: "Failed to fetch team" });
+    }
+  });
+
+  // Create team
+  app.post("/api/teams", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can create teams
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, description, email, isActive } = req.body;
+
+      if (!name || !email) {
+        return res.status(400).json({ message: "Name and email are required" });
+      }
+
+      const team = await storage.createTeam({
+        organizationId: user.organizationId,
+        name,
+        description,
+        email,
+        isActive: isActive ?? true,
+      });
+
+      res.status(201).json(team);
+    } catch (error: any) {
+      console.error("Error creating team:", error);
+      res.status(500).json({ message: "Failed to create team" });
+    }
+  });
+
+  // Update team
+  app.patch("/api/teams/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can update teams
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { id } = req.params;
+      const team = await storage.getTeam(id);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, description, email, isActive } = req.body;
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (email !== undefined) updates.email = email;
+      if (isActive !== undefined) updates.isActive = isActive;
+
+      const updatedTeam = await storage.updateTeam(id, updates);
+      res.json(updatedTeam);
+    } catch (error: any) {
+      console.error("Error updating team:", error);
+      res.status(500).json({ message: "Failed to update team" });
+    }
+  });
+
+  // Delete team
+  app.delete("/api/teams/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can delete teams
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { id } = req.params;
+      const team = await storage.getTeam(id);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteTeam(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting team:", error);
+      res.status(500).json({ message: "Failed to delete team" });
+    }
+  });
+
+  // Get team members
+  app.get("/api/teams/:teamId/members", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can view team members
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { teamId } = req.params;
+      const team = await storage.getTeam(teamId);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const members = await storage.getTeamMembers(teamId);
+      res.json(members);
+    } catch (error: any) {
+      console.error("Error fetching team members:", error);
+      res.status(500).json({ message: "Failed to fetch team members" });
+    }
+  });
+
+  // Add team member
+  app.post("/api/teams/:teamId/members", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can add team members
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { teamId } = req.params;
+      const { userId, contactId, role } = req.body;
+
+      const team = await storage.getTeam(teamId);
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Validate that exactly one of userId or contactId is provided
+      if ((userId && contactId) || (!userId && !contactId)) {
+        return res.status(400).json({ message: "Must provide either userId or contactId, not both" });
+      }
+
+      const member = await storage.addTeamMember({
+        teamId,
+        userId: userId || null,
+        contactId: contactId || null,
+        role: role || 'member',
+      });
+
+      res.status(201).json(member);
+    } catch (error: any) {
+      console.error("Error adding team member:", error);
+      res.status(500).json({ message: "Failed to add team member" });
+    }
+  });
+
+  // Remove team member
+  app.delete("/api/teams/:teamId/members/:memberId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can remove team members
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { teamId, memberId } = req.params;
+      const team = await storage.getTeam(teamId);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.removeTeamMember(memberId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error removing team member:", error);
+      res.status(500).json({ message: "Failed to remove team member" });
+    }
+  });
+
+  // Get team categories
+  app.get("/api/teams/:teamId/categories", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can view team categories
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { teamId } = req.params;
+      const team = await storage.getTeam(teamId);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const categories = await storage.getTeamCategories(teamId);
+      res.json(categories);
+    } catch (error: any) {
+      console.error("Error fetching team categories:", error);
+      res.status(500).json({ message: "Failed to fetch team categories" });
+    }
+  });
+
+  // Add team category
+  app.post("/api/teams/:teamId/categories", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can add team categories
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { teamId } = req.params;
+      const { category } = req.body;
+
+      const team = await storage.getTeam(teamId);
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (!category) {
+        return res.status(400).json({ message: "Category is required" });
+      }
+
+      const teamCategory = await storage.addTeamCategory({
+        teamId,
+        category,
+      });
+
+      res.status(201).json(teamCategory);
+    } catch (error: any) {
+      console.error("Error adding team category:", error);
+      res.status(500).json({ message: "Failed to add team category" });
+    }
+  });
+
+  // Remove team category
+  app.delete("/api/teams/:teamId/categories/:categoryId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Only admins and owners can remove team categories
+      if (!['admin', 'owner'].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { teamId, categoryId } = req.params;
+      const team = await storage.getTeam(teamId);
+
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      // Verify team belongs to user's organization
+      if (team.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.removeTeamCategory(categoryId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error removing team category:", error);
+      res.status(500).json({ message: "Failed to remove team category" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
