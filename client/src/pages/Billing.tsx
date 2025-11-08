@@ -8,8 +8,9 @@ import { useToast } from "@/hooks/use-toast";
 import { CreditCard, Package, TrendingUp, ExternalLink, Zap, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useLocation } from "wouter";
 
 interface Plan {
   id: string;
@@ -54,6 +55,56 @@ export default function Billing() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [selectedTopup, setSelectedTopup] = useState<number | null>(null);
+  const [location, setLocation] = useLocation();
+
+  // Handle success/canceled query parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    
+    if (params.get('topup_success') === 'true') {
+      // Invalidate queries to fetch fresh data
+      queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/credits/ledger'] });
+      
+      toast({
+        title: "Payment Successful!",
+        description: "Your credits have been added to your account.",
+      });
+      
+      // Clean up URL
+      setLocation('/billing', { replace: true });
+    } else if (params.get('topup_canceled') === 'true') {
+      toast({
+        title: "Payment Canceled",
+        description: "Your payment was not completed.",
+        variant: "destructive",
+      });
+      
+      // Clean up URL
+      setLocation('/billing', { replace: true });
+    } else if (params.get('success') === 'true') {
+      // Subscription success
+      queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
+      
+      toast({
+        title: "Subscription Active!",
+        description: "Your subscription has been activated.",
+      });
+      
+      // Clean up URL
+      setLocation('/billing', { replace: true });
+    } else if (params.get('canceled') === 'true') {
+      toast({
+        title: "Subscription Canceled",
+        description: "You can subscribe anytime from this page.",
+        variant: "destructive",
+      });
+      
+      // Clean up URL
+      setLocation('/billing', { replace: true });
+    }
+  }, [toast, setLocation]);
 
   // Fetch subscription plans
   const { data: plans = [] } = useQuery<Plan[]>({

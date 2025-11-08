@@ -58,7 +58,7 @@ The platform utilizes a PWA-first approach built on a robust web architecture, e
 - **Consolidated Maintenance Interface**: Unified Maintenance page with tabbed interface for "Requests" and "Work Orders".
 - **Inline Maintenance Request Creation**: Inspection report page features inline dialog for creating maintenance requests directly from inspection fields without navigation, with automatic linking to inspectionId and inspectionEntryId, pre-populated contextual titles, and display of linked maintenance requests below each field with status/priority badges.
 - **Flexible Inspection Status Management**: Inspection report page includes an editable status dropdown allowing users to change inspection status (scheduled/in_progress/completed) at any time, without requiring 100% completion or other progress-based restrictions. Status changes are free and do not consume credits. The "Complete Inspection" button on the capture page is enabled regardless of progress percentage.
-- **Comprehensive Subscription System**: Credit-based subscription service with multi-currency support, including plans, credit consumption logic (only for AI features, not for status changes), Stripe integration for payments and webhooks, and an Eco-Admin interface for country-level pricing.
+- **Comprehensive Subscription System**: Credit-based subscription service with multi-currency support, including plans, credit consumption logic (only for AI features, not for status changes), Stripe integration for payments and webhooks, an Eco-Admin interface for country-level pricing, and proper redirect handling with success notifications and automatic data refresh.
 
 ## External Dependencies
 - **PostgreSQL (Neon)**: Primary database.
