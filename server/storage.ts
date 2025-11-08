@@ -983,6 +983,9 @@ export class DatabaseStorage implements IStorage {
         photoUrls: maintenanceRequests.photoUrls,
         aiSuggestedFixes: maintenanceRequests.aiSuggestedFixes,
         aiAnalysisJson: maintenanceRequests.aiAnalysisJson,
+        source: maintenanceRequests.source,
+        inspectionId: maintenanceRequests.inspectionId,
+        inspectionEntryId: maintenanceRequests.inspectionEntryId,
         createdAt: maintenanceRequests.createdAt,
         updatedAt: maintenanceRequests.updatedAt,
         property: {

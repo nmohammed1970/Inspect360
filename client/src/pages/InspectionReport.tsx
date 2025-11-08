@@ -859,7 +859,7 @@ export default function InspectionReport() {
                           )}
 
                           {/* Linked Maintenance Requests */}
-                          {(() => {
+                          {entry && (() => {
                             const linkedRequests = maintenanceRequests.filter(
                               (req: any) => req.inspectionEntryId === entry.id
                             );

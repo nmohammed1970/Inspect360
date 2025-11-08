@@ -2754,7 +2754,7 @@ Be objective and specific. Focus on actionable repairs.`;
         });
       }
 
-      const { propertyId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson } = validation.data;
+      const { propertyId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson, inspectionId, inspectionEntryId, source } = validation.data;
 
       // Verify property exists and belongs to the same organization
       const property = await storage.getProperty(propertyId);
@@ -2776,7 +2776,9 @@ Be objective and specific. Focus on actionable repairs.`;
         photoUrls: photoUrls || null,
         aiSuggestedFixes: aiSuggestedFixes || null,
         aiAnalysisJson: aiAnalysisJson || null,
-        source: user.role === "tenant" ? "tenant_portal" : "manual",
+        source: source || (user.role === "tenant" ? "tenant_portal" : "manual"),
+        inspectionId: inspectionId || null,
+        inspectionEntryId: inspectionEntryId || null,
       });
 
       res.json(request);
