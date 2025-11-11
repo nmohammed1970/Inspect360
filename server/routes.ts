@@ -6575,6 +6575,7 @@ Be objective and specific. Focus on actionable repairs.`;
 
       // Verify the session belongs to this organization
       if (session.metadata?.organizationId !== user.organizationId) {
+        console.error(`[Process Session] SECURITY: Session org mismatch - Session org: ${session.metadata?.organizationId}, User org: ${user.organizationId}`);
         return res.status(403).json({ message: "Session does not belong to your organization" });
       }
 
@@ -6585,12 +6586,19 @@ Be objective and specific. Focus on actionable repairs.`;
 
       const { organizationId, planId, includedCredits, topupOrderId, packSize } = session.metadata;
 
+      // CRITICAL SECURITY CHECK: Double-verify the organizationId in metadata matches the user's org
+      if (organizationId !== user.organizationId) {
+        console.error(`[Process Session] SECURITY: Metadata org mismatch - Metadata org: ${organizationId}, User org: ${user.organizationId}`);
+        return res.status(403).json({ message: "Session metadata does not match your organization" });
+      }
+
       console.log(`[Process Session] Processing session:`, {
         sessionId,
         mode: session.mode,
         topupOrderId,
         planId,
-        packSize
+        packSize,
+        verifiedOrganizationId: organizationId
       });
 
       // Check if this is a top-up payment (one-time) vs subscription
@@ -6602,22 +6610,34 @@ Be objective and specific. Focus on actionable repairs.`;
           return res.json({ message: "Already processed", processed: true });
         }
 
+        // CRITICAL SECURITY CHECK: Verify the top-up order belongs to this organization
+        if (existingOrder && existingOrder.organizationId !== user.organizationId) {
+          console.error(`[Process Session] SECURITY: Top-up order org mismatch - Order org: ${existingOrder.organizationId}, User org: ${user.organizationId}`);
+          return res.status(403).json({ message: "Top-up order does not belong to your organization" });
+        }
+
+        if (!existingOrder) {
+          console.error(`[Process Session] Top-up order not found: ${topupOrderId}`);
+          return res.status(404).json({ message: "Top-up order not found" });
+        }
+
         // Handle top-up payment
-        console.log(`[Process Session] Processing top-up of ${packSize} credits`);
+        console.log(`[Process Session] Processing top-up of ${packSize} credits for verified org ${user.organizationId}`);
         
         await storage.updateTopupOrder(topupOrderId, {
           status: "paid" as any,
         });
 
+        // Grant credits to the VERIFIED organization (user.organizationId) not the metadata
         await subscriptionService.grantCredits(
-          organizationId,
+          user.organizationId,
           parseInt(packSize),
           "topup",
           undefined,
           { topupOrderId, adminNotes: `Stripe session: ${sessionId}` }
         );
 
-        console.log(`[Process Session] Granted ${packSize} credits to org ${organizationId}`);
+        console.log(`[Process Session] Granted ${packSize} credits to verified org ${user.organizationId}`);
         return res.json({ message: "Credits granted successfully", processed: true });
       } 
       
@@ -6630,17 +6650,17 @@ Be objective and specific. Focus on actionable repairs.`;
           return res.json({ message: "Subscription already activated", processed: true, alreadyProcessed: true });
         }
 
-        // Double-check by organization to prevent duplicate subscriptions
-        const orgSubscriptions = await storage.getSubscriptionsByOrganization(organizationId);
+        // Double-check by organization to prevent duplicate subscriptions (use VERIFIED org)
+        const orgSubscriptions = await storage.getSubscriptionsByOrganization(user.organizationId);
         if (orgSubscriptions.length > 0) {
           console.log(`[Process Session] Organization already has subscription(s), skipping duplicate`);
           return res.json({ message: "Organization already has active subscription", processed: true, alreadyProcessed: true });
         }
 
-        console.log(`[Process Session] Creating subscription from session`);
+        console.log(`[Process Session] Creating subscription from session for verified org ${user.organizationId}`);
 
-        // Update organization with Stripe customer ID
-        await storage.updateOrganizationStripe(organizationId, session.customer as string, "active");
+        // Update organization with Stripe customer ID (use VERIFIED org)
+        await storage.updateOrganizationStripe(user.organizationId, session.customer as string, "active");
 
         // Retrieve full subscription details
         const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
@@ -6651,9 +6671,9 @@ Be objective and specific. Focus on actionable repairs.`;
           throw new Error("Plan not found");
         }
 
-        // Create subscription record
+        // Create subscription record (use VERIFIED org)
         await storage.createSubscription({
-          organizationId,
+          organizationId: user.organizationId,
           planSnapshotJson: {
             planId: plan.id,
             planCode: plan.code,
@@ -6670,16 +6690,16 @@ Be objective and specific. Focus on actionable repairs.`;
           cancelAtPeriodEnd: (subscription as any).cancel_at_period_end,
         });
 
-        // Grant initial credits
+        // Grant initial credits (use VERIFIED org)
         await subscriptionService.grantCredits(
-          organizationId,
+          user.organizationId,
           parseInt(includedCredits),
           "plan_inclusion",
           new Date((subscription as any).current_period_end * 1000),
           { subscriptionId: subscription.id }
         );
 
-        console.log(`[Process Session] Created subscription and granted ${includedCredits} credits`);
+        console.log(`[Process Session] Created subscription and granted ${includedCredits} credits to verified org ${user.organizationId}`);
         return res.json({ message: "Subscription activated successfully", processed: true });
       }
 
@@ -6716,41 +6736,80 @@ Be objective and specific. Focus on actionable repairs.`;
             mode: session.mode
           });
 
+          // CRITICAL SECURITY CHECK: Verify organization exists
+          const org = await storage.getOrganization(organizationId);
+          if (!org) {
+            console.error(`[Stripe Webhook] SECURITY: Organization not found: ${organizationId}`);
+            break;
+          }
+
           // Check if this is a top-up payment (one-time) vs subscription
           if (topupOrderId && packSize) {
+            // CRITICAL SECURITY CHECK: Verify top-up order belongs to this organization
+            const topupOrder = await storage.getTopupOrder(topupOrderId);
+            if (!topupOrder) {
+              console.error(`[Stripe Webhook] SECURITY: Top-up order not found: ${topupOrderId}`);
+              break;
+            }
+            if (topupOrder.organizationId !== organizationId) {
+              console.error(`[Stripe Webhook] SECURITY: Top-up order org mismatch - Order org: ${topupOrder.organizationId}, Session org: ${organizationId}`);
+              break;
+            }
+
+            // Check if already processed
+            if (topupOrder.status === "paid") {
+              console.log(`[Stripe Webhook] Top-up already processed: ${topupOrderId}`);
+              break;
+            }
+
             // Handle top-up payment
-            console.log(`[Stripe Webhook] Processing top-up of ${packSize} credits for org: ${organizationId}`);
+            console.log(`[Stripe Webhook] Processing top-up of ${packSize} credits for verified org: ${organizationId}`);
             
             // Update top-up order status
             await storage.updateTopupOrder(topupOrderId, {
               status: "paid" as any,
             });
 
-            // Grant credits using subscription service
+            // Grant credits to VERIFIED organization
             await subscriptionService.grantCredits(
               organizationId,
               parseInt(packSize),
               "topup",
               undefined,
-              { topupOrderId, adminNotes: `Stripe session: ${session.id}` }
+              { topupOrderId, adminNotes: `Stripe webhook session: ${session.id}` }
             );
 
-            console.log(`[Stripe Webhook] Granted ${packSize} credits to org ${organizationId} via top-up`);
+            console.log(`[Stripe Webhook] Granted ${packSize} credits to verified org ${organizationId} via top-up`);
             break;
           }
 
           // Handle subscription payment
-          await storage.updateOrganizationStripe(organizationId, session.customer, "active");
+          if (session.subscription && planId) {
+            // CRITICAL SECURITY CHECK: Verify customer matches organization
+            if (session.customer !== org.stripeCustomerId) {
+              console.error(`[Stripe Webhook] SECURITY: Customer mismatch - Session customer: ${session.customer}, Org customer: ${org.stripeCustomerId}`);
+              // Update org with new customer ID if it's empty
+              if (!org.stripeCustomerId) {
+                console.log(`[Stripe Webhook] Updating org ${organizationId} with customer ${session.customer}`);
+                await storage.updateOrganizationStripe(organizationId, session.customer, "active");
+              } else {
+                break; // Reject if customer mismatch and org already has a customer
+              }
+            }
 
-          // Get subscription details
-          if (session.subscription) {
+            // Check if subscription already exists
+            const existingSubscription = await storage.getSubscriptionByStripeId(session.subscription);
+            if (existingSubscription) {
+              console.log(`[Stripe Webhook] Subscription already exists: ${session.subscription}`);
+              break;
+            }
+
             const subscription = await stripe.subscriptions.retrieve(session.subscription);
-            
-            // Create subscription record
             const plan = await storage.getPlan(planId);
-            const org = await storage.getOrganization(organizationId);
             
-            if (plan && org) {
+            if (plan) {
+              console.log(`[Stripe Webhook] Creating subscription for verified org ${organizationId}`);
+
               await storage.createSubscription({
                 organizationId,
                 planSnapshotJson: {
@@ -6769,7 +6828,7 @@ Be objective and specific. Focus on actionable repairs.`;
                 cancelAtPeriodEnd: (subscription as any).cancel_at_period_end,
               });
 
-              // Grant initial credits
+              // Grant initial credits to VERIFIED organization
               await subscriptionService.grantCredits(
                 organizationId,
                 parseInt(includedCredits),
@@ -6778,7 +6837,7 @@ Be objective and specific. Focus on actionable repairs.`;
                 { subscriptionId: (subscription as any).id }
               );
 
-              console.log(`[Stripe Webhook] Granted ${includedCredits} credits to org ${organizationId}`);
+              console.log(`[Stripe Webhook] Granted ${includedCredits} credits to verified org ${organizationId}`);
             }
           }
           break;
