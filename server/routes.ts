@@ -7159,6 +7159,49 @@ Be objective and specific. Focus on actionable repairs.`;
     }
   });
 
+  // Get aggregate credit balance across all organizations for normalized email (detects duplicates)
+  app.get("/api/billing/aggregate-credits", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId || !user.email) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Get all organizations associated with this normalized email
+      const orgs = await storage.getOrganizationsByNormalizedEmail(user.email);
+      
+      // Get credit balances for each organization
+      const orgBalances = await Promise.all(
+        orgs.map(async (org) => {
+          const balance = await storage.getCreditBalance(org.organizationId);
+          return {
+            organizationId: org.organizationId,
+            organizationName: org.organizationName,
+            userRole: org.userRole,
+            credits: balance.total,
+          };
+        })
+      );
+
+      // Calculate total
+      const totalCredits = orgBalances.reduce((sum, org) => sum + org.credits, 0);
+      
+      // Find current org balance
+      const currentOrgBalance = orgBalances.find(org => org.organizationId === user.organizationId);
+      
+      res.json({
+        primaryOrganizationCredits: currentOrgBalance?.credits || 0,
+        duplicateOrganizations: orgBalances.filter(org => org.organizationId !== user.organizationId),
+        allOrganizations: orgBalances,
+        totalCredits,
+        hasDuplicates: orgBalances.length > 1,
+      });
+    } catch (error: any) {
+      console.error("Error fetching aggregate credits:", error);
+      res.status(500).json({ message: "Failed to fetch aggregate credits" });
+    }
+  });
+
   // User/Contact endpoints for team management (restricted)
   
   // Get users for team management (admin/owner only)

@@ -157,6 +157,7 @@ export interface IStorage {
   // Organization operations
   createOrganization(org: InsertOrganization): Promise<Organization>;
   getOrganization(id: string): Promise<Organization | undefined>;
+  getOrganizationsByNormalizedEmail(email: string): Promise<Array<{ organizationId: string; organizationName: string; userRole: string }>>;
   updateOrganization(id: string, updates: Partial<InsertOrganization>): Promise<Organization>;
   updateOrganizationCredits(id: string, credits: number): Promise<Organization>;
   updateOrganizationStripe(id: string, customerId: string, status: string): Promise<Organization>;
@@ -482,8 +483,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
+    // Use case-insensitive comparison for email lookup, ordered by creation date for determinism
+    const results = await db.select().from(users)
+      .where(sql`LOWER(${users.email}) = LOWER(${email})`)
+      .orderBy(users.createdAt);
+    
+    if (results.length > 1) {
+      console.warn(`[getUserByEmail] Multiple users found for normalized email ${email.toLowerCase()}: returning oldest (${results.length} total)`);
+    }
+    
+    return results[0];
   }
 
   async createUser(userData: UpsertUser): Promise<User> {
@@ -575,6 +584,28 @@ export class DatabaseStorage implements IStorage {
   async getOrganization(id: string): Promise<Organization | undefined> {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, id));
     return org;
+  }
+
+  async getOrganizationsByNormalizedEmail(email: string): Promise<Array<{ organizationId: string; organizationName: string; userRole: string }>> {
+    const results = await db
+      .select({
+        organizationId: users.organizationId,
+        organizationName: organizations.name,
+        userRole: users.role,
+      })
+      .from(users)
+      .innerJoin(organizations, eq(users.organizationId, organizations.id))
+      .where(sql`LOWER(${users.email}) = LOWER(${email})`)
+      .orderBy(users.createdAt);
+    
+    // Filter out any null organizationIds and map to expected type
+    return results
+      .filter(r => r.organizationId !== null)
+      .map(r => ({
+        organizationId: r.organizationId!,
+        organizationName: r.organizationName,
+        userRole: r.userRole as string,
+      }));
   }
 
   async updateOrganizationCredits(id: string, credits: number): Promise<Organization> {

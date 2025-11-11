@@ -248,6 +248,18 @@ export default function Billing() {
     enabled: !!user,
   });
 
+  // Fetch aggregate credits (detects duplicate accounts)
+  const { data: aggregateCredits } = useQuery<{
+    primaryOrganizationCredits: number;
+    duplicateOrganizations: Array<{ organizationId: string; organizationName: string; userRole: string; credits: number }>;
+    allOrganizations: Array<{ organizationId: string; organizationName: string; userRole: string; credits: number }>;
+    totalCredits: number;
+    hasDuplicates: boolean;
+  }>({
+    queryKey: ["/api/billing/aggregate-credits"],
+    enabled: !!user,
+  });
+
   // Fetch credit ledger
   const { data: ledger = [] } = useQuery<LedgerEntry[]>({
     queryKey: ["/api/credits/ledger"],
@@ -353,6 +365,42 @@ export default function Billing() {
           Manage your subscription, credits, and billing details
         </p>
       </div>
+
+      {/* Duplicate Account Warning */}
+      {aggregateCredits?.hasDuplicates && (
+        <Card className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950" data-testid="card-duplicate-account-warning">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-yellow-800 dark:text-yellow-200">
+              <AlertCircle className="h-5 w-5" />
+              Multiple Accounts Detected
+            </CardTitle>
+            <CardDescription className="text-yellow-700 dark:text-yellow-300">
+              You have {aggregateCredits.allOrganizations.length} accounts with the same email address
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-yellow-800 dark:text-yellow-200">
+              <p className="mb-3">Your total credits across all accounts: <span className="font-bold text-lg">{aggregateCredits.totalCredits}</span></p>
+              <div className="space-y-2">
+                {aggregateCredits.allOrganizations.map((org) => (
+                  <div key={org.organizationId} className="flex items-center justify-between p-2 bg-white dark:bg-gray-900 rounded" data-testid={`org-balance-${org.organizationId}`}>
+                    <div>
+                      <span className="font-medium">{org.organizationName}</span>
+                      {org.organizationId === user?.organizationId && (
+                        <Badge variant="outline" className="ml-2">Current</Badge>
+                      )}
+                    </div>
+                    <span className="font-semibold">{org.credits} credits</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-yellow-700 dark:text-yellow-300">
+              This happened because email addresses were previously case-sensitive. Please contact support to merge your accounts if needed.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Current Subscription & Credits Overview */}
       <div className="grid gap-6 md:grid-cols-2">
