@@ -6651,9 +6651,9 @@ Be objective and specific. Focus on actionable repairs.`;
         }
 
         // Double-check by organization to prevent duplicate subscriptions (use VERIFIED org)
-        const orgSubscriptions = await storage.getSubscriptionsByOrganization(user.organizationId);
-        if (orgSubscriptions.length > 0) {
-          console.log(`[Process Session] Organization already has subscription(s), skipping duplicate`);
+        const existingOrgSubscription = await storage.getSubscriptionByOrganization(user.organizationId);
+        if (existingOrgSubscription) {
+          console.log(`[Process Session] Organization already has subscription, skipping duplicate`);
           return res.json({ message: "Organization already has active subscription", processed: true, alreadyProcessed: true });
         }
 

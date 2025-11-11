@@ -257,15 +257,21 @@ export default function Billing() {
   // Create checkout session
   const checkoutMutation = useMutation({
     mutationFn: async (planCode: string) => {
+      console.log(`[Billing] SUBSCRIPTION CHECKOUT initiated for plan: ${planCode}`);
+      console.log(`[Billing] Calling POST /api/billing/checkout`);
       const response = await apiRequest("POST", "/api/billing/checkout", { planCode });
-      return response.json() as Promise<{ url: string }>;
+      const data = await response.json() as { url: string };
+      console.log(`[Billing] SUBSCRIPTION checkout URL received:`, data.url);
+      return data;
     },
     onSuccess: (data) => {
       if (data.url) {
+        console.log(`[Billing] Redirecting to SUBSCRIPTION checkout...`);
         window.location.href = data.url;
       }
     },
     onError: (error: any) => {
+      console.error(`[Billing] SUBSCRIPTION checkout error:`, error);
       toast({
         title: "Error",
         description: error.message || "Failed to start checkout",
@@ -297,15 +303,21 @@ export default function Billing() {
   // Top-up checkout mutation
   const topupMutation = useMutation({
     mutationFn: async (packSize: number) => {
+      console.log(`[Billing] TOP-UP CHECKOUT initiated for pack size: ${packSize}`);
+      console.log(`[Billing] Calling POST /api/credits/topup/checkout`);
       const response = await apiRequest("POST", "/api/credits/topup/checkout", { packSize });
-      return response.json() as Promise<{ url: string }>;
+      const data = await response.json() as { url: string };
+      console.log(`[Billing] TOP-UP checkout URL received:`, data.url);
+      return data;
     },
     onSuccess: (data) => {
       if (data.url) {
+        console.log(`[Billing] Redirecting to TOP-UP checkout...`);
         window.location.href = data.url;
       }
     },
     onError: (error: any) => {
+      console.error(`[Billing] TOP-UP checkout error:`, error);
       toast({
         title: "Error",
         description: error.message || "Failed to start top-up checkout",
@@ -579,8 +591,17 @@ export default function Billing() {
                   <Button
                     className="w-full"
                     variant={subscription?.planSnapshotJson.planName === plan.name ? "outline" : "default"}
-                    onClick={() => plan.code === "enterprise_plus" ? window.location.href = "mailto:sales@inspect360.com?subject=Enterprise+ Inquiry" : checkoutMutation.mutate(plan.code)}
-                    disabled={checkoutMutation.isPending || subscription?.planSnapshotJson.planName === plan.name}
+                    onClick={() => {
+                      if (plan.code === "enterprise_plus") {
+                        console.log(`[Billing] Contact Sales clicked for Enterprise+`);
+                        window.location.href = "mailto:sales@inspect360.com?subject=Enterprise+ Inquiry";
+                      } else {
+                        console.log(`[Billing] SELECT PLAN CLICKED for plan: ${plan.code} (${plan.name})`);
+                        console.log(`[Billing] This should trigger SUBSCRIPTION checkout, NOT top-up`);
+                        checkoutMutation.mutate(plan.code);
+                      }
+                    }}
+                    disabled={checkoutMutation.isPending || topupMutation.isPending || subscription?.planSnapshotJson.planName === plan.name}
                     data-testid={`button-select-plan-${plan.code}`}
                   >
                     {subscription?.planSnapshotJson.planName === plan.name 
