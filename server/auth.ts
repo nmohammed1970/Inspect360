@@ -69,7 +69,9 @@ export async function setupAuth(app: Express) {
       { usernameField: 'email' },
       async (email, password, done) => {
         try {
-          const user = await storage.getUserByEmail(email);
+          // Normalize email to lowercase for case-insensitive matching
+          const normalizedEmail = email.toLowerCase().trim();
+          const user = await storage.getUserByEmail(normalizedEmail);
           if (!user) {
             return done(null, false, { message: "Invalid email or password" });
           }
@@ -111,6 +113,9 @@ export async function setupAuth(app: Express) {
       // Validate input
       const validatedData = registerUserSchema.parse(req.body);
 
+      // Normalize email to lowercase for case-insensitive storage
+      const normalizedEmail = validatedData.email.toLowerCase().trim();
+
       // Check if username already exists
       const existingUser = await storage.getUserByUsername(validatedData.username);
       if (existingUser) {
@@ -118,7 +123,7 @@ export async function setupAuth(app: Express) {
       }
 
       // Check if email already exists
-      const existingEmail = await storage.getUserByEmail(validatedData.email);
+      const existingEmail = await storage.getUserByEmail(normalizedEmail);
       if (existingEmail) {
         return res.status(400).json({ message: "Email already exists" });
       }
@@ -127,6 +132,7 @@ export async function setupAuth(app: Express) {
       const hashedPassword = await hashPassword(validatedData.password);
       const user = await storage.createUser({
         ...validatedData,
+        email: normalizedEmail,
         password: hashedPassword,
       });
 
@@ -227,7 +233,9 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Email is required" });
       }
 
-      const user = await storage.getUserByEmail(email);
+      // Normalize email to lowercase for case-insensitive matching
+      const normalizedEmail = email.toLowerCase().trim();
+      const user = await storage.getUserByEmail(normalizedEmail);
       if (!user) {
         // Don't reveal if email exists
         return res.json({ 
@@ -279,7 +287,9 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
 
-      const user = await storage.getUserByEmail(email);
+      // Normalize email to lowercase for case-insensitive matching
+      const normalizedEmail = email.toLowerCase().trim();
+      const user = await storage.getUserByEmail(normalizedEmail);
       if (!user || !user.resetToken || !user.resetTokenExpiry) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
