@@ -1700,6 +1700,78 @@ export type MessageTemplate = typeof messageTemplates.$inferSelect;
 export type InsertMessageTemplate = z.infer<typeof insertMessageTemplateSchema>;
 export type UpdateMessageTemplate = z.infer<typeof updateMessageTemplateSchema>;
 
+// Knowledge Base Documents (for AI chatbot)
+export const knowledgeBaseDocuments = pgTable("knowledge_base_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar("title", { length: 500 }).notNull(),
+  fileName: varchar("file_name", { length: 500 }).notNull(),
+  fileUrl: varchar("file_url", { length: 1000 }).notNull(),
+  fileType: varchar("file_type", { length: 100 }).notNull(), // pdf, docx, txt
+  fileSizeBytes: integer("file_size_bytes").notNull(),
+  extractedText: text("extracted_text"), // Full text content
+  category: varchar("category", { length: 255 }), // e.g., "User Guide", "Best Practices", "Compliance"
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  uploadedBy: varchar("uploaded_by").notNull(), // admin user ID
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_kb_docs_active").on(table.isActive),
+  index("idx_kb_docs_category").on(table.category),
+]);
+
+export const insertKnowledgeBaseDocumentSchema = createInsertSchema(knowledgeBaseDocuments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type KnowledgeBaseDocument = typeof knowledgeBaseDocuments.$inferSelect;
+export type InsertKnowledgeBaseDocument = z.infer<typeof insertKnowledgeBaseDocumentSchema>;
+
+// Chat Conversations (for AI chatbot)
+export const chatConversations = pgTable("chat_conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  userId: varchar("user_id").notNull(), // User who started the conversation
+  title: varchar("title", { length: 500 }), // Auto-generated from first message
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_chat_conversations_user").on(table.userId),
+  index("idx_chat_conversations_org").on(table.organizationId),
+]);
+
+export const insertChatConversationSchema = createInsertSchema(chatConversations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ChatConversation = typeof chatConversations.$inferSelect;
+export type InsertChatConversation = z.infer<typeof insertChatConversationSchema>;
+
+// Chat Messages (for AI chatbot)
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").notNull(),
+  role: varchar("role", { length: 50 }).notNull(), // "user" or "assistant"
+  content: text("content").notNull(),
+  sourceDocs: text("source_docs").array(), // IDs of knowledge base docs used
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_chat_messages_conversation").on(table.conversationId),
+]);
+
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+
 // Export types for the new schemas
 export type CreateOrganization = z.infer<typeof createOrganizationSchema>;
 export type CreateTeamMember = z.infer<typeof createTeamMemberSchema>;
