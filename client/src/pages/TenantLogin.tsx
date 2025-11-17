@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Home } from "lucide-react";
 import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
 
@@ -42,11 +42,26 @@ export default function TenantLogin() {
         throw new Error(error.message || "Login failed");
       }
 
+      // Await response to ensure session is set
+      const result = await res.json();
+
+      // Verify user data exists
+      if (!result?.user) {
+        throw new Error("Invalid response from server");
+      }
+
+      // Set the user data in the cache directly (like staff login)
+      queryClient.setQueryData(["/api/auth/user"], result.user);
+
+      // Refetch to ensure session is fully established before navigation
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"], exact: true, type: "active" });
+
       toast({
         title: "Welcome back!",
         description: "You've successfully logged in.",
       });
 
+      // Navigate only after auth state is fully updated
       navigate("/tenant/home");
     } catch (error: any) {
       toast({

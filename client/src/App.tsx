@@ -88,20 +88,8 @@ function AppContent() {
     );
   }
 
-  // Authenticated but no organization - show onboarding
-  if (user && !user.organizationId) {
-    return (
-      <TooltipProvider>
-        <Switch>
-          <Route path="*" component={OrganizationSetup} />
-        </Switch>
-        <PWAInstallPrompt />
-        <Toaster />
-      </TooltipProvider>
-    );
-  }
-
   // Tenant role - show tenant portal (no sidebar)
+  // Check this BEFORE organization check since tenants may not have organizationId
   if (user && user.role === "tenant") {
     return (
       <TooltipProvider>
@@ -116,6 +104,19 @@ function AppContent() {
             </Switch>
           </main>
         </div>
+        <PWAInstallPrompt />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
+
+  // Authenticated but no organization - show onboarding (for staff users only)
+  if (user && !user.organizationId) {
+    return (
+      <TooltipProvider>
+        <Switch>
+          <Route path="*" component={OrganizationSetup} />
+        </Switch>
         <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>

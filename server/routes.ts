@@ -2,7 +2,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, requireRole, hashPassword } from "./auth";
+import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords } from "./auth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { db } from "./db";
@@ -8351,13 +8351,15 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(400).json({ message: "Email and password are required" });
       }
 
-      const user = await storage.getUserByEmail(email.toLowerCase());
+      // Normalize email for case-insensitive lookup
+      const normalizedEmail = email.toLowerCase().trim();
+      const user = await storage.getUserByEmail(normalizedEmail);
       
       if (!user || user.role !== "tenant") {
         return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
       }
 
-      const isValid = await verifyPassword(password, user.password);
+      const isValid = await comparePasswords(password, user.password);
       if (!isValid) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
@@ -8371,8 +8373,9 @@ Be objective and specific. Focus on actionable repairs.`;
           console.error("Login error:", err);
           return res.status(500).json({ message: "Login failed" });
         }
-        const { password: _, ...userWithoutPassword } = user;
-        res.json({ user: userWithoutPassword });
+        // Sanitize user object - remove all sensitive fields
+        const { password: _, resetToken, resetTokenExpiry, ...sanitizedUser } = user;
+        res.json({ user: sanitizedUser });
       });
     } catch (error) {
       console.error("Tenant login error:", error);
@@ -8461,6 +8464,12 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(403).json({ message: "Access denied" });
       }
 
+      // Get tenant's tenancy to access propertyId
+      const tenancy = await storage.getTenancyByTenantId(userId);
+      if (!tenancy) {
+        return res.status(404).json({ message: "No tenancy found for this tenant" });
+      }
+
       const { chatId, message, imageUrl } = req.body;
 
       if (!message && !imageUrl) {
@@ -8477,6 +8486,8 @@ Be objective and specific. Focus on actionable repairs.`;
         const title = message.substring(0, 50) + (message.length > 50 ? "..." : "");
         chat = await storage.createTenantMaintenanceChat({
           tenantId: userId,
+          organizationId: user.organizationId!,
+          propertyId: tenancy.propertyId,
           title,
           status: "active",
         });
@@ -8600,7 +8611,7 @@ Be objective and specific. Focus on actionable repairs.`;
         priority: "medium",
         status: "open",
         propertyId: tenancy.propertyId,
-        reporterId: userId,
+        reportedBy: userId,
         organizationId: user.organizationId,
         photoUrls,
         aiSuggestedFixes,
