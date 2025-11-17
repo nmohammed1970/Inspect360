@@ -26,7 +26,10 @@ The platform is built on a robust web architecture with a PWA-first approach, em
 - **Authentication**: Custom username/password authentication with session management, case-insensitive email handling, and duplicate account detection.
 - **Object Storage**: Google Cloud Storage for media files with public ACLs for organization-wide viewing.
 - **Database Schema**: Comprehensive schema including users, organizations, properties, blocks, inspections, compliance documents, maintenance requests, asset inventory, contacts, tenant assignments, message templates, and a tagging system.
-- **Role-Based Access**: Granular control for various user roles.
+- **Role-Based Access**: Granular control for various user roles with comprehensive access controls:
+  - **Inspection Clerks**: Can only view and complete inspections assigned to them (filtered by `inspectorId`)
+  - **Owners/Compliance**: Can view and manage all inspections in their organization
+  - **Multi-layer Security**: List filtering + individual inspection authorization checks prevent unauthorized access
 - **Credit System**: Stripe-integrated credit-based subscription for AI features with multi-currency support and Eco-Admin pricing management.
 - **AI Features**: Integration with OpenAI GPT-5 Vision for photo analysis, comparison reports, maintenance triage, and an AI chatbot with knowledge base integration. Features include:
   - **Context-Aware Photo Analysis**: AI focuses specifically on the inspection point title (e.g., when analyzing "Doors and Handles", the AI ignores other room elements and concentrates only on doors/handles in the photo)

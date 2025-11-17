@@ -1356,13 +1356,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/inspections/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/inspections/:id", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
       const inspection = await storage.getInspection(id);
       
       if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      // Verify access: Clerks can only view inspections assigned to them
+      if (user.role !== "owner" && user.role !== "compliance") {
+        if (inspection.inspectorId !== userId) {
+          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+        }
+      }
+
+      // Verify organization ownership
+      if (inspection.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied: Inspection does not belong to your organization" });
       }
 
       res.json(inspection);
@@ -1472,6 +1491,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (ownerOrgId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Verify access: Clerks can only update inspections assigned to them
+      if (user.role !== "owner" && user.role !== "compliance") {
+        if (inspection.inspectorId !== user.id) {
+          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+        }
       }
 
       // Validate and update inspection
