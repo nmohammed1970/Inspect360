@@ -37,4 +37,12 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
+  optimizeDeps: {
+    // Force re-optimization on dependency changes
+    force: false,
+    // Exclude problematic dependencies from pre-bundling if needed
+    exclude: [],
+    // Include dependencies that need pre-bundling
+    include: [],
+  },
 });

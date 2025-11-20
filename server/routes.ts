@@ -1,6 +1,7 @@
 // Backend API routes for Inspect360
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords } from "./auth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -11,6 +12,7 @@ import Stripe from "stripe";
 import OpenAI from "openai";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import multer from "multer";
 import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
@@ -124,6 +126,14 @@ function getOpenAI(): OpenAI {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+
+  // Configure multer for file uploads (memory storage for local file system)
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 100 * 1024 * 1024, // 100MB limit
+    },
+  });
 
   // ==================== DEV ROUTES (Development Only) ====================
   if (process.env.NODE_ENV === "development") {
@@ -6014,6 +6024,126 @@ Be objective and specific. Focus on actionable repairs.`;
     const objectStorageService = new ObjectStorageService();
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     res.json({ uploadURL });
+  });
+
+  // Direct upload endpoint for local storage (returns upload URL that points to upload-file)
+  app.post("/api/objects/upload-direct", isAuthenticated, upload.single('file'), async (req: any, res) => {
+    try {
+      const objectId = req.query.objectId || randomUUID();
+      const objectStorageService = new ObjectStorageService();
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const normalizedPath = await objectStorageService.saveUploadedFile(
+        objectId as string,
+        req.file.buffer,
+        req.file.mimetype
+      );
+
+      // Set ACL to public
+      const userId = req.user?.claims?.sub || req.user?.id;
+      if (userId) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
+            owner: userId,
+            visibility: "public",
+          });
+        } catch (error) {
+          console.warn("Failed to set ACL:", error);
+        }
+      }
+
+      res.json({ 
+        url: normalizedPath,
+        uploadURL: normalizedPath
+      });
+    } catch (error) {
+      console.error("Error in upload-direct:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // File upload endpoint using multer
+  app.post("/api/objects/upload-file", isAuthenticated, upload.single('file'), async (req: any, res) => {
+    try {
+      const objectId = req.query.objectId || randomUUID();
+      const objectStorageService = new ObjectStorageService();
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const normalizedPath = await objectStorageService.saveUploadedFile(
+        objectId as string,
+        req.file.buffer,
+        req.file.mimetype
+      );
+
+      // Set ACL to public by default
+      const userId = req.user?.claims?.sub || req.user?.id;
+      if (userId) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
+            owner: userId,
+            visibility: "public",
+          });
+        } catch (error) {
+          console.warn("Failed to set ACL for uploaded file:", error);
+        }
+      }
+
+      res.json({ 
+        url: normalizedPath,
+        path: normalizedPath,
+        objectId: objectId
+      });
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      res.status(500).json({ error: "Failed to upload file" });
+    }
+  });
+
+  // Alternative endpoint for S3-compatible clients (like Uppy)
+  app.post("/api/object-storage/upload", isAuthenticated, upload.single('file'), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const objectId = randomUUID();
+      const objectStorageService = new ObjectStorageService();
+
+      const normalizedPath = await objectStorageService.saveUploadedFile(
+        objectId,
+        req.file.buffer,
+        req.file.mimetype
+      );
+
+      // Set ACL to public
+      const userId = req.user?.claims?.sub || req.user?.id;
+      if (userId) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
+            owner: userId,
+            visibility: "public",
+          });
+        } catch (error) {
+          console.warn("Failed to set ACL:", error);
+        }
+      }
+
+      // Return S3-compatible response
+      res.json({
+        url: normalizedPath,
+        key: normalizedPath,
+        bucket: "local",
+      });
+    } catch (error) {
+      console.error("Error in S3-compatible upload:", error);
+      res.status(500).json({ error: "Failed to upload file" });
+    }
   });
 
   app.post("/api/objects/normalize", isAuthenticated, async (req, res) => {

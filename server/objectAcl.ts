@@ -1,5 +1,5 @@
-// Based on javascript_object_storage blueprint
-import { File } from "@google-cloud/storage";
+// Local file ACL implementation
+import { LocalFile } from "./objectStorage";
 
 const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
 
@@ -14,7 +14,7 @@ export interface ObjectAclPolicy {
 }
 
 export async function setObjectAclPolicy(
-  objectFile: File,
+  objectFile: LocalFile,
   aclPolicy: ObjectAclPolicy,
 ): Promise<void> {
   const [exists] = await objectFile.exists();
@@ -28,15 +28,10 @@ export async function setObjectAclPolicy(
       [ACL_POLICY_METADATA_KEY]: JSON.stringify(aclPolicy),
     },
   });
-
-  // Note: We do NOT use makePublic() because the bucket has Public Access Prevention enabled.
-  // Instead, we'll generate signed URLs when needed for external access (e.g., OpenAI).
-  // The metadata above marks this file as "public" within our application's logic,
-  // meaning authorized users can access it via our /objects/ proxy.
 }
 
 export async function getObjectAclPolicy(
-  objectFile: File,
+  objectFile: LocalFile,
 ): Promise<ObjectAclPolicy | null> {
   const [metadata] = await objectFile.getMetadata();
   const aclPolicy = metadata?.metadata?.[ACL_POLICY_METADATA_KEY];
@@ -52,7 +47,7 @@ export async function canAccessObject({
   requestedPermission,
 }: {
   userId?: string;
-  objectFile: File;
+  objectFile: LocalFile;
   requestedPermission: ObjectPermission;
 }): Promise<boolean> {
   const aclPolicy = await getObjectAclPolicy(objectFile);

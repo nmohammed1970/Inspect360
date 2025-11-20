@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -60,12 +61,24 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
+  // Use localhost on Windows, 0.0.0.0 on Unix systems (for Replit compatibility)
+  const host = process.env.HOST || (process.platform === "win32" ? "localhost" : "0.0.0.0");
+  
+  // Use traditional listen format for better Windows compatibility
+  // Windows doesn't support reusePort option
+  if (process.platform === "win32") {
+    server.listen(port, host, () => {
+      log(`serving on http://${host}:${port}`);
+    });
+  } else {
+    // Unix systems can use the options object with reusePort
+    server.listen({
+      port,
+      host,
+      reusePort: true,
+    }, () => {
+      log(`serving on http://${host}:${port}`);
+    });
+  }
 })();
