@@ -529,16 +529,17 @@ export default function Billing() {
               </DialogTrigger>
               <DialogContent data-testid="dialog-topup">
                 <DialogHeader>
-                  <DialogTitle>Purchase Credit Pack</DialogTitle>
+                  <DialogTitle>Add-On AI Inspection Bundles</DialogTitle>
                   <DialogDescription>
-                    Choose a credit pack to add to your account (£0.75 per credit)
+                    Purchase additional credits when your subscription allowance is depleted
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   {[
-                    { size: 100, price: 7500, popular: false },
-                    { size: 500, price: 37500, popular: true },
-                    { size: 1000, price: 75000, popular: false },
+                    { size: 100, price: 40000, perCredit: 400, popular: false },
+                    { size: 250, price: 75000, perCredit: 300, popular: false },
+                    { size: 500, price: 100000, perCredit: 200, popular: true },
+                    { size: 1000, price: 150000, perCredit: 150, popular: false },
                   ].map((pack) => (
                     <Card
                       key={pack.size}
@@ -551,13 +552,13 @@ export default function Billing() {
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="font-semibold text-lg">{pack.size} Credits</p>
+                            <p className="font-semibold text-lg">{pack.size} AI Credits</p>
                             <p className="text-sm text-muted-foreground">
-                              {formatCurrency(pack.price)} ({formatCurrency(pack.price / pack.size)}/credit)
+                              {formatCurrency(pack.price)} • {formatCurrency(pack.perCredit)} per credit
                             </p>
                           </div>
                           {pack.popular && (
-                            <Badge variant="default">Popular</Badge>
+                            <Badge variant="default">Best Value</Badge>
                           )}
                         </div>
                       </CardContent>
@@ -576,6 +577,74 @@ export default function Billing() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Subscription Management & Cancellation */}
+      {subscription && (
+        <Card data-testid="card-subscription-management">
+          <CardHeader>
+            <CardTitle>Subscription Management</CardTitle>
+            <CardDescription>Manage your plan, billing, and cancellation</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <h3 className="font-semibold mb-2">Current Plan</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  You're currently on the <strong>{subscription.planSnapshotJson.planName}</strong> plan
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {formatCurrency(subscription.planSnapshotJson.monthlyPrice, subscription.planSnapshotJson.currency)}/month • {subscription.planSnapshotJson.includedCredits} credits per month
+                </p>
+              </div>
+              <div>
+                <h3 className="font-semibold mb-2">Billing Cycle</h3>
+                <p className="text-sm text-muted-foreground">
+                  Your next billing date is <strong>{format(new Date(subscription.currentPeriodEnd), "MMMM d, yyyy")}</strong>
+                </p>
+                {subscription.cancelAtPeriodEnd && (
+                  <p className="text-sm text-destructive mt-2">
+                    Your subscription will cancel on this date.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => portalMutation.mutate()}
+                disabled={portalMutation.isPending}
+                data-testid="button-change-plan"
+              >
+                <CreditCard className="mr-2 h-4 w-4" />
+                Change Plan or Payment Method
+              </Button>
+              <Button
+                variant={subscription.cancelAtPeriodEnd ? "default" : "destructive"}
+                className="flex-1"
+                onClick={() => portalMutation.mutate()}
+                disabled={portalMutation.isPending}
+                data-testid="button-cancel-subscription"
+              >
+                <AlertCircle className="mr-2 h-4 w-4" />
+                {subscription.cancelAtPeriodEnd ? "Reactivate Subscription" : "Cancel Subscription"}
+              </Button>
+            </div>
+
+            {!subscription.cancelAtPeriodEnd && (
+              <div className="bg-muted p-3 rounded-md">
+                <p className="text-xs text-muted-foreground">
+                  <strong>Note:</strong> Canceling your subscription will keep it active until the end of your current billing period. 
+                  You'll continue to have access to all features and your remaining credits until {format(new Date(subscription.currentPeriodEnd), "MMMM d, yyyy")}.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Available Plans */}
       <div id="plans">
@@ -729,9 +798,15 @@ export default function Billing() {
           <div>
             <h3 className="font-semibold mb-2">Can I purchase additional credits?</h3>
             <p className="text-sm text-muted-foreground">
-              Yes! You can purchase credit top-up packs at any time (100, 500, or 1000 credits) at £0.75 per credit. 
-              Top-up credits never expire and are consumed using FIFO (first-in, first-out) logic after your monthly credits.
+              Yes! When your subscription allowance is depleted, you can purchase add-on AI inspection bundles:
             </p>
+            <div className="text-sm text-muted-foreground space-y-1 mt-2">
+              <p>• <strong>100 credits:</strong> £400 (£4.00 per credit)</p>
+              <p>• <strong>250 credits:</strong> £750 (£3.00 per credit)</p>
+              <p>• <strong>500 credits:</strong> £1,000 (£2.00 per credit) - Best Value</p>
+              <p>• <strong>1000 credits:</strong> £1,500 (£1.50 per credit)</p>
+              <p className="pt-2">Top-up credits never expire and are consumed using FIFO (first-in, first-out) logic after your monthly credits.</p>
+            </div>
           </div>
 
           <Separator />

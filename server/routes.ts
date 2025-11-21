@@ -7320,8 +7320,8 @@ Be objective and specific. Focus on actionable repairs.`;
       }
 
       const { packSize } = req.body;
-      if (!packSize || ![100, 500, 1000].includes(packSize)) {
-        return res.status(400).json({ message: "Invalid pack size. Must be 100, 500, or 1000" });
+      if (!packSize || ![100, 250, 500, 1000].includes(packSize)) {
+        return res.status(400).json({ message: "Invalid pack size. Must be 100, 250, 500, or 1000" });
       }
 
       const org = await storage.getOrganization(user.organizationId);
@@ -7329,8 +7329,14 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(404).json({ message: "Organization not found" });
       }
 
-      // Get pricing (75 pence per credit by default, could be overridden by country)
-      const unitPrice = 75; // pence
+      // Get pricing based on pack size (pence per credit)
+      const pricingTiers: Record<number, number> = {
+        100: 400,   // £4.00 per credit
+        250: 300,   // £3.00 per credit
+        500: 200,   // £2.00 per credit
+        1000: 150,  // £1.50 per credit
+      };
+      const unitPrice = pricingTiers[packSize];
       const totalPrice = packSize * unitPrice;
       const currency = "GBP"; // Could be determined by country
 
