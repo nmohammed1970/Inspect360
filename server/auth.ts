@@ -136,14 +136,132 @@ export async function setupAuth(app: Express) {
         password: hashedPassword,
       });
 
-      // Log user in after registration
-      req.login(user, (err) => {
-        if (err) return next(err);
-        
-        // Don't send password to client
-        const { password, resetToken, resetTokenExpiry, ...userWithoutPassword } = user;
-        res.status(201).json(userWithoutPassword);
-      });
+      // Automatically create organization using the username (company name) field
+      // Only create organization for owner role
+      if (user.role === "owner") {
+        try {
+          // Create organization using username as company name
+          const organization = await storage.createOrganization({
+            name: validatedData.username, // Company name from registration form
+            ownerId: user.id,
+            creditsRemaining: 5, // Give 5 free credits to start
+          });
+
+          // Update user with organization ID and set role to owner
+          const updatedUser = await storage.upsertUser({
+            ...user,
+            organizationId: organization.id,
+            role: "owner",
+          });
+
+          // Create initial credit transaction for free credits
+          await storage.createCreditTransaction({
+            organizationId: organization.id,
+            amount: 5,
+            type: "purchase",
+            description: "Welcome credits",
+          });
+
+          // Create default inspection templates
+          try {
+            const { DEFAULT_TEMPLATES } = await import('./defaultTemplates');
+            for (const template of DEFAULT_TEMPLATES) {
+              await storage.createInspectionTemplate({
+                organizationId: organization.id,
+                name: template.name,
+                description: template.description,
+                scope: template.scope,
+                version: 1,
+                isActive: true,
+                structureJson: template.structureJson,
+                categoryId: template.categoryId,
+                createdBy: user.id,
+              });
+            }
+            console.log(`✓ Created default templates for new organization ${organization.id}`);
+          } catch (templateError) {
+            console.error("Warning: Failed to create default templates:", templateError);
+          }
+
+          // Create sample data (Block A, Property A, Joe Bloggs tenant)
+          try {
+            const uniqueSuffix = Date.now().toString(36);
+            
+            // Create Block A
+            const blockA = await storage.createBlock({
+              organizationId: organization.id,
+              name: "Block A",
+              address: "123 Sample Street, Sample City, SC 12345",
+              notes: "Sample block created automatically for demonstration purposes",
+            });
+
+            // Create Property A linked to Block A
+            const propertyA = await storage.createProperty({
+              organizationId: organization.id,
+              blockId: blockA.id,
+              name: "Property A",
+              address: "Unit 101, Block A, 123 Sample Street, Sample City, SC 12345",
+              sqft: 850,
+            });
+
+            // Create sample tenant user "Joe Bloggs"
+            const tenantPassword = await hashPassword("password123");
+            const joeBloggs = await storage.createUser({
+              email: `joe.bloggs+${uniqueSuffix}@inspect360.demo`,
+              username: `joe_bloggs_${uniqueSuffix}`,
+              password: tenantPassword,
+              firstName: "Joe",
+              lastName: "Bloggs",
+              role: "tenant",
+              organizationId: organization.id,
+              isActive: true,
+            });
+
+            // Create tenant assignment
+            await storage.createTenantAssignment({
+              organizationId: organization.id,
+              propertyId: propertyA.id,
+              tenantId: joeBloggs.id,
+              leaseStartDate: new Date(),
+              leaseEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+              monthlyRent: "1200.00",
+              depositAmount: "1200.00",
+              isActive: true,
+              notes: "Sample tenant assignment created for demonstration purposes",
+            });
+
+            console.log(`✓ Sample data created for organization ${organization.id}`);
+          } catch (sampleDataError) {
+            console.error("Warning: Failed to create sample data:", sampleDataError);
+          }
+
+          // Log user in after registration with updated user data
+          req.login(updatedUser, (err) => {
+            if (err) return next(err);
+            
+            // Don't send password to client
+            const { password, resetToken, resetTokenExpiry, ...userWithoutPassword } = updatedUser;
+            res.status(201).json(userWithoutPassword);
+          });
+        } catch (orgError) {
+          console.error("Error creating organization during registration:", orgError);
+          // If org creation fails, still log the user in but without org
+          req.login(user, (err) => {
+            if (err) return next(err);
+            const { password, resetToken, resetTokenExpiry, ...userWithoutPassword } = user;
+            res.status(201).json(userWithoutPassword);
+          });
+        }
+      } else {
+        // For non-owner roles, just log them in normally
+        req.login(user, (err) => {
+          if (err) return next(err);
+          
+          // Don't send password to client
+          const { password, resetToken, resetTokenExpiry, ...userWithoutPassword } = user;
+          res.status(201).json(userWithoutPassword);
+        });
+      }
     } catch (error: any) {
       if (error.name === "ZodError") {
         return res.status(400).json({ 

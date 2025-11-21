@@ -100,7 +100,7 @@ export default function Auth() {
       });
 
       if (result) {
-        navigate("/onboarding");
+        navigate("/dashboard");
       }
     } catch (error) {
       // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection
