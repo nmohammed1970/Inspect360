@@ -10,6 +10,7 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
 import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import Dashboard from "@/pages/Dashboard";
 import Properties from "@/pages/Properties";
 import PropertyDetail from "@/pages/PropertyDetail";
@@ -66,6 +67,7 @@ function AppContent() {
           <Route path="/" component={Landing} />
           <Route path="/auth" component={Auth} />
           <Route path="/forgot-password" component={ForgotPassword} />
+          <Route path="/reset-password" component={ResetPassword} />
           <Route path="/admin/login" component={AdminLogin} />
           <Route path="/admin/dashboard" component={AdminDashboard} />
           <Route path="/admin/team" component={AdminTeam} />

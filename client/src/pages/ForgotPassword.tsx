@@ -102,6 +102,17 @@ export default function ForgotPassword() {
                     {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Send reset instructions
                   </Button>
+
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      className="text-sm text-primary hover:underline transition-all"
+                      onClick={() => navigate("/reset-password")}
+                      data-testid="button-have-code"
+                    >
+                      Already have a reset code?
+                    </button>
+                  </div>
                 </form>
               )}
             </CardContent>
