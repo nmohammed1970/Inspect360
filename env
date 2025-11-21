@@ -1,0 +1,23 @@
+﻿# Database Configuration
+# Get your connection string from Neon (https://neon.tech) or use a local PostgreSQL instance
+# Format: postgresql://user:password@host:port/database?sslmode=require
+DATABASE_URL=DATABASE_URL=postgresql://postgres:sjadmin@localhost:5432/Inspect360
+
+
+
+# Session Secret (generated - keep this secret!)
+SESSION_SECRET=8356a37836ea1b763960e4cb0ae0e94c2ee378a0b4c7f530c350205f16d6dcbc
+
+# Stripe Configuration (for payments and subscriptions)
+# Get these from https://dashboard.stripe.com/apikeys
+STRIPE_SECRET_KEY=sk_test_51SKFhuGzN1b9yvTEzFo6gbBkCGGFHG9s7u3DuUN0M7CkAUyqXmfdpnNqI94rISFjhORcMgnENgK5ASoiX09IHQPY00kxPUwiLI
+STRIPE_WEBHOOK_SECRET=pk_test_51SKFhuGzN1b9yvTEFjbZ9WiMZeazPribGKQd5obyVpORxBotrwTyPdLvpHHjdFDZNyKTCILxJVRaZHTpBDf0yYxe004l4rBPVt
+
+
+# AI_INTEGRATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
+# AI_INTEGRATIONS_OPENAI_API_KEY=sk-your-openai-api-key
+AI_INTEGRATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
+AI_INTEGRATIONS_OPENAI_API_KEY=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
+
+# Server Port (optional, defaults to 5000)
+PORT=5005
