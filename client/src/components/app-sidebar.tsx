@@ -103,6 +103,15 @@ export function AppSidebar() {
       icon: Package,
       roles: ["owner", "clerk", "compliance"],
     },
+  ];
+
+  const settingsMenuItems = [
+    {
+      title: "Inspection Templates",
+      url: "/inspection-templates",
+      icon: List,
+      roles: ["owner", "compliance"],
+    },
     {
       title: "Team",
       url: "/team",
@@ -114,15 +123,6 @@ export function AppSidebar() {
       url: "/billing",
       icon: CreditCard,
       roles: ["owner"],
-    },
-  ];
-
-  const settingsMenuItems = [
-    {
-      title: "Inspection Templates",
-      url: "/inspection-templates",
-      icon: List,
-      roles: ["owner", "compliance"],
     },
     {
       title: "Settings",
