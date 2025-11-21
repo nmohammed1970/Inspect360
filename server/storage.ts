@@ -1490,6 +1490,7 @@ export class DatabaseStorage implements IStorage {
         address: a.propertyAddress,
       },
       assignment: {
+        id: a.assignmentId,
         leaseStartDate: a.leaseStartDate,
         leaseEndDate: a.leaseEndDate,
         monthlyRent: a.monthlyRent,

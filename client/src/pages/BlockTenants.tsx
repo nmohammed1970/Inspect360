@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Users, Home, DollarSign, Percent, Mail, Phone, Building2, Calendar, MessageSquare } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { TagFilter } from "@/components/TagFilter";
+import type { Tag } from "@shared/schema";
+import { ArrowLeft, Users, Home, DollarSign, Percent, Mail, Phone, Building2, Calendar, MessageSquare, Search, Tag as TagIcon } from "lucide-react";
 import { format } from "date-fns";
 import { BroadcastDialog } from "@/components/BroadcastDialog";
 
@@ -24,12 +27,14 @@ interface TenantAssignment {
     address: string;
   };
   assignment: {
+    id: string;
     leaseStartDate?: Date | string;
     leaseEndDate?: Date | string;
     monthlyRent?: string;
     depositAmount?: string;
     isActive: boolean;
   };
+  tags?: Tag[];
 }
 
 interface BlockTenantsData {
@@ -52,6 +57,8 @@ export default function BlockTenants() {
   const [, params] = useRoute("/blocks/:id/tenants");
   const blockId = params?.id;
   const [broadcastDialogOpen, setBroadcastDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterTags, setFilterTags] = useState<Tag[]>([]);
 
   const { data: block, isLoading: blockLoading } = useQuery<Block>({
     queryKey: ["/api/blocks", blockId],
@@ -72,6 +79,72 @@ export default function BlockTenants() {
     },
     enabled: !!blockId,
   });
+
+  // Fetch tags for all tenant assignments
+  const { data: tenantTagsMap = {} } = useQuery<Record<string, Tag[]>>({
+    queryKey: ["/api/tenant-assignments/tags", blockId],
+    enabled: !!tenantsData?.tenants && tenantsData.tenants.length > 0,
+    queryFn: async () => {
+      const tenants = tenantsData?.tenants || [];
+      const tagPromises = tenants.map(async (tenant: TenantAssignment) => {
+        try {
+          const res = await fetch(`/api/tenant-assignments/${tenant.assignment.id}/tags`, { credentials: "include" });
+          if (res.ok) {
+            const tags = await res.json();
+            return { assignmentId: tenant.assignment.id, tags };
+          }
+        } catch (error) {
+          console.error(`Error fetching tags for assignment ${tenant.assignment.id}:`, error);
+        }
+        return { assignmentId: tenant.assignment.id, tags: [] };
+      });
+      
+      const results = await Promise.all(tagPromises);
+      return results.reduce((acc, { assignmentId, tags }) => {
+        acc[assignmentId] = tags;
+        return acc;
+      }, {} as Record<string, Tag[]>);
+    },
+  });
+
+  // Merge tags into tenants
+  const tenantsWithTags = useMemo(() => {
+    const tenants = tenantsData?.tenants || [];
+    return tenants.map(tenant => ({
+      ...tenant,
+      tags: tenantTagsMap[tenant.assignment.id] || [],
+    }));
+  }, [tenantsData, tenantTagsMap]);
+
+  // Filter tenants by search query and tags
+  const filteredTenants = useMemo(() => {
+    let filtered = tenantsWithTags;
+
+    // Filter by search query (name, email, property name)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(tenant => {
+        const fullName = [tenant.user.firstName, tenant.user.lastName].filter(Boolean).join(' ').toLowerCase();
+        return (
+          fullName.includes(query) ||
+          tenant.user.email.toLowerCase().includes(query) ||
+          tenant.property.name.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    // Filter by tags (show tenants that have ALL selected tags)
+    if (filterTags.length > 0) {
+      filtered = filtered.filter(tenant => {
+        if (!tenant.tags || tenant.tags.length === 0) return false;
+        return filterTags.every(filterTag =>
+          tenant.tags!.some((tenantTag: Tag) => tenantTag.id === filterTag.id)
+        );
+      });
+    }
+
+    return filtered;
+  }, [tenantsWithTags, searchQuery, filterTags]);
 
   if (blockLoading || tenantsLoading) {
     return (
@@ -192,7 +265,30 @@ export default function BlockTenants() {
 
       {/* Tenants List */}
       <div>
-        <h2 className="text-2xl font-semibold mb-4">Tenants</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-2xl font-semibold">Tenants</h2>
+        </div>
+
+        {/* Search and Tag Filter */}
+        {tenants.length > 0 && (
+          <div className="space-y-4 mb-6">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Input
+                placeholder="Search by name, email, or property..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-tenants"
+              />
+            </div>
+            <TagFilter
+              selectedTags={filterTags}
+              onTagsChange={setFilterTags}
+              placeholder="Filter by tags..."
+            />
+          </div>
+        )}
         
         {tenants.length === 0 ? (
           <Card>
@@ -204,9 +300,29 @@ export default function BlockTenants() {
               </p>
             </CardContent>
           </Card>
+        ) : filteredTenants.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <Search className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No tenants found</h3>
+              <p className="text-muted-foreground text-center">
+                Try adjusting your search or filter criteria
+              </p>
+              <Button 
+                variant="outline" 
+                className="mt-4"
+                onClick={() => {
+                  setSearchQuery("");
+                  setFilterTags([]);
+                }}
+              >
+                Clear Filters
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
           <div className="grid gap-4">
-            {tenants.map((tenant, index) => {
+            {filteredTenants.map((tenant, index) => {
               const fullName = [tenant.user.firstName, tenant.user.lastName].filter(Boolean).join(' ') || 'Unnamed Tenant';
               const initials = fullName
                 .split(' ')
@@ -278,6 +394,25 @@ export default function BlockTenants() {
                             </div>
                           )}
                         </div>
+
+                        {/* Tags */}
+                        {tenant.tags && tenant.tags.length > 0 && (
+                          <div className="mt-3 pt-3 border-t">
+                            <div className="flex flex-wrap gap-1.5">
+                              {tenant.tags.map((tag: Tag) => (
+                                <span
+                                  key={tag.id}
+                                  className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md"
+                                  style={{ backgroundColor: tag.color || '#e2e8f0' }}
+                                  data-testid={`tag-${tenant.assignment.id}-${tag.id}`}
+                                >
+                                  <TagIcon className="h-3 w-3" />
+                                  {tag.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>
