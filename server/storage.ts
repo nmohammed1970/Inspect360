@@ -315,6 +315,7 @@ export interface IStorage {
   getTenantAssignment(id: string): Promise<TenantAssignment | undefined>;
   updateTenantAssignment(id: string, updates: Partial<InsertTenantAssignment>): Promise<TenantAssignment>;
   deleteTenantAssignment(id: string): Promise<void>;
+  getTenantAssignmentsByOrganization(organizationId: string): Promise<any[]>;
   getTenantAssignmentsByProperty(propertyId: string, organizationId: string): Promise<any[]>;
   getTenantAssignmentTags(tenantAssignmentId: string, organizationId: string): Promise<any[]>;
   updateTenantAssignmentTags(tenantAssignmentId: string, tagIds: string[], organizationId: string): Promise<void>;
@@ -1569,6 +1570,14 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTenantAssignment(id: string): Promise<void> {
     await db.delete(tenantAssignments).where(eq(tenantAssignments.id, id));
+  }
+
+  async getTenantAssignmentsByOrganization(organizationId: string): Promise<any[]> {
+    const assignments = await db
+      .select()
+      .from(tenantAssignments)
+      .where(eq(tenantAssignments.organizationId, organizationId));
+    return assignments;
   }
 
   async getTenantAssignmentTags(tenantAssignmentId: string, organizationId: string): Promise<any[]> {

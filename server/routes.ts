@@ -13,6 +13,7 @@ import OpenAI from "openai";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import multer from "multer";
+import { format } from "date-fns";
 import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
@@ -9742,54 +9743,68 @@ Be objective and specific. Focus on actionable repairs.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #1f2937; line-height: 1.5; }
-    .header { background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 32px; margin-bottom: 24px; }
-    .logo { width: 48px; height: 48px; margin-bottom: 16px; }
-    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
-    .subtitle { font-size: 16px; opacity: 0.95; }
-    .meta { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-    .stat-card { padding: 16px; background: #f9fafb; border-radius: 8px; border-left: 4px solid #00D5CC; }
-    .stat-label { font-size: 13px; color: #6b7280; margin-bottom: 4px; }
-    .stat-value { font-size: 28px; font-weight: 700; color: #1f2937; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th { background: #f3f4f6; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; color: #374151; border-bottom: 2px solid #e5e7eb; }
-    td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: white;
+    }
+    .cover-page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
+      color: white;
+      page-break-after: always;
+    }
+    .cover-logo { font-size: 72px; font-weight: 800; margin-bottom: 24px; }
+    .cover-title { font-size: 48px; font-weight: 700; margin-bottom: 16px; }
+    .cover-date { font-size: 18px; opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th { background: #f9fafb; padding: 12px 8px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 12px 8px; border-bottom: 1px solid #e5e7eb; }
     tr:hover { background: #f9fafb; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; }
+    .stat-card { background: #f9fafb; padding: 20px; border-radius: 8px; border-left: 4px solid #00D5CC; }
+    .stat-label { font-size: 13px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+    .stat-value { font-size: 32px; font-weight: 700; color: #00D5CC; }
     .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Properties Report</h1>
-    <p class="subtitle">Property portfolio overview with maintenance and inspection data</p>
-  </div>
-  
-  <div class="meta">
-    <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-    <div><strong>Total Properties:</strong> ${totalProperties}</div>
+  <div class="cover-page">
+    <div class="cover-logo">INSPECT360</div>
+    <div class="cover-title">Properties Report</div>
+    <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
   </div>
 
-  <div class="stats">
-    <div class="stat-card">
-      <div class="stat-label">Total Properties</div>
-      <div class="stat-value">${totalProperties}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Occupied</div>
-      <div class="stat-value" style="color: #10b981;">${occupiedProperties}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Vacant</div>
-      <div class="stat-value" style="color: #f59e0b;">${vacantProperties}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Open Maintenance</div>
-      <div class="stat-value" style="color: #ef4444;">${totalOpenMaintenance}</div>
-    </div>
-  </div>
+  <div style="padding: 40px;">
+    <h1 style="font-size: 32px; font-weight: 800; color: #00D5CC; margin-bottom: 32px;">Properties Summary</h1>
 
-  <div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Properties</div>
+        <div class="stat-value">${totalProperties}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Occupied</div>
+        <div class="stat-value">${occupiedProperties}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Vacant</div>
+        <div class="stat-value">${vacantProperties}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Open Maintenance</div>
+        <div class="stat-value">${totalOpenMaintenance}</div>
+      </div>
+    </div>
+
+    <h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin-top: 48px; margin-bottom: 16px;">Property Records</h2>
+    
     ${properties.length > 0 ? `
       <table>
         <thead>
@@ -9813,10 +9828,10 @@ Be objective and specific. Focus on actionable repairs.`;
         No properties found
       </div>
     `}
-  </div>
 
-  <div class="footer">
-    <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    <div class="footer">
+      <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    </div>
   </div>
 </body>
 </html>
@@ -9837,7 +9852,7 @@ Be objective and specific. Focus on actionable repairs.`;
       const blocks = await storage.getBlocksByOrganization(user.organizationId);
       const inspections = await storage.getInspectionsByOrganization(user.organizationId);
       const tenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
-      const maintenanceRequests = await storage.getMaintenanceRequestsByOrganization(user.organizationId);
+      const maintenanceRequests = await storage.getMaintenanceByOrganization(user.organizationId);
 
       // Apply filters
       if (blockId && blockId !== "all") {
@@ -9957,53 +9972,68 @@ Be objective and specific. Focus on actionable repairs.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #1f2937; line-height: 1.5; }
-    .header { background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 32px; margin-bottom: 24px; }
-    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
-    .subtitle { font-size: 16px; opacity: 0.95; }
-    .meta { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-    .stat-card { padding: 16px; background: #f9fafb; border-radius: 8px; border-left: 4px solid #00D5CC; }
-    .stat-label { font-size: 13px; color: #6b7280; margin-bottom: 4px; }
-    .stat-value { font-size: 28px; font-weight: 700; color: #1f2937; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th { background: #f3f4f6; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; color: #374151; border-bottom: 2px solid #e5e7eb; }
-    td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: white;
+    }
+    .cover-page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
+      color: white;
+      page-break-after: always;
+    }
+    .cover-logo { font-size: 72px; font-weight: 800; margin-bottom: 24px; }
+    .cover-title { font-size: 48px; font-weight: 700; margin-bottom: 16px; }
+    .cover-date { font-size: 18px; opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th { background: #f9fafb; padding: 12px 8px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 12px 8px; border-bottom: 1px solid #e5e7eb; }
     tr:hover { background: #f9fafb; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; }
+    .stat-card { background: #f9fafb; padding: 20px; border-radius: 8px; border-left: 4px solid #00D5CC; }
+    .stat-label { font-size: 13px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+    .stat-value { font-size: 32px; font-weight: 700; color: #00D5CC; }
     .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Tenants Report</h1>
-    <p class="subtitle">Tenant occupancy, lease tracking, and rental income analysis</p>
-  </div>
-  
-  <div class="meta">
-    <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-    <div><strong>Total Tenants:</strong> ${totalTenants}</div>
+  <div class="cover-page">
+    <div class="cover-logo">INSPECT360</div>
+    <div class="cover-title">Tenants Report</div>
+    <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
   </div>
 
-  <div class="stats">
-    <div class="stat-card">
-      <div class="stat-label">Total Tenants</div>
-      <div class="stat-value">${totalTenants}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Active</div>
-      <div class="stat-value" style="color: #10b981;">${activeTenants}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Expiring Soon</div>
-      <div class="stat-value" style="color: #f59e0b;">${expiringSoon}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Monthly Rent</div>
-      <div class="stat-value">£${totalMonthlyRent.toLocaleString()}</div>
-    </div>
-  </div>
+  <div style="padding: 40px;">
+    <h1 style="font-size: 32px; font-weight: 800; color: #00D5CC; margin-bottom: 32px;">Tenants Summary</h1>
 
-  <div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Tenants</div>
+        <div class="stat-value">${totalTenants}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active</div>
+        <div class="stat-value">${activeTenants}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Expiring Soon</div>
+        <div class="stat-value">${expiringSoon}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Monthly Rent</div>
+        <div class="stat-value">£${totalMonthlyRent.toLocaleString()}</div>
+      </div>
+    </div>
+
+    <h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin-top: 48px; margin-bottom: 16px;">Tenant Records</h2>
+    
     ${tenantAssignments.length > 0 ? `
       <table>
         <thead>
@@ -10027,10 +10057,10 @@ Be objective and specific. Focus on actionable repairs.`;
         No tenants found
       </div>
     `}
-  </div>
 
-  <div class="footer">
-    <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    <div class="footer">
+      <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    </div>
   </div>
 </body>
 </html>
@@ -10187,53 +10217,68 @@ Be objective and specific. Focus on actionable repairs.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #1f2937; line-height: 1.5; }
-    .header { background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 32px; margin-bottom: 24px; }
-    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
-    .subtitle { font-size: 16px; opacity: 0.95; }
-    .meta { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-    .stat-card { padding: 16px; background: #f9fafb; border-radius: 8px; border-left: 4px solid #00D5CC; }
-    .stat-label { font-size: 13px; color: #6b7280; margin-bottom: 4px; }
-    .stat-value { font-size: 28px; font-weight: 700; color: #1f2937; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th { background: #f3f4f6; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; color: #374151; border-bottom: 2px solid #e5e7eb; }
-    td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: white;
+    }
+    .cover-page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
+      color: white;
+      page-break-after: always;
+    }
+    .cover-logo { font-size: 72px; font-weight: 800; margin-bottom: 24px; }
+    .cover-title { font-size: 48px; font-weight: 700; margin-bottom: 16px; }
+    .cover-date { font-size: 18px; opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th { background: #f9fafb; padding: 12px 8px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 12px 8px; border-bottom: 1px solid #e5e7eb; }
     tr:hover { background: #f9fafb; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; }
+    .stat-card { background: #f9fafb; padding: 20px; border-radius: 8px; border-left: 4px solid #00D5CC; }
+    .stat-label { font-size: 13px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+    .stat-value { font-size: 32px; font-weight: 700; color: #00D5CC; }
     .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Inventory Report</h1>
-    <p class="subtitle">Asset tracking and inventory management across blocks and properties</p>
-  </div>
-  
-  <div class="meta">
-    <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-    <div><strong>Total Assets:</strong> ${totalAssets}</div>
+  <div class="cover-page">
+    <div class="cover-logo">INSPECT360</div>
+    <div class="cover-title">Inventory Report</div>
+    <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
   </div>
 
-  <div class="stats">
-    <div class="stat-card">
-      <div class="stat-label">Total Assets</div>
-      <div class="stat-value">${totalAssets}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Block Assets</div>
-      <div class="stat-value" style="color: #00D5CC;">${blockAssets}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Property Assets</div>
-      <div class="stat-value" style="color: #3B7A8C;">${propertyAssets}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Needs Attention</div>
-      <div class="stat-value" style="color: #ef4444;">${damagedAssets}</div>
-    </div>
-  </div>
+  <div style="padding: 40px;">
+    <h1 style="font-size: 32px; font-weight: 800; color: #00D5CC; margin-bottom: 32px;">Inventory Summary</h1>
 
-  <div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Assets</div>
+        <div class="stat-value">${totalAssets}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Block Assets</div>
+        <div class="stat-value">${blockAssets}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Property Assets</div>
+        <div class="stat-value">${propertyAssets}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Needs Attention</div>
+        <div class="stat-value">${damagedAssets}</div>
+      </div>
+    </div>
+
+    <h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin-top: 48px; margin-bottom: 16px;">Asset Records</h2>
+    
     ${assetInventory.length > 0 ? `
       <table>
         <thead>
@@ -10257,10 +10302,10 @@ Be objective and specific. Focus on actionable repairs.`;
         No inventory items found
       </div>
     `}
-  </div>
 
-  <div class="footer">
-    <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    <div class="footer">
+      <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    </div>
   </div>
 </body>
 </html>
@@ -10423,53 +10468,68 @@ Be objective and specific. Focus on actionable repairs.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: #1f2937; line-height: 1.5; }
-    .header { background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 32px; margin-bottom: 24px; }
-    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
-    .subtitle { font-size: 16px; opacity: 0.95; }
-    .meta { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 24px; padding: 16px; background: #f9fafb; border-radius: 8px; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-    .stat-card { padding: 16px; background: #f9fafb; border-radius: 8px; border-left: 4px solid #00D5CC; }
-    .stat-label { font-size: 13px; color: #6b7280; margin-bottom: 4px; }
-    .stat-value { font-size: 28px; font-weight: 700; color: #1f2937; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th { background: #f3f4f6; padding: 12px; text-align: left; font-weight: 600; font-size: 13px; color: #374151; border-bottom: 2px solid #e5e7eb; }
-    td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: white;
+    }
+    .cover-page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
+      color: white;
+      page-break-after: always;
+    }
+    .cover-logo { font-size: 72px; font-weight: 800; margin-bottom: 24px; }
+    .cover-title { font-size: 48px; font-weight: 700; margin-bottom: 16px; }
+    .cover-date { font-size: 18px; opacity: 0.9; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th { background: #f9fafb; padding: 12px 8px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 12px 8px; border-bottom: 1px solid #e5e7eb; }
     tr:hover { background: #f9fafb; }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; }
+    .stat-card { background: #f9fafb; padding: 20px; border-radius: 8px; border-left: 4px solid #00D5CC; }
+    .stat-label { font-size: 13px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+    .stat-value { font-size: 32px; font-weight: 700; color: #00D5CC; }
     .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Compliance Report</h1>
-    <p class="subtitle">Document tracking and compliance management by block and property</p>
-  </div>
-  
-  <div class="meta">
-    <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-    <div><strong>Total Documents:</strong> ${totalDocuments}</div>
+  <div class="cover-page">
+    <div class="cover-logo">INSPECT360</div>
+    <div class="cover-title">Compliance Report</div>
+    <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
   </div>
 
-  <div class="stats">
-    <div class="stat-card">
-      <div class="stat-label">Total Documents</div>
-      <div class="stat-value">${totalDocuments}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Current</div>
-      <div class="stat-value" style="color: #10b981;">${currentDocuments}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Expiring Soon</div>
-      <div class="stat-value" style="color: #f59e0b;">${expiringSoon}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Expired</div>
-      <div class="stat-value" style="color: #ef4444;">${expired}</div>
-    </div>
-  </div>
+  <div style="padding: 40px;">
+    <h1 style="font-size: 32px; font-weight: 800; color: #00D5CC; margin-bottom: 32px;">Compliance Summary</h1>
 
-  <div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Documents</div>
+        <div class="stat-value">${totalDocuments}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Current</div>
+        <div class="stat-value">${currentDocuments}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Expiring Soon</div>
+        <div class="stat-value">${expiringSoon}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Expired</div>
+        <div class="stat-value">${expired}</div>
+      </div>
+    </div>
+
+    <h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin-top: 48px; margin-bottom: 16px;">Compliance Records</h2>
+    
     ${complianceDocuments.length > 0 ? `
       <table>
         <thead>
@@ -10492,10 +10552,10 @@ Be objective and specific. Focus on actionable repairs.`;
         No compliance documents found
       </div>
     `}
-  </div>
 
-  <div class="footer">
-    <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    <div class="footer">
+      <p>© ${new Date().getFullYear()} Inspect360. All rights reserved.</p>
+    </div>
   </div>
 </body>
 </html>
@@ -10512,7 +10572,7 @@ Be objective and specific. Focus on actionable repairs.`;
 
       const { blockId, propertyId, documentType, status, searchTerm } = req.body;
 
-      let complianceDocuments = await storage.getComplianceDocumentsByOrganization(user.organizationId);
+      let complianceDocuments = await storage.getComplianceDocuments(user.organizationId);
       const properties = await storage.getPropertiesByOrganization(user.organizationId);
       const blocks = await storage.getBlocksByOrganization(user.organizationId);
 
