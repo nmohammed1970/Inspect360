@@ -23,6 +23,7 @@ const contactTypeLabels: Record<string, string> = {
   company: "Company",
   partner: "Partner",
   vendor: "Vendor",
+  tenant: "Tenant",
   other: "Other",
 };
 
@@ -33,6 +34,7 @@ const contactTypeBadgeVariants: Record<string, "default" | "secondary" | "outlin
   company: "default",
   partner: "default",
   vendor: "secondary",
+  tenant: "default",
   other: "outline",
 };
 
@@ -316,6 +318,7 @@ export default function Contacts() {
                         <SelectItem value="company">Company</SelectItem>
                         <SelectItem value="partner">Partner</SelectItem>
                         <SelectItem value="vendor">Vendor</SelectItem>
+                        <SelectItem value="tenant">Tenant</SelectItem>
                         <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
@@ -615,6 +618,7 @@ export default function Contacts() {
               <SelectItem value="company">Company</SelectItem>
               <SelectItem value="partner">Partner</SelectItem>
               <SelectItem value="vendor">Vendor</SelectItem>
+              <SelectItem value="tenant">Tenant</SelectItem>
               <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
