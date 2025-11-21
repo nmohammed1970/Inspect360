@@ -458,7 +458,7 @@ export default function Dashboard() {
                   </div>
                 </Link>
                 {viewRole === "owner" && (
-                  <Link href="/credits">
+                  <Link href="/billing">
                     <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-credits">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
