@@ -5,22 +5,25 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home } from "lucide-react";
+import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { format, differenceInDays, isPast } from "date-fns";
+import { format as formatDate, differenceInDays, isPast } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { insertComplianceDocumentSchema, type ComplianceDocument, type Tag, type Block, type Property } from "@shared/schema";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useAuth } from "@/hooks/useAuth";
 import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 const DOCUMENT_TYPES = [
   "Fire Safety Certificate",
@@ -41,9 +44,11 @@ const uploadFormSchema = insertComplianceDocumentSchema.extend({
 type UploadFormValues = z.infer<typeof uploadFormSchema>;
 
 export default function Compliance() {
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const { user, isLoading: authLoading } = useAuth();
   
   // Get URL parameters for property or block context
@@ -115,20 +120,39 @@ export default function Compliance() {
       }
       
       form.reset(resetValues as UploadFormValues);
+      setIsUploading(false); // Reset upload state when dialog opens
+    } else {
+      // Clean up when dialog closes to prevent stuck upload states
+      setIsUploading(false);
+      form.clearErrors();
     }
   }, [open, propertyIdFromUrl, blockIdFromUrl, form]);
 
   const uploadMutation = useMutation({
     mutationFn: (data: UploadFormValues) => apiRequest('POST', '/api/compliance', {
       ...data,
-      expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
+      expiryDate: data.expiryDate ? data.expiryDate : null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/compliance'] });
       queryClient.invalidateQueries({ queryKey: ['/api/compliance/expiring'] });
+      toast({
+        title: "Document uploaded",
+        description: "Compliance document uploaded successfully",
+      });
       setOpen(false);
       form.reset();
+      setIsUploading(false);
     },
+    onError: (error: any) => {
+      console.error('Error uploading compliance document:', error);
+      toast({
+        title: "Upload failed",
+        description: error.message || 'Failed to upload document. Please try again.',
+        variant: "destructive",
+      });
+      setIsUploading(false);
+    }
   });
 
   const addTagMutation = useMutation({
@@ -354,43 +378,105 @@ export default function Compliance() {
                   name="documentUrl"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Document File</FormLabel>
+                      <FormLabel>Document File *</FormLabel>
                       <FormControl>
-                        <ObjectUploader
-                          onGetUploadParameters={async () => {
-                            const response = await fetch('/api/objects/upload', {
-                              method: 'POST',
-                              credentials: 'include',
-                            });
-                            const { uploadURL } = await response.json();
-                            return {
-                              method: 'PUT',
-                              url: uploadURL,
-                            };
-                          }}
-                          onComplete={async (result) => {
-                            if (result.successful && result.successful[0]) {
-                              const uploadURL = result.successful[0].uploadURL;
-                              const response = await fetch('/api/objects/set-acl', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'include',
-                                body: JSON.stringify({ photoUrl: uploadURL }),
-                              });
-                              const { objectPath } = await response.json();
-                              field.onChange(objectPath);
-                            }
-                          }}
-                        >
-                          <Upload className="w-4 h-4 mr-2" />
-                          Select Document
-                        </ObjectUploader>
+                        <div className="space-y-2">
+                          <ObjectUploader
+                            onGetUploadParameters={async () => {
+                              try {
+                                setIsUploading(true);
+                                const response = await fetch('/api/objects/upload', {
+                                  method: 'POST',
+                                  credentials: 'include',
+                                });
+                                
+                                if (!response.ok) {
+                                  setIsUploading(false);
+                                  toast({
+                                    title: "Upload initialization failed",
+                                    description: "Failed to prepare upload. Please try again.",
+                                    variant: "destructive",
+                                  });
+                                  throw new Error('Failed to initialize upload');
+                                }
+                                
+                                const { uploadURL } = await response.json();
+                                return {
+                                  method: 'PUT' as const,
+                                  url: uploadURL,
+                                };
+                              } catch (error: any) {
+                                setIsUploading(false);
+                                toast({
+                                  title: "Upload initialization failed",
+                                  description: error.message || 'Failed to prepare upload. Please try again.',
+                                  variant: "destructive",
+                                });
+                                throw error;
+                              }
+                            }}
+                            onComplete={async (result) => {
+                              try {
+                                // Check for upload failures first
+                                if (result.failed && result.failed.length > 0) {
+                                  throw new Error('Document upload failed');
+                                }
+                                
+                                if (result.successful && result.successful[0]) {
+                                  const uploadURL = result.successful[0].uploadURL;
+                                  const response = await fetch('/api/objects/set-acl', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({ photoUrl: uploadURL }),
+                                  });
+                                  
+                                  if (!response.ok) {
+                                    const errorData = await response.json().catch(() => ({}));
+                                    throw new Error(errorData.error || 'Failed to set document permissions');
+                                  }
+                                  
+                                  const { objectPath } = await response.json();
+                                  field.onChange(objectPath);
+                                  setIsUploading(false);
+                                  toast({
+                                    title: "File uploaded",
+                                    description: "Document file uploaded successfully",
+                                  });
+                                } else {
+                                  throw new Error('No file was uploaded');
+                                }
+                              } catch (error: any) {
+                                console.error('Error uploading document:', error);
+                                setIsUploading(false);
+                                toast({
+                                  title: "Upload failed",
+                                  description: error.message || 'Failed to upload document. Please try again.',
+                                  variant: "destructive",
+                                });
+                                form.setError('documentUrl', {
+                                  type: 'manual',
+                                  message: 'Upload failed. Please try again.'
+                                });
+                              }
+                            }}
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            {isUploading ? 'Uploading...' : 'Select Document'}
+                          </ObjectUploader>
+                          {field.value && !isUploading && (
+                            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                              <Check className="h-4 w-4" />
+                              <span>Document uploaded successfully</span>
+                            </div>
+                          )}
+                          {form.formState.errors.documentUrl && (
+                            <p className="text-sm text-destructive">
+                              {form.formState.errors.documentUrl.message}. Click "Select Document" to try again.
+                            </p>
+                          )}
+                        </div>
                       </FormControl>
-                      {field.value && (
-                        <p className="text-sm text-muted-foreground mt-1">
-                          ✓ Document selected
-                        </p>
-                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -400,15 +486,40 @@ export default function Compliance() {
                   control={form.control}
                   name="expiryDate"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Expiry Date (Optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
-                          data-testid="input-expiry-date"
-                        />
-                      </FormControl>
+                    <FormItem className="flex flex-col">
+                      <FormLabel className="flex items-center gap-2">
+                        <CalendarIcon className="h-4 w-4" />
+                        Expiry Date (Optional)
+                      </FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full justify-start text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                              data-testid="button-expiry-date"
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {field.value ? formatDate(new Date(field.value), "PPP") : <span>Pick a date</span>}
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={field.value ? new Date(field.value) : undefined}
+                            onSelect={(date) => field.onChange(date ? date.toISOString() : undefined)}
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormDescription>
+                        Set an expiry date to receive alerts when this document needs renewal
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -418,7 +529,11 @@ export default function Compliance() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setOpen(false)}
+                    onClick={() => {
+                      setOpen(false);
+                      setIsUploading(false);
+                      form.reset();
+                    }}
                     data-testid="button-cancel"
                     className="w-full sm:w-auto"
                   >
@@ -427,10 +542,10 @@ export default function Compliance() {
                   <Button
                     type="submit"
                     className="bg-primary w-full sm:w-auto"
-                    disabled={uploadMutation.isPending}
+                    disabled={uploadMutation.isPending || isUploading || !form.watch('documentUrl')}
                     data-testid="button-submit-document"
                   >
-                    {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
+                    {uploadMutation.isPending ? "Saving..." : "Upload Document"}
                   </Button>
                 </div>
               </form>
@@ -591,7 +706,7 @@ function DocumentCard({
                 <div className="flex items-center gap-1.5">
                   <Calendar className="w-4 h-4" />
                   <span data-testid={`text-expiry-date-${doc.id}`}>
-                    {format(new Date(doc.expiryDate.toString()), 'PPP')}
+                    {formatDate(new Date(doc.expiryDate.toString()), 'PPP')}
                   </span>
                 </div>
               )}
@@ -710,7 +825,7 @@ function DocumentCard({
       {doc.createdAt && (
         <CardContent className="pt-0">
           <p className="text-xs md:text-sm text-muted-foreground">
-            Uploaded {format(new Date(doc.createdAt.toString()), 'PPP')}
+            Uploaded {formatDate(new Date(doc.createdAt.toString()), 'PPP')}
           </p>
         </CardContent>
       )}
