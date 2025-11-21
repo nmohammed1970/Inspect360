@@ -1593,6 +1593,30 @@ export const insertCountryPricingOverrideSchema = createInsertSchema(countryPric
 export type CountryPricingOverride = typeof countryPricingOverrides.$inferSelect;
 export type InsertCountryPricingOverride = z.infer<typeof insertCountryPricingOverrideSchema>;
 
+// Credit Bundles (Add-on Packages)
+export const creditBundles = pgTable("credit_bundles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 100 }).notNull(),
+  credits: integer("credits").notNull(),
+  priceGbp: integer("price_gbp").notNull(), // Price in pence
+  priceUsd: integer("price_usd").notNull(), // Price in cents
+  priceAed: integer("price_aed").notNull(), // Price in fils
+  sortOrder: integer("sort_order").default(0),
+  isPopular: boolean("is_popular").default(false),
+  discountLabel: varchar("discount_label", { length: 50 }),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCreditBundleSchema = createInsertSchema(creditBundles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type CreditBundle = typeof creditBundles.$inferSelect;
+export type InsertCreditBundle = z.infer<typeof insertCreditBundleSchema>;
+
 // Subscriptions
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
