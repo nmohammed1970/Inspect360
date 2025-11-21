@@ -1686,6 +1686,7 @@ export type InsertCreditBatch = z.infer<typeof insertCreditBatchSchema>;
 export const creditLedger = pgTable("credit_ledger", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id").notNull(),
+  createdBy: varchar("created_by"), // User who initiated this transaction (for purchases, admin grants, etc.)
   source: creditSourceEnum("source").notNull(),
   quantity: integer("quantity").notNull(), // Positive for grants, negative for consumption
   batchId: varchar("batch_id"), // Links to credit_batches

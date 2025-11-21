@@ -53,6 +53,12 @@ interface LedgerEntry {
   quantity: number;
   description: string;
   createdAt: string;
+  source: string;
+  createdByUser?: {
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  } | null;
 }
 
 export default function Billing() {
@@ -930,21 +936,33 @@ export default function Billing() {
             {ledger.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">No credit transactions yet</p>
             ) : (
-              ledger.slice(0, 10).map((entry) => (
-                <div key={entry.id} className="flex items-center justify-between py-2 border-b last:border-0" data-testid={`ledger-entry-${entry.id}`}>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{entry.description}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {format(new Date(entry.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                    </p>
+              ledger.slice(0, 10).map((entry) => {
+                const purchaserName = entry.createdByUser 
+                  ? `${entry.createdByUser.firstName || ''} ${entry.createdByUser.lastName || ''}`.trim() || entry.createdByUser.email
+                  : null;
+                
+                return (
+                  <div key={entry.id} className="flex items-center justify-between py-2 border-b last:border-0" data-testid={`ledger-entry-${entry.id}`}>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{entry.notes || entry.description || `${entry.source} credits`}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{format(new Date(entry.createdAt), "MMM d, yyyy 'at' h:mm a")}</span>
+                        {purchaserName && (
+                          <>
+                            <span>•</span>
+                            <span className="font-medium">{purchaserName}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={entry.quantity < 0 ? "destructive" : "default"}>
+                        {entry.quantity < 0 ? "" : "+"}{entry.quantity}
+                      </Badge>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={entry.changeType === "debit" ? "destructive" : "default"}>
-                      {entry.changeType === "debit" ? "-" : "+"}{entry.quantity}
-                    </Badge>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </CardContent>

@@ -3025,13 +3025,33 @@ export class DatabaseStorage implements IStorage {
     return entry;
   }
 
-  async getCreditLedgerByOrganization(organizationId: string, limit: number = 100): Promise<CreditLedger[]> {
-    return await db
-      .select()
+  async getCreditLedgerByOrganization(organizationId: string, limit: number = 100): Promise<any[]> {
+    const results = await db
+      .select({
+        id: creditLedger.id,
+        organizationId: creditLedger.organizationId,
+        createdBy: creditLedger.createdBy,
+        source: creditLedger.source,
+        quantity: creditLedger.quantity,
+        batchId: creditLedger.batchId,
+        unitCostMinorUnits: creditLedger.unitCostMinorUnits,
+        notes: creditLedger.notes,
+        linkedEntityType: creditLedger.linkedEntityType,
+        linkedEntityId: creditLedger.linkedEntityId,
+        createdAt: creditLedger.createdAt,
+        createdByUser: {
+          firstName: users.firstName,
+          lastName: users.lastName,
+          email: users.email,
+        },
+      })
       .from(creditLedger)
+      .leftJoin(users, eq(creditLedger.createdBy, users.id))
       .where(eq(creditLedger.organizationId, organizationId))
       .orderBy(desc(creditLedger.createdAt))
       .limit(limit);
+    
+    return results;
   }
 
   async getCreditBalance(organizationId: string): Promise<{ total: number; rolled: number; current: number; expiresOn: Date | null }> {

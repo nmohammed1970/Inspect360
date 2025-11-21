@@ -110,7 +110,7 @@ export class SubscriptionService {
     quantity: number,
     source: "plan_inclusion" | "topup" | "admin_grant",
     expiresAt?: Date,
-    metadata?: { subscriptionId?: string; topupOrderId?: string; adminNotes?: string },
+    metadata?: { subscriptionId?: string; topupOrderId?: string; adminNotes?: string; createdBy?: string },
     unitCostMinorUnits?: number
   ): Promise<CreditBatch> {
     if (quantity <= 0) {
@@ -133,6 +133,7 @@ export class SubscriptionService {
     // Record in credit ledger
     await storage.createCreditLedgerEntry({
       organizationId,
+      createdBy: metadata?.createdBy ?? null,
       source: source as any,
       quantity,
       batchId: batch.id,

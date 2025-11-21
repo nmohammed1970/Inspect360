@@ -6991,7 +6991,7 @@ Be objective and specific. Focus on actionable repairs.`;
           parseInt(packSize),
           "topup",
           undefined,
-          { topupOrderId, adminNotes: `Stripe session: ${sessionId}` }
+          { topupOrderId, adminNotes: `Stripe session: ${sessionId}`, createdBy: user.id }
         );
 
         console.log(`[Process Session] Granted ${packSize} credits to verified org ${user.organizationId}`);
@@ -7054,7 +7054,7 @@ Be objective and specific. Focus on actionable repairs.`;
           parseInt(includedCredits),
           "plan_inclusion",
           new Date((subscription as any).current_period_end * 1000),
-          { subscriptionId: subscription.id }
+          { subscriptionId: subscription.id, createdBy: user.id }
         );
 
         console.log(`[Process Session] Created subscription and granted ${includedCredits} credits to verified org ${user.organizationId}`);
@@ -7396,6 +7396,7 @@ Be objective and specific. Focus on actionable repairs.`;
   app.post("/api/admin/credits/grant", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const { organizationId, quantity, reason } = req.body;
+      const user = await storage.getUser(req.user.id);
       
       if (!organizationId || !quantity || quantity <= 0) {
         return res.status(400).json({ message: "Invalid request" });
@@ -7406,7 +7407,7 @@ Be objective and specific. Focus on actionable repairs.`;
         quantity,
         "admin_grant",
         undefined,
-        { adminNotes: reason || "Admin grant" }
+        { adminNotes: reason || "Admin grant", createdBy: user?.id }
       );
 
       res.json({ success: true, granted: quantity });
