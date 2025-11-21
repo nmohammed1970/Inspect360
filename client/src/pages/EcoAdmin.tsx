@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,37 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Plus, Edit, Trash2, Save, X, Package, CreditCard, Globe } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, Package, CreditCard, Globe, Loader2 } from "lucide-react";
 import type { Plan, CreditBundle, CountryPricingOverride } from "@shared/schema";
 
 export default function EcoAdmin() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("plans");
+  const [, navigate] = useLocation();
+
+  // Fetch admin user for authentication
+  const { data: adminUser, isLoading: isLoadingAdmin } = useQuery({
+    queryKey: ["/api/admin/me"],
+    retry: false,
+  });
+
+  // Show loading state while checking authentication
+  if (isLoadingAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="animate-spin h-12 w-12 text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (!adminUser) {
+    navigate("/admin/login");
+    return null;
+  }
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">
@@ -74,6 +100,13 @@ function PlansManagement() {
       toast({ title: "Plan created successfully" });
       setFormData({});
     },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to create plan", 
+        description: error.message || "Invalid data provided",
+        variant: "destructive" 
+      });
+    },
   });
 
   const updateMutation = useMutation({
@@ -86,6 +119,13 @@ function PlansManagement() {
       setEditingId(null);
       setFormData({});
     },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to update plan", 
+        description: error.message || "Invalid data provided",
+        variant: "destructive" 
+      });
+    },
   });
 
   const handleSave = () => {
@@ -94,10 +134,21 @@ function PlansManagement() {
       return;
     }
 
+    // Build clean payload - strip read-only fields
+    const payload = {
+      code: formData.code,
+      name: formData.name,
+      monthlyPriceGbp: formData.monthlyPriceGbp,
+      includedCredits: formData.includedCredits,
+      softCap: formData.softCap || 5000,
+      isCustom: formData.isCustom || false,
+      isActive: formData.isActive !== undefined ? formData.isActive : true,
+    };
+
     if (editingId) {
-      updateMutation.mutate({ id: editingId, data: formData });
+      updateMutation.mutate({ id: editingId, data: payload });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(payload);
     }
   };
 
@@ -275,6 +326,13 @@ function BundlesManagement() {
       toast({ title: "Bundle created successfully" });
       setFormData({});
     },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to create bundle", 
+        description: error.message || "Invalid data provided",
+        variant: "destructive" 
+      });
+    },
   });
 
   const updateMutation = useMutation({
@@ -286,6 +344,13 @@ function BundlesManagement() {
       toast({ title: "Bundle updated successfully" });
       setEditingId(null);
       setFormData({});
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to update bundle", 
+        description: error.message || "Invalid data provided",
+        variant: "destructive" 
+      });
     },
   });
 
@@ -305,10 +370,23 @@ function BundlesManagement() {
       return;
     }
 
+    // Build clean payload - strip read-only fields
+    const payload = {
+      name: formData.name,
+      credits: formData.credits,
+      priceGbp: formData.priceGbp,
+      priceUsd: formData.priceUsd,
+      priceAed: formData.priceAed,
+      sortOrder: formData.sortOrder || 0,
+      isPopular: formData.isPopular || false,
+      discountLabel: formData.discountLabel || null,
+      isActive: formData.isActive !== undefined ? formData.isActive : true,
+    };
+
     if (editingId) {
-      updateMutation.mutate({ id: editingId, data: formData });
+      updateMutation.mutate({ id: editingId, data: payload });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(payload);
     }
   };
 
