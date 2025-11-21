@@ -79,27 +79,28 @@ export default function Billing() {
     const sessionId = params.get('session_id');
     
     // Helper function to poll for updated data
-    const pollForUpdates = async (queryKeys: string[], maxAttempts = 5) => {
+    const pollForUpdates = (queryKeys: string[], maxAttempts = 5) => {
       let attempts = 0;
-      const pollInterval = setInterval(async () => {
+      
+      // Initial invalidation
+      queryKeys.forEach(key => {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      });
+      
+      // Set up polling interval
+      const pollInterval = setInterval(() => {
         attempts++;
         
-        // Invalidate and refetch
-        for (const key of queryKeys) {
-          await queryClient.invalidateQueries({ queryKey: [key] });
-          await queryClient.refetchQueries({ queryKey: [key] });
-        }
+        // Invalidate queries to trigger refetch
+        queryKeys.forEach(key => {
+          queryClient.invalidateQueries({ queryKey: [key] });
+        });
         
         // Stop after max attempts
         if (attempts >= maxAttempts) {
           clearInterval(pollInterval);
         }
       }, 2000); // Poll every 2 seconds
-      
-      // Initial fetch
-      for (const key of queryKeys) {
-        await queryClient.invalidateQueries({ queryKey: [key] });
-      }
       
       return () => clearInterval(pollInterval);
     };
@@ -108,8 +109,6 @@ export default function Billing() {
     if (params.get('topup_success') === 'true') {
       // Process the session immediately if we have a session_id
       const processAndCleanup = async () => {
-        let success = false;
-        
         if (sessionId) {
           try {
             const response = await apiRequest("POST", "/api/billing/process-session", { sessionId });
@@ -117,21 +116,15 @@ export default function Billing() {
             console.log('[Billing] Session processed:', result);
             
             if (result.processed) {
-              // Invalidate AND refetch queries after processing
-              const orgQueryKey = `/api/organizations/${user.organizationId}`;
-              await queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
-              await queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
-              await queryClient.invalidateQueries({ queryKey: ['/api/credits/ledger'] });
-              await queryClient.invalidateQueries({ queryKey: ['/api/billing/aggregate-credits'] });
-              await queryClient.invalidateQueries({ queryKey: [orgQueryKey] });
+              // Invalidate queries to trigger refetch
+              queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/credits/ledger'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/billing/aggregate-credits'] });
+              queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
               
-              // Force immediate refetch to update UI
+              // Explicitly refetch the critical credit balance query to ensure immediate UI update
               await queryClient.refetchQueries({ queryKey: ['/api/credits/balance'] });
-              await queryClient.refetchQueries({ queryKey: ['/api/credits/ledger'] });
-              await queryClient.refetchQueries({ queryKey: ['/api/billing/aggregate-credits'] });
-              await queryClient.refetchQueries({ queryKey: [orgQueryKey] });
-              
-              success = true;
               
               toast({
                 title: "Payment Successful!",
@@ -152,18 +145,23 @@ export default function Billing() {
             });
           }
         }
-        
-        // Clean up URL after processing completes
-        setTimeout(() => {
-          setLocation('/billing', { replace: true });
-        }, 1000);
       };
       
       processAndCleanup();
       
-      // Also poll for updates (in case webhook fires)
-      const orgQueryKey = `/api/organizations/${user.organizationId}`;
-      pollForUpdates(['/api/credits/balance', '/api/credits/ledger', '/api/billing/aggregate-credits', orgQueryKey]);
+      // Also poll for updates (in case webhook fires) and capture cleanup function
+      const cleanupPolling = pollForUpdates(['/api/credits/balance', '/api/credits/ledger', '/api/billing/aggregate-credits', `/api/organizations/${user.organizationId}`]);
+      
+      // Clean up URL after polling completes (12 seconds = 2s initial + 10s polling)
+      const urlCleanupTimer = setTimeout(() => {
+        setLocation('/billing', { replace: true });
+      }, 12000);
+      
+      // Return cleanup function for useEffect
+      return () => {
+        cleanupPolling();
+        clearTimeout(urlCleanupTimer);
+      };
     } else if (params.get('topup_canceled') === 'true') {
       toast({
         title: "Payment Canceled",
@@ -176,8 +174,6 @@ export default function Billing() {
     } else if (params.get('success') === 'true') {
       // Process the session immediately if we have a session_id
       const processAndCleanup = async () => {
-        let success = false;
-        
         if (sessionId) {
           try {
             const response = await apiRequest("POST", "/api/billing/process-session", { sessionId });
@@ -185,22 +181,15 @@ export default function Billing() {
             console.log('[Billing] Session processed:', result);
             
             if (result.processed) {
-              // Invalidate AND refetch queries after processing
-              const orgQueryKey = `/api/organizations/${user.organizationId}`;
-              await queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
-              await queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
-              await queryClient.invalidateQueries({ queryKey: ['/api/credits/ledger'] });
-              await queryClient.invalidateQueries({ queryKey: ['/api/billing/aggregate-credits'] });
-              await queryClient.invalidateQueries({ queryKey: [orgQueryKey] });
+              // Invalidate queries to trigger refetch
+              queryClient.invalidateQueries({ queryKey: ['/api/billing/subscription'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/credits/balance'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/credits/ledger'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/billing/aggregate-credits'] });
+              queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
               
-              // Force immediate refetch to update UI
-              await queryClient.refetchQueries({ queryKey: ['/api/billing/subscription'] });
+              // Explicitly refetch the critical credit balance query to ensure immediate UI update
               await queryClient.refetchQueries({ queryKey: ['/api/credits/balance'] });
-              await queryClient.refetchQueries({ queryKey: ['/api/credits/ledger'] });
-              await queryClient.refetchQueries({ queryKey: ['/api/billing/aggregate-credits'] });
-              await queryClient.refetchQueries({ queryKey: [orgQueryKey] });
-              
-              success = true;
               
               toast({
                 title: "Subscription Active!",
@@ -223,18 +212,23 @@ export default function Billing() {
             });
           }
         }
-        
-        // Clean up URL after processing completes
-        setTimeout(() => {
-          setLocation('/billing', { replace: true });
-        }, 1000);
       };
       
       processAndCleanup();
       
-      // Also poll for updates (in case webhook fires)
-      const orgQueryKey = `/api/organizations/${user.organizationId}`;
-      pollForUpdates(['/api/billing/subscription', '/api/credits/balance', '/api/credits/ledger', '/api/billing/aggregate-credits', orgQueryKey]);
+      // Also poll for updates (in case webhook fires) and capture cleanup function
+      const cleanupPolling = pollForUpdates(['/api/billing/subscription', '/api/credits/balance', '/api/credits/ledger', '/api/billing/aggregate-credits', `/api/organizations/${user.organizationId}`]);
+      
+      // Clean up URL after polling completes (12 seconds = 2s initial + 10s polling)
+      const urlCleanupTimer = setTimeout(() => {
+        setLocation('/billing', { replace: true });
+      }, 12000);
+      
+      // Return cleanup function for useEffect
+      return () => {
+        cleanupPolling();
+        clearTimeout(urlCleanupTimer);
+      };
     } else if (params.get('canceled') === 'true') {
       toast({
         title: "Subscription Canceled",
