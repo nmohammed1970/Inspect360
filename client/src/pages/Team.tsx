@@ -58,8 +58,8 @@ export default function Team() {
       const res = await apiRequest("POST", "/api/team", data);
       return await res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
       toast({ title: "Team member created successfully" });
       handleCloseDialog();
     },
@@ -77,8 +77,8 @@ export default function Team() {
       const res = await apiRequest("PATCH", `/api/team/${userId}`, data);
       return await res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
       toast({ title: "Team member updated successfully" });
       handleCloseDialog();
     },
@@ -95,8 +95,8 @@ export default function Team() {
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
       return await apiRequest("PATCH", `/api/team/${userId}/role`, { role });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
       toast({ title: "Role updated successfully" });
     },
     onError: (error: Error) => {
@@ -112,8 +112,8 @@ export default function Team() {
     mutationFn: async ({ userId, isActive }: { userId: string; isActive: boolean }) => {
       return await apiRequest("PATCH", `/api/team/${userId}/status`, { isActive });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
       toast({ 
         title: "Status updated successfully",
       });
