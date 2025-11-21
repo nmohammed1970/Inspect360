@@ -29,7 +29,6 @@ export default function Auth() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState("clerk");
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -96,7 +95,7 @@ export default function Auth() {
         email,
         username,
         password,
-        role: role as "owner" | "clerk" | "compliance" | "tenant",
+        role: "owner", // All self-registrations are owners
       });
 
       if (result) {
@@ -292,26 +291,6 @@ export default function Auth() {
                         )}
                       </button>
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="role">Role</Label>
-                    <Select
-                      value={role}
-                      onValueChange={setRole}
-                      disabled={registerMutation.isPending}
-                    >
-                      <SelectTrigger id="role" data-testid="select-role">
-                        <SelectValue placeholder="Select your role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="owner">Owner Operator</SelectItem>
-                        <SelectItem value="clerk">Inventory Clerk</SelectItem>
-                        <SelectItem value="compliance">Compliance Officer</SelectItem>
-                        <SelectItem value="contractor">Contractor</SelectItem>
-                        <SelectItem value="tenant">Tenant</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
 
                   <Button
