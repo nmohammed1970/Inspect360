@@ -82,7 +82,14 @@ export default function Settings() {
   // Delete category mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return await apiRequest("DELETE", `/api/inspection-categories/${id}`);
+      const res = await apiRequest("DELETE", `/api/inspection-categories/${id}`);
+      // DELETE endpoints typically return 204 No Content with empty body
+      // Only parse JSON if there's content
+      if (res.status === 204 || res.headers.get("content-length") === "0") {
+        return null;
+      }
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inspection-categories"] });

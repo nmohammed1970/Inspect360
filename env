@@ -16,7 +16,7 @@ SESSION_SECRET=8356a37836ea1b763960e4cb0ae0e94c2ee378a0b4c7f530c350205f16d6dcbc
 # STRIPE (REQUIRED)
 # =============================================================================
 STRIPE_SECRET_KEY=sk_test_51SKFhuGzN1b9yvTEzFo6gbBkCGGFHG9s7u3DuUN0M7CkAUyqXmfdpnNqI94rISFjhORcMgnENgK5ASoiX09IHQPY00kxPUwiLI
-STRIPE_PUBLISHABLE_KEY=pk_test_51SKFhuGzN1b9yvTEFjbZ9WiMZeazPribGKQd5obyVpORxBotrwTyPdLvpHHjdFDZNyKTCILxJVRaZHTpBDf0yYxe004l4rBPVt
+STRIPE_PUBLISHABLE_KEY=pk_live_51R4NWYGwuOEp8TYJ5TyKF7I8m1zciyWiD80Lbep8sont1p7AuLox5S0blzYOTmrckkxfqmb83WvhZ5lAFahU4fb00ajz12IgT
 STRIPE_WEBHOOK_SECRET=
 
 # =============================================================================
@@ -41,8 +41,16 @@ NODE_ENV=development
 # APPLICATION BASE URL (OPTIONAL)
 # =============================================================================
 # Used for generating absolute URLs in emails and redirects
-# If not set, will use request origin or default to http://localhost:5000
+# If not set, will use request origin or default to http://localhost:5005
 BASE_URL=http://localhost:5005
+
+# =============================================================================
+# GOOGLE MAPS (OPTIONAL)
+# =============================================================================
+# Get your API key from Google Cloud Console: https://console.cloud.google.com/
+# Enable "Places API" and "Maps JavaScript API" for your project
+# IMPORTANT: Remove the # below and replace with your actual API key
+GOOGLE_MAPS_API_KEY=
 
 # =============================================================================
 # STORAGE (OPTIONAL - defaults shown)

@@ -239,40 +239,99 @@ export default function Maintenance() {
       uppy.use(AwsS3, {
         shouldUseMultipart: false,
         async getUploadParameters(file) {
-          const response = await fetch("/api/uploads/sign-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              filename: file.name,
-              contentType: file.type,
-            }),
-            credentials: "include",
-          });
+          try {
+            const response = await fetch("/api/objects/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+            });
 
-          if (!response.ok) {
-            throw new Error("Failed to get upload URL");
+            if (!response.ok) {
+              throw new Error(`Failed to get upload URL: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (!data.uploadURL) {
+              throw new Error("Invalid upload URL response");
+            }
+
+            // Ensure URL is absolute
+            let uploadURL = data.uploadURL;
+            if (uploadURL.startsWith('/')) {
+              // Convert relative URL to absolute
+              uploadURL = `${window.location.origin}${uploadURL}`;
+            }
+
+            // Validate URL
+            try {
+              new URL(uploadURL);
+            } catch (e) {
+              throw new Error(`Invalid upload URL format: ${uploadURL}`);
+            }
+
+            // Extract objectId from upload URL and store in metadata
+            try {
+              const urlObj = new URL(uploadURL);
+              const objectId = urlObj.searchParams.get('objectId');
+              if (objectId) {
+                uppy.setFileMeta(file.id, { 
+                  originalUploadURL: uploadURL,
+                  objectId: objectId,
+                });
+              } else {
+                uppy.setFileMeta(file.id, { 
+                  originalUploadURL: uploadURL,
+                });
+              }
+            } catch (e) {
+              uppy.setFileMeta(file.id, { 
+                originalUploadURL: uploadURL,
+              });
+            }
+            
+            return {
+              method: "PUT" as const,
+              url: uploadURL,
+              headers: {
+                "Content-Type": file.type || "application/octet-stream",
+              },
+              fields: {},
+            };
+          } catch (error: any) {
+            console.error("[Maintenance] Upload URL error:", error);
+            throw new Error(`Failed to get upload URL: ${error.message}`);
           }
-
-          const { url, publicUrl } = await response.json();
-          
-          // Store publicUrl in file metadata for later retrieval
-          uppy.setFileMeta(file.id, { publicUrl });
-          
-          return {
-            method: "PUT" as const,
-            url,
-            headers: {
-              "Content-Type": file.type || "application/octet-stream",
-            },
-            fields: {},
-          };
         },
       });
 
-      uppy.on("upload-success", (file) => {
-        if (file && file.meta && file.meta.publicUrl) {
-          const publicUrl = file.meta.publicUrl as string;
-          setUploadedImages((prev) => [...prev, publicUrl]);
+      uppy.on("upload-success", async (file, response) => {
+        // Import the helper function
+        const { extractFileUrlFromUploadResponse } = await import("@/lib/utils");
+        const fileUrl = extractFileUrlFromUploadResponse(file, response);
+        
+        if (fileUrl) {
+          // Convert relative path to absolute URL for display
+          const absoluteUrl = fileUrl.startsWith('/') 
+            ? `${window.location.origin}${fileUrl}`
+            : fileUrl;
+          
+          setUploadedImages((prev) => {
+            if (prev.includes(absoluteUrl)) {
+              return prev; // Avoid duplicates
+            }
+            return [...prev, absoluteUrl];
+          });
+          
+          // Set ACL in background
+          fetch('/api/objects/set-acl', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ photoUrl: absoluteUrl }),
+          }).catch(error => {
+            console.error('[Maintenance] Error setting ACL:', error);
+          });
         }
       });
 

@@ -94,7 +94,8 @@ export default function PropertyTenants() {
 
   const deleteMutation = useMutation({
     mutationFn: async (assignmentId: string) => {
-      return apiRequest(`/api/tenant-assignments/${assignmentId}`, "DELETE");
+      const res = await apiRequest("DELETE", `/api/tenant-assignments/${assignmentId}`);
+      return res;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
@@ -105,10 +106,11 @@ export default function PropertyTenants() {
       setDeleteDialogOpen(false);
       setSelectedTenant(null);
     },
-    onError: () => {
+    onError: (error: Error) => {
+      console.error('[PropertyTenants] Delete error:', error);
       toast({
         title: "Failed to delete assignment",
-        description: "An error occurred while removing the tenant",
+        description: error.message || "An error occurred while removing the tenant",
         variant: "destructive",
       });
     },

@@ -122,28 +122,42 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   const createUserMutation = useMutation<User, Error, CreateTenantFormData>({
     mutationFn: async (data: CreateTenantFormData) => {
       // Create the user first via team member API
+      // Format data according to createTeamMemberSchema requirements
       const userPayload = {
-        email: data.email,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        username: data.username,
-        password: data.password,
+        email: data.email.trim(),
+        firstName: data.firstName.trim() || undefined,
+        lastName: data.lastName.trim() || undefined,
+        username: data.username.trim(),
+        password: data.password.trim(),
         role: "tenant" as const,
+        // Optional fields - only include if they have values
+        phone: undefined,
+        skills: undefined,
+        education: undefined,
+        profileImageUrl: undefined,
+        certificateUrls: undefined,
+        address: undefined,
       };
+      
+      console.log('[AddTenantDialog] Creating tenant user with payload:', { ...userPayload, password: '***' });
       const res = await apiRequest("POST", "/api/team", userPayload);
       
       if (!res.ok) {
-        const error = await res.json().catch(() => ({ message: "Failed to create tenant user" }));
+        const errorData = await res.json().catch(() => ({ message: "Failed to create tenant user" }));
         
         // Handle specific error cases
         if (res.status === 401) {
           throw new Error("Your session has expired. Please refresh the page and log in again.");
         } else if (res.status === 403) {
           throw new Error("Only organization owners can create tenant users. Please contact your administrator.");
-        } else if (error.message === "Email or username already exists") {
+        } else if (res.status === 400) {
+          // Extract validation errors
+          const errorMessage = errorData.message || errorData.errors?.[0]?.message || "Invalid request data";
+          throw new Error(errorMessage);
+        } else if (errorData.message === "Email or username already exists") {
           throw new Error("A user with this email or username already exists in your organization.");
         } else {
-          throw new Error(error.message || "Failed to create tenant user");
+          throw new Error(errorData.message || "Failed to create tenant user");
         }
       }
       
@@ -154,16 +168,105 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   const assignTenantMutation = useMutation({
     mutationFn: async (data: { tenantId: string; leaseData: any }) => {
       // Build payload - convert dates to ISO strings and numbers for schema validation
-      const payload = {
+      const payload: any = {
         propertyId,
         tenantId: data.tenantId,
-        leaseStartDate: data.leaseData.leaseStartDate ? new Date(data.leaseData.leaseStartDate).toISOString() : undefined,
-        leaseEndDate: data.leaseData.leaseEndDate ? new Date(data.leaseData.leaseEndDate).toISOString() : undefined,
-        monthlyRent: data.leaseData.monthlyRent ? data.leaseData.monthlyRent : undefined,
-        depositAmount: data.leaseData.depositAmount ? data.leaseData.depositAmount : undefined,
-        isActive: data.leaseData.isActive,
+        isActive: data.leaseData.isActive ?? true,
+        hasPortalAccess: true, // Required field with default value
       };
-      return apiRequest("POST", "/api/tenant-assignments", payload);
+      
+      // Convert dates - handle DD/MM/YYYY format and other formats
+      // Send as ISO strings (will be converted to Date objects on server)
+      if (data.leaseData.leaseStartDate && data.leaseData.leaseStartDate.trim() !== '') {
+        let startDate: Date;
+        const dateStr = data.leaseData.leaseStartDate.trim();
+        
+        // Handle DD/MM/YYYY format (common in UK)
+        if (dateStr.includes('/')) {
+          const parts = dateStr.split('/');
+          if (parts.length === 3) {
+            // DD/MM/YYYY format
+            startDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          } else {
+            startDate = new Date(dateStr);
+          }
+        } else {
+          startDate = typeof data.leaseData.leaseStartDate === 'string' 
+            ? new Date(data.leaseData.leaseStartDate)
+            : data.leaseData.leaseStartDate;
+        }
+        
+        if (!isNaN(startDate.getTime())) {
+          // Send as ISO string (server will convert to Date object)
+          payload.leaseStartDate = startDate.toISOString();
+        }
+      }
+      
+      if (data.leaseData.leaseEndDate && data.leaseData.leaseEndDate.trim() !== '') {
+        let endDate: Date;
+        const dateStr = data.leaseData.leaseEndDate.trim();
+        
+        // Handle DD/MM/YYYY format (common in UK)
+        if (dateStr.includes('/')) {
+          const parts = dateStr.split('/');
+          if (parts.length === 3) {
+            // DD/MM/YYYY format
+            endDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          } else {
+            endDate = new Date(dateStr);
+          }
+        } else {
+          endDate = typeof data.leaseData.leaseEndDate === 'string'
+            ? new Date(data.leaseData.leaseEndDate)
+            : data.leaseData.leaseEndDate;
+        }
+        
+        if (!isNaN(endDate.getTime())) {
+          // Send as ISO string (server will convert to Date object)
+          payload.leaseEndDate = endDate.toISOString();
+        }
+      }
+      
+      // Convert monthlyRent to string (Drizzle numeric fields expect strings)
+      if (data.leaseData.monthlyRent !== undefined && data.leaseData.monthlyRent !== null && data.leaseData.monthlyRent !== '') {
+        const rentStr = String(data.leaseData.monthlyRent).trim();
+        if (rentStr !== '' && rentStr !== '0.00') {
+          const rent = parseFloat(rentStr);
+          if (!isNaN(rent) && rent >= 0) {
+            // Drizzle numeric fields expect strings
+            payload.monthlyRent = rent.toString();
+          }
+        }
+      }
+      
+      // Convert depositAmount to string (Drizzle numeric fields expect strings)
+      if (data.leaseData.depositAmount !== undefined && data.leaseData.depositAmount !== null && data.leaseData.depositAmount !== '') {
+        const depositStr = String(data.leaseData.depositAmount).trim();
+        if (depositStr !== '' && depositStr !== '0.00') {
+          const deposit = parseFloat(depositStr);
+          if (!isNaN(deposit) && deposit >= 0) {
+            // Drizzle numeric fields expect strings
+            payload.depositAmount = deposit.toString();
+          }
+        }
+      }
+      
+      console.log('[AddTenantDialog] Assigning tenant with payload:', payload);
+      const res = await apiRequest("POST", "/api/tenant-assignments", payload);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+        // Extract the most helpful error message
+        const errorMessage = errorData.message 
+          || errorData.details?.[0]?.message 
+          || errorData.details?.[0]?.path?.join('.') + ': ' + errorData.details?.[0]?.message
+          || errorData.error 
+          || "Failed to assign tenant";
+        console.error('[AddTenantDialog] Assignment error details:', errorData);
+        throw new Error(errorMessage);
+      }
+      
+      return res;
     },
     onSuccess: async () => {
       // Force active refetch to update the UI immediately
@@ -189,7 +292,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       // Extract error message from the thrown error
       const errorMessage = error?.message || "An error occurred while assigning the tenant";
       
-      console.error("Tenant assignment error:", error);
+      console.error("[AddTenantDialog] Tenant assignment error:", error);
       toast({
         title: "Failed to assign tenant",
         description: errorMessage,

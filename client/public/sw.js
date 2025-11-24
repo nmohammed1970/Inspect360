@@ -1,5 +1,5 @@
-const CACHE_NAME = 'inspect360-v1';
-const RUNTIME_CACHE = 'inspect360-runtime';
+const CACHE_NAME = 'inspect360-v2';
+const RUNTIME_CACHE = 'inspect360-runtime-v2';
 
 // App shell - essential files for offline functionality
 const APP_SHELL = [
@@ -40,12 +40,35 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
+          // Delete all old caches (including old versions)
           if (cacheName !== CACHE_NAME && cacheName !== RUNTIME_CACHE) {
             console.log('[Service Worker] Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
+    }).then(() => {
+      // Clear any API responses that might have been cached in the runtime cache
+      return caches.open(RUNTIME_CACHE).then((cache) => {
+        return cache.keys().then((keys) => {
+          const apiKeys = keys.filter((request) => {
+            try {
+              const url = new URL(request.url);
+              return url.pathname.startsWith('/api/');
+            } catch {
+              return false;
+            }
+          });
+          return Promise.all(
+            apiKeys.map((key) => {
+              console.log('[Service Worker] Removing cached API response:', key.url);
+              return cache.delete(key);
+            })
+          );
+        });
+      }).catch((err) => {
+        console.warn('[Service Worker] Error cleaning API cache:', err);
+      });
     }).then(() => self.clients.claim())
   );
 });
@@ -62,24 +85,49 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const url = new URL(event.request.url);
+  
+  // CRITICAL: Never cache API requests - always fetch fresh from network
+  // This ensures credit balance, subscriptions, and other dynamic data are always up-to-date
+  if (url.pathname.startsWith('/api/')) {
+    // For API requests, use network-first strategy (always fetch from network)
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          // Don't cache API responses - they need to be fresh
+          return networkResponse;
+        })
+        .catch((error) => {
+          console.warn('[Service Worker] API fetch failed:', event.request.url, error);
+          throw error;
+        })
+    );
+    return;
+  }
+
+  // For static assets (HTML, CSS, JS, images), use cache-first strategy
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Return cached version and update cache in background
+        // Return cached version and update cache in background (stale-while-revalidate)
         event.waitUntil(
           fetch(event.request).then((networkResponse) => {
-            return caches.open(RUNTIME_CACHE).then((cache) => {
-              cache.put(event.request, networkResponse.clone());
-              return networkResponse;
-            });
-          }).catch(() => cachedResponse)
+            // Only cache static assets, not API responses
+            if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'error') {
+              return caches.open(RUNTIME_CACHE).then((cache) => {
+                cache.put(event.request, networkResponse.clone());
+              });
+            }
+          }).catch(() => {
+            // Network failed, but we have cache - that's fine
+          })
         );
         return cachedResponse;
       }
 
       // Not in cache - fetch from network
       return fetch(event.request).then((networkResponse) => {
-        // Cache successful responses
+        // Only cache static assets (not API responses)
         if (networkResponse && networkResponse.status === 200 && networkResponse.type !== 'error') {
           const responseClone = networkResponse.clone();
           caches.open(RUNTIME_CACHE).then((cache) => {
@@ -95,8 +143,7 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch((error) => {
-        console.warn('[Service Worker] Fetch failed (this is normal for dev mode):', event.request.url, error);
-        // Don't try to return offline page in dev mode - just pass through
+        console.warn('[Service Worker] Fetch failed:', event.request.url, error);
         throw error;
       });
     })

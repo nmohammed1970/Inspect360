@@ -567,6 +567,8 @@ export const insertComplianceDocumentSchema = createInsertSchema(complianceDocum
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  expiryDate: z.coerce.date().nullable().optional(),
 });
 export type ComplianceDocument = typeof complianceDocuments.$inferSelect;
 export type InsertComplianceDocument = z.infer<typeof insertComplianceDocumentSchema>;

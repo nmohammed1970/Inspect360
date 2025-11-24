@@ -13,6 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Users, Plus, Search, Mail, Phone, Building2, Briefcase, Globe, MapPin, Trash2, Edit, Tag, X } from "lucide-react";
 import type { Contact, Tag as TagType } from "@shared/schema";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AddressInput } from "@/components/AddressInput";
 
 type ContactWithTags = Omit<Contact, 'tags'> & { tags?: TagType[] };
 
@@ -414,7 +415,7 @@ export default function Contacts() {
 
                 <div>
                   <Label htmlFor="address">Address</Label>
-                  <Input
+                  <AddressInput
                     id="address"
                     name="address"
                     defaultValue={editingContact?.address || ""}

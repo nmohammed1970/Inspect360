@@ -15,7 +15,8 @@ import { Dashboard } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
 import Webcam from "@uppy/webcam";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import SignatureCanvas from "react-signature-canvas";
 
 interface TemplateField {
@@ -81,6 +82,7 @@ export function FieldWidget({
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
   const [analyzingField, setAnalyzingField] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Fetch Check-In reference for photo fields during Check-Out inspections
   const { data: checkInReference } = useQuery({
@@ -211,6 +213,11 @@ export function FieldWidget({
       const composedValue = composeValue(localValue, localCondition, localCleanliness);
       onChange(composedValue, newNote, localPhotos);
 
+      // Invalidate organization query to update credit balance on dashboard and billing pages
+      if (user?.organizationId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
+      }
+
       toast({
         title: "InspectAI Complete",
         description: "AI analysis has been added to the notes field",
@@ -244,25 +251,102 @@ export function FieldWidget({
       .use(AwsS3, {
         shouldUseMultipart: false,
         async getUploadParameters(file: any) {
-          const response = await fetch("/api/objects/upload", {
-            method: "POST",
-            credentials: "include",
-          });
-          const { uploadURL } = await response.json();
-          return {
-            method: "PUT" as const,
-            url: uploadURL,
-            headers: {
-              "Content-Type": file.type || "application/octet-stream",
-            },
-          };
+          try {
+            const response = await fetch("/api/objects/upload", {
+              method: "POST",
+              credentials: "include",
+            });
+
+            if (!response.ok) {
+              throw new Error(`Failed to get upload URL: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            if (!data.uploadURL) {
+              throw new Error("Invalid upload URL response");
+            }
+
+            // Ensure URL is absolute
+            let uploadURL = data.uploadURL;
+            if (uploadURL.startsWith('/')) {
+              // Convert relative URL to absolute
+              uploadURL = `${window.location.origin}${uploadURL}`;
+            }
+
+            // Validate URL
+            try {
+              new URL(uploadURL);
+            } catch (e) {
+              throw new Error(`Invalid upload URL format: ${uploadURL}`);
+            }
+
+            return {
+              method: "PUT" as const,
+              url: uploadURL,
+              headers: {
+                "Content-Type": file.type || "application/octet-stream",
+              },
+            };
+          } catch (error: any) {
+            console.error("[FieldWidget] Upload URL error:", error);
+            throw new Error(`Failed to get upload URL: ${error.message}`);
+          }
         },
       });
 
-    uppy.on("upload-success", async (_file: any, response: any) => {
-      const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
+    uppy.on("upload-success", async (file: any, response: any) => {
+      // Extract the file URL from the PUT response
+      // Uppy's AwsS3 plugin stores the response in file.response.body
+      let uploadUrl: string | null = null;
+      
+      // Check file.response.body (most reliable location)
+      if (file?.response?.body) {
+        try {
+          const body = typeof file.response.body === 'string' 
+            ? JSON.parse(file.response.body) 
+            : file.response.body;
+          uploadUrl = body?.url || body?.uploadURL;
+        } catch (e) {
+          // Not JSON
+        }
+      }
+      
+      // Fallback: check response.body
+      if (!uploadUrl && response?.body) {
+        try {
+          const body = typeof response.body === 'string' 
+            ? JSON.parse(response.body) 
+            : response.body;
+          uploadUrl = body?.url || body?.uploadURL;
+        } catch (e) {
+          // Not JSON
+        }
+      }
+      
+      // Fallback: check top-level properties
+      if (!uploadUrl) {
+        uploadUrl = response?.uploadURL || response?.url || file?.response?.uploadURL || file?.response?.url;
+      }
+      
       if (uploadUrl) {
         const rawPhotoUrl = uploadUrl.split("?")[0];
+        
+        // Ensure it's a valid file path
+        if (!rawPhotoUrl.startsWith('/objects/')) {
+          console.error('[FieldWidget] Invalid photo URL format:', rawPhotoUrl);
+          toast({
+            title: "Upload Error",
+            description: "Invalid photo URL format. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // Convert to absolute URL for ACL call
+        const absolutePhotoUrl = rawPhotoUrl.startsWith('/') 
+          ? `${window.location.origin}${rawPhotoUrl}`
+          : rawPhotoUrl;
         
         // Set ACL to public so OpenAI can access the photo
         try {
@@ -270,7 +354,7 @@ export function FieldWidget({
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ photoUrl: rawPhotoUrl }),
+            body: JSON.stringify({ photoUrl: absolutePhotoUrl }),
           });
           
           if (!aclResponse.ok) {
@@ -296,6 +380,13 @@ export function FieldWidget({
           // Do NOT add the photo to the list if ACL setting failed
           // This prevents non-public photos from breaking the AI analysis pipeline
         }
+      } else {
+        console.error('[FieldWidget] No upload URL found in response:', { file, response });
+        toast({
+          title: "Upload Error",
+          description: "Upload succeeded but could not get photo URL. Please try again.",
+          variant: "destructive",
+        });
       }
     });
 
@@ -317,29 +408,96 @@ export function FieldWidget({
     }).use(AwsS3, {
       shouldUseMultipart: false,
       async getUploadParameters(file: any) {
-        const response = await fetch("/api/objects/upload", {
-          method: "POST",
-          credentials: "include",
-        });
-        const { uploadURL } = await response.json();
-        return {
-          method: "PUT" as const,
-          url: uploadURL,
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-        };
+        try {
+          const response = await fetch("/api/objects/upload", {
+            method: "POST",
+            credentials: "include",
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to get upload URL: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          
+          if (!data.uploadURL) {
+            throw new Error("Invalid upload URL response");
+          }
+
+          // Ensure URL is absolute
+          let uploadURL = data.uploadURL;
+          if (uploadURL.startsWith('/')) {
+            // Convert relative URL to absolute
+            uploadURL = `${window.location.origin}${uploadURL}`;
+          }
+
+          // Validate URL
+          try {
+            new URL(uploadURL);
+          } catch (e) {
+            throw new Error(`Invalid upload URL format: ${uploadURL}`);
+          }
+
+          return {
+            method: "PUT" as const,
+            url: uploadURL,
+            headers: {
+              "Content-Type": file.type || "application/octet-stream",
+            },
+          };
+        } catch (error: any) {
+          console.error("[FieldWidget] Video upload URL error:", error);
+          throw new Error(`Failed to get upload URL: ${error.message}`);
+        }
       },
     });
 
-    uppy.on("upload-success", (_file: any, response: any) => {
-      const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
+    uppy.on("upload-success", (file: any, response: any) => {
+      // Extract the file URL from the PUT response
+      let uploadUrl: string | null = null;
+      
+      // Check file.response.body (most reliable location)
+      if (file?.response?.body) {
+        try {
+          const body = typeof file.response.body === 'string' 
+            ? JSON.parse(file.response.body) 
+            : file.response.body;
+          uploadUrl = body?.url || body?.uploadURL;
+        } catch (e) {
+          // Not JSON
+        }
+      }
+      
+      // Fallback: check response.body
+      if (!uploadUrl && response?.body) {
+        try {
+          const body = typeof response.body === 'string' 
+            ? JSON.parse(response.body) 
+            : response.body;
+          uploadUrl = body?.url || body?.uploadURL;
+        } catch (e) {
+          // Not JSON
+        }
+      }
+      
+      // Fallback: check top-level properties
+      if (!uploadUrl) {
+        uploadUrl = response?.uploadURL || response?.url || file?.response?.uploadURL || file?.response?.url;
+      }
+      
       if (uploadUrl) {
         const videoUrl = uploadUrl.split("?")[0];
         handleValueChange(videoUrl);
         toast({
           title: "Success",
           description: "Video uploaded successfully",
+        });
+      } else {
+        console.error('[FieldWidget] No video URL found in response:', { file, response });
+        toast({
+          title: "Upload Error",
+          description: "Upload succeeded but could not get video URL. Please try again.",
+          variant: "destructive",
         });
       }
     });
@@ -377,6 +535,11 @@ export function FieldWidget({
         ...prev,
         [photoUrl]: result,
       }));
+
+      // Invalidate organization query to update credit balance on dashboard and billing pages
+      if (user?.organizationId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
+      }
 
       toast({
         title: "Analysis Complete",

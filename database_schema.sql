@@ -60,7 +60,16 @@ BEGIN
     END IF;
     
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contact_type') THEN
-        CREATE TYPE contact_type AS ENUM ('internal', 'contractor', 'lead', 'company', 'partner', 'vendor', 'other');
+        CREATE TYPE contact_type AS ENUM ('internal', 'contractor', 'lead', 'company', 'partner', 'vendor', 'tenant', 'other');
+    ELSE
+        -- Add 'tenant' to existing enum if it doesn't exist
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_enum 
+            WHERE enumlabel = 'tenant' 
+            AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'contact_type')
+        ) THEN
+            ALTER TYPE contact_type ADD VALUE 'tenant';
+        END IF;
     END IF;
     
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'template_scope') THEN
@@ -993,17 +1002,100 @@ SELECT add_column_if_not_exists('tenant_assignments', 'next_of_kin_email', 'VARC
 SELECT add_column_if_not_exists('tenant_assignments', 'next_of_kin_relationship', 'VARCHAR(100)');
 SELECT add_column_if_not_exists('tenant_assignments', 'has_portal_access', 'BOOLEAN NOT NULL DEFAULT TRUE');
 
+-- Tenant Assignment Tags table (many-to-many relationship)
+CREATE TABLE IF NOT EXISTS tenant_assignment_tags (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+    tenant_assignment_id VARCHAR NOT NULL,
+    tag_id VARCHAR NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Add indexes for tenant_assignment_tags
+CREATE INDEX IF NOT EXISTS tenant_assignment_tags_tenant_assignment_id_idx ON tenant_assignment_tags(tenant_assignment_id);
+CREATE INDEX IF NOT EXISTS tenant_assignment_tags_tag_id_idx ON tenant_assignment_tags(tag_id);
+
 -- Add tenancy_attachments table if it doesn't exist (referenced in schema but might not be in DB)
 CREATE TABLE IF NOT EXISTS tenancy_attachments (
     id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
     tenant_assignment_id VARCHAR NOT NULL,
+    organization_id VARCHAR NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
     file_url TEXT NOT NULL,
-    file_name VARCHAR(500),
     file_type VARCHAR(100),
-    file_size_bytes INTEGER,
+    file_size INTEGER,
+    description TEXT,
     uploaded_by VARCHAR,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Add indexes for tenancy_attachments
+CREATE INDEX IF NOT EXISTS tenancy_attachments_tenant_assignment_id_idx ON tenancy_attachments(tenant_assignment_id);
+CREATE INDEX IF NOT EXISTS tenancy_attachments_organization_id_idx ON tenancy_attachments(organization_id);
+
+-- Migrate existing tenancy_attachments table if it has old column names
+DO $$ 
+BEGIN
+    -- Rename file_size_bytes to file_size if it exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'file_size_bytes'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'file_size'
+    ) THEN
+        ALTER TABLE tenancy_attachments RENAME COLUMN file_size_bytes TO file_size;
+    END IF;
+    
+    -- Add missing columns if they don't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'organization_id'
+    ) THEN
+        ALTER TABLE tenancy_attachments ADD COLUMN organization_id VARCHAR;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'description'
+    ) THEN
+        ALTER TABLE tenancy_attachments ADD COLUMN description TEXT;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'updated_at'
+    ) THEN
+        ALTER TABLE tenancy_attachments ADD COLUMN updated_at TIMESTAMP DEFAULT NOW();
+    END IF;
+    
+    -- Make file_name NOT NULL if it's nullable
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'file_name'
+        AND is_nullable = 'YES'
+    ) THEN
+        -- First set any NULL values to empty string, then make NOT NULL
+        UPDATE tenancy_attachments SET file_name = '' WHERE file_name IS NULL;
+        ALTER TABLE tenancy_attachments ALTER COLUMN file_name SET NOT NULL;
+    END IF;
+    
+    -- Update file_name length if needed
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenancy_attachments' 
+        AND column_name = 'file_name'
+        AND character_maximum_length > 255
+    ) THEN
+        ALTER TABLE tenancy_attachments ALTER COLUMN file_name TYPE VARCHAR(255);
+    END IF;
+END $$;
 
 -- ==================== ADD MISSING CONSTRAINTS ====================
 -- These constraints won't be added by CREATE TABLE IF NOT EXISTS on existing tables

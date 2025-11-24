@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter } from "lucide-react";
 import type { User } from "@shared/schema";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { AddressInput } from "@/components/AddressInput";
 
 export default function Team() {
   const { toast } = useToast();
@@ -56,6 +57,10 @@ export default function Team() {
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/team", data);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(errorData.message || errorData.errors?.[0]?.message || `Server error: ${res.status}`);
+      }
       return await res.json();
     },
     onSuccess: async () => {
@@ -64,6 +69,7 @@ export default function Team() {
       handleCloseDialog();
     },
     onError: (error: Error) => {
+      console.error('[Team] Create error:', error);
       toast({
         variant: "destructive",
         title: "Error",
@@ -187,20 +193,61 @@ export default function Team() {
   };
 
   const handleSubmit = () => {
-    if (!email || !username) {
+    // Validate required fields
+    if (!email || !email.trim()) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Email and username are required",
+        description: "Email is required",
+      });
+      return;
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please enter a valid email address",
+      });
+      return;
+    }
+    
+    if (!username || !username.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Username is required",
+      });
+      return;
+    }
+    
+    if (username.trim().length < 3) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Username must be at least 3 characters",
       });
       return;
     }
 
-    if (!editingUser && !password) {
+    if (!editingUser && (!password || password.length < 6)) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Password is required for new users",
+        description: "Password is required and must be at least 6 characters",
+      });
+      return;
+    }
+    
+    // Validate role
+    const validRoles = ["owner", "clerk", "compliance", "tenant", "contractor"];
+    if (!validRoles.includes(role)) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a valid role",
       });
       return;
     }
@@ -226,26 +273,57 @@ export default function Team() {
         skills,
         education,
         profileImageUrl: profileImageUrl || "",
-        certificateUrls: certificateUrls.filter(url => url.trim() !== ""),
+        certificateUrls: certificateUrls.filter(url => {
+          const trimmed = url.trim();
+          // Filter out empty strings and ensure valid format
+          return trimmed !== "" && (trimmed.startsWith("/objects/") || trimmed.startsWith("http://") || trimmed.startsWith("https://"));
+        }),
         address: formattedAddress,
       };
       updateMutation.mutate({ userId: editingUser.id, data: updateData });
     } else {
       // For creates: include all fields
+      // Validate profileImageUrl format
+      let validProfileImageUrl: string | undefined = undefined;
+      if (profileImageUrl && profileImageUrl.trim() !== "") {
+        const trimmed = profileImageUrl.trim();
+        if (trimmed.startsWith("/objects/") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+          validProfileImageUrl = trimmed;
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Validation Error",
+            description: "Profile image URL must be a valid URL or start with /objects/",
+          });
+          return;
+        }
+      }
+      
+      // Filter and validate certificateUrls
+      const validCertificateUrls = certificateUrls
+        .map(url => url.trim())
+        .filter(url => {
+          if (url === "") return false;
+          // Must be a valid URL or start with /objects/
+          return url.startsWith("/objects/") || url.startsWith("http://") || url.startsWith("https://");
+        });
+      
       const createData = {
-        firstName,
-        lastName,
-        email,
-        username,
-        ...(password && { password }),
-        phone,
+        firstName: firstName.trim() || undefined,
+        lastName: lastName.trim() || undefined,
+        email: email.trim(),
+        username: username.trim(),
+        password: password.trim(),
+        phone: phone.trim() || undefined,
         role,
-        skills,
-        education,
-        profileImageUrl: profileImageUrl || "",
-        certificateUrls: certificateUrls.filter(url => url.trim() !== ""),
+        skills: skills.length > 0 ? skills : undefined,
+        education: education.trim() || undefined,
+        profileImageUrl: validProfileImageUrl || undefined,
+        certificateUrls: validCertificateUrls.length > 0 ? validCertificateUrls : undefined,
         address: formattedAddress,
       };
+      
+      console.log('[Team] Creating team member with data:', { ...createData, password: '***' });
       createMutation.mutate(createData);
     }
   };
@@ -721,10 +799,10 @@ export default function Team() {
                 </Label>
                 <div className="space-y-2">
                   <Label htmlFor="street">Street Address</Label>
-                  <Input
+                  <AddressInput
                     id="street"
                     value={address.street}
-                    onChange={(e) => setAddress({ ...address, street: e.target.value, formatted: "" })}
+                    onChange={(value) => setAddress({ ...address, street: value, formatted: "" })}
                     placeholder="123 Main Street"
                     data-testid="input-street"
                   />
@@ -841,26 +919,50 @@ export default function Team() {
                   onComplete={async (result) => {
                     try {
                       if (result.successful && result.successful.length > 0) {
-                        const uploadURL = result.successful[0].uploadURL;
+                        let fileUrl = result.successful[0].uploadURL;
+                        
+                        // Ensure it's a valid file path (should start with /objects/)
+                        if (!fileUrl || !fileUrl.startsWith('/objects/')) {
+                          // If it's an absolute URL, extract the path
+                          if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+                            try {
+                              const urlObj = new URL(fileUrl);
+                              fileUrl = urlObj.pathname;
+                            } catch (e) {
+                              console.error('[Team] Invalid file URL:', fileUrl);
+                              throw new Error('Invalid file URL format');
+                            }
+                          } else {
+                            console.error('[Team] Invalid file URL format:', fileUrl);
+                            throw new Error('Invalid file URL format');
+                          }
+                        }
+                        
+                        // Convert to absolute URL for ACL call
+                        const absoluteUrl = fileUrl.startsWith('/') 
+                          ? `${window.location.origin}${fileUrl}`
+                          : fileUrl;
+                        
                         const response = await fetch('/api/objects/set-acl', {
                           method: 'PUT',
                           headers: { 'Content-Type': 'application/json' },
                           credentials: 'include',
-                          body: JSON.stringify({ photoUrl: uploadURL }),
+                          body: JSON.stringify({ photoUrl: absoluteUrl }),
                         });
                         
                         if (!response.ok) {
-                          throw new Error('Failed to set photo permissions');
+                          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                          throw new Error(errorData.error || 'Failed to set photo permissions');
                         }
                         
                         const { objectPath } = await response.json();
-                        setProfileImageUrl(objectPath);
+                        setProfileImageUrl(objectPath || fileUrl);
                       }
-                    } catch (error) {
+                    } catch (error: any) {
                       console.error('[Team] Profile image upload error:', error);
                       toast({
                         title: "Upload Error",
-                        description: "Failed to upload profile image. Please try again.",
+                        description: error.message || "Failed to upload profile image. Please try again.",
                         variant: "destructive",
                       });
                     }
@@ -925,28 +1027,62 @@ export default function Team() {
                       if (result.successful && result.successful.length > 0) {
                         const newPaths: string[] = [];
                         for (const file of result.successful) {
-                          const uploadURL = file.uploadURL;
+                          let fileUrl = file.uploadURL;
+                          
+                          // Ensure it's a valid file path (should start with /objects/)
+                          if (!fileUrl || !fileUrl.startsWith('/objects/')) {
+                            // If it's an absolute URL, extract the path
+                            if (fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'))) {
+                              try {
+                                const urlObj = new URL(fileUrl);
+                                fileUrl = urlObj.pathname;
+                              } catch (e) {
+                                console.error('[Team] Invalid certificate URL:', fileUrl);
+                                continue; // Skip this file
+                              }
+                            } else {
+                              console.error('[Team] Invalid certificate URL format:', fileUrl);
+                              continue; // Skip this file
+                            }
+                          }
+                          
+                          // Convert to absolute URL for ACL call
+                          const absoluteUrl = fileUrl.startsWith('/') 
+                            ? `${window.location.origin}${fileUrl}`
+                            : fileUrl;
+                          
                           const response = await fetch('/api/objects/set-acl', {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             credentials: 'include',
-                            body: JSON.stringify({ photoUrl: uploadURL }),
+                            body: JSON.stringify({ photoUrl: absoluteUrl }),
                           });
                           
                           if (!response.ok) {
-                            throw new Error('Failed to set file permissions');
+                            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                            console.error('[Team] Failed to set ACL for certificate:', errorData);
+                            continue; // Skip this file but continue with others
                           }
                           
                           const { objectPath } = await response.json();
-                          newPaths.push(objectPath);
+                          newPaths.push(objectPath || fileUrl);
                         }
-                        setCertificateUrls([...certificateUrls, ...newPaths]);
+                        
+                        if (newPaths.length > 0) {
+                          setCertificateUrls([...certificateUrls, ...newPaths]);
+                          toast({
+                            title: "Success",
+                            description: `${newPaths.length} certificate(s) uploaded successfully`,
+                          });
+                        } else {
+                          throw new Error('No certificates were uploaded successfully');
+                        }
                       }
-                    } catch (error) {
+                    } catch (error: any) {
                       console.error('[Team] Certificate upload error:', error);
                       toast({
                         title: "Upload Error",
-                        description: "Failed to upload one or more certificates. Please try again.",
+                        description: error.message || "Failed to upload one or more certificates. Please try again.",
                         variant: "destructive",
                       });
                     }

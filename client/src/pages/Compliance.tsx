@@ -4,7 +4,7 @@ import { useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -36,7 +36,10 @@ const DOCUMENT_TYPES = [
   "Other",
 ];
 
-const uploadFormSchema = insertComplianceDocumentSchema.extend({
+const uploadFormSchema = insertComplianceDocumentSchema.omit({
+  organizationId: true,
+  uploadedBy: true,
+}).extend({
   documentUrl: z.string().min(1, "Please upload a document"),
   expiryDate: z.string().optional(),
 });
@@ -129,10 +132,22 @@ export default function Compliance() {
   }, [open, propertyIdFromUrl, blockIdFromUrl, form]);
 
   const uploadMutation = useMutation({
-    mutationFn: (data: UploadFormValues) => apiRequest('POST', '/api/compliance', {
-      ...data,
-      expiryDate: data.expiryDate ? data.expiryDate : null,
-    }),
+    mutationFn: async (data: UploadFormValues) => {
+      console.log('[Compliance] Sending upload request with data:', data);
+      try {
+        const payload = {
+          ...data,
+          expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
+        };
+        console.log('[Compliance] Upload payload:', payload);
+        const result = await apiRequest('POST', '/api/compliance', payload);
+        console.log('[Compliance] Upload successful:', result);
+        return result;
+      } catch (error: any) {
+        console.error('[Compliance] Upload error details:', error);
+        throw error;
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/compliance'] });
       queryClient.invalidateQueries({ queryKey: ['/api/compliance/expiring'] });
@@ -145,10 +160,15 @@ export default function Compliance() {
       setIsUploading(false);
     },
     onError: (error: any) => {
-      console.error('Error uploading compliance document:', error);
+      console.error('[Compliance] Error uploading compliance document:', error);
+      const errorMessage = error?.message || error?.response?.data?.message || 'Failed to upload document. Please try again.';
+      const validationErrors = error?.response?.data?.errors;
+      
       toast({
         title: "Upload failed",
-        description: error.message || 'Failed to upload document. Please try again.',
+        description: validationErrors 
+          ? `Validation error: ${validationErrors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ')}`
+          : errorMessage,
         variant: "destructive",
       });
       setIsUploading(false);
@@ -178,6 +198,36 @@ export default function Compliance() {
   });
 
   const onSubmit = (data: UploadFormValues) => {
+    console.log('[Compliance] Form submitted with data:', data);
+    
+    // Ensure documentType is set
+    if (!data.documentType) {
+      form.setError('documentType', {
+        type: 'manual',
+        message: 'Please select a document type'
+      });
+      toast({
+        title: "Validation error",
+        description: "Please select a document type",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Ensure documentUrl is set
+    if (!data.documentUrl) {
+      form.setError('documentUrl', {
+        type: 'manual',
+        message: 'Please upload a document'
+      });
+      toast({
+        title: "Validation error",
+        description: "Please upload a document",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     uploadMutation.mutate(data);
   };
 
@@ -285,9 +335,26 @@ export default function Compliance() {
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Upload Compliance Document</DialogTitle>
+              <DialogDescription>
+                Upload a compliance document such as insurance certificates, safety certificates, or licenses. You can optionally associate it with a property or block and set an expiry date for renewal reminders.
+              </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  console.log('[Compliance] Form submit event triggered');
+                  form.handleSubmit(onSubmit, (errors) => {
+                    console.error('[Compliance] Form validation errors:', errors);
+                    toast({
+                      title: "Validation error",
+                      description: "Please fill in all required fields",
+                      variant: "destructive",
+                    });
+                  })(e);
+                }} 
+                className="space-y-4"
+              >
                 <FormField
                   control={form.control}
                   name="documentType"
@@ -507,7 +574,7 @@ export default function Compliance() {
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
+                        <PopoverContent className="w-auto p-0 z-[70]" align="start">
                           <CalendarComponent
                             mode="single"
                             selected={field.value ? new Date(field.value) : undefined}
@@ -542,7 +609,7 @@ export default function Compliance() {
                   <Button
                     type="submit"
                     className="bg-primary w-full sm:w-auto"
-                    disabled={uploadMutation.isPending || isUploading || !form.watch('documentUrl')}
+                    disabled={uploadMutation.isPending || isUploading || !form.watch('documentUrl') || !form.watch('documentType')}
                     data-testid="button-submit-document"
                   >
                     {uploadMutation.isPending ? "Saving..." : "Upload Document"}

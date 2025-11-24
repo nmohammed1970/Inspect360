@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TagInput } from "@/components/TagInput";
 import { TagFilter } from "@/components/TagFilter";
+import { AddressInput } from "@/components/AddressInput";
 import type { Tag } from "@shared/schema";
 import {
   Select,
@@ -278,10 +279,10 @@ export default function Properties() {
               </div>
               <div>
                 <Label htmlFor="address">Address *</Label>
-                <Textarea
+                <AddressInput
                   id="address"
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  onChange={setAddress}
                   placeholder="123 Main St, City, State ZIP"
                   data-testid="input-property-address"
                   required

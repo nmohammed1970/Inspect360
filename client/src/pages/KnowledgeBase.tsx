@@ -59,12 +59,19 @@ export default function KnowledgeBase() {
   );
 
   useEffect(() => {
-    const handleUploadSuccess = (file: any, response: any) => {
-      const fileUrl = response.body?.url;
+    const handleUploadSuccess = async (file: any, response: any) => {
+      const { extractFileUrlFromUploadResponse } = await import("@/lib/utils");
+      const fileUrl = extractFileUrlFromUploadResponse(file, response);
+      
       if (fileUrl && file) {
+        // Convert relative path to absolute URL if needed
+        const absoluteUrl = fileUrl.startsWith('/') 
+          ? `${window.location.origin}${fileUrl}`
+          : fileUrl;
+        
         setUploadData(prev => ({
           ...prev,
-          fileUrl,
+          fileUrl: absoluteUrl,
           fileName: file.name,
           fileType: file.type || '',
           fileSizeBytes: file.size,
@@ -137,7 +144,12 @@ export default function KnowledgeBase() {
         credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to delete document");
-      return response.json();
+      // DELETE endpoints may return 204 No Content with empty body
+      if (response.status === 204 || response.headers.get("content-length") === "0") {
+        return null;
+      }
+      const text = await response.text();
+      return text ? JSON.parse(text) : null;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/knowledge-base/documents"] });

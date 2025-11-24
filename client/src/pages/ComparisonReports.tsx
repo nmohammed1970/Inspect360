@@ -23,6 +23,7 @@ import { FileText, ArrowRight, User, Building2, Calendar, DollarSign, Plus } fro
 import { format } from "date-fns";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface ComparisonReport {
@@ -47,6 +48,7 @@ const statusConfig = {
 
 export default function ComparisonReports() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState("");
   const [selectedCheckInId, setSelectedCheckInId] = useState("");
@@ -92,6 +94,10 @@ export default function ComparisonReports() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/comparison-reports"] });
+      // Invalidate organization query to update credit balance on dashboard and billing pages
+      if (user?.organizationId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
+      }
       setIsDialogOpen(false);
       setSelectedPropertyId("");
       setSelectedCheckInId("");

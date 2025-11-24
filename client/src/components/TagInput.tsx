@@ -102,7 +102,7 @@ export function TagInput({ selectedTags, onTagsChange, placeholder = "Add tags..
               Add Tag
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-64 p-2" align="start">
+          <PopoverContent className="w-64 p-2 z-[70]" align="start">
             <div className="space-y-2">
               <Input
                 ref={inputRef}

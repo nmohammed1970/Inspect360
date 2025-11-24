@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { TagInput } from "@/components/TagInput";
 import { TagFilter } from "@/components/TagFilter";
+import { AddressInput } from "@/components/AddressInput";
 import type { Tag } from "@shared/schema";
 import { Tag as TagIcon } from "lucide-react";
 
@@ -578,12 +579,13 @@ export default function Blocks() {
 
             <div className="space-y-2">
               <Label htmlFor="address">Address *</Label>
-              <Input
+              <AddressInput
                 id="address"
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={setAddress}
                 placeholder="123 Main Street, City, Postcode"
                 data-testid="input-block-address"
+                required
               />
             </div>
 

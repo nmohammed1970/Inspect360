@@ -52,6 +52,24 @@ const assetCategories = [
   "Other",
 ];
 
+// Helper function to normalize photo URLs (convert relative to absolute)
+const normalizePhotoUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  
+  // If already absolute URL, return as is
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // If relative path, convert to absolute
+  if (url.startsWith('/')) {
+    return `${window.location.origin}${url}`;
+  }
+  
+  // Return as is if it's already in a valid format
+  return url;
+};
+
 export default function AssetInventory() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -159,7 +177,13 @@ export default function AssetInventory() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("DELETE", `/api/asset-inventory/${id}`);
-      return await res.json();
+      // DELETE endpoints typically return 204 No Content with empty body
+      // Only parse JSON if there's content
+      if (res.status === 204 || res.headers.get("content-length") === "0") {
+        return null;
+      }
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
     },
     onSuccess: () => {
       // Invalidate global asset inventory
@@ -200,64 +224,224 @@ export default function AssetInventory() {
     uppyInstance.use(AwsS3, {
       shouldUseMultipart: false,
       getUploadParameters: async (file) => {
-        const response = await fetch('/api/objects/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-        });
+        try {
+          const response = await fetch('/api/objects/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+          });
 
-        if (!response.ok) {
-          throw new Error('Failed to get upload URL');
+          if (!response.ok) {
+            throw new Error(`Failed to get upload URL: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          
+          if (!data.uploadURL) {
+            throw new Error("Invalid upload URL response");
+          }
+
+          // Ensure URL is absolute
+          let uploadURL = data.uploadURL;
+          if (uploadURL.startsWith('/')) {
+            // Convert relative URL to absolute
+            uploadURL = `${window.location.origin}${uploadURL}`;
+          }
+
+          // Validate URL
+          try {
+            new URL(uploadURL);
+          } catch (e) {
+            throw new Error(`Invalid upload URL format: ${uploadURL}`);
+          }
+
+          // Extract objectId from upload URL for later use
+          const urlObj = new URL(uploadURL);
+          const objectId = urlObj.searchParams.get('objectId') || urlObj.pathname.split('/').pop() || '';
+          
+          // Store metadata for later retrieval
+          uppyInstance.setFileMeta(file.id, { 
+            originalUploadURL: uploadURL,
+            objectId: objectId,
+          });
+
+          return {
+            method: 'PUT',
+            url: uploadURL,
+            fields: {},
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream',
+            },
+          };
+        } catch (error: any) {
+          console.error("[AssetInventory] Upload URL error:", error);
+          throw new Error(`Failed to get upload URL: ${error.message}`);
         }
-
-        const data = await response.json();
-        return {
-          method: 'PUT',
-          url: data.uploadURL,
-          fields: {},
-          headers: {
-            'Content-Type': file.type || 'application/octet-stream',
-          },
-        };
       },
     });
 
     uppyInstance.on('upload-success', async (file, response) => {
-      const uploadUrl = response?.uploadURL || response?.body?.uploadURL;
-      if (uploadUrl) {
-        const photoUrl = uploadUrl.split('?')[0];
-        
-        // Set ACL for the uploaded photo
+      console.log('[AssetInventory] Upload success event:', { 
+        file: { id: file?.id, name: file?.name, meta: file?.meta },
+        response,
+        fileResponse: file?.response,
+        fullFile: file
+      });
+      
+      // Extract the file URL from the PUT response
+      // The upload-direct endpoint returns: { url: "/objects/...", uploadURL: "/objects/..." }
+      let photoUrl: string | null = null;
+      
+      // Method 1: Check file.response.body (Uppy stores PUT response here)
+      if (file?.response?.body) {
         try {
-          const aclResponse = await fetch('/api/objects/set-acl', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ photoUrl }),
-          });
-          
-          if (aclResponse.ok) {
-            const { objectPath } = await aclResponse.json();
-            setUploadedPhotos(prev => [...prev, objectPath]);
-          } else {
-            console.error('Failed to set ACL for photo');
-            toast({
-              variant: "destructive",
-              title: "Upload Warning",
-              description: "Photo uploaded but permissions could not be set. Photo may not be accessible.",
-            });
-            // Don't add the photo if ACL fails - it won't be accessible
-          }
-        } catch (error) {
-          console.error('Error setting ACL:', error);
-          toast({
-            variant: "destructive",
-            title: "Upload Error",
-            description: "Failed to set photo permissions. Please try uploading again.",
-          });
-          // Don't add the photo if ACL fails - it won't be accessible
+          const body = typeof file.response.body === 'string' 
+            ? JSON.parse(file.response.body) 
+            : file.response.body;
+          photoUrl = body?.url || body?.uploadURL;
+          console.log('[AssetInventory] Method 1 - Extracted from file.response.body:', photoUrl);
+        } catch (e) {
+          console.warn('[AssetInventory] Method 1 - Failed to parse:', e);
         }
       }
+      
+      // Method 2: Check file.response directly (sometimes it's already parsed)
+      if (!photoUrl && file?.response) {
+        photoUrl = file.response.url || file.response.uploadURL;
+        if (photoUrl) {
+          console.log('[AssetInventory] Method 2 - Extracted from file.response:', photoUrl);
+        }
+      }
+      
+      // Method 3: Check response.body directly
+      if (!photoUrl && response?.body) {
+        try {
+          const body = typeof response.body === 'string' 
+            ? JSON.parse(response.body) 
+            : response.body;
+          photoUrl = body?.url || body?.uploadURL;
+          // Validate it's a file path, not an upload endpoint
+          if (photoUrl && photoUrl.includes('/upload-direct')) {
+            photoUrl = null; // Reject upload endpoint URLs
+          }
+          if (photoUrl) {
+            console.log('[AssetInventory] Method 3 - Extracted from response.body:', photoUrl);
+          }
+        } catch (e) {
+          console.warn('[AssetInventory] Method 3 - Failed to parse:', e);
+        }
+      }
+      
+      // Method 4: Construct from objectId if we have it (prioritize this over response properties)
+      if (!photoUrl && file?.meta?.objectId) {
+        photoUrl = `/objects/${file.meta.objectId}`;
+        console.log('[AssetInventory] Method 4 - Constructed from objectId:', photoUrl);
+      }
+      
+      // Method 5: Extract objectId from upload URL and construct path
+      if (!photoUrl && file?.meta?.originalUploadURL) {
+        try {
+          const uploadUrl = file.meta.originalUploadURL;
+          const urlObj = new URL(uploadUrl);
+          const objectId = urlObj.searchParams.get('objectId');
+          if (objectId) {
+            photoUrl = `/objects/${objectId}`;
+            console.log('[AssetInventory] Method 5 - Constructed from upload URL objectId:', photoUrl);
+          }
+        } catch (e) {
+          console.warn('[AssetInventory] Method 5 - Failed to extract objectId:', e);
+        }
+      }
+      
+      // Method 6: Check top-level response properties (only if it's a valid file path)
+      if (!photoUrl && response) {
+        const candidate = response.uploadURL || response.url;
+        // Only use if it's a file path, not an upload endpoint
+        if (candidate && !candidate.includes('/upload-direct') && candidate.startsWith('/objects/')) {
+          photoUrl = candidate;
+          console.log('[AssetInventory] Method 6 - Extracted from response top-level:', photoUrl);
+        }
+      }
+      
+      if (!photoUrl) {
+        console.error('[AssetInventory] No photo URL found. Full debug info:', {
+          fileResponse: file?.response,
+          response,
+          fileMeta: file?.meta,
+          fileKeys: file ? Object.keys(file) : null,
+          responseKeys: response ? Object.keys(response) : null
+        });
+        toast({
+          variant: "destructive",
+          title: "Upload Error",
+          description: "Upload succeeded but could not get photo URL. Please try again.",
+        });
+        return;
+      }
+      
+      // Remove query params if any
+      photoUrl = photoUrl.split('?')[0];
+      
+      // Ensure it's a valid file path (should start with /objects/)
+      if (!photoUrl.startsWith('/objects/')) {
+        console.error('[AssetInventory] Invalid photo URL format:', photoUrl);
+        toast({
+          variant: "destructive",
+          title: "Upload Error",
+          description: "Invalid photo URL format. Please try again.",
+        });
+        return;
+      }
+      
+      // Convert relative path to absolute URL for display
+      const absolutePhotoUrl = `${window.location.origin}${photoUrl}`;
+      console.log('[AssetInventory] Final photo URL:', absolutePhotoUrl);
+      
+      // Add photo to preview immediately
+      setUploadedPhotos(prev => {
+        // Avoid duplicates
+        if (prev.includes(absolutePhotoUrl)) {
+          return prev;
+        }
+        return [...prev, absolutePhotoUrl];
+      });
+      
+      // Set ACL for the uploaded photo (in background, don't block UI)
+      fetch('/api/objects/set-acl', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ photoUrl: absolutePhotoUrl }),
+      })
+      .then(async (aclResponse) => {
+        if (aclResponse.ok) {
+          const { objectPath } = await aclResponse.json();
+          // If objectPath is different, update it (though it should be the same)
+          if (objectPath && objectPath !== photoUrl) {
+            const finalUrl = objectPath.startsWith('/') 
+              ? `${window.location.origin}${objectPath}` 
+              : objectPath;
+            
+            setUploadedPhotos(prev => {
+              const index = prev.indexOf(absolutePhotoUrl);
+              if (index >= 0) {
+                const updated = [...prev];
+                updated[index] = finalUrl;
+                return updated;
+              }
+              return prev;
+            });
+          }
+        }
+      })
+      .catch(error => {
+        console.error('[AssetInventory] Error setting ACL (non-blocking):', error);
+      });
+      
+      toast({
+        title: "Photo uploaded",
+        description: "Photo has been uploaded successfully",
+      });
     });
 
     return uppyInstance;
@@ -725,7 +909,7 @@ export default function AssetInventory() {
                   <div className="grid grid-cols-4 gap-2">
                     {uploadedPhotos.map((url, index) => (
                       <div key={index} className="relative">
-                        <img src={url} alt={`Asset photo ${index + 1}`} className="w-full h-24 object-cover rounded" />
+                        <img src={normalizePhotoUrl(url) || url} alt={`Asset photo ${index + 1}`} className="w-full h-24 object-cover rounded" />
                         <Button
                           type="button"
                           size="icon"
@@ -881,16 +1065,22 @@ export default function AssetInventory() {
               </CardHeader>
 
               <CardContent className="space-y-3">
-                {asset.photos && asset.photos.length > 0 && (
-                  <div className="relative h-32 rounded overflow-hidden">
-                    <img src={asset.photos[0]} alt={asset.name} className="w-full h-full object-cover" />
-                    {asset.photos.length > 1 && (
-                      <Badge className="absolute top-2 right-2 text-xs">
-                        +{asset.photos.length - 1} more
-                      </Badge>
-                    )}
-                  </div>
-                )}
+                {asset.photos && asset.photos.length > 0 && (() => {
+                  const firstPhoto = normalizePhotoUrl(asset.photos[0]);
+                  return firstPhoto ? (
+                    <div className="relative h-32 rounded overflow-hidden">
+                      <img src={firstPhoto} alt={asset.name} className="w-full h-full object-cover" onError={(e) => {
+                        console.error('Failed to load image:', firstPhoto);
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }} />
+                      {asset.photos.length > 1 && (
+                        <Badge className="absolute top-2 right-2 text-xs">
+                          +{asset.photos.length - 1} more
+                        </Badge>
+                      )}
+                    </div>
+                  ) : null;
+                })()}
 
                 <div className="space-y-2 text-sm">
                   {asset.location && (

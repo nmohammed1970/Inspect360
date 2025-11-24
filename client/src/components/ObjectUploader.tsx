@@ -9,6 +9,7 @@ import "@uppy/dashboard/css/style.min.css";
 import "@uppy/webcam/css/style.min.css";
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
+import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 
 interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
@@ -33,8 +34,8 @@ export function ObjectUploader({
   children,
 }: ObjectUploaderProps) {
   const [showModal, setShowModal] = useState(false);
-  const [uppy] = useState(() =>
-    new Uppy({
+  const [uppy] = useState(() => {
+    const uppyInstance = new Uppy({
       restrictions: {
         maxNumberOfFiles,
         maxFileSize,
@@ -47,12 +48,65 @@ export function ObjectUploader({
       } as any)
       .use(AwsS3, {
         shouldUseMultipart: false,
-        getUploadParameters: onGetUploadParameters,
-      })
-  );
+        async getUploadParameters(file: any) {
+          const params = await onGetUploadParameters();
+          
+          // Extract objectId from upload URL and store in metadata
+          try {
+            const uploadURL = params.url;
+            const urlObj = new URL(uploadURL);
+            const objectId = urlObj.searchParams.get('objectId');
+            if (objectId) {
+              uppyInstance.setFileMeta(file.id, { 
+                originalUploadURL: uploadURL,
+                objectId: objectId,
+              });
+            } else {
+              uppyInstance.setFileMeta(file.id, { 
+                originalUploadURL: uploadURL,
+              });
+            }
+          } catch (e) {
+            // If URL parsing fails, just store the upload URL
+            uppyInstance.setFileMeta(file.id, { 
+              originalUploadURL: params.url,
+            });
+          }
+          
+          return params;
+        },
+      });
+    return uppyInstance;
+  });
 
   useEffect(() => {
+    // Extract file URLs from upload responses and attach them to the result
+    const handleUploadSuccess = (file: any, response: any) => {
+      const fileUrl = extractFileUrlFromUploadResponse(file, response);
+      if (fileUrl) {
+        // Store the extracted URL in file metadata for later retrieval
+        file.meta = file.meta || {};
+        file.meta.extractedFileUrl = fileUrl;
+      }
+    };
+
+    uppy.on("upload-success", handleUploadSuccess);
+
     const handleComplete = (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
+      // Update successful files with extracted URLs
+      if (result.successful) {
+        result.successful = result.successful.map((file: any) => {
+          const extractedUrl = file.meta?.extractedFileUrl;
+          if (extractedUrl) {
+            return {
+              ...file,
+              uploadURL: extractedUrl, // Override with correct file URL
+            };
+          }
+          return file;
+        });
+      }
+      
       onComplete?.(result);
       
       if (result.successful && result.successful.length > 0) {
@@ -63,6 +117,7 @@ export function ObjectUploader({
     uppy.on("complete", handleComplete);
 
     return () => {
+      uppy.off("upload-success", handleUploadSuccess);
       uppy.off("complete", handleComplete);
     };
   }, [uppy, onComplete]);

@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { AddressInput } from "@/components/AddressInput";
 import { useToast } from "@/hooks/use-toast";
 
 interface Property {
@@ -882,10 +883,10 @@ export default function PropertyDetail() {
             </div>
             <div>
               <Label htmlFor="edit-address">Address *</Label>
-              <Textarea
+              <AddressInput
                 id="edit-address"
                 value={editAddress}
-                onChange={(e) => setEditAddress(e.target.value)}
+                onChange={setEditAddress}
                 placeholder="123 Main St, City, State ZIP"
                 data-testid="input-edit-property-address"
                 required

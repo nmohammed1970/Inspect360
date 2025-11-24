@@ -91,6 +91,10 @@ export default function Comparisons() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/comparisons/all"] });
+      // Invalidate organization query to update credit balance on dashboard and billing pages
+      if (user?.organizationId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
+      }
       setIsGenerateOpen(false);
       setSelectedUnitId("");
       setSelectedCheckIn("");

@@ -177,19 +177,58 @@ export default function EditTenantDialog({
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      const payload = updateTenantAssignmentSchema.parse({
-        leaseStartDate: data.leaseStartDate ? new Date(data.leaseStartDate) : null,
-        leaseEndDate: data.leaseEndDate ? new Date(data.leaseEndDate) : null,
-        monthlyRent: data.monthlyRent && data.monthlyRent.trim() !== "" ? data.monthlyRent : null,
-        depositAmount: data.depositAmount && data.depositAmount.trim() !== "" ? data.depositAmount : null,
+      // Build payload - send dates as ISO strings, let server handle transformation
+      const payload: any = {
         isActive: data.isActive,
         hasPortalAccess: data.hasPortalAccess,
-        nextOfKinName: data.nextOfKinName && data.nextOfKinName.trim() !== "" ? data.nextOfKinName : null,
-        nextOfKinPhone: data.nextOfKinPhone && data.nextOfKinPhone.trim() !== "" ? data.nextOfKinPhone : null,
-        nextOfKinEmail: data.nextOfKinEmail && data.nextOfKinEmail.trim() !== "" ? data.nextOfKinEmail : null,
-        nextOfKinRelationship: data.nextOfKinRelationship && data.nextOfKinRelationship.trim() !== "" ? data.nextOfKinRelationship : null,
-      });
-      return apiRequest(`/api/tenant-assignments/${tenant.assignment.id}`, "PUT", payload);
+      };
+
+      // Convert dates to ISO strings (will be converted to Date objects on server)
+      if (data.leaseStartDate && data.leaseStartDate.trim() !== '') {
+        const startDate = new Date(data.leaseStartDate);
+        if (!isNaN(startDate.getTime())) {
+          payload.leaseStartDate = startDate.toISOString();
+        }
+      }
+
+      if (data.leaseEndDate && data.leaseEndDate.trim() !== '') {
+        const endDate = new Date(data.leaseEndDate);
+        if (!isNaN(endDate.getTime())) {
+          payload.leaseEndDate = endDate.toISOString();
+        }
+      }
+
+      // Send numeric fields as strings (Drizzle numeric fields expect strings)
+      if (data.monthlyRent && data.monthlyRent.trim() !== '') {
+        const rent = parseFloat(data.monthlyRent);
+        if (!isNaN(rent) && rent >= 0) {
+          payload.monthlyRent = rent.toString();
+        }
+      }
+
+      if (data.depositAmount && data.depositAmount.trim() !== '') {
+        const deposit = parseFloat(data.depositAmount);
+        if (!isNaN(deposit) && deposit >= 0) {
+          payload.depositAmount = deposit.toString();
+        }
+      }
+
+      // Add optional next of kin fields
+      if (data.nextOfKinName && data.nextOfKinName.trim() !== '') {
+        payload.nextOfKinName = data.nextOfKinName.trim();
+      }
+      if (data.nextOfKinPhone && data.nextOfKinPhone.trim() !== '') {
+        payload.nextOfKinPhone = data.nextOfKinPhone.trim();
+      }
+      if (data.nextOfKinEmail && data.nextOfKinEmail.trim() !== '') {
+        payload.nextOfKinEmail = data.nextOfKinEmail.trim();
+      }
+      if (data.nextOfKinRelationship && data.nextOfKinRelationship.trim() !== '') {
+        payload.nextOfKinRelationship = data.nextOfKinRelationship.trim();
+      }
+
+      console.log('[EditTenantDialog] Updating assignment with payload:', payload);
+      return apiRequest("PUT", `/api/tenant-assignments/${tenant.assignment.id}`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
@@ -200,10 +239,20 @@ export default function EditTenantDialog({
       setOpen(false);
       onSuccess?.();
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error("[EditTenantDialog] Update error:", error);
+      let errorMessage = "An error occurred while updating the tenant assignment";
+      
+      // Extract error message from the error object
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+
       toast({
         title: "Failed to update assignment",
-        description: "An error occurred while updating the tenant assignment",
+        description: errorMessage,
         variant: "destructive",
       });
     },
@@ -211,7 +260,7 @@ export default function EditTenantDialog({
 
   const sendPasswordMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest(`/api/tenant-assignments/${tenant.assignment.id}/send-password`, "POST", {});
+      return apiRequest("POST", `/api/tenant-assignments/${tenant.assignment.id}/send-password`, {});
     },
     onSuccess: () => {
       toast({
@@ -230,7 +279,7 @@ export default function EditTenantDialog({
 
   const updateTagsMutation = useMutation({
     mutationFn: async (tagIds: string[]) => {
-      return apiRequest(`/api/tenant-assignments/${tenant.assignment.id}/tags`, "PUT", { tagIds });
+      return apiRequest("PUT", `/api/tenant-assignments/${tenant.assignment.id}/tags`, { tagIds });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id, "tags"] });
@@ -290,20 +339,27 @@ export default function EditTenantDialog({
     formData.append("tenantAssignmentId", tenant.assignment.id);
 
     try {
-      await fetch("/api/tenancy-attachments", {
+      const response = await fetch("/api/tenancy-attachments", {
         method: "POST",
         body: formData,
+        credentials: "include", // Include cookies for authentication
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || errorData.message || "Upload failed");
+      }
 
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id, "attachments"] });
       toast({
         title: "File uploaded",
         description: `${file.name} has been uploaded successfully`,
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error("[EditTenantDialog] File upload error:", error);
       toast({
         title: "Upload failed",
-        description: "An error occurred while uploading the file",
+        description: error.message || "An error occurred while uploading the file",
         variant: "destructive",
       });
     } finally {

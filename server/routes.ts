@@ -1,7 +1,7 @@
 // Backend API routes for Inspect360
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords } from "./auth";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -194,6 +194,38 @@ function getBaseUrl(req: any): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ==================== CONFIG ROUTES ====================
+  
+  // Get Google Maps API key (public endpoint, but API key is restricted by domain in Google Console)
+  app.get("/api/config/google-maps-key", async (req: any, res) => {
+    try {
+      // Check all possible ways the key might be set
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim() || 
+                     process.env['GOOGLE_MAPS_API_KEY']?.trim();
+      
+      console.log('[Google Maps API] Checking API key:', {
+        exists: !!apiKey,
+        length: apiKey?.length || 0,
+        startsWith: apiKey?.substring(0, 10) || 'N/A',
+        rawEnvValue: process.env.GOOGLE_MAPS_API_KEY ? 'present' : 'missing',
+        allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
+      });
+      
+      if (!apiKey || apiKey.length === 0) {
+        console.warn('[Google Maps API] API key not configured in environment variables');
+        console.warn('[Google Maps API] Available env vars with GOOGLE:', 
+          Object.keys(process.env).filter(k => k.toUpperCase().includes('GOOGLE')));
+        // Return 200 with null to indicate API key is not configured
+        // This allows the client to gracefully handle missing API key
+        return res.json({ apiKey: null, configured: false });
+      }
+      console.log('[Google Maps API] API key found, returning to client (length:', apiKey.length, ')');
+      res.json({ apiKey, configured: true });
+    } catch (error) {
+      console.error("Error fetching Google Maps API key:", error);
+      res.status(500).json({ error: "Failed to fetch API key", apiKey: null, configured: false });
+    }
+  });
   // Auth middleware
   await setupAuth(app);
 
@@ -3176,8 +3208,10 @@ Be objective and specific. Focus on actionable repairs.`;
       }
 
       // Validate request body
+      // Note: expiryDate is coerced to Date by the schema using z.coerce.date()
       const validation = insertComplianceDocumentSchema.omit({ organizationId: true, uploadedBy: true }).safeParse(req.body);
       if (!validation.success) {
+        console.error("Compliance document validation errors:", validation.error.errors);
         return res.status(400).json({ 
           message: "Invalid request data", 
           errors: validation.error.errors 
@@ -3192,7 +3226,8 @@ Be objective and specific. Focus on actionable repairs.`;
         blockId: blockId || null,
         documentType,
         documentUrl,
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        // expiryDate is already a Date object from z.coerce.date() validation
+        expiryDate: expiryDate || null,
         uploadedBy: userId,
       });
 
@@ -4081,9 +4116,39 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      const validatedData = insertTenantAssignmentSchema.safeParse(req.body);
+      // Transform request body to match schema expectations
+      // Dates come as ISO strings but Zod expects Date objects
+      // Numeric fields come as numbers but Drizzle expects strings
+      const transformedBody: any = {
+        ...req.body,
+      };
+      
+      // Convert date strings to Date objects
+      if (req.body.leaseStartDate && typeof req.body.leaseStartDate === 'string') {
+        transformedBody.leaseStartDate = new Date(req.body.leaseStartDate);
+      }
+      if (req.body.leaseEndDate && typeof req.body.leaseEndDate === 'string') {
+        transformedBody.leaseEndDate = new Date(req.body.leaseEndDate);
+      }
+      
+      // Convert numeric fields to strings (Drizzle numeric fields expect strings)
+      if (req.body.monthlyRent !== undefined && req.body.monthlyRent !== null) {
+        transformedBody.monthlyRent = String(req.body.monthlyRent);
+      }
+      if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
+        transformedBody.depositAmount = String(req.body.depositAmount);
+      }
+      
+      const validatedData = insertTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
-        return res.status(400).json({ error: "Invalid request data", details: validatedData.error.errors });
+        console.error("[Tenant Assignment] Validation errors:", validatedData.error.errors);
+        console.error("[Tenant Assignment] Request body:", req.body);
+        console.error("[Tenant Assignment] Transformed body:", transformedBody);
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          message: validatedData.error.errors[0]?.message || "Validation failed",
+          details: validatedData.error.errors 
+        });
       }
 
       // Verify property belongs to user's organization
@@ -4124,9 +4189,43 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(404).json({ error: "Tenant assignment not found" });
       }
 
-      const validatedData = updateTenantAssignmentSchema.safeParse(req.body);
+      // Transform request body before validation (same as POST endpoint)
+      const transformedBody = { ...req.body };
+
+      // Convert date strings or Date objects to Date objects for Zod validation
+      if (req.body.leaseStartDate !== undefined && req.body.leaseStartDate !== null) {
+        if (typeof req.body.leaseStartDate === 'string') {
+          transformedBody.leaseStartDate = new Date(req.body.leaseStartDate);
+        } else if (req.body.leaseStartDate instanceof Date) {
+          transformedBody.leaseStartDate = req.body.leaseStartDate;
+        }
+      }
+      if (req.body.leaseEndDate !== undefined && req.body.leaseEndDate !== null) {
+        if (typeof req.body.leaseEndDate === 'string') {
+          transformedBody.leaseEndDate = new Date(req.body.leaseEndDate);
+        } else if (req.body.leaseEndDate instanceof Date) {
+          transformedBody.leaseEndDate = req.body.leaseEndDate;
+        }
+      }
+
+      // Convert numeric fields to strings (Drizzle numeric fields expect strings)
+      if (req.body.monthlyRent !== undefined && req.body.monthlyRent !== null) {
+        transformedBody.monthlyRent = String(req.body.monthlyRent);
+      }
+      if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
+        transformedBody.depositAmount = String(req.body.depositAmount);
+      }
+
+      const validatedData = updateTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
-        return res.status(400).json({ error: "Invalid request data", details: validatedData.error.errors });
+        console.error("[Tenant Assignment Update] Validation errors:", validatedData.error.errors);
+        console.error("[Tenant Assignment Update] Request body:", req.body);
+        console.error("[Tenant Assignment Update] Transformed body:", transformedBody);
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          message: validatedData.error.errors[0]?.message || "Validation failed",
+          details: validatedData.error.errors 
+        });
       }
 
       const updated = await storage.updateTenantAssignment(req.params.id, validatedData.data);
@@ -4323,21 +4422,44 @@ Be objective and specific. Focus on actionable repairs.`;
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      // Upload to Google Cloud Storage
-      const fileUrl = await uploadToGCS(req.file.buffer, req.file.originalname, user.organizationId);
+      // Upload to local storage using ObjectStorageService
+      const objectStorageService = new ObjectStorageService();
+      const objectId = randomUUID();
+      const normalizedPath = await objectStorageService.saveUploadedFile(
+        objectId,
+        req.file.buffer,
+        req.file.mimetype
+      );
+
+      // Convert relative path to absolute URL
+      const baseUrl = getBaseUrl(req);
+      const fileUrl = `${baseUrl}${normalizedPath}`;
+
+      // Set ACL to public so it can be accessed
+      try {
+        await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
+          owner: userId,
+          visibility: "public",
+        });
+      } catch (error) {
+        console.warn("Failed to set ACL for tenancy attachment:", error);
+      }
 
       // Create attachment record
       const attachment = await storage.createTenancyAttachment({
         tenantAssignmentId,
         fileName: req.file.originalname,
-        fileUrl,
+        fileUrl: normalizedPath, // Store relative path, convert to absolute when serving
         fileType: req.file.mimetype,
         fileSize: req.file.size,
         uploadedBy: userId,
         organizationId: user.organizationId,
       });
 
-      res.status(201).json(attachment);
+      res.status(201).json({
+        ...attachment,
+        fileUrl: fileUrl, // Return absolute URL in response
+      });
     } catch (error) {
       console.error("Error uploading tenancy attachment:", error);
       res.status(500).json({ error: "Failed to upload attachment" });
@@ -6395,13 +6517,24 @@ Be objective and specific. Focus on actionable repairs.`;
   });
 
   app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
-    const objectStorageService = new ObjectStorageService();
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-    res.json({ uploadURL });
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const relativePath = await objectStorageService.getObjectEntityUploadURL();
+      
+      // Convert relative path to absolute URL
+      const baseUrl = getBaseUrl(req);
+      const uploadURL = `${baseUrl}${relativePath}`;
+      
+      res.json({ uploadURL });
+    } catch (error: any) {
+      console.error("Error generating upload URL:", error);
+      res.status(500).json({ error: "Failed to generate upload URL" });
+    }
   });
 
   // Direct upload endpoint for local storage (returns upload URL that points to upload-file)
-  app.post("/api/objects/upload-direct", isAuthenticated, upload.single('file'), async (req: any, res) => {
+  // Supports both POST (multer) and PUT (raw body) for compatibility with Uppy AwsS3 plugin
+  app.post("/api/objects/upload-direct", isAuthenticated, upload.single('file'), async (req: any, res: any) => {
     try {
       const objectId = req.query.objectId || randomUUID();
       const objectStorageService = new ObjectStorageService();
@@ -6415,6 +6548,14 @@ Be objective and specific. Focus on actionable repairs.`;
         req.file.buffer,
         req.file.mimetype
       );
+
+      // Generate ETag for S3 compatibility (Uppy AwsS3 plugin requires this)
+      const etag = createHash('md5').update(req.file.buffer).digest('hex');
+      
+      // Set ETag header for S3 compatibility (required by Uppy)
+      res.set('ETag', `"${etag}"`);
+      // Also set CORS headers to allow reading ETag
+      res.set('Access-Control-Expose-Headers', 'ETag');
 
       // Set ACL to public
       const userId = req.user?.claims?.sub || req.user?.id;
@@ -6435,6 +6576,68 @@ Be objective and specific. Focus on actionable repairs.`;
       });
     } catch (error) {
       console.error("Error in upload-direct:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Handle PUT requests (for Uppy AwsS3 plugin - raw body, not multer)
+  app.put("/api/objects/upload-direct", isAuthenticated, async (req: any, res: any) => {
+    try {
+      const objectId = req.query.objectId || randomUUID();
+      const objectStorageService = new ObjectStorageService();
+
+      // For PUT requests, read raw body
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', async () => {
+        try {
+          const fileBuffer = Buffer.concat(chunks);
+          
+          if (fileBuffer.length === 0) {
+            return res.status(400).json({ error: "No file uploaded" });
+          }
+
+          // Get content type from headers
+          const contentType = req.headers['content-type'] || 'application/octet-stream';
+
+          const normalizedPath = await objectStorageService.saveUploadedFile(
+            objectId as string,
+            fileBuffer,
+            contentType
+          );
+
+          // Generate ETag for S3 compatibility (Uppy AwsS3 plugin requires this)
+          const etag = createHash('md5').update(fileBuffer).digest('hex');
+          
+          // Set ETag header for S3 compatibility (required by Uppy)
+          res.set('ETag', `"${etag}"`);
+          // Also set CORS headers to allow reading ETag
+          res.set('Access-Control-Expose-Headers', 'ETag');
+
+          // Set ACL to public
+          const userId = req.user?.claims?.sub || req.user?.id;
+          if (userId) {
+            try {
+              await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
+                owner: userId,
+                visibility: "public",
+              });
+            } catch (error) {
+              console.warn("Failed to set ACL:", error);
+            }
+          }
+
+          res.status(200).json({ 
+            url: normalizedPath,
+            uploadURL: normalizedPath
+          });
+        } catch (error) {
+          console.error("Error in upload-direct PUT:", error);
+          res.status(500).json({ error: "Internal server error" });
+        }
+      });
+    } catch (error) {
+      console.error("Error in upload-direct PUT:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

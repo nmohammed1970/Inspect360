@@ -79,8 +79,8 @@ export default function Billing() {
   // Get currency from user's organization country (via locale context)
   const currency = locale.currency;
 
-  // Fetch organization to get country code for proper currency detection
-  const { data: organization } = useQuery<{ id: string; name: string; countryCode?: string }>({
+  // Fetch organization to get country code for proper currency detection and credits
+  const { data: organization } = useQuery<{ id: string; name: string; countryCode?: string; creditsRemaining: number | null }>({
     queryKey: user?.organizationId ? [`/api/organizations/${user.organizationId}`] : [],
     enabled: !!user?.organizationId,
   });
@@ -161,8 +161,11 @@ export default function Billing() {
               queryClient.invalidateQueries({ queryKey: ['/api/billing/aggregate-credits'] });
               queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
               
-              // Explicitly refetch the critical credit balance query to ensure immediate UI update
-              await queryClient.refetchQueries({ queryKey: ['/api/credits/balance'] });
+              // Explicitly refetch the critical credit balance and organization queries to ensure immediate UI update
+              await Promise.all([
+                queryClient.refetchQueries({ queryKey: ['/api/credits/balance'] }),
+                queryClient.refetchQueries({ queryKey: [`/api/organizations/${user.organizationId}`] }),
+              ]);
               
               toast({
                 title: "Payment Successful!",
@@ -235,6 +238,7 @@ export default function Billing() {
                 queryClient.refetchQueries({ queryKey: ['/api/billing/subscription'] }),
                 queryClient.refetchQueries({ queryKey: ['/api/credits/balance'] }),
                 queryClient.refetchQueries({ queryKey: ['/api/credits/ledger'] }),
+                queryClient.refetchQueries({ queryKey: [`/api/organizations/${user.organizationId}`] }),
               ]);
               
               console.log('[Billing] Queries refetched, subscription should now be visible');
@@ -607,7 +611,7 @@ export default function Billing() {
               <p className="text-4xl font-bold text-primary" data-testid="text-available-credits">
                 {aggregateCredits?.hasDuplicates 
                   ? aggregateCredits.totalCredits 
-                  : (balance?.available || 0)}
+                  : (organization?.creditsRemaining ?? 0)}
               </p>
               <p className="text-sm text-muted-foreground">
                 {aggregateCredits?.hasDuplicates ? "Total credits available" : "Credits available"}
