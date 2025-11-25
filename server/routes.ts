@@ -2864,21 +2864,24 @@ Be thorough, specific, and objective about the ${fieldLabel}. Do not comment on 
                   });
                 });
 
-                const prompt = `You are a professional property inspector comparing check-in and check-out photos. Provide a detailed 100-word analysis.
+                const prompt = `You are a professional BTR property inspector. Compare check-in vs check-out photos and provide a DETAILED analysis.
 
-INSTRUCTIONS:
-1. Compare the condition between check-in (before tenant) and check-out (after tenant) photos
-2. Identify any damage, excessive wear, staining, or cleanliness issues
-3. Distinguish between fair wear and tear vs tenant-caused damage
-4. Estimate repair/replacement costs in GBP
+CRITICAL: Your SUMMARY must be EXACTLY 100 words (count them). This is mandatory for legal documentation.
 
-RESPONSE FORMAT (exactly as shown):
-SUMMARY: [Write exactly 100 words describing the condition change, damage found, and whether it appears to be fair wear and tear or tenant damage. Be specific about locations and types of damage observed.]
+ANALYSIS REQUIREMENTS:
+- Compare baseline (check-in) condition to current (check-out) condition
+- Identify ALL damage: scratches, stains, dents, tears, discoloration, wear patterns
+- Note specific locations: "top left corner", "center panel", "near door handle"
+- Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
+- Consider age and expected condition for this property type
+
+RESPONSE FORMAT (use EXACTLY this structure):
+SUMMARY: [Write EXACTLY 100 words. Describe: 1) Overall condition change, 2) Specific damage locations and types, 3) Whether damage exceeds fair wear, 4) Evidence supporting your assessment. Be detailed and specific.]
 SEVERITY: [low/medium/high]
-DAMAGE: [Brief 1-2 sentence description of main damage]
-COST: [number in GBP, 0 if no damage]
+DAMAGE: [1-2 sentence damage summary]
+COST: [number in GBP, 0 if acceptable]
 ACTION: [acceptable/clean/repair/replace]
-LIABILITY: [tenant/landlord/shared - based on fair wear assessment]`;
+LIABILITY: [tenant/landlord/shared]`;
 
                 imageContent.unshift({
                   type: "text",
@@ -3103,24 +3106,24 @@ LIABILITY: [tenant/landlord/shared - based on fair wear assessment]`;
                 });
 
                 // Call OpenAI Vision API with enhanced 100-word analysis prompt
-                const prompt = `You are a professional property inspector comparing check-in and check-out photos for a Build-to-Rent operation.
+                const prompt = `You are a professional BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
 
-Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+CRITICAL: The "differences" field must contain EXACTLY 100 words. Count them. This is mandatory for legal documentation.
 
-INSTRUCTIONS:
-1. Compare the condition between check-in (before tenant) and check-out (after tenant) photos
-2. Identify any damage, excessive wear, staining, or cleanliness issues
-3. Distinguish between fair wear and tear vs tenant-caused damage
-4. Estimate repair/replacement costs in GBP
+ANALYSIS REQUIREMENTS:
+- Compare baseline (check-in) to current (check-out) condition
+- Identify ALL damage: scratches, stains, dents, tears, discoloration, wear
+- Note specific locations: "top left corner", "center panel", "near handle"
+- Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
 
-Provide analysis in EXACT JSON format (no markdown):
+Respond with ONLY valid JSON (no markdown, no code blocks):
 {
-  "differences": "Write exactly 100 words describing condition changes, damage found, and whether it appears to be fair wear and tear or tenant damage. Be specific about locations and types of damage observed.",
-  "damage": "Brief 1-2 sentence summary of main damage or issues",
-  "severity": "low|medium|high",
-  "repair_description": "What specific repairs are needed and recommended approach",
-  "suggested_liability": "tenant|landlord|shared",
-  "estimated_cost_range": {"min": number, "max": number}
+  "differences": "EXACTLY 100 WORDS describing: 1) Overall condition change between photos, 2) Specific damage locations and types observed, 3) Whether damage exceeds normal fair wear and tear, 4) Evidence supporting your liability assessment. Be detailed, specific, and professional.",
+  "damage": "1-2 sentence summary of main damage",
+  "severity": "low or medium or high",
+  "repair_description": "Specific repairs needed",
+  "suggested_liability": "tenant or landlord or shared",
+  "estimated_cost_range": {"min": 0, "max": 0}
 }`;
 
                 const response = await getOpenAI().responses.create({
