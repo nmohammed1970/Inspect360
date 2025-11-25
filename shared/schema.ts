@@ -74,6 +74,7 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default("owner"),
   organizationId: varchar("organization_id"),
   isActive: boolean("is_active").notNull().default(true),
+  onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
   resetToken: varchar("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
