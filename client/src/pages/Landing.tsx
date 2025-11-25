@@ -58,7 +58,7 @@ export default function Landing() {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground">
-            No credit card required • Start with 5 free AI credits
+            No credit card required • Start with 10 free AI credits
           </p>
         </div>
       </section>

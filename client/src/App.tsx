@@ -60,10 +60,22 @@ import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
 import { LocaleProvider } from "@/contexts/LocaleContext";
+import { Onboarding } from "@/components/Onboarding";
+import { useState, useEffect } from "react";
 
 function AppContent() {
   // Always call hooks at the top level
   const { isAuthenticated, user, logoutMutation, isLoading } = useAuth();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  
+  // Check if user needs to see onboarding (first-time login)
+  useEffect(() => {
+    if (user && user.organizationId && !user.onboardingCompleted && user.role !== "tenant") {
+      setShowOnboarding(true);
+    } else {
+      setShowOnboarding(false);
+    }
+  }, [user]);
 
   const style = {
     "--sidebar-width": "16rem",
@@ -140,6 +152,16 @@ function AppContent() {
   }
 
   // Authenticated with organization - show app with sidebar
+  // First check if onboarding is needed
+  if (showOnboarding) {
+    return (
+      <TooltipProvider>
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
+  
   return (
     <TooltipProvider>
       <SidebarProvider style={style as React.CSSProperties}>
