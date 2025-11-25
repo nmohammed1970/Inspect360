@@ -91,7 +91,7 @@ export default function Credits() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-center">
-                  <div className="text-3xl font-bold">{locale.formatCurrency(option.price * 100, false)}</div>
+                  <div className="text-3xl font-bold">{locale.formatCurrency(option.price, false)}</div>
                   {option.discount && (
                     <Badge variant="secondary" className="mt-2">
                       {option.discount}

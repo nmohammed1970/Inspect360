@@ -260,7 +260,7 @@ export default function BlockTenants() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {locale.formatCurrency(stats.totalMonthlyRent * 100, false)}
+              {locale.formatCurrency(stats.totalMonthlyRent, false)}
             </div>
             <p className="text-xs text-muted-foreground">
               Combined monthly revenue
@@ -396,7 +396,7 @@ export default function BlockTenants() {
                           {tenant.assignment.monthlyRent && (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <DollarSign className="h-4 w-4 shrink-0" />
-                              <span>Rent: {locale.formatCurrency(parseFloat(tenant.assignment.monthlyRent) * 100, false)}/month</span>
+                              <span>Rent: {locale.formatCurrency(parseFloat(tenant.assignment.monthlyRent), false)}/month</span>
                             </div>
                           )}
                         </div>

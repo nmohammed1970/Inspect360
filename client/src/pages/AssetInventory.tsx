@@ -1016,7 +1016,7 @@ export default function AssetInventory() {
                   {asset.purchasePrice && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <DollarSign className="w-4 h-4 shrink-0" />
-                      <span>Purchase: {locale.formatCurrency(parseFloat(asset.purchasePrice.toString()) * 100, false)}</span>
+                      <span>Purchase: {locale.formatCurrency(parseFloat(asset.purchasePrice.toString()), false)}</span>
                     </div>
                   )}
 

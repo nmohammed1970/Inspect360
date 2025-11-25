@@ -224,7 +224,7 @@ export default function ComparisonReportDetail() {
         </CardHeader>
         <CardContent>
           <div className="text-4xl font-bold text-primary">
-            {locale.formatCurrency(totalCost * 100, false)}
+            {locale.formatCurrency(totalCost, false)}
           </div>
           <p className="text-sm text-muted-foreground mt-2">
             Based on {report.items.length} items marked for review
@@ -352,7 +352,7 @@ export default function ComparisonReportDetail() {
                       <DollarSign className="w-4 h-4" />
                       Estimated Cost
                     </div>
-                    <div className="text-lg font-semibold">{locale.formatCurrency(estimatedCost * 100, false)}</div>
+                    <div className="text-lg font-semibold">{locale.formatCurrency(estimatedCost, false)}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -360,7 +360,7 @@ export default function ComparisonReportDetail() {
                       Depreciation
                     </div>
                     <div className="text-lg font-semibold text-green-600">
-                      -{locale.formatCurrency(depreciation * 100, false)}
+                      -{locale.formatCurrency(depreciation, false)}
                     </div>
                   </div>
                   <div className="space-y-1">
@@ -369,7 +369,7 @@ export default function ComparisonReportDetail() {
                       Tenant Liability
                     </div>
                     <div className="text-lg font-semibold text-primary">
-                      {locale.formatCurrency(finalCost * 100, false)}
+                      {locale.formatCurrency(finalCost, false)}
                     </div>
                   </div>
                 </div>

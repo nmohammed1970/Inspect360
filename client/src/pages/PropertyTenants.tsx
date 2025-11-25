@@ -232,7 +232,7 @@ export default function PropertyTenants() {
                   <div>
                     <span className="text-muted-foreground text-xs">Monthly Rent: </span>
                     <span className="font-medium">
-                      {locale.formatCurrency(monthlyRent * 100, false)}
+                      {locale.formatCurrency(monthlyRent, false)}
                     </span>
                   </div>
                 )}
@@ -240,7 +240,7 @@ export default function PropertyTenants() {
                   <div>
                     <span className="text-muted-foreground text-xs">Deposit: </span>
                     <span className="font-medium">
-                      {locale.formatCurrency(depositAmount * 100, false)}
+                      {locale.formatCurrency(depositAmount, false)}
                     </span>
                   </div>
                 )}
@@ -338,7 +338,7 @@ export default function PropertyTenants() {
             <div className="text-2xl font-bold">
               {locale.formatCurrency(
                 activeTenants
-                  .reduce((sum, t) => sum + (t.assignment.monthlyRent ? parseFloat(t.assignment.monthlyRent) : 0), 0) * 100,
+                  .reduce((sum, t) => sum + (t.assignment.monthlyRent ? parseFloat(t.assignment.monthlyRent) : 0), 0),
                 false
               )}
             </div>
