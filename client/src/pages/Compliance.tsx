@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,7 +15,7 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon } from "lucide-react";
+import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon, Pencil } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { format as formatDate, differenceInDays, isPast } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -46,9 +47,20 @@ const uploadFormSchema = insertComplianceDocumentSchema.omit({
 
 type UploadFormValues = z.infer<typeof uploadFormSchema>;
 
+const editFormSchema = z.object({
+  documentType: z.string().min(1, "Please select a document type"),
+  expiryDate: z.string().optional(),
+  propertyId: z.string().optional(),
+  blockId: z.string().optional(),
+});
+
+type EditFormValues = z.infer<typeof editFormSchema>;
+
 export default function Compliance() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [editSheetOpen, setEditSheetOpen] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<ComplianceDocument | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -196,6 +208,64 @@ export default function Compliance() {
       }
     },
   });
+
+  const editForm = useForm<EditFormValues>({
+    resolver: zodResolver(editFormSchema),
+    defaultValues: {
+      documentType: "",
+      expiryDate: undefined,
+      propertyId: undefined,
+      blockId: undefined,
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: EditFormValues }) => {
+      const payload: any = { ...data };
+      if (payload.expiryDate) {
+        payload.expiryDate = new Date(payload.expiryDate);
+      }
+      if (!payload.propertyId) payload.propertyId = null;
+      if (!payload.blockId) payload.blockId = null;
+      return await apiRequest('PATCH', `/api/compliance/${id}`, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/compliance'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/compliance/expiring'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/compliance/expiring?days=90'] });
+      toast({
+        title: "Document updated",
+        description: "Compliance document updated successfully",
+      });
+      setEditSheetOpen(false);
+      setEditingDoc(null);
+      editForm.reset();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error?.message || "Failed to update document",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const openEditSheet = (doc: ComplianceDocument) => {
+    setEditingDoc(doc);
+    editForm.reset({
+      documentType: doc.documentType,
+      expiryDate: doc.expiryDate ? new Date(doc.expiryDate.toString()).toISOString().split('T')[0] : undefined,
+      propertyId: doc.propertyId || undefined,
+      blockId: doc.blockId || undefined,
+    });
+    setEditSheetOpen(true);
+  };
+
+  const onEditSubmit = (data: EditFormValues) => {
+    if (editingDoc) {
+      updateMutation.mutate({ id: editingDoc.id, data });
+    }
+  };
 
   const onSubmit = (data: UploadFormValues) => {
     console.log('[Compliance] Form submitted with data:', data);
@@ -685,6 +755,7 @@ export default function Compliance() {
                 setTagDialogOpen={setTagDialogOpen}
                 addTagMutation={addTagMutation}
                 removeTagMutation={removeTagMutation}
+                onEdit={openEditSheet}
               />
             ))}
           </div>
@@ -735,11 +806,189 @@ export default function Compliance() {
                 setTagDialogOpen={setTagDialogOpen}
                 addTagMutation={addTagMutation}
                 removeTagMutation={removeTagMutation}
+                onEdit={openEditSheet}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* Edit Compliance Document Sheet */}
+      <Sheet open={editSheetOpen} onOpenChange={setEditSheetOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit Compliance Document</SheetTitle>
+            <SheetDescription>
+              Update the details for this compliance document.
+            </SheetDescription>
+          </SheetHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-6 mt-6">
+              <FormField
+                control={editForm.control}
+                name="documentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Document Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-document-type">
+                          <SelectValue placeholder="Select document type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {DOCUMENT_TYPES.map((type) => (
+                          <SelectItem key={type} value={type} data-testid={`option-edit-type-${type}`}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="expiryDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Expiry Date (Optional)</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "w-full pl-3 text-left font-normal",
+                              !field.value && "text-muted-foreground"
+                            )}
+                            data-testid="button-edit-expiry-date"
+                          >
+                            {field.value ? (
+                              formatDate(new Date(field.value), "PPP")
+                            ) : (
+                              <span>Pick a date</span>
+                            )}
+                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <CalendarComponent
+                          mode="single"
+                          selected={field.value ? new Date(field.value) : undefined}
+                          onSelect={(date) => {
+                            field.onChange(date ? date.toISOString().split('T')[0] : undefined);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormDescription>
+                      Leave blank if the document does not expire
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="propertyId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Property (Optional)</FormLabel>
+                    <Select 
+                      onValueChange={(val) => {
+                        field.onChange(val === "none" ? undefined : val);
+                        if (val !== "none") {
+                          editForm.setValue("blockId", undefined);
+                        }
+                      }} 
+                      value={field.value || "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-property">
+                          <SelectValue placeholder="Select property" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">None (Organization-wide)</SelectItem>
+                        {properties.map((property) => (
+                          <SelectItem key={property.id} value={property.id}>
+                            {property.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="blockId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Block (Optional)</FormLabel>
+                    <Select 
+                      onValueChange={(val) => {
+                        field.onChange(val === "none" ? undefined : val);
+                        if (val !== "none") {
+                          editForm.setValue("propertyId", undefined);
+                        }
+                      }} 
+                      value={field.value || "none"}
+                      disabled={!!editForm.watch("propertyId")}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-block">
+                          <SelectValue placeholder="Select block" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {blocks.map((block) => (
+                          <SelectItem key={block.id} value={block.id}>
+                            {block.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Select a block if this document applies to all properties in a block
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditSheetOpen(false)}
+                  className="flex-1"
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={updateMutation.isPending}
+                  className="flex-1"
+                  data-testid="button-save-edit"
+                >
+                  {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -756,6 +1005,7 @@ interface DocumentCardProps {
   setTagDialogOpen: (open: boolean) => void;
   addTagMutation: any;
   removeTagMutation: any;
+  onEdit: (doc: ComplianceDocument) => void;
 }
 
 function DocumentCard({
@@ -770,6 +1020,7 @@ function DocumentCard({
   setTagDialogOpen,
   addTagMutation,
   removeTagMutation,
+  onEdit,
 }: DocumentCardProps) {
   const propertyName = getPropertyName(doc.propertyId);
   const blockName = getBlockName(doc.blockId);
@@ -907,6 +1158,15 @@ function DocumentCard({
           
           <div className="flex flex-wrap items-center gap-2">
             {getStatusBadge(doc)}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onEdit(doc)}
+              data-testid={`button-edit-document-${doc.id}`}
+            >
+              <Pencil className="w-4 h-4 mr-1" />
+              Edit
+            </Button>
             <Button
               variant="outline"
               size="sm"

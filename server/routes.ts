@@ -3656,6 +3656,50 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     }
   });
 
+  app.patch("/api/compliance/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User must belong to an organization" });
+      }
+
+      const docId = req.params.id;
+      const existingDoc = await storage.getComplianceDocument(docId);
+      
+      if (!existingDoc) {
+        return res.status(404).json({ message: "Compliance document not found" });
+      }
+      
+      if (existingDoc.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updateSchema = insertComplianceDocumentSchema.partial().omit({ 
+        organizationId: true, 
+        uploadedBy: true 
+      });
+      
+      const validation = updateSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          message: "Invalid request data", 
+          errors: validation.error.errors 
+        });
+      }
+
+      const updateData: any = { ...validation.data };
+      if (updateData.expiryDate) {
+        updateData.expiryDate = new Date(updateData.expiryDate);
+      }
+
+      const updatedDoc = await storage.updateComplianceDocument(docId, updateData);
+      res.json(updatedDoc);
+    } catch (error) {
+      console.error("Error updating compliance document:", error);
+      res.status(500).json({ message: "Failed to update compliance document" });
+    }
+  });
+
   // ==================== MAINTENANCE ROUTES ====================
   
   // AI analyze maintenance image for fix suggestions

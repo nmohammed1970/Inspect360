@@ -1061,6 +1061,23 @@ export class DatabaseStorage implements IStorage {
     return doc;
   }
 
+  async updateComplianceDocument(id: string, data: Partial<InsertComplianceDocument>): Promise<ComplianceDocument> {
+    const [doc] = await db
+      .update(complianceDocuments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(complianceDocuments.id, id))
+      .returning();
+    return doc;
+  }
+
+  async getComplianceDocument(id: string): Promise<ComplianceDocument | undefined> {
+    const [doc] = await db
+      .select()
+      .from(complianceDocuments)
+      .where(eq(complianceDocuments.id, id));
+    return doc;
+  }
+
   async getExpiringCompliance(organizationId: string, daysAhead: number): Promise<ComplianceDocument[]> {
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + daysAhead);

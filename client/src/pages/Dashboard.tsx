@@ -189,7 +189,7 @@ export default function Dashboard() {
   });
 
   const { data: compliance = [] } = useQuery<ComplianceDocument[]>({
-    queryKey: ["/api/compliance/expiring", { days: 90 }],
+    queryKey: ["/api/compliance/expiring?days=90"],
     enabled: isAuthenticated && (user?.role === "owner" || user?.role === "compliance"),
   });
 
