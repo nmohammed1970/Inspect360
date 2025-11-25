@@ -63,6 +63,12 @@ export default function InspectionCapture() {
   const [showAssetSheet, setShowAssetSheet] = useState(false);
   const [showUpdateAssetSheet, setShowUpdateAssetSheet] = useState(false);
   const [showMaintenanceSheet, setShowMaintenanceSheet] = useState(false);
+  const [maintenanceContext, setMaintenanceContext] = useState<{
+    fieldLabel?: string;
+    sectionTitle?: string;
+    entryId?: string;
+    photos?: string[];
+  }>({});
 
   // Fetch inspection with template snapshot
   const { data: inspection, isLoading } = useQuery<Inspection>({
@@ -606,6 +612,15 @@ export default function InspectionCapture() {
                   markedForReview={entry?.markedForReview || false}
                   onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
                   onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
+                  onLogMaintenance={(fieldLabel: string, photos: string[]) => {
+                    setMaintenanceContext({
+                      fieldLabel,
+                      sectionTitle: currentSection.title,
+                      entryId: entry?.id,
+                      photos,
+                    });
+                    setShowMaintenanceSheet(true);
+                  }}
                 />
               );
             })}
@@ -662,10 +677,19 @@ export default function InspectionCapture() {
       {/* Quick Add Maintenance Sheet */}
       <QuickAddMaintenanceSheet
         open={showMaintenanceSheet}
-        onOpenChange={setShowMaintenanceSheet}
+        onOpenChange={(open) => {
+          setShowMaintenanceSheet(open);
+          if (!open) {
+            setMaintenanceContext({});
+          }
+        }}
         propertyId={inspection?.propertyId || undefined}
         blockId={inspection?.blockId || undefined}
         inspectionId={id}
+        inspectionEntryId={maintenanceContext.entryId}
+        fieldLabel={maintenanceContext.fieldLabel}
+        sectionTitle={maintenanceContext.sectionTitle}
+        initialPhotos={maintenanceContext.photos}
       />
     </div>
   );

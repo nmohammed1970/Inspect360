@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles, Trash2, Save, Eye } from "lucide-react";
+import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles, Trash2, Save, Eye, Wrench } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Uppy from "@uppy/core";
@@ -40,10 +40,11 @@ interface FieldWidgetProps {
   photos?: string[];
   inspectionId?: string;
   entryId?: string;
-  isCheckOut?: boolean; // Only show mark-for-review in Check Out inspections
+  isCheckOut?: boolean;
   markedForReview?: boolean;
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
+  onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
 }
 
 export function FieldWidget({ 
@@ -56,7 +57,8 @@ export function FieldWidget({
   isCheckOut,
   markedForReview,
   onChange,
-  onMarkedForReviewChange 
+  onMarkedForReviewChange,
+  onLogMaintenance
 }: FieldWidgetProps) {
   // Parse value - if field includes condition/cleanliness, value might be an object
   const parseValue = (val: any) => {
@@ -1045,6 +1047,25 @@ export function FieldWidget({
             {analyzingField 
               ? "Analyzing images with AI..."
               : "Use AI to analyze all photos and generate a detailed inspection report"}
+          </p>
+        </div>
+      )}
+
+      {/* Log Maintenance Button - available for all fields during inspection */}
+      {inspectionId && onLogMaintenance && (
+        <div className="pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onLogMaintenance(field.label, localPhotos)}
+            data-testid={`button-log-maintenance-${field.id}`}
+            className="w-full"
+          >
+            <Wrench className="w-4 h-4 mr-2" />
+            Log Maintenance
+          </Button>
+          <p className="text-xs text-muted-foreground mt-1">
+            Create a maintenance ticket for this item
           </p>
         </div>
       )}
