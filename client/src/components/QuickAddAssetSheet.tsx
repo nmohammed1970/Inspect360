@@ -32,7 +32,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Loader2, WifiOff } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2, Camera, X } from "lucide-react";
+import { ObjectUploader } from "@/components/ObjectUploader";
 
 interface QuickAddAssetSheetProps {
   open: boolean;
@@ -70,6 +72,7 @@ export function QuickAddAssetSheet({
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [photos, setPhotos] = useState<string[]>([]);
 
   const form = useForm<QuickAddAsset>({
     resolver: zodResolver(quickAddAssetSchema),
@@ -108,6 +111,7 @@ export function QuickAddAssetSheet({
         description: "Asset has been added to the inventory successfully",
       });
       form.reset();
+      setPhotos([]);
       onOpenChange(false);
     },
     onError: (error: Error) => {
@@ -123,22 +127,44 @@ export function QuickAddAssetSheet({
     setIsSubmitting(true);
 
     try {
+      const dataWithPhotos = { ...data, photos };
+      
       if (isOnline) {
         // Online: submit directly
-        await createAssetMutation.mutateAsync(data);
+        await createAssetMutation.mutateAsync(dataWithPhotos);
       } else {
         // Offline: queue for later sync
-        offlineQueue.enqueueAsset(data);
+        offlineQueue.enqueueAsset(dataWithPhotos);
         toast({
           title: "Asset Queued",
           description: "Asset will be added when you're back online",
         });
         form.reset();
+        setPhotos([]);
         onOpenChange(false);
       }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePhotoUploaded = (photoUrl: string) => {
+    setPhotos((prev) => [...prev, photoUrl]);
+    toast({
+      title: "Photo Added",
+      description: "Photo has been uploaded successfully",
+    });
+  };
+
+  const handleRemovePhoto = (photoUrl: string) => {
+    setPhotos((prev) => prev.filter((p) => p !== photoUrl));
+  };
+
+  const getUploadParameters = async () => {
+    const response = await apiRequest("POST", "/api/upload/get-upload-url", {
+      contentType: "image/jpeg",
+    });
+    return response.json();
   };
 
   return (
@@ -259,6 +285,83 @@ export function QuickAddAssetSheet({
                 </FormItem>
               )}
             />
+
+            <div className="space-y-3">
+              <FormLabel>Photos</FormLabel>
+              
+              {photos.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  {photos.map((photoUrl, index) => (
+                    <Card key={index} className="overflow-hidden">
+                      <CardContent className="p-0">
+                        <div className="relative group">
+                          <img
+                            src={photoUrl}
+                            alt={`Asset photo ${index + 1}`}
+                            className="w-full h-32 object-cover"
+                            data-testid={`img-asset-photo-${index}`}
+                          />
+                          <Button
+                            size="icon"
+                            variant="destructive"
+                            className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => handleRemovePhoto(photoUrl)}
+                            type="button"
+                            data-testid={`button-remove-photo-${index}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {isOnline ? (
+                <ObjectUploader
+                  maxNumberOfFiles={5}
+                  maxFileSize={10485760}
+                  onGetUploadParameters={getUploadParameters}
+                  onComplete={(result) => {
+                    if (result.successful && result.successful.length > 0) {
+                      result.successful.forEach((file: any) => {
+                        const photoUrl = file.uploadURL || file.meta?.extractedFileUrl;
+                        if (photoUrl) {
+                          handlePhotoUploaded(photoUrl);
+                        }
+                      });
+                    }
+                  }}
+                  buttonClassName="w-full"
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2"
+                    data-testid="button-add-photo"
+                  >
+                    <Camera className="h-4 w-4" />
+                    {photos.length === 0 ? "Add Photo" : "Add More Photos"}
+                  </Button>
+                </ObjectUploader>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  disabled
+                  data-testid="button-add-photo-disabled"
+                >
+                  <Camera className="h-4 w-4" />
+                  Photos unavailable offline
+                </Button>
+              )}
+              
+              <p className="text-xs text-muted-foreground">
+                Take or upload photos of the asset (max 5 photos)
+              </p>
+            </div>
 
             <div className="flex gap-2 pt-4">
               <Button
