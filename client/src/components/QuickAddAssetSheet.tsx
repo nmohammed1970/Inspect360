@@ -337,8 +337,8 @@ export function QuickAddAssetSheet({
                 >
                   <Button
                     type="button"
-                    variant="outline"
-                    className="w-full gap-2"
+                    variant="ghost"
+                    className="w-full gap-2 border border-dashed border-muted-foreground/40 text-muted-foreground hover:text-foreground"
                     data-testid="button-add-photo"
                   >
                     <Camera className="h-4 w-4" />
@@ -348,8 +348,8 @@ export function QuickAddAssetSheet({
               ) : (
                 <Button
                   type="button"
-                  variant="outline"
-                  className="w-full gap-2"
+                  variant="ghost"
+                  className="w-full gap-2 border border-dashed border-muted-foreground/40 text-muted-foreground"
                   disabled
                   data-testid="button-add-photo-disabled"
                 >
@@ -366,7 +366,7 @@ export function QuickAddAssetSheet({
             <div className="flex gap-2 pt-4">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 className="flex-1"
                 onClick={() => onOpenChange(false)}
                 data-testid="button-cancel"
