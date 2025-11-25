@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Home, FileText, MessageSquare, Calendar, DollarSign, MapPin } from "lucide-react";
+import { Building2, Home, FileText, MessageSquare, Calendar, DollarSign, MapPin, FileCheck } from "lucide-react";
 import { useLocation } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 
@@ -60,7 +60,7 @@ export default function TenantHome() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="hover-elevate cursor-pointer" onClick={() => navigate("/tenant/maintenance")}>
           <CardHeader className="flex flex-row items-center gap-4 space-y-0">
             <div className="p-3 bg-primary/10 rounded-lg">
@@ -81,6 +81,18 @@ export default function TenantHome() {
             <div>
               <CardTitle className="text-lg">My Requests</CardTitle>
               <CardDescription>View your maintenance requests</CardDescription>
+            </div>
+          </CardHeader>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" onClick={() => navigate("/tenant/comparison-reports")} data-testid="card-comparison-reports">
+          <CardHeader className="flex flex-row items-center gap-4 space-y-0">
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <FileCheck className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Comparison Reports</CardTitle>
+              <CardDescription>Review and sign move-out reports</CardDescription>
             </div>
           </CardHeader>
         </Card>

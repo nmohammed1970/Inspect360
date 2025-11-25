@@ -238,10 +238,12 @@ export interface IStorage {
   createComparisonReport(report: InsertComparisonReport): Promise<ComparisonReport>;
   getComparisonReportsByProperty(propertyId: string): Promise<ComparisonReport[]>;
   getComparisonReportsByOrganization(organizationId: string): Promise<ComparisonReport[]>;
+  getComparisonReportsByTenant(tenantId: string): Promise<ComparisonReport[]>;
   getComparisonReport(id: string): Promise<ComparisonReport | undefined>;
   updateComparisonReport(id: string, updates: Partial<InsertComparisonReport>): Promise<ComparisonReport>;
   createComparisonReportItem(item: any): Promise<any>;
   getComparisonReportItems(reportId: string): Promise<any[]>;
+  updateComparisonReportItem(id: string, updates: any): Promise<any>;
   createComparisonComment(comment: any): Promise<any>;
   getComparisonComments(reportId: string): Promise<any[]>;
   
@@ -1183,6 +1185,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(comparisonReports.createdAt));
   }
 
+  async getComparisonReportsByTenant(tenantId: string): Promise<ComparisonReport[]> {
+    return await db
+      .select()
+      .from(comparisonReports)
+      .where(eq(comparisonReports.tenantId, tenantId))
+      .orderBy(desc(comparisonReports.createdAt));
+  }
+
   async getComparisonReport(id: string): Promise<ComparisonReport | undefined> {
     const [report] = await db.select().from(comparisonReports).where(eq(comparisonReports.id, id));
     return report;
@@ -1213,6 +1223,15 @@ export class DatabaseStorage implements IStorage {
       .from(comparisonReportItems)
       .where(eq(comparisonReportItems.comparisonReportId, reportId))
       .orderBy(comparisonReportItems.createdAt);
+  }
+
+  async updateComparisonReportItem(id: string, updates: any): Promise<any> {
+    const [item] = await db
+      .update(comparisonReportItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(comparisonReportItems.id, id))
+      .returning();
+    return item;
   }
 
   async createComparisonComment(commentData: any): Promise<any> {

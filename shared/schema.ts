@@ -44,6 +44,7 @@ export const templateScopeEnum = pgEnum("template_scope", ["block", "property", 
 export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature"]);
 export const maintenanceSourceEnum = pgEnum("maintenance_source", ["manual", "inspection", "tenant_portal", "routine"]);
 export const comparisonReportStatusEnum = pgEnum("comparison_report_status", ["draft", "under_review", "awaiting_signatures", "signed", "filed"]);
+export const comparisonItemStatusEnum = pgEnum("comparison_item_status", ["pending", "reviewed", "disputed", "resolved", "waived"]);
 export const currencyEnum = pgEnum("currency", ["GBP", "USD", "AED"]);
 export const planCodeEnum = pgEnum("plan_code", ["starter", "professional", "enterprise", "enterprise_plus"]);
 export const creditSourceEnum = pgEnum("credit_source", ["plan_inclusion", "topup", "admin_grant", "refund", "adjustment", "consumption", "expiry"]);
@@ -706,12 +707,14 @@ export const comparisonReportItems = pgTable("comparison_report_items", {
   sectionRef: text("section_ref").notNull(),
   itemRef: text("item_ref"),
   fieldKey: varchar("field_key").notNull(),
-  aiComparisonJson: jsonb("ai_comparison_json"), // AI analysis for this specific item
+  aiComparisonJson: jsonb("ai_comparison_json"), // AI analysis for this specific item (includes ~100 word report)
+  aiSummary: text("ai_summary"), // Concise AI-generated summary (~100 words)
   estimatedCost: numeric("estimated_cost", { precision: 10, scale: 2 }),
   depreciation: numeric("depreciation", { precision: 10, scale: 2 }),
   finalCost: numeric("final_cost", { precision: 10, scale: 2 }), // After depreciation
   liabilityDecision: varchar("liability_decision"), // "tenant", "landlord", "shared", "waived"
   liabilityNotes: text("liability_notes"),
+  status: comparisonItemStatusEnum("status").notNull().default("pending"), // Item review status
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -732,6 +735,8 @@ export const comparisonComments = pgTable("comparison_comments", {
   comparisonReportId: varchar("comparison_report_id").notNull(),
   comparisonReportItemId: varchar("comparison_report_item_id"), // Optional: comment on specific item
   userId: varchar("user_id").notNull(),
+  authorName: varchar("author_name"), // Display name at time of comment
+  authorRole: varchar("author_role"), // "tenant", "operator" - role at time of comment for display
   content: text("content").notNull(),
   attachments: text("attachments").array(), // Optional file attachments
   isInternal: boolean("is_internal").default(false), // Internal notes not visible to tenant

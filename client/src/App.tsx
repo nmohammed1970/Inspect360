@@ -53,6 +53,8 @@ import TenantLogin from "@/pages/TenantLogin";
 import TenantHome from "@/pages/TenantHome";
 import TenantMaintenance from "@/pages/TenantMaintenance";
 import TenantRequests from "@/pages/TenantRequests";
+import TenantComparisonReports from "@/pages/TenantComparisonReports";
+import TenantComparisonReportDetail from "@/pages/TenantComparisonReportDetail";
 import { Loader2 } from "lucide-react";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
@@ -112,6 +114,8 @@ function AppContent() {
               <Route path="/tenant/home" component={TenantHome} />
               <Route path="/tenant/maintenance" component={TenantMaintenance} />
               <Route path="/tenant/requests" component={TenantRequests} />
+              <Route path="/tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />
+              <Route path="/tenant/comparison-reports" component={TenantComparisonReports} />
               <Route component={NotFound} />
             </Switch>
           </main>

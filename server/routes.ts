@@ -10117,6 +10117,204 @@ Be objective and specific. Focus on actionable repairs.`;
     }
   });
 
+  // ==================== TENANT COMPARISON REPORTS ====================
+
+  // Get tenant's comparison reports
+  app.get("/api/tenant/comparison-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "tenant") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const reports = await storage.getComparisonReportsByTenant(userId);
+      
+      // Enrich with property info
+      const enrichedReports = await Promise.all(
+        reports.map(async (report) => {
+          const property = await storage.getProperty(report.propertyId);
+          return {
+            ...report,
+            property: property ? { id: property.id, name: property.name, address: property.address } : null,
+          };
+        })
+      );
+
+      res.json(enrichedReports);
+    } catch (error) {
+      console.error("Error fetching tenant comparison reports:", error);
+      res.status(500).json({ message: "Failed to fetch comparison reports" });
+    }
+  });
+
+  // Get single comparison report for tenant (with items and non-internal comments)
+  app.get("/api/tenant/comparison-reports/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "tenant") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify tenant has access to this report
+      if (report.tenantId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Get report items
+      const items = await storage.getComparisonReportItems(id);
+
+      // Get property info
+      const property = await storage.getProperty(report.propertyId);
+
+      res.json({ 
+        ...report, 
+        items,
+        property: property ? { id: property.id, name: property.name, address: property.address } : null,
+      });
+    } catch (error) {
+      console.error("Error fetching tenant comparison report:", error);
+      res.status(500).json({ message: "Failed to fetch comparison report" });
+    }
+  });
+
+  // Get comments for a comparison report (tenant view - excludes internal comments)
+  app.get("/api/tenant/comparison-reports/:id/comments", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "tenant") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report || report.tenantId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const allComments = await storage.getComparisonComments(id);
+      // Filter out internal comments - tenants shouldn't see internal notes
+      const publicComments = allComments.filter(c => !c.isInternal);
+
+      res.json(publicComments);
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+      res.status(500).json({ message: "Failed to fetch comments" });
+    }
+  });
+
+  // Add comment to comparison report (tenant)
+  app.post("/api/tenant/comparison-reports/:id/comments", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { content } = req.body;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "tenant") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Validate content is a non-empty string
+      if (typeof content !== "string" || content.trim().length === 0) {
+        return res.status(400).json({ message: "Comment content is required" });
+      }
+
+      const trimmedContent = content.trim();
+
+      const report = await storage.getComparisonReport(id);
+      if (!report || report.tenantId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Prevent comments on finalized reports or when already signed
+      if (report.status === "signed" || report.status === "filed" || report.tenantSignature) {
+        return res.status(409).json({ message: "Cannot add comments to finalized reports" });
+      }
+
+      const authorName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+
+      const comment = await storage.createComparisonComment({
+        comparisonReportId: id,
+        userId: user.id,
+        authorName,
+        authorRole: "tenant",
+        content: trimmedContent,
+        isInternal: false, // Tenant comments are always public
+      });
+
+      res.json(comment);
+    } catch (error) {
+      console.error("Error creating comment:", error);
+      res.status(500).json({ message: "Failed to create comment" });
+    }
+  });
+
+  // Sign comparison report (tenant)
+  app.post("/api/tenant/comparison-reports/:id/sign", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { signature } = req.body;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "tenant") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (!signature || signature.trim().length === 0) {
+        return res.status(400).json({ message: "Signature (typed name) is required" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report || report.tenantId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check report is in a signable state
+      if (report.status !== "awaiting_signatures" && report.status !== "under_review") {
+        return res.status(400).json({ message: "Report is not ready for signature" });
+      }
+
+      if (report.tenantSignature) {
+        return res.status(400).json({ message: "You have already signed this report" });
+      }
+
+      const ipAddress = req.ip || req.connection?.remoteAddress || "unknown";
+      const now = new Date();
+
+      const updates: any = {
+        tenantSignature: signature.trim(),
+        tenantSignedAt: now,
+        tenantIpAddress: ipAddress,
+      };
+
+      // Check if both parties have now signed
+      if (report.operatorSignature) {
+        updates.status = "signed";
+      } else {
+        updates.status = "awaiting_signatures";
+      }
+
+      const updatedReport = await storage.updateComparisonReport(id, updates);
+      res.json(updatedReport);
+    } catch (error) {
+      console.error("Error signing comparison report:", error);
+      res.status(500).json({ message: "Failed to sign comparison report" });
+    }
+  });
+
   // ==================== REPORTS ====================
 
   // Helper function to generate Inspections Report HTML
