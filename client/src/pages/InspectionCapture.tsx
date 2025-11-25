@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Inspection } from "@shared/schema";
@@ -16,6 +16,13 @@ import { InspectionQuickActions } from "@/components/InspectionQuickActions";
 import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
 import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
+
+interface AIAnalysisStatus {
+  status: "idle" | "processing" | "completed" | "failed";
+  progress: number;
+  totalFields: number;
+  error: string | null;
+}
 
 interface TemplateSection {
   id: string;
@@ -86,6 +93,51 @@ export default function InspectionCapture() {
     queryKey: [`/api/inspections/${id}/entries`],
     enabled: !!id,
   });
+
+  // AI Analysis status polling
+  const { data: aiAnalysisStatus } = useQuery<AIAnalysisStatus>({
+    queryKey: [`/api/ai/analyze-inspection/${id}/status`],
+    enabled: !!id,
+    refetchInterval: (query) => {
+      // Poll every 2 seconds while processing
+      const status = query.state.data?.status;
+      return status === "processing" ? 2000 : false;
+    },
+  });
+
+  // Start AI analysis mutation
+  const startAIAnalysis = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/ai/analyze-inspection/${id}`);
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "AI Analysis Started",
+        description: data.message || "Analysis is running in the background. You can continue working.",
+      });
+      // Start polling for status
+      queryClient.invalidateQueries({ queryKey: [`/api/ai/analyze-inspection/${id}/status`] });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to start AI analysis",
+        description: error.message || "Please try again",
+      });
+    },
+  });
+
+  // Refetch entries when AI analysis completes
+  useEffect(() => {
+    if (aiAnalysisStatus?.status === "completed") {
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+      toast({
+        title: "AI Analysis Complete",
+        description: "All inspection fields have been analyzed.",
+      });
+    }
+  }, [aiAnalysisStatus?.status, id, toast]);
 
   // Load existing entries into state on mount and auto-populate property address
   useEffect(() => {
@@ -544,6 +596,31 @@ export default function InspectionCapture() {
           <Badge variant="secondary" data-testid="badge-progress">
             {completedFields} / {totalFields} fields
           </Badge>
+          
+          {/* AI Analysis Button */}
+          {aiAnalysisStatus?.status === "processing" ? (
+            <Button variant="outline" disabled data-testid="button-ai-analyzing">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Analysing ({aiAnalysisStatus.progress}/{aiAnalysisStatus.totalFields})
+            </Button>
+          ) : aiAnalysisStatus?.status === "completed" ? (
+            <Badge variant="default" className="bg-green-600" data-testid="badge-ai-complete">
+              <CheckCircle2 className="w-3 h-3 mr-1" />
+              AI Analysis Complete
+            </Badge>
+          ) : (
+            <Button
+              variant="default"
+              className="bg-primary hover:bg-primary/90"
+              onClick={() => startAIAnalysis.mutate()}
+              disabled={startAIAnalysis.isPending || !isOnline}
+              data-testid="button-analyze-report"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              {startAIAnalysis.isPending ? "Starting..." : "Analyse Report Using AI"}
+            </Button>
+          )}
+          
           <Button
             onClick={() => completeInspection.mutate()}
             disabled={completeInspection.isPending}
@@ -554,6 +631,46 @@ export default function InspectionCapture() {
           </Button>
         </div>
       </div>
+
+      {/* AI Analysis Progress */}
+      {aiAnalysisStatus?.status === "processing" && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  AI Analysis in Progress
+                </span>
+                <span className="font-medium">
+                  {aiAnalysisStatus.progress} / {aiAnalysisStatus.totalFields} fields
+                </span>
+              </div>
+              <Progress 
+                value={(aiAnalysisStatus.progress / aiAnalysisStatus.totalFields) * 100} 
+                className="h-2"
+                data-testid="progress-ai-analysis" 
+              />
+              <p className="text-xs text-muted-foreground">
+                You can continue working while the AI analyzes your inspection photos in the background.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* AI Analysis Error */}
+      {aiAnalysisStatus?.status === "failed" && aiAnalysisStatus.error && (
+        <Card className="border-destructive/20 bg-destructive/5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm font-medium">AI Analysis Failed</span>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">{aiAnalysisStatus.error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Progress bar */}
       <Card>
