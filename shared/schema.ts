@@ -1917,3 +1917,73 @@ export type UpdateDashboardPreferences = z.infer<typeof updateDashboardPreferenc
 export type UpdateTemplateCategory = z.infer<typeof updateTemplateCategorySchema>;
 export type UpdateInspection = z.infer<typeof updateInspectionSchema>;
 export type UpdateBlock = z.infer<typeof updateBlockSchema>;
+
+// ==================== FEEDBACK SYSTEM ====================
+
+// Feedback enums
+export const feedbackPriorityEnum = pgEnum("feedback_priority", ["low", "medium", "high"]);
+export const feedbackCategoryEnum = pgEnum("feedback_category", ["bug", "feature", "improvement"]);
+export const feedbackStatusEnum = pgEnum("feedback_status", ["new", "in_review", "in_progress", "completed", "rejected"]);
+
+// Feedback submissions
+export const feedbackSubmissions = pgTable("feedback_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  priority: feedbackPriorityEnum("priority").notNull().default("medium"),
+  category: feedbackCategoryEnum("category").notNull().default("feature"),
+  status: feedbackStatusEnum("status").notNull().default("new"),
+  userId: varchar("user_id").notNull(),
+  userEmail: varchar("user_email").notNull(),
+  userName: varchar("user_name"),
+  organizationId: varchar("organization_id"),
+  organizationName: varchar("organization_name"),
+  assignedTo: varchar("assigned_to"),
+  assignedDepartment: varchar("assigned_department"),
+  resolutionNotes: text("resolution_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => [
+  index("idx_feedback_user").on(table.userId),
+  index("idx_feedback_status").on(table.status),
+  index("idx_feedback_category").on(table.category),
+  index("idx_feedback_priority").on(table.priority),
+  index("idx_feedback_created").on(table.createdAt),
+]);
+
+export const insertFeedbackSchema = createInsertSchema(feedbackSubmissions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  resolvedAt: true,
+});
+
+export const updateFeedbackSchema = z.object({
+  status: z.enum(["new", "in_review", "in_progress", "completed", "rejected"]).optional(),
+  assignedTo: z.string().optional().nullable(),
+  assignedDepartment: z.string().optional().nullable(),
+  resolutionNotes: z.string().optional().nullable(),
+});
+
+export type FeedbackSubmission = typeof feedbackSubmissions.$inferSelect;
+export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;
+export type UpdateFeedback = z.infer<typeof updateFeedbackSchema>;
+
+// Central team configuration for notifications
+export const centralTeamConfig = pgTable("central_team_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  notificationEmail: varchar("notification_email").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCentralTeamConfigSchema = createInsertSchema(centralTeamConfig).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type CentralTeamConfig = typeof centralTeamConfig.$inferSelect;
+export type InsertCentralTeamConfig = z.infer<typeof insertCentralTeamConfigSchema>;
