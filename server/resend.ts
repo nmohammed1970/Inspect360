@@ -682,3 +682,39 @@ export async function broadcastMessageToTenants(
     throw error;
   }
 }
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+}: {
+  to: string;
+  subject: string;
+  html?: string;
+  text?: string;
+}) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const emailOptions: any = {
+      from: fromEmail,
+      to,
+      subject,
+    };
+    
+    if (html) {
+      emailOptions.html = html;
+    }
+    if (text) {
+      emailOptions.text = text;
+    }
+    
+    const response = await client.emails.send(emailOptions);
+
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error('Failed to send email:', error);
+    throw error;
+  }
+}

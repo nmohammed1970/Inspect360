@@ -29,7 +29,7 @@ export function PWAInstallPrompt() {
     return false;
   };
 
-  const [isInstalled, setIsInstalled] = useState(checkIfInstalled);
+  const [isInstalled, setIsInstalled] = useState(() => checkIfInstalled());
 
   const detectBrowser = (): BrowserType => {
     const ua = window.navigator.userAgent.toLowerCase();

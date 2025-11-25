@@ -12462,7 +12462,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         const activeEmails = teamConfig.filter(c => c.isActive).map(c => c.notificationEmail);
         
         if (activeEmails.length > 0) {
-          const { sendEmail } = await import("./email");
+          const { sendEmail } = await import("./resend");
           const priorityLabel = priority === "high" ? "HIGH" : priority === "medium" ? "Medium" : "Low";
           const categoryLabel = category === "bug" ? "Bug Report" : category === "improvement" ? "Improvement" : "Feature Request";
           
