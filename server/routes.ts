@@ -898,7 +898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const { logoUrl, brandingName, brandingEmail, brandingPhone, brandingAddress, brandingWebsite } = req.body;
+      const { logoUrl, brandingName, brandingEmail, brandingPhone, brandingAddress, brandingWebsite, financeEmail } = req.body;
 
       const organization = await storage.updateOrganization(organizationId, {
         logoUrl: logoUrl || null,
@@ -907,6 +907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brandingPhone: brandingPhone || null,
         brandingAddress: brandingAddress || null,
         brandingWebsite: brandingWebsite || null,
+        financeEmail: financeEmail || null,
       });
 
       res.json(organization);

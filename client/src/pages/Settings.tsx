@@ -38,6 +38,7 @@ export default function Settings() {
   const [brandingPhone, setBrandingPhone] = useState("");
   const [brandingAddress, setBrandingAddress] = useState("");
   const [brandingWebsite, setBrandingWebsite] = useState("");
+  const [financeEmail, setFinanceEmail] = useState("");
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -56,6 +57,7 @@ export default function Settings() {
       setBrandingPhone(organization.brandingPhone || "");
       setBrandingAddress(organization.brandingAddress || "");
       setBrandingWebsite(organization.brandingWebsite || "");
+      setFinanceEmail(organization.financeEmail || "");
     }
   }, [organization]);
 
@@ -69,6 +71,7 @@ export default function Settings() {
         brandingPhone: brandingPhone || null,
         brandingAddress: brandingAddress || null,
         brandingWebsite: brandingWebsite || null,
+        financeEmail: financeEmail || null,
       });
       return response.json();
     },
@@ -396,6 +399,27 @@ export default function Settings() {
                             className="mt-1"
                             data-testid="input-branding-website"
                           />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-6 space-y-4">
+                      <Label className="text-base font-medium">Finance Department</Label>
+                      <div className="grid gap-4">
+                        <div>
+                          <Label htmlFor="financeEmail" className="text-sm">Finance Email</Label>
+                          <Input
+                            id="financeEmail"
+                            type="email"
+                            value={financeEmail}
+                            onChange={(e) => setFinanceEmail(e.target.value)}
+                            placeholder="finance@yourcompany.com"
+                            className="mt-1"
+                            data-testid="input-finance-email"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Comparison reports with liability summaries can be sent to this email for deposit processing
+                          </p>
                         </div>
                       </div>
                     </div>
