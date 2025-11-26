@@ -887,6 +887,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update organization branding (white-label settings)
+  app.patch("/api/organizations/:id/branding", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+      
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { logoUrl, brandingName, brandingEmail, brandingPhone, brandingAddress, brandingWebsite } = req.body;
+
+      const organization = await storage.updateOrganization(organizationId, {
+        logoUrl: logoUrl || null,
+        brandingName: brandingName || null,
+        brandingEmail: brandingEmail || null,
+        brandingPhone: brandingPhone || null,
+        brandingAddress: brandingAddress || null,
+        brandingWebsite: brandingWebsite || null,
+      });
+
+      res.json(organization);
+    } catch (error) {
+      console.error("Error updating organization branding:", error);
+      res.status(500).json({ message: "Failed to update organization branding" });
+    }
+  });
+
   // ==================== TEAM MANAGEMENT ROUTES ====================
   
   app.get("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {

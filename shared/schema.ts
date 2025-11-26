@@ -154,6 +154,12 @@ export const organizations = pgTable("organizations", {
   creditsRemaining: integer("credits_remaining").default(5),
   defaultAiMaxWords: integer("default_ai_max_words").default(150), // Eco Admin default max word count
   defaultAiInstruction: text("default_ai_instruction"), // Eco Admin default AI instruction
+  logoUrl: varchar("logo_url"), // White-label: Company logo URL
+  brandingName: varchar("branding_name"), // White-label: Display name for company
+  brandingEmail: varchar("branding_email"), // White-label: Contact email
+  brandingPhone: varchar("branding_phone"), // White-label: Contact phone
+  brandingAddress: text("branding_address"), // White-label: Address for reports
+  brandingWebsite: varchar("branding_website"), // White-label: Company website
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
