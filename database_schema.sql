@@ -88,6 +88,10 @@ BEGIN
         CREATE TYPE comparison_report_status AS ENUM ('draft', 'under_review', 'awaiting_signatures', 'signed', 'filed');
     END IF;
     
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'comparison_item_status') THEN
+        CREATE TYPE comparison_item_status AS ENUM ('pending', 'reviewed', 'disputed', 'resolved', 'waived');
+    END IF;
+    
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'currency') THEN
         CREATE TYPE currency AS ENUM ('GBP', 'USD', 'AED');
     END IF;
@@ -153,6 +157,7 @@ CREATE TABLE IF NOT EXISTS users (
     role user_role NOT NULL DEFAULT 'owner',
     organization_id VARCHAR,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
     reset_token VARCHAR,
     reset_token_expiry TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -183,6 +188,8 @@ CREATE TABLE IF NOT EXISTS organizations (
     trial_end_at TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE,
     credits_remaining INTEGER DEFAULT 5,
+    default_ai_max_words INTEGER DEFAULT 150,
+    default_ai_instruction TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -293,6 +300,8 @@ CREATE TABLE IF NOT EXISTS inspection_templates (
     is_active BOOLEAN DEFAULT TRUE,
     structure_json JSONB NOT NULL,
     category_id VARCHAR,
+    ai_max_words INTEGER DEFAULT 150,
+    ai_instruction TEXT,
     created_by VARCHAR NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
@@ -341,6 +350,10 @@ CREATE TABLE IF NOT EXISTS inspections (
     completed_date TIMESTAMP,
     submitted_at TIMESTAMP,
     notes TEXT,
+    ai_analysis_status VARCHAR DEFAULT 'idle',
+    ai_analysis_progress INTEGER DEFAULT 0,
+    ai_analysis_total_fields INTEGER DEFAULT 0,
+    ai_analysis_error TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -530,6 +543,7 @@ CREATE TABLE IF NOT EXISTS comparison_report_items (
     final_cost NUMERIC(10, 2),
     liability_decision VARCHAR,
     liability_notes TEXT,
+    status comparison_item_status NOT NULL DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -542,6 +556,8 @@ CREATE TABLE IF NOT EXISTS comparison_comments (
     comparison_report_id VARCHAR NOT NULL,
     comparison_report_item_id VARCHAR,
     user_id VARCHAR NOT NULL,
+    author_name VARCHAR,
+    author_role VARCHAR,
     content TEXT NOT NULL,
     attachments TEXT[],
     is_internal BOOLEAN DEFAULT FALSE,
@@ -994,6 +1010,37 @@ SELECT add_column_if_not_exists('credit_ledger', 'created_by', 'VARCHAR');
 
 -- Add annual_price_gbp column to plans if it doesn't exist
 SELECT add_column_if_not_exists('plans', 'annual_price_gbp', 'INTEGER');
+
+-- Add onboarding_completed column to users table if it doesn't exist
+SELECT add_column_if_not_exists('users', 'onboarding_completed', 'BOOLEAN NOT NULL DEFAULT FALSE');
+
+-- Add missing columns to organizations table
+SELECT add_column_if_not_exists('organizations', 'default_ai_max_words', 'INTEGER DEFAULT 150');
+SELECT add_column_if_not_exists('organizations', 'default_ai_instruction', 'TEXT');
+
+-- Add missing columns to inspection_templates table
+SELECT add_column_if_not_exists('inspection_templates', 'ai_max_words', 'INTEGER DEFAULT 150');
+SELECT add_column_if_not_exists('inspection_templates', 'ai_instruction', 'TEXT');
+
+-- Add missing columns to inspections table
+SELECT add_column_if_not_exists('inspections', 'ai_analysis_status', 'VARCHAR DEFAULT ''idle''');
+SELECT add_column_if_not_exists('inspections', 'ai_analysis_progress', 'INTEGER DEFAULT 0');
+SELECT add_column_if_not_exists('inspections', 'ai_analysis_total_fields', 'INTEGER DEFAULT 0');
+SELECT add_column_if_not_exists('inspections', 'ai_analysis_error', 'TEXT');
+
+-- Add missing columns to comparison_report_items table
+-- Note: If comparison_item_status enum doesn't exist, create it first
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'comparison_item_status') THEN
+        CREATE TYPE comparison_item_status AS ENUM ('pending', 'reviewed', 'disputed', 'resolved', 'waived');
+    END IF;
+END $$;
+SELECT add_column_if_not_exists('comparison_report_items', 'status', 'comparison_item_status NOT NULL DEFAULT ''pending''');
+
+-- Add missing columns to comparison_comments table
+SELECT add_column_if_not_exists('comparison_comments', 'author_name', 'VARCHAR');
+SELECT add_column_if_not_exists('comparison_comments', 'author_role', 'VARCHAR');
 
 -- Add missing columns to tenant_assignments table
 SELECT add_column_if_not_exists('tenant_assignments', 'next_of_kin_name', 'VARCHAR(255)');

@@ -7450,10 +7450,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
       objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
-      console.error("Error checking object access:", error);
       if (error instanceof ObjectNotFoundError) {
+        // Object not found is a normal case, return 404 without logging as error
         return res.sendStatus(404);
       }
+      // Only log unexpected errors
+      console.error("Error checking object access:", error);
       return res.sendStatus(500);
     }
   });
