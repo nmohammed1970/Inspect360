@@ -160,6 +160,7 @@ export const organizations = pgTable("organizations", {
   brandingPhone: varchar("branding_phone"), // White-label: Contact phone
   brandingAddress: text("branding_address"), // White-label: Address for reports
   brandingWebsite: varchar("branding_website"), // White-label: Company website
+  financeEmail: varchar("finance_email"), // Finance department email for liability reports
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

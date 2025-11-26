@@ -832,3 +832,267 @@ export async function sendTenantCredentialsEmail(
     throw error;
   }
 }
+
+interface ComparisonReportFinanceDetails {
+  reportId: string;
+  propertyName: string;
+  propertyAddress: string;
+  blockName: string;
+  tenantName: string;
+  checkInDate: string;
+  checkOutDate: string;
+  totalEstimatedCost: number;
+  totalDepreciation: number;
+  totalFinalCost: number;
+  tenantLiableAmount: number;
+  landlordLiableAmount: number;
+  sharedLiableAmount: number;
+  waivedAmount: number;
+  itemsCount: number;
+  tenantLiableCount: number;
+  landlordLiableCount: number;
+  sharedCount: number;
+  waivedCount: number;
+  status: string;
+  signedByOperator: boolean;
+  signedByTenant: boolean;
+  operatorSignature?: string;
+  tenantSignature?: string;
+  operatorSignedAt?: string;
+  tenantSignedAt?: string;
+  generatedAt: string;
+  senderName: string;
+  companyName: string;
+  pdfAttachment?: { filename: string; content: Buffer };
+}
+
+export async function sendComparisonReportToFinance(
+  recipientEmail: string,
+  details: ComparisonReportFinanceDetails
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `[Finance] Comparison Report - ${details.propertyName} - Liability: £${details.totalFinalCost.toFixed(2)}`;
+    
+    const liabilityRows = [];
+    if (details.tenantLiableCount > 0) {
+      liabilityRows.push(`
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; color: #ef4444; font-weight: 600;">Tenant Liable</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: center;">${details.tenantLiableCount}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: right; font-weight: 600; color: #ef4444;">£${details.tenantLiableAmount.toFixed(2)}</td>
+        </tr>
+      `);
+    }
+    if (details.landlordLiableCount > 0) {
+      liabilityRows.push(`
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; color: #3b82f6; font-weight: 600;">Landlord Responsible</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: center;">${details.landlordLiableCount}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: right; font-weight: 600; color: #3b82f6;">£${details.landlordLiableAmount.toFixed(2)}</td>
+        </tr>
+      `);
+    }
+    if (details.sharedCount > 0) {
+      liabilityRows.push(`
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; color: #f59e0b; font-weight: 600;">Shared Responsibility</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: center;">${details.sharedCount}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: right; font-weight: 600; color: #f59e0b;">£${details.sharedLiableAmount.toFixed(2)}</td>
+        </tr>
+      `);
+    }
+    if (details.waivedCount > 0) {
+      liabilityRows.push(`
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; color: #6b7280;">Waived</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: center;">${details.waivedCount}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e5e5; text-align: right; color: #6b7280;">£${details.waivedAmount.toFixed(2)}</td>
+        </tr>
+      `);
+    }
+
+    const signatureStatus = details.signedByOperator && details.signedByTenant 
+      ? `<span style="color: #10b981; font-weight: 600;">Fully Signed</span>` 
+      : details.signedByOperator 
+        ? `<span style="color: #f59e0b;">Awaiting Tenant Signature</span>` 
+        : `<span style="color: #ef4444;">Awaiting Signatures</span>`;
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 700px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <!-- Header -->
+    <div style="text-align: center; margin-bottom: 32px; padding-bottom: 24px; border-bottom: 3px solid #00D5CC;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 6v6l4 2"></path>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Comparison Report - Finance Summary</h1>
+      <p style="margin: 8px 0 0 0; font-size: 14px; color: #666;">Liability Assessment for Deposit Processing</p>
+    </div>
+
+    <!-- Summary Card -->
+    <div style="background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 24px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+      <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Total Liability Amount</p>
+      <p style="margin: 0; font-size: 42px; font-weight: 700;">£${details.totalFinalCost.toFixed(2)}</p>
+      <p style="margin: 12px 0 0 0; font-size: 13px; opacity: 0.85;">After depreciation of £${details.totalDepreciation.toFixed(2)}</p>
+    </div>
+
+    <!-- Property Details -->
+    <div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 24px;">
+      <h2 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: #00D5CC; text-transform: uppercase; letter-spacing: 0.5px;">Property Details</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Property</p>
+          <p style="margin: 0; font-size: 15px; font-weight: 600; color: #333;">${details.propertyName}</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Block</p>
+          <p style="margin: 0; font-size: 15px; font-weight: 600; color: #333;">${details.blockName || 'N/A'}</p>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Address</p>
+          <p style="margin: 0; font-size: 15px; color: #333;">${details.propertyAddress || 'N/A'}</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Tenant</p>
+          <p style="margin: 0; font-size: 15px; font-weight: 600; color: #333;">${details.tenantName || 'N/A'}</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Report Status</p>
+          <p style="margin: 0; font-size: 15px;">${signatureStatus}</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Check-In Date</p>
+          <p style="margin: 0; font-size: 15px; color: #333;">${details.checkInDate}</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Check-Out Date</p>
+          <p style="margin: 0; font-size: 15px; color: #333;">${details.checkOutDate}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Liability Breakdown -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: #00D5CC; text-transform: uppercase; letter-spacing: 0.5px;">Liability Breakdown</h2>
+      <table style="width: 100%; border-collapse: collapse; background-color: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e5e5;">
+        <thead>
+          <tr style="background-color: #f9fafb;">
+            <th style="padding: 12px; text-align: left; font-size: 12px; text-transform: uppercase; color: #666; font-weight: 600;">Category</th>
+            <th style="padding: 12px; text-align: center; font-size: 12px; text-transform: uppercase; color: #666; font-weight: 600;">Items</th>
+            <th style="padding: 12px; text-align: right; font-size: 12px; text-transform: uppercase; color: #666; font-weight: 600;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${liabilityRows.join('')}
+          <tr style="background-color: #f9fafb;">
+            <td style="padding: 14px; font-weight: 700; color: #1a1a1a;">TOTAL</td>
+            <td style="padding: 14px; text-align: center; font-weight: 700; color: #1a1a1a;">${details.itemsCount}</td>
+            <td style="padding: 14px; text-align: right; font-weight: 700; font-size: 18px; color: #00D5CC;">£${details.totalFinalCost.toFixed(2)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Cost Summary -->
+    <div style="background-color: #f0fdfa; border: 1px solid #00D5CC; padding: 20px; border-radius: 8px; margin-bottom: 24px;">
+      <h2 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: #00D5CC;">Cost Summary</h2>
+      <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #ccc;">
+        <span style="color: #666;">Estimated Cost (before depreciation)</span>
+        <span style="font-weight: 600;">£${details.totalEstimatedCost.toFixed(2)}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #ccc;">
+        <span style="color: #666;">Total Depreciation Applied</span>
+        <span style="font-weight: 600; color: #10b981;">-£${details.totalDepreciation.toFixed(2)}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 12px 0; margin-top: 8px;">
+        <span style="font-weight: 700; font-size: 16px;">Final Amount Due</span>
+        <span style="font-weight: 700; font-size: 20px; color: #00D5CC;">£${details.totalFinalCost.toFixed(2)}</span>
+      </div>
+    </div>
+
+    <!-- Signature Status -->
+    ${(details.signedByOperator || details.signedByTenant) ? `
+    <div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 24px;">
+      <h2 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: #00D5CC; text-transform: uppercase; letter-spacing: 0.5px;">Signatures</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div style="padding: 16px; background: white; border-radius: 8px; border: 1px solid #e5e5e5;">
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Operator</p>
+          ${details.signedByOperator ? `
+            <p style="margin: 0; font-size: 15px; font-weight: 600; color: #10b981;">${details.operatorSignature}</p>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #888;">${details.operatorSignedAt}</p>
+          ` : `<p style="margin: 0; font-size: 14px; color: #f59e0b;">Pending</p>`}
+        </div>
+        <div style="padding: 16px; background: white; border-radius: 8px; border: 1px solid #e5e5e5;">
+          <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase;">Tenant</p>
+          ${details.signedByTenant ? `
+            <p style="margin: 0; font-size: 15px; font-weight: 600; color: #10b981;">${details.tenantSignature}</p>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #888;">${details.tenantSignedAt}</p>
+          ` : `<p style="margin: 0; font-size: 14px; color: #f59e0b;">Pending</p>`}
+        </div>
+      </div>
+    </div>
+    ` : ''}
+
+    <!-- Action Note -->
+    <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 4px; margin-bottom: 24px;">
+      <p style="margin: 0; font-size: 14px; color: #92400e;">
+        <strong>Action Required:</strong><br>
+        ${details.signedByOperator && details.signedByTenant 
+          ? 'This report has been signed by both parties. Please process the deposit deductions accordingly.' 
+          : 'This report is awaiting signatures. Final processing should occur after all parties have signed.'}
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 24px;">
+      <p style="margin: 0 0 8px 0; font-size: 13px; color: #666;">
+        Sent by <strong>${details.senderName}</strong> from <strong style="color: #00D5CC;">${details.companyName}</strong>
+      </p>
+      <p style="margin: 0 0 8px 0; font-size: 12px; color: #888;">
+        Report ID: ${details.reportId} | Generated: ${details.generatedAt}
+      </p>
+      <p style="margin: 16px 0 0 0; font-size: 11px; color: #aaa; text-align: center;">
+        This email was sent from Inspect360 - Your AI-Powered Building Inspection Platform
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const emailOptions: any = {
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    };
+
+    // Attach PDF if provided
+    if (details.pdfAttachment) {
+      emailOptions.attachments = [{
+        filename: details.pdfAttachment.filename,
+        content: details.pdfAttachment.content.toString('base64'),
+      }];
+    }
+
+    const response = await client.emails.send(emailOptions);
+
+    console.log('Comparison report finance email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send comparison report finance email:', error);
+    throw error;
+  }
+}
