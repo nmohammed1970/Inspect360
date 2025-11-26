@@ -37,7 +37,9 @@ import {
   Settings,
   CheckCircle,
   Download,
-  Loader2
+  Loader2,
+  Mail,
+  Paperclip
 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -130,6 +132,8 @@ export default function ComparisonReportDetail() {
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [itemEdits, setItemEdits] = useState<Record<string, any>>({});
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isSendingToFinance, setIsSendingToFinance] = useState(false);
+  const [includeAttachmentForFinance, setIncludeAttachmentForFinance] = useState(true);
 
   // Download comparison report as PDF
   const handleDownloadPdf = async () => {
@@ -168,6 +172,38 @@ export default function ComparisonReportDetail() {
       });
     } finally {
       setIsDownloadingPdf(false);
+    }
+  };
+
+  // Send comparison report to finance department
+  const handleSendToFinance = async () => {
+    if (!id) return;
+    
+    setIsSendingToFinance(true);
+    try {
+      const response = await apiRequest("POST", `/api/comparison-reports/${id}/send-to-finance`, {
+        includePdf: includeAttachmentForFinance,
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to send report');
+      }
+      
+      toast({
+        title: "Sent to Finance",
+        description: data.message || "The liability summary has been sent to your finance department.",
+      });
+    } catch (error: any) {
+      console.error('Error sending to finance:', error);
+      toast({
+        variant: "destructive",
+        title: "Send Failed",
+        description: error.message || "Failed to send the report to finance. Please try again.",
+      });
+    } finally {
+      setIsSendingToFinance(false);
     }
   };
 
@@ -335,7 +371,7 @@ export default function ComparisonReportDetail() {
             Generated on {format(new Date(report.createdAt), "MMMM d, yyyy 'at' h:mm a")}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Button
             variant="outline"
             onClick={handleDownloadPdf}
@@ -349,6 +385,21 @@ export default function ComparisonReportDetail() {
             )}
             {isDownloadingPdf ? "Generating..." : "Download PDF"}
           </Button>
+          {isOperator && (
+            <Button
+              variant="outline"
+              onClick={handleSendToFinance}
+              disabled={isSendingToFinance}
+              data-testid="button-send-to-finance"
+            >
+              {isSendingToFinance ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Mail className="w-4 h-4 mr-2" />
+              )}
+              {isSendingToFinance ? "Sending..." : "Send to Finance"}
+            </Button>
+          )}
           {canEdit && (
             <Select
               value={report.status}
