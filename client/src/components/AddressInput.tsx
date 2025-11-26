@@ -152,6 +152,8 @@ export function AddressInput({
     }
 
     let mounted = true;
+    let observer: MutationObserver | null = null;
+    let fixPacContainerZIndex: (() => void) | null = null;
 
     const initializeAutocomplete = async () => {
       try {
@@ -213,6 +215,41 @@ export function AddressInput({
           }
         });
 
+        // Fix z-index for Google Maps Autocomplete dropdown to appear above dialogs
+        // The pac-container is created by Google Maps, we need to ensure it has proper z-index
+        fixPacContainerZIndex = () => {
+          const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+          if (pacContainer) {
+            pacContainer.style.zIndex = '9999';
+            pacContainer.style.position = 'absolute';
+            // Ensure pointer events work
+            pacContainer.style.pointerEvents = 'auto';
+            console.log('[AddressInput] Fixed pac-container z-index to 9999');
+          }
+        };
+
+        // Fix z-index immediately and also set up observer for when dropdown appears
+        fixPacContainerZIndex();
+        
+        // Use MutationObserver to fix z-index when dropdown is created/shown
+        observer = new MutationObserver(() => {
+          if (fixPacContainerZIndex) {
+            fixPacContainerZIndex();
+          }
+        });
+
+        // Observe the document body for when pac-container is added
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+        });
+
+        // Also fix on input focus (when dropdown might appear)
+        if (inputRef.current && fixPacContainerZIndex) {
+          inputRef.current.addEventListener('focus', fixPacContainerZIndex);
+          inputRef.current.addEventListener('input', fixPacContainerZIndex);
+        }
+
         setIsLoading(false);
         console.log('[AddressInput] Autocomplete setup complete - ready for user input');
       } catch (err) {
@@ -233,6 +270,17 @@ export function AddressInput({
 
     return () => {
       mounted = false;
+      // Cleanup observer
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+      // Cleanup event listeners
+      if (inputRef.current && fixPacContainerZIndex) {
+        inputRef.current.removeEventListener('focus', fixPacContainerZIndex);
+        inputRef.current.removeEventListener('input', fixPacContainerZIndex);
+      }
+      // Cleanup autocomplete
       if (autocompleteRef.current) {
         try {
           google.maps.event.clearInstanceListeners(autocompleteRef.current);

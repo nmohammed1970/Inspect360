@@ -718,3 +718,117 @@ export async function sendEmail({
     throw error;
   }
 }
+
+export async function sendTenantCredentialsEmail(
+  recipientEmail: string,
+  recipientName: string,
+  password: string
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = 'Your Tenant Portal Credentials - Inspect360';
+    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <!-- Header with Inspect360 branding -->
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <path d="M12 17v-6"></path>
+          <path d="M12 11h.01"></path>
+          <circle cx="12" cy="12" r="10"></circle>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Welcome to Your Tenant Portal</h1>
+    </div>
+
+    <!-- Main content -->
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        Your tenant portal credentials have been set up. You can now access the portal to:
+      </p>
+
+      <ul style="margin: 0 0 24px 0; padding-left: 24px; font-size: 15px; color: #555;">
+        <li style="margin-bottom: 8px;">View your property and lease details</li>
+        <li style="margin-bottom: 8px;">Submit maintenance requests</li>
+        <li style="margin-bottom: 8px;">Chat with our AI assistant for quick fixes</li>
+      </ul>
+
+      <!-- Credentials Card -->
+      <div style="background-color: #f8f9fa; border: 2px dashed #00D5CC; padding: 24px; border-radius: 8px; margin-bottom: 24px;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Your Login Credentials</p>
+        <div style="margin-bottom: 16px;">
+          <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Login URL:</p>
+          <p style="margin: 0; font-size: 15px; color: #333; word-break: break-all;">
+            <a href="${baseUrl}/tenant/login" style="color: #00D5CC; text-decoration: none;">${baseUrl}/tenant/login</a>
+          </p>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Email:</p>
+          <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">${recipientEmail}</p>
+        </div>
+        <div>
+          <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Password:</p>
+          <div style="background-color: #ffffff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 4px; margin-top: 4px;">
+            <p style="margin: 0; font-size: 18px; font-weight: 700; color: #00D5CC; font-family: 'Courier New', monospace; letter-spacing: 2px;">
+              ${password}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; border-radius: 4px; margin-top: 24px;">
+        <p style="margin: 0; font-size: 14px; color: #856404;">
+          <strong>Security Tip:</strong><br>
+          Please change your password after your first login for security purposes.
+        </p>
+      </div>
+    </div>
+
+    <!-- CTA Button -->
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${baseUrl}/tenant/login" 
+         style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        Access Tenant Portal
+      </a>
+    </div>
+
+    <!-- Footer -->
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        This email was sent from <strong style="color: #00D5CC;">Inspect360</strong> — Your AI-Powered Building Inspection Platform
+      </p>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #aaa; text-align: center;">
+        © ${new Date().getFullYear()} Inspect360. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    });
+
+    console.log('Tenant credentials email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send tenant credentials email:', error);
+    throw error;
+  }
+}

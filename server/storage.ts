@@ -333,7 +333,7 @@ export interface IStorage {
   createTenancyAttachment(attachment: InsertTenancyAttachment & { organizationId: string }): Promise<TenancyAttachment>;
   getTenancyAttachment(id: string, organizationId: string): Promise<TenancyAttachment | undefined>;
   getTenancyAttachments(tenantAssignmentId: string, organizationId: string): Promise<TenancyAttachment[]>;
-  deleteTenancyAttachment(id: string, organizationId: string): Promise<void>;
+  deleteTenancyAttachment(id: string, organizationId: string): Promise<{ fileUrl: string } | null>;
 
   // Inventory Template operations
   createInventoryTemplate(template: InsertInventoryTemplate): Promise<InventoryTemplate>;
@@ -1756,10 +1756,12 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(tenancyAttachments.createdAt));
   }
 
-  async deleteTenancyAttachment(id: string, organizationId: string): Promise<void> {
-    // Verify attachment belongs to organization
+  async deleteTenancyAttachment(id: string, organizationId: string): Promise<{ fileUrl: string } | null> {
+    // Verify attachment belongs to organization and get fileUrl
     const attachment = await db
-      .select()
+      .select({
+        fileUrl: tenancyAttachments.fileUrl,
+      })
       .from(tenancyAttachments)
       .innerJoin(tenantAssignments, eq(tenancyAttachments.tenantAssignmentId, tenantAssignments.id))
       .where(
@@ -1773,7 +1775,13 @@ export class DatabaseStorage implements IStorage {
       throw new Error("Attachment not found or access denied");
     }
     
+    const fileUrl = attachment[0].fileUrl;
+    
+    // Delete the database record
     await db.delete(tenancyAttachments).where(eq(tenancyAttachments.id, id));
+    
+    // Return fileUrl so caller can delete the file from object storage
+    return { fileUrl };
   }
 
   async getBlockTenantStats(blockId: string): Promise<{ totalUnits: number; occupiedUnits: number; occupancyRate: number; totalMonthlyRent: number }> {

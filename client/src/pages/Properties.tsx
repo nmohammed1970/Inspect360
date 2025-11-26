@@ -261,8 +261,8 @@ export default function Properties() {
       });
       return;
     }
-    // Don't send blockId if "none" or undefined
-    const finalBlockId = blockId === "none" ? undefined : blockId;
+    // Convert "none" to null to explicitly remove block assignment, undefined means don't change
+    const finalBlockId = blockId === "none" ? null : (blockId || undefined);
     
     if (editingProperty) {
       updateProperty.mutate({ id: editingProperty.id, name, address, blockId: finalBlockId });

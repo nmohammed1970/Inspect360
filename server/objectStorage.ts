@@ -300,4 +300,58 @@ export class ObjectStorageService {
     // Return normalized path
     return `/objects/${fileName}`;
   }
+
+  // Delete an object entity file
+  async deleteObjectEntity(objectPath: string): Promise<void> {
+    try {
+      const normalizedPath = this.normalizeObjectEntityPath(objectPath);
+      if (!normalizedPath.startsWith("/objects/")) {
+        // If it's not a valid object path, try to delete it directly
+        const fullPath = join(getStorageDir(), objectPath.replace(/^\/+/, ''));
+        await fs.unlink(fullPath).catch(() => {
+          // File might not exist, that's okay
+        });
+        // Also try to delete metadata file
+        await fs.unlink(`${fullPath}.meta.json`).catch(() => {
+          // Metadata file might not exist, that's okay
+        });
+        return;
+      }
+
+      // Try to get the file, but handle the case where it doesn't exist
+      let objectFile: LocalFile;
+      try {
+        objectFile = await this.getObjectEntityFile(normalizedPath);
+      } catch (error) {
+        // File doesn't exist, that's okay - just return
+        if (error instanceof ObjectNotFoundError) {
+          console.warn(`File not found for deletion: ${normalizedPath}`);
+          return;
+        }
+        throw error; // Re-throw if it's a different error
+      }
+
+      const [exists] = await objectFile.exists();
+      if (exists) {
+        // Delete the file
+        const parts = normalizedPath.slice(1).split("/");
+        if (parts.length >= 2) {
+          const entityId = parts.slice(1).join("/");
+          const privateObjectDir = this.getPrivateObjectDir();
+          const fullPath = join(getStorageDir(), privateObjectDir, entityId);
+          await fs.unlink(fullPath).catch(() => {
+            // File might not exist, that's okay
+          });
+          // Also try to delete metadata file
+          await fs.unlink(`${fullPath}.meta.json`).catch(() => {
+            // Metadata file might not exist, that's okay
+          });
+        }
+      }
+    } catch (error) {
+      // If file doesn't exist or can't be deleted, log but don't throw
+      // This allows the database record to be deleted even if file deletion fails
+      console.warn(`Failed to delete object file ${objectPath}:`, error);
+    }
+  }
 }

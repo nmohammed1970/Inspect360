@@ -447,4 +447,21 @@
   .uppy-Dashboard--modal .uppy-Dashboard-overlay {
     z-index: 10000 !important;
   }
+
+  /* Fix Google Maps Autocomplete dropdown z-index to appear above dialogs */
+  .pac-container {
+    z-index: 10000 !important;
+    position: absolute !important;
+    pointer-events: auto !important;
+  }
+
+  .pac-item {
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    user-select: none !important;
+  }
+
+  .pac-item:hover {
+    background-color: #f0f0f0 !important;
+  }
 }

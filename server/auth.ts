@@ -28,10 +28,41 @@ export async function comparePasswords(
   supplied: string,
   stored: string
 ): Promise<boolean> {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  // Validate inputs
+  if (!supplied || !stored) {
+    return false;
+  }
+
+  // Check if password is in scrypt format (hash.salt)
+  if (stored.includes(".")) {
+    const [hashed, salt] = stored.split(".");
+    if (!hashed || !salt) {
+      return false;
+    }
+    try {
+      const hashedBuf = Buffer.from(hashed, "hex");
+      const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+      return timingSafeEqual(hashedBuf, suppliedBuf);
+    } catch (error) {
+      console.error("Error comparing scrypt passwords:", error);
+      return false;
+    }
+  }
+
+  // Check if password is in bcrypt format (starts with $2a$, $2b$, or $2y$)
+  if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
+    try {
+      const bcrypt = await import("bcryptjs");
+      return await bcrypt.compare(supplied, stored);
+    } catch (error) {
+      console.error("Error comparing bcrypt passwords:", error);
+      return false;
+    }
+  }
+
+  // Unknown format - return false for security
+  console.warn("Unknown password hash format");
+  return false;
 }
 
 export function getSession() {
@@ -76,6 +107,12 @@ export async function setupAuth(app: Express) {
             return done(null, false, { message: "Invalid email or password" });
           }
           
+          // Check if user has a password set
+          if (!user.password) {
+            console.warn(`User ${user.id} (${user.email}) has no password set`);
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          
           const isValid = await comparePasswords(password, user.password);
           if (!isValid) {
             return done(null, false, { message: "Invalid email or password" });
@@ -88,6 +125,7 @@ export async function setupAuth(app: Express) {
           
           return done(null, user);
         } catch (error) {
+          console.error("Authentication error:", error);
           return done(error);
         }
       }

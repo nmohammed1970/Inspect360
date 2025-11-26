@@ -123,21 +123,23 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
     mutationFn: async (data: CreateTenantFormData) => {
       // Create the user first via team member API
       // Format data according to createTeamMemberSchema requirements
-      const userPayload = {
+      // Build payload, only including defined fields
+      const userPayload: any = {
         email: data.email.trim(),
-        firstName: data.firstName.trim() || undefined,
-        lastName: data.lastName.trim() || undefined,
         username: data.username.trim(),
         password: data.password.trim(),
         role: "tenant" as const,
-        // Optional fields - only include if they have values
-        phone: undefined,
-        skills: undefined,
-        education: undefined,
-        profileImageUrl: undefined,
-        certificateUrls: undefined,
-        address: undefined,
       };
+      
+      // Only include optional fields if they have values (not undefined or empty)
+      if (data.firstName?.trim()) {
+        userPayload.firstName = data.firstName.trim();
+      }
+      if (data.lastName?.trim()) {
+        userPayload.lastName = data.lastName.trim();
+      }
+      
+      // Don't include undefined fields - Zod will handle optional fields
       
       console.log('[AddTenantDialog] Creating tenant user with payload:', { ...userPayload, password: '***' });
       const res = await apiRequest("POST", "/api/team", userPayload);

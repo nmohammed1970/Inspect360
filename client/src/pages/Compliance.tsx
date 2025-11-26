@@ -1173,7 +1173,7 @@ function DocumentCard({
               asChild
               data-testid={`button-view-document-${doc.id}`}
             >
-              <a href={doc.documentUrl} target="_blank" rel="noopener noreferrer">
+              <a href={`/api/compliance/${doc.id}/view`} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="w-4 h-4 mr-1" />
                 View
               </a>

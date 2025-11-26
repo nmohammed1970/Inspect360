@@ -1448,16 +1448,20 @@ export const createTeamMemberSchema = z.object({
   lastName: z.string().min(1).max(255).optional(),
   username: z.string().min(3, "Username must be at least 3 characters").max(100),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["owner", "clerk", "compliance", "contractor"]), // Tenants managed via Contacts
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "tenant"]), // Include tenant for tenant user creation
   phone: z.string().max(50).optional(),
-  address: z.object({
-    street: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    postalCode: z.string().optional(),
-    country: z.string().optional(),
-    formatted: z.string().optional(),
-  }).optional(),
+  address: z.union([
+    z.object({
+      street: z.string().optional(),
+      city: z.string().optional(),
+      state: z.string().optional(),
+      postalCode: z.string().optional(),
+      country: z.string().optional(),
+      formatted: z.string().optional(),
+    }),
+    z.string(),
+    z.undefined()
+  ]).optional(),
   skills: z.array(z.string()).optional(),
   education: z.string().optional(),
   profileImageUrl: z.union([z.string().url(), z.string().startsWith("/objects/"), z.literal("")]).optional(),

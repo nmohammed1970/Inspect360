@@ -6,6 +6,84 @@ import { promises as fs } from "fs";
 import { storage } from "./storage";
 
 /**
+ * Detect file MIME type from file buffer using magic bytes
+ * Returns the detected MIME type or 'application/octet-stream' if unknown
+ */
+function detectFileMimeType(buffer: Buffer): string {
+  // Validate buffer
+  if (!buffer || buffer.length < 4) {
+    return 'application/octet-stream';
+  }
+
+  // PDF: %PDF
+  if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+    return 'application/pdf';
+  }
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+
+  // PNG: 89 50 4E 47
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+    return 'image/png';
+  }
+
+  // GIF: 47 49 46 38 or 47 49 46 39
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && 
+      (buffer[3] === 0x38 || buffer[3] === 0x39)) {
+    return 'image/gif';
+  }
+
+  // WebP: RIFF...WEBP
+  if (buffer.length >= 12 &&
+      buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+    return 'image/webp';
+  }
+
+  // Microsoft Office files (DOCX, XLSX, PPTX): PK (ZIP signature)
+  // These are ZIP archives, so check for ZIP signature and then look inside
+  if (buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04) {
+    // Read more bytes to check for Office file signatures
+    const bufferStr = buffer.toString('utf8', 0, Math.min(buffer.length, 2000));
+    if (bufferStr.includes('word/')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (bufferStr.includes('xl/') || bufferStr.includes('worksheets/')) {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if (bufferStr.includes('ppt/')) {
+      return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    }
+    // Generic ZIP
+    return 'application/zip';
+  }
+
+  // Microsoft Office 97-2003 (DOC, XLS, PPT): OLE compound document
+  // D0 CF 11 E0 A1 B1 1A E1
+  if (buffer[0] === 0xD0 && buffer[1] === 0xCF && buffer[2] === 0x11 && buffer[3] === 0xE0) {
+    // Try to determine which Office type
+    const bufferStr = buffer.toString('utf8', 0, Math.min(buffer.length, 2000));
+    if (bufferStr.includes('WordDocument')) {
+      return 'application/msword';
+    }
+    if (bufferStr.includes('Workbook') || bufferStr.includes('Worksheet')) {
+      return 'application/vnd.ms-excel';
+    }
+    return 'application/msword'; // Default to Word
+  }
+
+  // BMP: 42 4D
+  if (buffer[0] === 0x42 && buffer[1] === 0x4D) {
+    return 'image/bmp';
+  }
+
+  return 'application/octet-stream';
+}
+
+/**
  * Detect image MIME type from file buffer using magic bytes
  * Returns a valid image MIME type (always starts with 'image/')
  */
@@ -1300,6 +1378,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching property:", error);
       res.status(500).json({ message: "Failed to fetch property" });
+    }
+  });
+
+  // Update property
+  app.patch("/api/properties/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      // Verify organization ownership
+      const existing = await storage.getProperty(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Validate request body (partial update) with Zod
+      const parseResult = updatePropertySchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          details: parseResult.error.errors 
+        });
+      }
+
+      const updates = parseResult.data;
+      const updateData: any = {};
+      
+      // Only include fields that are provided in the update
+      if (updates.name !== undefined) {
+        updateData.name = updates.name;
+      }
+      if (updates.address !== undefined) {
+        updateData.address = updates.address;
+      }
+      if (updates.blockId !== undefined) {
+        // Allow setting blockId to null to remove block assignment
+        // Convert null string to actual null
+        updateData.blockId = updates.blockId === null || updates.blockId === "null" ? null : updates.blockId;
+      }
+      
+      const property = await storage.updateProperty(req.params.id, updateData);
+      
+      res.json(property);
+    } catch (error: any) {
+      console.error("Error updating property:", error);
+      res.status(500).json({ error: "Failed to update property" });
     }
   });
 
@@ -4076,6 +4207,184 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     }
   });
 
+  // Download compliance document (serves file with proper headers for download)
+  app.get("/api/compliance/:id/view", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+
+      const docId = req.params.id;
+      const doc = await storage.getComplianceDocument(docId);
+      
+      if (!doc || doc.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Compliance document not found" });
+      }
+
+      // Get the file from object storage
+      const objectStorageService = new ObjectStorageService();
+      
+      // Normalize documentUrl - it might be absolute URL or relative path
+      let documentPath = doc.documentUrl;
+      if (documentPath.startsWith('http://') || documentPath.startsWith('https://')) {
+        // Extract pathname from absolute URL
+        try {
+          const url = new URL(documentPath);
+          documentPath = url.pathname;
+        } catch (e) {
+          // If URL parsing fails, try to extract path manually
+          const match = documentPath.match(/\/objects\/[^?]+/);
+          if (match) {
+            documentPath = match[0];
+          }
+        }
+      }
+      
+      // Ensure path starts with /objects/
+      if (!documentPath.startsWith('/objects/')) {
+        documentPath = `/objects/${documentPath.replace(/^\/+/, '')}`;
+      }
+      
+      const objectFile = await objectStorageService.getObjectEntityFile(documentPath);
+      
+      // Read file buffer to detect actual file type (read first 4KB for detection)
+      let fileBuffer: Buffer | undefined;
+      let detectedContentType = 'application/octet-stream';
+      
+      try {
+        // Verify file exists
+        const [fileExists] = await objectFile.exists();
+        if (!fileExists) {
+          console.error(`[Compliance View] File does not exist: ${objectFile.name}`);
+          return res.status(404).json({ message: "Document file not found" });
+        }
+        
+        fileBuffer = await fs.readFile(objectFile.name);
+        
+        if (!fileBuffer || fileBuffer.length === 0) {
+          console.error(`[Compliance View] File is empty: ${objectFile.name}`);
+        } else {
+          // Read first 4KB for detection (magic bytes are usually at the start)
+          const sampleBuffer = fileBuffer.slice(0, Math.min(4096, fileBuffer.length));
+          detectedContentType = detectFileMimeType(sampleBuffer);
+          
+          // Log first bytes for debugging
+          const firstBytes = Array.from(sampleBuffer.slice(0, 8))
+            .map(b => `0x${b.toString(16).padStart(2, '0')}`)
+            .join(' ');
+          console.log(`[Compliance View] File detection for ${docId}:`, {
+            filePath: objectFile.name,
+            firstBytes,
+            detectedType: detectedContentType,
+            fileSize: fileBuffer.length
+          });
+        }
+      } catch (readError: any) {
+        console.error(`[Compliance View] Error reading file for ${docId}:`, {
+          error: readError?.message,
+          filePath: objectFile.name,
+          stack: readError?.stack
+        });
+        // Continue with metadata fallback
+      }
+      
+      // Get file metadata (fallback if detection fails)
+      const [metadata] = await objectFile.getMetadata();
+      let contentType = detectedContentType !== 'application/octet-stream' 
+        ? detectedContentType 
+        : (metadata.contentType || "application/octet-stream");
+      
+      // If we still have octet-stream and have file buffer, try re-detection with larger sample
+      if (contentType === 'application/octet-stream' && fileBuffer) {
+        const largerSample = fileBuffer.slice(0, Math.min(8192, fileBuffer.length));
+        const reDetected = detectFileMimeType(largerSample);
+        if (reDetected !== 'application/octet-stream') {
+          contentType = reDetected;
+          console.log(`[Compliance View] Re-detected file type for ${docId}: ${reDetected}`);
+        }
+      }
+      
+      console.log(`[Compliance View] Document ${docId} final:`, {
+        detectedType: detectedContentType,
+        metadataType: metadata.contentType,
+        finalType: contentType,
+        documentType: doc.documentType,
+        documentUrl: doc.documentUrl,
+        filePath: documentPath
+      });
+      
+      // Determine file extension from content type
+      let fileExtension = 'pdf'; // default
+      if (contentType === 'application/pdf') {
+        fileExtension = 'pdf';
+      } else if (contentType === 'application/msword') {
+        fileExtension = 'doc';
+      } else if (contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        fileExtension = 'docx';
+      } else if (contentType === 'application/vnd.ms-excel') {
+        fileExtension = 'xls';
+      } else if (contentType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+        fileExtension = 'xlsx';
+      } else if (contentType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        fileExtension = 'pptx';
+      } else if (contentType === 'application/zip') {
+        fileExtension = 'zip';
+      } else if (contentType.startsWith('image/')) {
+        const imageType = contentType.split('/')[1];
+        if (imageType === 'jpeg') fileExtension = 'jpg';
+        else if (imageType) fileExtension = imageType;
+      } else if (contentType === 'application/octet-stream') {
+        // Last resort: default to PDF for compliance documents (most common)
+        console.warn(`[Compliance View] Could not detect file type for ${docId}, defaulting to PDF`);
+        fileExtension = 'pdf';
+        // Also update content type to PDF for better browser handling
+        contentType = 'application/pdf';
+      } else {
+        // Try to extract from content type
+        const parts = contentType.split('/');
+        if (parts.length > 1) {
+          const subtype = parts[1].split(';')[0];
+          if (subtype && subtype !== 'octet-stream') {
+            fileExtension = subtype;
+          }
+        }
+      }
+      
+      // Create filename from document type
+      const safeDocumentType = doc.documentType.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+      const filename = `${safeDocumentType}.${fileExtension}`;
+      
+      // Encode filename for Content-Disposition header
+      const encodedFilename = encodeURIComponent(filename);
+      
+      // Set headers for download with proper filename
+      res.set({
+        "Content-Type": contentType,
+        "Content-Length": metadata.size,
+        "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`,
+        "Cache-Control": "private, max-age=3600",
+      });
+
+      // Stream the file
+      const stream = objectFile.createReadStream();
+      stream.on("error", (err) => {
+        console.error("Stream error:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Error streaming file" });
+        }
+      });
+      stream.pipe(res);
+    } catch (error) {
+      console.error("Error downloading compliance document:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.status(404).json({ message: "Document file not found" });
+      }
+      res.status(500).json({ message: "Failed to download document" });
+    }
+  });
+
   app.get("/api/compliance/expiring", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -5207,38 +5516,39 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         password: hashedPassword,
       });
 
-      // Send email with credentials using Resend
-      const { Resend } = await import('resend');
-      const resend = new Resend(process.env.RESEND_API_KEY);
-
+      // Send email with credentials using the proper helper function
       const fullName = [tenant.firstName, tenant.lastName].filter(Boolean).join(" ") || tenant.email;
       
-      await resend.emails.send({
-        from: 'Inspect360 <noreply@inspect360.app>',
-        to: tenant.email,
-        subject: 'Your Tenant Portal Credentials',
-        html: `
-          <h2>Welcome to Your Tenant Portal</h2>
-          <p>Hello ${fullName},</p>
-          <p>Your tenant portal credentials have been set up. You can now access the portal to:</p>
-          <ul>
-            <li>View your property and lease details</li>
-            <li>Submit maintenance requests</li>
-            <li>Chat with our AI assistant for quick fixes</li>
-          </ul>
-          <p><strong>Login URL:</strong> ${process.env.BASE_URL || 'http://localhost:5000'}/tenant/login</p>
-          <p><strong>Email:</strong> ${tenant.email}</p>
-          <p><strong>Temporary Password:</strong> ${tempPassword}</p>
-          <p><em>Please change your password after your first login.</em></p>
-          <br/>
-          <p>Best regards,<br/>The Inspect360 Team</p>
-        `,
-      });
+      let emailSent = false;
+      try {
+        const { sendTenantCredentialsEmail } = await import('./resend');
+        await sendTenantCredentialsEmail(
+          tenant.email,
+          fullName,
+          tempPassword
+        );
+        emailSent = true;
+      } catch (emailError) {
+        console.error('Failed to send tenant credentials email:', emailError);
+        // Return error but don't fail the entire request - password was already updated
+        return res.status(500).json({ 
+          error: "Failed to send email. Password was updated but email could not be sent.",
+          emailSent: false,
+          details: emailError instanceof Error ? emailError.message : 'Unknown error'
+        });
+      }
 
-      res.json({ success: true, message: "Credentials sent successfully" });
+      res.json({ 
+        success: true, 
+        message: "Credentials sent successfully",
+        emailSent: true
+      });
     } catch (error) {
       console.error("Error sending tenant password:", error);
-      res.status(500).json({ error: "Failed to send credentials" });
+      res.status(500).json({ 
+        error: "Failed to send credentials",
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
@@ -5342,12 +5652,36 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(403).json({ error: "No organization found" });
       }
 
-      // Verify attachment belongs to user's organization and delete it
-      await storage.deleteTenancyAttachment(req.params.id, user.organizationId);
+      // Verify attachment belongs to user's organization, get fileUrl, and delete database record
+      let result: { fileUrl: string } | null = null;
+      try {
+        result = await storage.deleteTenancyAttachment(req.params.id, user.organizationId);
+      } catch (storageError: any) {
+        console.error("Error deleting tenancy attachment from database:", storageError);
+        if (storageError.message === "Attachment not found or access denied") {
+          return res.status(404).json({ error: storageError.message });
+        }
+        throw storageError;
+      }
+      
+      // Delete the file from object storage (don't fail if file deletion fails)
+      if (result?.fileUrl) {
+        try {
+          const objectStorageService = new ObjectStorageService();
+          await objectStorageService.deleteObjectEntity(result.fileUrl);
+        } catch (fileError) {
+          // Log but don't fail - database record is already deleted
+          console.warn("Failed to delete file from storage (database record already deleted):", fileError);
+        }
+      }
+      
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting tenancy attachment:", error);
-      res.status(500).json({ error: "Failed to delete attachment" });
+      res.status(500).json({ 
+        error: "Failed to delete attachment",
+        message: error?.message || "An error occurred while deleting the attachment"
+      });
     }
   });
 

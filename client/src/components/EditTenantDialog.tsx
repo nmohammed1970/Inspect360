@@ -261,18 +261,28 @@ export default function EditTenantDialog({
 
   const sendPasswordMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/tenant-assignments/${tenant.assignment.id}/send-password`, {});
+      const response = await apiRequest("POST", `/api/tenant-assignments/${tenant.assignment.id}/send-password`, {});
+      const data = await response.json();
+      return data;
     },
-    onSuccess: () => {
-      toast({
-        title: "Password sent",
-        description: `Portal credentials have been sent to ${tenant.email}`,
-      });
+    onSuccess: (data) => {
+      if (data?.emailSent === false) {
+        toast({
+          title: "Password updated but email failed",
+          description: data.error || "Password was updated but email could not be sent. Please try again.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Password sent",
+          description: `Portal credentials have been sent to ${tenant.email}`,
+        });
+      }
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Failed to send password",
-        description: "An error occurred while sending the password",
+        description: error?.message || "An error occurred while sending the password",
         variant: "destructive",
       });
     },
@@ -300,7 +310,9 @@ export default function EditTenantDialog({
 
   const deleteAttachmentMutation = useMutation({
     mutationFn: async (attachmentId: string) => {
-      return apiRequest(`/api/tenancy-attachments/${attachmentId}`, "DELETE", {});
+      const response = await apiRequest("DELETE", `/api/tenancy-attachments/${attachmentId}`, {});
+      // 204 No Content doesn't have a body, so we just return the response
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id, "attachments"] });
@@ -309,10 +321,11 @@ export default function EditTenantDialog({
         description: "The attachment has been removed",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error("Delete attachment error:", error);
       toast({
         title: "Failed to delete attachment",
-        description: "An error occurred while deleting the attachment",
+        description: error?.message || "An error occurred while deleting the attachment",
         variant: "destructive",
       });
     },
