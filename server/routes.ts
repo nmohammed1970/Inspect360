@@ -146,7 +146,7 @@ import { z } from "zod";
 import multer from "multer";
 import { format } from "date-fns";
 import { devRouter } from "./devRoutes";
-import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification } from "./resend";
+import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
 import { extractTextFromFile, findRelevantChunks } from "./documentProcessor";
@@ -4274,6 +4274,192 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     } catch (error) {
       console.error("Error generating comparison report PDF:", error);
       res.status(500).json({ message: "Failed to generate comparison report PDF" });
+    }
+  });
+
+  // Send Comparison Report to Finance Department
+  app.post("/api/comparison-reports/:id/send-to-finance", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { includePdf } = req.body;
+      
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const organization = await storage.getOrganization(user.organizationId);
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      if (!organization.financeEmail) {
+        return res.status(400).json({ message: "Finance email not configured. Please set the finance department email in Settings." });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const items = await storage.getComparisonReportItems(id);
+      const property = await storage.getProperty(report.propertyId);
+      const block = property?.blockId ? await storage.getBlock(property.blockId) : null;
+      const checkInInspection = await storage.getInspection(report.checkInInspectionId);
+      const checkOutInspection = await storage.getInspection(report.checkOutInspectionId);
+
+      // Get tenant info if available
+      let tenantName = 'N/A';
+      if (report.tenantId) {
+        const tenant = await storage.getUser(report.tenantId);
+        if (tenant) {
+          tenantName = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() || tenant.email;
+        }
+      }
+
+      // Calculate totals
+      let totalEstimatedCost = 0;
+      let totalDepreciation = 0;
+      let totalFinalCost = 0;
+      let tenantLiableAmount = 0;
+      let landlordLiableAmount = 0;
+      let sharedLiableAmount = 0;
+      let waivedAmount = 0;
+      let tenantLiableCount = 0;
+      let landlordLiableCount = 0;
+      let sharedCount = 0;
+      let waivedCount = 0;
+
+      items.forEach((item: any) => {
+        const estimatedCost = parseFloat(item.estimatedCost || '0');
+        const depreciationAmount = parseFloat(item.depreciationAmount || '0');
+        const finalCost = parseFloat(item.finalCost || '0');
+
+        totalEstimatedCost += estimatedCost;
+        totalDepreciation += depreciationAmount;
+        totalFinalCost += finalCost;
+
+        switch (item.liability) {
+          case 'tenant':
+            tenantLiableAmount += finalCost;
+            tenantLiableCount++;
+            break;
+          case 'landlord':
+            landlordLiableAmount += finalCost;
+            landlordLiableCount++;
+            break;
+          case 'shared':
+            sharedLiableAmount += finalCost;
+            sharedCount++;
+            break;
+          case 'waived':
+            waivedAmount += finalCost;
+            waivedCount++;
+            break;
+        }
+      });
+
+      const senderName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+      const companyName = organization.brandingName || organization.name;
+
+      // Prepare PDF attachment if requested
+      let pdfAttachment;
+      if (includePdf) {
+        try {
+          const branding: ReportBrandingInfo = {
+            logoUrl: organization.logoUrl,
+            brandingName: organization.brandingName,
+            brandingEmail: organization.brandingEmail,
+            brandingPhone: organization.brandingPhone,
+            brandingWebsite: organization.brandingWebsite,
+          };
+
+          const comments = await storage.getComparisonComments(id);
+          const html = generateComparisonReportHTML(
+            report,
+            items,
+            property,
+            block,
+            checkInInspection,
+            checkOutInspection,
+            comments.filter((c: any) => !c.isInternal),
+            branding
+          );
+
+          const browser = await launchPuppeteerBrowser();
+          try {
+            const page = await browser.newPage();
+            await page.setContent(html, { waitUntil: "networkidle0" });
+            const pdf = await page.pdf({
+              format: "A4",
+              landscape: true,
+              printBackground: true,
+              margin: { top: "15mm", right: "12mm", bottom: "15mm", left: "12mm" },
+            });
+            pdfAttachment = {
+              filename: `comparison-report-${id}.pdf`,
+              content: Buffer.from(pdf)
+            };
+          } finally {
+            await browser.close();
+          }
+        } catch (pdfError) {
+          console.error("Error generating PDF for finance email:", pdfError);
+        }
+      }
+
+      await sendComparisonReportToFinance(organization.financeEmail, {
+        reportId: id,
+        propertyName: property?.name || 'Unknown Property',
+        propertyAddress: property?.address || '',
+        blockName: block?.name || '',
+        tenantName,
+        checkInDate: checkInInspection?.completedDate 
+          ? format(new Date(checkInInspection.completedDate), 'dd MMM yyyy')
+          : 'N/A',
+        checkOutDate: checkOutInspection?.completedDate 
+          ? format(new Date(checkOutInspection.completedDate), 'dd MMM yyyy')
+          : 'N/A',
+        totalEstimatedCost,
+        totalDepreciation,
+        totalFinalCost,
+        tenantLiableAmount,
+        landlordLiableAmount,
+        sharedLiableAmount,
+        waivedAmount,
+        itemsCount: items.length,
+        tenantLiableCount,
+        landlordLiableCount,
+        sharedCount,
+        waivedCount,
+        status: report.status,
+        signedByOperator: !!report.operatorSignature,
+        signedByTenant: !!report.tenantSignature,
+        operatorSignature: report.operatorSignature || undefined,
+        tenantSignature: report.tenantSignature || undefined,
+        operatorSignedAt: report.operatorSignedAt 
+          ? format(new Date(report.operatorSignedAt), 'dd MMM yyyy HH:mm')
+          : undefined,
+        tenantSignedAt: report.tenantSignedAt 
+          ? format(new Date(report.tenantSignedAt), 'dd MMM yyyy HH:mm')
+          : undefined,
+        generatedAt: format(new Date(), 'dd MMM yyyy HH:mm'),
+        senderName,
+        companyName,
+        pdfAttachment,
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Report sent to finance department (${organization.financeEmail})` 
+      });
+    } catch (error) {
+      console.error("Error sending comparison report to finance:", error);
+      res.status(500).json({ message: "Failed to send report to finance department" });
     }
   });
 
