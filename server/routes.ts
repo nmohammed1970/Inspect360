@@ -3455,11 +3455,7 @@ LIABILITY: [tenant/landlord/shared]`;
                   text: prompt
                 });
 
-                if (!openai) {
-                  throw new Error("OpenAI client not initialized");
-                }
-
-                const visionResponse = await openai.responses.create({
+                const visionResponse = await getOpenAI().responses.create({
                   model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
                   input: [{ role: "user", content: normalizeApiContent(imageContent) }],
                   max_output_tokens: 800,
