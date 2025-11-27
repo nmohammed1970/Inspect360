@@ -34,7 +34,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
-import defaultLogoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import defaultLogoUrl from "@assets/logo.png";
 
 export function AppSidebar() {
   const { user } = useAuth();
