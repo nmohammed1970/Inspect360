@@ -621,6 +621,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
+  // ==================== ERROR HANDLING MIDDLEWARE ====================
+  // Handle Passport deserialization errors gracefully
+  // This must be placed AFTER setupAuth so Passport middleware is initialized
+  app.use((err: any, req: any, res: any, next: any) => {
+    // Check if this is a Passport deserialization error
+    if (err && err.message && err.message.includes('Failed to deserialize user out of session')) {
+      console.warn('[Deserialize Error] Clearing invalid session for user:', req.session?.passport?.user);
+      // Clear the invalid session
+      if (req.logout) {
+        req.logout((logoutErr: any) => {
+          if (logoutErr) {
+            console.error('[Deserialize Error] Error clearing session:', logoutErr);
+          }
+        });
+      }
+      // Destroy the session
+      if (req.session && req.session.destroy) {
+        req.session.destroy((destroyErr: any) => {
+          if (destroyErr) {
+            console.error('[Deserialize Error] Error destroying session:', destroyErr);
+          }
+        });
+      }
+      // Return 401 for API requests, or continue for non-API requests
+      if (req.path && req.path.startsWith('/api')) {
+        return res.status(401).json({ message: 'Session expired. Please log in again.' });
+      }
+      // For non-API requests, just continue (they'll be handled by auth middleware)
+      return next();
+    }
+    // For other errors, pass to next error handler
+    next(err);
+  });
+
   // Configure multer for file uploads (memory storage for local file system)
   const upload = multer({
     storage: multer.memoryStorage(),

@@ -138,10 +138,30 @@ export async function setupAuth(app: Express) {
 
   passport.deserializeUser(async (id: string, done) => {
     try {
+      if (!id) {
+        console.warn('[Deserialize] No user ID provided in session');
+        return done(null, false);
+      }
+      
       const user = await storage.getUser(id);
+      
+      if (!user) {
+        console.warn(`[Deserialize] User not found for ID: ${id}`);
+        // Clear the invalid session by returning false
+        return done(null, false);
+      }
+      
+      // Check if user is still active
+      if (!user.isActive) {
+        console.warn(`[Deserialize] User ${id} is inactive`);
+        return done(null, false);
+      }
+      
       done(null, user);
     } catch (error) {
-      done(error);
+      console.error('[Deserialize] Error deserializing user:', error);
+      // Return false instead of error to clear invalid session
+      done(null, false);
     }
   });
 
@@ -501,6 +521,15 @@ export async function setupAuth(app: Express) {
 
 // Middleware to check if user is authenticated
 export function isAuthenticated(req: any, res: any, next: any) {
+  // If deserialization failed, req.user will be false or undefined
+  // Clear the invalid session and return unauthorized
+  if (req.user === false) {
+    req.logout((err: any) => {
+      if (err) console.error('[isAuthenticated] Error clearing invalid session:', err);
+    });
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  
   if (req.isAuthenticated()) {
     return next();
   }
