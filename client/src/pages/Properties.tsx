@@ -384,8 +384,8 @@ export default function Properties() {
 
       {/* Search and Tag Filter */}
       {properties.length > 0 && (
-        <div className="space-y-4">
-          <div className="relative max-w-md">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
               placeholder="Search properties by name or address..."

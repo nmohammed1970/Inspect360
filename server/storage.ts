@@ -2729,9 +2729,12 @@ export class DatabaseStorage implements IStorage {
   private syncPhotosFromValueJson(data: Partial<InsertInspectionEntry>): Partial<InsertInspectionEntry> {
     const result = { ...data };
     
-    if (data.valueJson && typeof data.valueJson === 'object') {
+    // If photos are directly provided, use them (highest priority)
+    if (data.photos !== undefined) {
+      result.photos = Array.isArray(data.photos) && data.photos.length > 0 ? data.photos : null;
+    } else if (data.valueJson && typeof data.valueJson === 'object') {
+      // Otherwise, try to extract photos from valueJson
       const valueJson = data.valueJson as any;
-      // Extract photos from various possible valueJson structures
       let extractedPhotos: string[] | null = null;
       
       if (Array.isArray(valueJson.photos)) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -119,6 +119,52 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
     },
   });
 
+  // Watch lease start dates in both forms
+  const selectStartDate = selectForm.watch("leaseStartDate");
+  const createStartDate = createForm.watch("leaseStartDate");
+
+  // Auto-populate end date when start date changes (for select form)
+  useEffect(() => {
+    if (selectStartDate && selectStartDate.trim() !== "") {
+      const startDate = new Date(selectStartDate);
+      if (!isNaN(startDate.getTime())) {
+        // Add 12 months to the start date
+        const endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + 12);
+        
+        // Format as YYYY-MM-DD for date input
+        const formattedEndDate = endDate.toISOString().split('T')[0];
+        
+        // Only set if the end date is currently empty or hasn't been manually changed
+        const currentEndDate = selectForm.getValues("leaseEndDate");
+        if (!currentEndDate || currentEndDate.trim() === "") {
+          selectForm.setValue("leaseEndDate", formattedEndDate);
+        }
+      }
+    }
+  }, [selectStartDate, selectForm]);
+
+  // Auto-populate end date when start date changes (for create form)
+  useEffect(() => {
+    if (createStartDate && createStartDate.trim() !== "") {
+      const startDate = new Date(createStartDate);
+      if (!isNaN(startDate.getTime())) {
+        // Add 12 months to the start date
+        const endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + 12);
+        
+        // Format as YYYY-MM-DD for date input
+        const formattedEndDate = endDate.toISOString().split('T')[0];
+        
+        // Only set if the end date is currently empty or hasn't been manually changed
+        const currentEndDate = createForm.getValues("leaseEndDate");
+        if (!currentEndDate || currentEndDate.trim() === "") {
+          createForm.setValue("leaseEndDate", formattedEndDate);
+        }
+      }
+    }
+  }, [createStartDate, createForm]);
+
   const createUserMutation = useMutation<User, Error, CreateTenantFormData>({
     mutationFn: async (data: CreateTenantFormData) => {
       // Create the user first via team member API
@@ -168,7 +214,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   });
 
   const assignTenantMutation = useMutation({
-    mutationFn: async (data: { tenantId: string; leaseData: any }) => {
+    mutationFn: async (data: { tenantId: string; leaseData: any; originalPassword?: string; assignmentId?: string }) => {
       // Build payload - convert dates to ISO strings and numbers for schema validation
       const payload: any = {
         propertyId,
@@ -254,7 +300,14 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       }
       
       console.log('[AddTenantDialog] Assigning tenant with payload:', payload);
-      const res = await apiRequest("POST", "/api/tenant-assignments", payload);
+      
+      // Include original password in the request so it can be stored for later retrieval
+      const assignmentPayload = {
+        ...payload,
+        originalPassword: data.originalPassword,
+      };
+      
+      const res = await apiRequest("POST", "/api/tenant-assignments", assignmentPayload);
       
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
@@ -268,7 +321,25 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         throw new Error(errorMessage);
       }
       
-      return res;
+      const assignment = await res.json();
+      
+      // If this is a new tenant creation and we have the original password, send it via email
+      if (data.originalPassword && assignment?.id) {
+        try {
+          const sendPasswordRes = await apiRequest("POST", `/api/tenant-assignments/${assignment.id}/send-password`, {
+            password: data.originalPassword
+          });
+          
+          if (!sendPasswordRes.ok) {
+            console.warn('[AddTenantDialog] Failed to send password email, but tenant was created successfully');
+          }
+        } catch (emailError) {
+          console.warn('[AddTenantDialog] Error sending password email:', emailError);
+          // Don't fail the entire operation if email fails
+        }
+      }
+      
+      return assignment;
     },
     onSuccess: async () => {
       // Force active refetch to update the UI immediately
@@ -282,7 +353,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       });
       toast({
         title: "Tenant assigned",
-        description: "The tenant has been successfully assigned to this property",
+        description: "The tenant has been successfully assigned to this property. Login credentials have been sent to their email.",
       });
       selectForm.reset();
       createForm.reset();
@@ -332,10 +403,11 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       
       console.log("Assigning tenant to property:", { tenantId: newUser.id, leaseData });
       
-      // Then assign them to the property
+      // Then assign them to the property, passing the original password so it can be sent via email
       assignTenantMutation.mutate({
         tenantId: newUser.id,
         leaseData,
+        originalPassword: data.password, // Pass the original password to send via email
       });
     } catch (error: any) {
       console.error("Failed to create tenant user:", error);

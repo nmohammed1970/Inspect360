@@ -261,6 +261,8 @@ export default function EditTenantDialog({
 
   const sendPasswordMutation = useMutation({
     mutationFn: async () => {
+      // Don't send password in request body - let server retrieve the stored original password
+      // The server will look for the stored original password in assignment notes
       const response = await apiRequest("POST", `/api/tenant-assignments/${tenant.assignment.id}/send-password`, {});
       const data = await response.json();
       return data;

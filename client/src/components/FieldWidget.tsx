@@ -174,6 +174,13 @@ export function FieldWidget({
     setLocalPhotos(newPhotos);
     const composedValue = composeValue(localValue, localCondition, localCleanliness);
     onChange(composedValue, localNote || undefined, newPhotos);
+    
+    // Invalidate inspection entries to ensure report page gets updated photos
+    if (inspectionId) {
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+    }
+    
     toast({
       title: "Success",
       description: "Photo uploaded successfully",
@@ -185,6 +192,12 @@ export function FieldWidget({
     setLocalPhotos(newPhotos);
     const composedValue = composeValue(localValue, localCondition, localCleanliness);
     onChange(composedValue, localNote || undefined, newPhotos.length > 0 ? newPhotos : undefined);
+    
+    // Invalidate inspection entries to ensure report page gets updated photos
+    if (inspectionId) {
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+    }
   };
 
   const handleInspectField = async () => {
@@ -229,6 +242,12 @@ export function FieldWidget({
       // Invalidate organization query to update credit balance on dashboard and billing pages
       if (user?.organizationId) {
         queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
+      }
+
+      // Invalidate inspection entries to ensure report page gets updated AI notes
+      if (inspectionId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+        queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
       }
 
       toast({

@@ -91,11 +91,31 @@ self.addEventListener('fetch', (event) => {
   // This ensures credit balance, subscriptions, and other dynamic data are always up-to-date
   if (url.pathname.startsWith('/api/')) {
     // For API requests, use network-first strategy (always fetch from network)
+    // Add cache-busting query parameter to ensure fresh data
+    const cacheBustUrl = new URL(event.request.url);
+    cacheBustUrl.searchParams.set('_t', Date.now().toString());
+    
     event.respondWith(
-      fetch(event.request)
+      fetch(cacheBustUrl.toString(), {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        }
+      })
         .then((networkResponse) => {
           // Don't cache API responses - they need to be fresh
-          return networkResponse;
+          // Create a new response with no-cache headers
+          const headers = new Headers(networkResponse.headers);
+          headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+          headers.set('Pragma', 'no-cache');
+          headers.set('Expires', '0');
+          
+          return new Response(networkResponse.body, {
+            status: networkResponse.status,
+            statusText: networkResponse.statusText,
+            headers: headers,
+          });
         })
         .catch((error) => {
           console.warn('[Service Worker] API fetch failed:', event.request.url, error);

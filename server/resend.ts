@@ -725,10 +725,25 @@ export async function sendTenantCredentialsEmail(
   password: string
 ) {
   try {
+    // Validate inputs
+    if (!recipientEmail || !recipientEmail.trim()) {
+      throw new Error('Recipient email is required');
+    }
+    if (!password || !password.trim()) {
+      throw new Error('Password is required');
+    }
+    
     const { client, fromEmail } = await getUncachableResendClient();
     
     const subject = 'Your Tenant Portal Credentials - Inspect360';
     const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+    
+    // Sanitize inputs for HTML
+    const safeEmail = recipientEmail.trim();
+    const safeName = recipientName || safeEmail;
+    const safePassword = password.trim();
+    
+    console.log(`[sendTenantCredentialsEmail] Preparing email for ${safeEmail} with password length: ${safePassword.length}`);
     
     const html = `
 <!DOCTYPE html>
@@ -754,7 +769,7 @@ export async function sendTenantCredentialsEmail(
 
     <!-- Main content -->
     <div style="margin-bottom: 24px;">
-      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${safeName},</p>
       <p style="margin: 0 0 24px 0; font-size: 16px;">
         Your tenant portal credentials have been set up. You can now access the portal to:
       </p>
@@ -776,13 +791,13 @@ export async function sendTenantCredentialsEmail(
         </div>
         <div style="margin-bottom: 16px;">
           <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Email:</p>
-          <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">${recipientEmail}</p>
+          <p style="margin: 0; font-size: 15px; color: #333; font-weight: 600;">${safeEmail}</p>
         </div>
         <div>
           <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Password:</p>
           <div style="background-color: #ffffff; border: 1px solid #e0e0e0; padding: 12px; border-radius: 4px; margin-top: 4px;">
             <p style="margin: 0; font-size: 18px; font-weight: 700; color: #00D5CC; font-family: 'Courier New', monospace; letter-spacing: 2px;">
-              ${password}
+              ${safePassword}
             </p>
           </div>
         </div>

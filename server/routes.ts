@@ -1045,13 +1045,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hashedPassword = await hashPassword(password);
 
       // Create team member with organization ID
+      // NOTE: This creates the user in the same 'users' table where all user data is stored.
+      // For tenants, the email and password set here will be used as login credentials for the tenant portal.
       const newUser = await storage.createUser({
         email,
         firstName,
         lastName,
         username,
-        password: hashedPassword,
-        role,
+        password: hashedPassword, // This password will be used for tenant portal login
+        role, // For tenants, this will be "tenant"
         phone,
         address,
         skills,
@@ -2060,6 +2062,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/inspections/:id", isAuthenticated, async (req: any, res) => {
     try {
+      // Set cache-control headers to prevent caching
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -6202,8 +6208,39 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(404).json({ error: "Tenant user not found" });
       }
 
+      // Store original password if provided (for later retrieval when sending password)
+      // This ensures we can send the EXACT password entered during tenant creation
+      let assignmentData = { ...validatedData.data };
+      if (req.body.originalPassword && typeof req.body.originalPassword === 'string') {
+        // Store original password in notes field as JSON
+        // If notes already exists and is not JSON, preserve it as a text note
+        // Format: { "_originalPassword": "password123", "_userNotes": "existing notes text" }
+        try {
+          let notesObj: any = {};
+          if (assignmentData.notes) {
+            try {
+              // Try to parse as JSON first
+              notesObj = JSON.parse(assignmentData.notes);
+            } catch {
+              // If not JSON, preserve as user notes
+              notesObj._userNotes = assignmentData.notes;
+            }
+          }
+          // Store the exact password entered during tenant creation
+          notesObj._originalPassword = req.body.originalPassword;
+          assignmentData.notes = JSON.stringify(notesObj);
+          console.log(`[Create Tenant Assignment] Stored original password for tenant assignment`);
+        } catch (error) {
+          // Fallback: create new JSON object
+          console.error(`[Create Tenant Assignment] Error storing original password:`, error);
+          assignmentData.notes = JSON.stringify({ _originalPassword: req.body.originalPassword });
+        }
+      } else {
+        console.warn(`[Create Tenant Assignment] No original password provided - password will not be retrievable for sending`);
+      }
+
       const assignment = await storage.createTenantAssignment({
-        ...validatedData.data,
+        ...assignmentData,
         organizationId: user.organizationId,
       });
 
@@ -6267,7 +6304,38 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         });
       }
 
-      const updated = await storage.updateTenantAssignment(req.params.id, validatedData.data);
+      // Preserve original password from existing assignment when updating notes
+      let updateData = { ...validatedData.data };
+      if (updateData.notes !== undefined && existing.notes) {
+        try {
+          const existingNotesData = JSON.parse(existing.notes);
+          if (existingNotesData._originalPassword) {
+            // Preserve the original password
+            try {
+              const newNotesData = typeof updateData.notes === 'string' ? JSON.parse(updateData.notes) : updateData.notes;
+              if (typeof newNotesData === 'object' && newNotesData !== null) {
+                newNotesData._originalPassword = existingNotesData._originalPassword;
+                updateData.notes = JSON.stringify(newNotesData);
+              } else {
+                // If new notes is not JSON, preserve it as user notes
+                const notesObj: any = { _userNotes: updateData.notes };
+                notesObj._originalPassword = existingNotesData._originalPassword;
+                updateData.notes = JSON.stringify(notesObj);
+              }
+            } catch {
+              // If new notes is not JSON, preserve it as user notes
+              const notesObj: any = { _userNotes: updateData.notes };
+              notesObj._originalPassword = existingNotesData._originalPassword;
+              updateData.notes = JSON.stringify(notesObj);
+            }
+          }
+        } catch {
+          // Existing notes is not JSON, preserve original password if it exists
+          // (This shouldn't happen, but handle gracefully)
+        }
+      }
+
+      const updated = await storage.updateTenantAssignment(req.params.id, updateData);
       res.json(updated);
     } catch (error) {
       console.error("Error updating tenant assignment:", error);
@@ -6369,28 +6437,100 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(404).json({ error: "Tenant user not found" });
       }
 
-      // Generate a temporary password
-      const tempPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase();
-      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+      // Validate tenant has an email address
+      if (!tenant.email || !tenant.email.trim()) {
+        return res.status(400).json({ error: "Tenant user does not have an email address configured" });
+      }
 
-      // Update tenant password
-      await storage.upsertUser({
-        ...tenant,
-        password: hashedPassword,
-      });
+      // Use provided password, retrieve from stored original password, or generate a new one
+      let passwordToSend: string;
+      if (req.body.password && typeof req.body.password === 'string' && req.body.password.trim() !== '') {
+        // Use the provided password (e.g., when creating a new tenant)
+        passwordToSend = req.body.password;
+        const { hashPassword } = await import('./auth');
+        const hashedPassword = await hashPassword(passwordToSend);
+        
+        // Update tenant password with the provided password
+        await storage.upsertUser({
+          ...tenant,
+          password: hashedPassword,
+        });
+      } else {
+        // Try to retrieve original password from assignment notes
+        let originalPassword: string | null = null;
+        if (assignment.notes) {
+          try {
+            const notesData = JSON.parse(assignment.notes);
+            if (notesData._originalPassword && typeof notesData._originalPassword === 'string') {
+              originalPassword = notesData._originalPassword;
+            }
+          } catch {
+            // Notes is not JSON, ignore
+          }
+        }
+
+        if (originalPassword) {
+          // Use the stored original password (the exact password entered during tenant creation)
+          passwordToSend = originalPassword;
+          const { hashPassword } = await import('./auth');
+          const hashedPassword = await hashPassword(passwordToSend);
+          
+          // Update tenant password with the original password (in case it was changed)
+          await storage.upsertUser({
+            ...tenant,
+            password: hashedPassword,
+          });
+          console.log(`[Send Password] Using stored original password for tenant ${tenant.email}`);
+        } else {
+          // No stored original password found - this should not happen for newly created tenants
+          // For tenants created before this feature, we cannot retrieve the original password
+          // In this case, we must generate a new password and inform the user
+          console.warn(`[Send Password] No stored original password found for tenant ${tenant.email}, generating new password`);
+          passwordToSend = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase();
+          const { hashPassword } = await import('./auth');
+          const hashedPassword = await hashPassword(passwordToSend);
+
+          // Update tenant password with the new generated password
+          await storage.upsertUser({
+            ...tenant,
+            password: hashedPassword,
+          });
+          
+          // Note: The email will be sent with the new password, but this is not ideal
+          // Ideally, all tenants should have their original password stored
+        }
+      }
 
       // Send email with credentials using the proper helper function
       const fullName = [tenant.firstName, tenant.lastName].filter(Boolean).join(" ") || tenant.email;
+      
+      // Validate email and password before sending
+      if (!tenant.email || !tenant.email.trim()) {
+        return res.status(400).json({ 
+          error: "Cannot send email: Tenant does not have a valid email address",
+          emailSent: false
+        });
+      }
+      
+      if (!passwordToSend || !passwordToSend.trim()) {
+        return res.status(400).json({ 
+          error: "Cannot send email: No password available to send",
+          emailSent: false
+        });
+      }
+      
+      console.log(`[Send Password] Sending credentials email to ${tenant.email} with password length: ${passwordToSend.length}`);
       
       let emailSent = false;
       try {
         const { sendTenantCredentialsEmail } = await import('./resend');
         await sendTenantCredentialsEmail(
-          tenant.email,
+          tenant.email.trim(),
           fullName,
-          tempPassword
+          passwordToSend
         );
         emailSent = true;
+        console.log(`[Send Password] Successfully sent credentials email to ${tenant.email}`);
       } catch (emailError) {
         console.error('Failed to send tenant credentials email:', emailError);
         // Return error but don't fail the entire request - password was already updated
@@ -8357,6 +8497,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
+      // Set cache-control headers to prevent caching
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       const entries = await storage.getInspectionEntries(req.params.inspectionId);
       res.json(entries);
     } catch (error) {
@@ -8389,11 +8533,30 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(403).json({ message: "User not in organization" });
       }
       const validatedData = insertInspectionEntrySchema.parse(req.body);
-      const entry = await storage.createInspectionEntry(validatedData);
-      res.status(201).json(entry);
+      
+      // Check if an entry already exists for this inspection, section, and field
+      // This allows updating existing entries instead of creating duplicates
+      const existingEntries = await storage.getInspectionEntries(validatedData.inspectionId);
+      const existingEntry = existingEntries.find(
+        (e: any) => 
+          e.sectionRef === validatedData.sectionRef && 
+          e.fieldKey === validatedData.fieldKey &&
+          e.inspectionId === validatedData.inspectionId
+      );
+      
+      let entry;
+      if (existingEntry?.id) {
+        // Update existing entry
+        entry = await storage.updateInspectionEntry(existingEntry.id, validatedData);
+        res.json(entry);
+      } else {
+        // Create new entry
+        entry = await storage.createInspectionEntry(validatedData);
+        res.status(201).json(entry);
+      }
     } catch (error) {
-      console.error("Error creating inspection entry:", error);
-      res.status(400).json({ message: "Failed to create inspection entry" });
+      console.error("Error creating/updating inspection entry:", error);
+      res.status(400).json({ message: "Failed to create/update inspection entry" });
     }
   });
 
@@ -11780,6 +11943,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   // ==================== TENANT PORTAL ROUTES ====================
 
   // Tenant login (separate from main auth)
+  // NOTE: This endpoint uses the same 'users' table where tenant users are created.
+  // The email and password set during tenant creation (via /api/team) are used here for authentication.
   app.post("/api/tenant/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -11789,6 +11954,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       // Normalize email for case-insensitive lookup
+      // This looks up the user in the same 'users' table where they were created
       const normalizedEmail = email.toLowerCase().trim();
       const user = await storage.getUserByEmail(normalizedEmail);
       
@@ -11796,6 +11962,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
       }
 
+      // Verify password - this is the same password that was set during tenant creation
       const isValid = await comparePasswords(password, user.password);
       if (!isValid) {
         return res.status(401).json({ message: "Invalid credentials" });

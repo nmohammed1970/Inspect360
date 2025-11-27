@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,7 +13,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
-import { insertComplianceDocumentSchema } from "@shared/schema";
+import { insertComplianceDocumentSchema, type AssetInventory } from "@shared/schema";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -130,6 +130,8 @@ export default function PropertyDetail() {
   const [editName, setEditName] = useState("");
   const [editAddress, setEditAddress] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
+  const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
   const { toast } = useToast();
 
   const { data: property, isLoading: propertyLoading } = useQuery<Property>({
@@ -180,6 +182,16 @@ export default function PropertyDetail() {
       return res.json();
     },
     enabled: !!propertyId,
+  });
+
+  // Fetch full asset inventory to get complete details when an item is clicked
+  const { data: fullAssetInventory = [] } = useQuery<AssetInventory[]>({
+    queryKey: ["/api/asset-inventory"],
+    queryFn: async () => {
+      const res = await fetch("/api/asset-inventory", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
   });
 
   const { data: compliance = [] } = useQuery<ComplianceDoc[]>({
@@ -564,7 +576,18 @@ export default function PropertyDetail() {
           ) : (
             <div className="space-y-3">
               {inventory.map((item) => (
-                <Card key={item.id} data-testid={`card-inventory-${item.id}`}>
+                <Card 
+                  key={item.id} 
+                  data-testid={`card-inventory-${item.id}`}
+                  className="hover-elevate cursor-pointer"
+                  onClick={() => {
+                    const fullAsset = fullAssetInventory.find(asset => asset.id === item.id);
+                    if (fullAsset) {
+                      setSelectedInventoryItem(fullAsset);
+                      setInventoryDialogOpen(true);
+                    }
+                  }}
+                >
                   <CardHeader>
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-2 flex-1">
@@ -934,6 +957,201 @@ export default function PropertyDetail() {
               {updatePropertyMutation.isPending ? "Updating..." : "Update Property"}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Inventory Item Details Dialog */}
+      <Dialog open={inventoryDialogOpen} onOpenChange={setInventoryDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedInventoryItem?.name || "Inventory Item Details"}</DialogTitle>
+            <DialogDescription>
+              {selectedInventoryItem?.category && (
+                <span className="text-sm text-muted-foreground">{selectedInventoryItem.category}</span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedInventoryItem && (
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Basic Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-muted-foreground">Name</Label>
+                    <p className="font-medium">{selectedInventoryItem.name}</p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Category</Label>
+                    <p className="font-medium">{selectedInventoryItem.category || "N/A"}</p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Condition</Label>
+                    <Badge variant={
+                      selectedInventoryItem.condition === 'excellent' ? 'default' :
+                      selectedInventoryItem.condition === 'good' ? 'secondary' :
+                      selectedInventoryItem.condition === 'fair' ? 'outline' :
+                      'destructive'
+                    }>
+                      {selectedInventoryItem.condition}
+                    </Badge>
+                  </div>
+                  {selectedInventoryItem.cleanliness && (
+                    <div>
+                      <Label className="text-muted-foreground">Cleanliness</Label>
+                      <p className="font-medium capitalize">{selectedInventoryItem.cleanliness}</p>
+                    </div>
+                  )}
+                  {selectedInventoryItem.location && (
+                    <div className="col-span-2">
+                      <Label className="text-muted-foreground">Location</Label>
+                      <p className="font-medium">{selectedInventoryItem.location}</p>
+                    </div>
+                  )}
+                  {selectedInventoryItem.description && (
+                    <div className="col-span-2">
+                      <Label className="text-muted-foreground">Description</Label>
+                      <p className="font-medium">{selectedInventoryItem.description}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Purchase Information */}
+              {(selectedInventoryItem.datePurchased || selectedInventoryItem.purchasePrice || selectedInventoryItem.supplier) && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Purchase Information</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {selectedInventoryItem.datePurchased && (
+                      <div>
+                        <Label className="text-muted-foreground">Date Purchased</Label>
+                        <p className="font-medium">{new Date(selectedInventoryItem.datePurchased).toLocaleDateString()}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.purchasePrice && (
+                      <div>
+                        <Label className="text-muted-foreground">Purchase Price</Label>
+                        <p className="font-medium">£{Number(selectedInventoryItem.purchasePrice).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.supplier && (
+                      <div>
+                        <Label className="text-muted-foreground">Supplier</Label>
+                        <p className="font-medium">{selectedInventoryItem.supplier}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.supplierContact && (
+                      <div>
+                        <Label className="text-muted-foreground">Supplier Contact</Label>
+                        <p className="font-medium">{selectedInventoryItem.supplierContact}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Asset Details */}
+              {(selectedInventoryItem.serialNumber || selectedInventoryItem.modelNumber || selectedInventoryItem.expectedLifespanYears) && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Asset Details</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {selectedInventoryItem.serialNumber && (
+                      <div>
+                        <Label className="text-muted-foreground">Serial Number</Label>
+                        <p className="font-medium">{selectedInventoryItem.serialNumber}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.modelNumber && (
+                      <div>
+                        <Label className="text-muted-foreground">Model Number</Label>
+                        <p className="font-medium">{selectedInventoryItem.modelNumber}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.expectedLifespanYears && (
+                      <div>
+                        <Label className="text-muted-foreground">Expected Lifespan</Label>
+                        <p className="font-medium">{selectedInventoryItem.expectedLifespanYears} years</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.currentValue && (
+                      <div>
+                        <Label className="text-muted-foreground">Current Value</Label>
+                        <p className="font-medium">£{Number(selectedInventoryItem.currentValue).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.warrantyExpiryDate && (
+                      <div>
+                        <Label className="text-muted-foreground">Warranty Expiry</Label>
+                        <p className="font-medium">{new Date(selectedInventoryItem.warrantyExpiryDate).toLocaleDateString()}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Maintenance Information */}
+              {(selectedInventoryItem.lastMaintenanceDate || selectedInventoryItem.nextMaintenanceDate || selectedInventoryItem.maintenanceNotes) && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Maintenance</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {selectedInventoryItem.lastMaintenanceDate && (
+                      <div>
+                        <Label className="text-muted-foreground">Last Maintenance</Label>
+                        <p className="font-medium">{new Date(selectedInventoryItem.lastMaintenanceDate).toLocaleDateString()}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.nextMaintenanceDate && (
+                      <div>
+                        <Label className="text-muted-foreground">Next Maintenance</Label>
+                        <p className="font-medium">{new Date(selectedInventoryItem.nextMaintenanceDate).toLocaleDateString()}</p>
+                      </div>
+                    )}
+                    {selectedInventoryItem.maintenanceNotes && (
+                      <div className="col-span-2">
+                        <Label className="text-muted-foreground">Maintenance Notes</Label>
+                        <p className="font-medium whitespace-pre-wrap">{selectedInventoryItem.maintenanceNotes}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Photos */}
+              {selectedInventoryItem.photos && selectedInventoryItem.photos.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Photos</h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    {selectedInventoryItem.photos.map((photo, index) => (
+                      <img
+                        key={index}
+                        src={photo}
+                        alt={`${selectedInventoryItem.name} - Photo ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-md border"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setInventoryDialogOpen(false)}
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    setInventoryDialogOpen(false);
+                    window.location.href = `/asset-inventory?propertyId=${propertyId}`;
+                  }}
+                >
+                  Edit in Inventory
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -260,7 +260,13 @@ export default function InspectionCapture() {
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate entries query to ensure report page gets fresh data
       queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+      // Also invalidate inspection query
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+      // Force immediate refetch for any active queries (like report page)
+      queryClient.refetchQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+      queryClient.refetchQueries({ queryKey: ["/api/inspections", id] });
     },
     onError: (error: Error) => {
       toast({

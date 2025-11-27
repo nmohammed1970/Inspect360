@@ -1,5 +1,6 @@
 import { useParams, useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -105,6 +106,7 @@ export default function InspectionReport() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [editMode, setEditMode] = useState(false);
   const [editedNotes, setEditedNotes] = useState<Record<string, string>>({});
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
@@ -119,16 +121,70 @@ export default function InspectionReport() {
     priority: "medium" as "low" | "medium" | "high" | "urgent",
   });
 
-  // Fetch inspection data
-  const { data: inspection, isLoading: inspectionLoading } = useQuery<Inspection>({
+  // Fetch inspection data - refetch on mount to ensure fresh data
+  const { data: inspection, isLoading: inspectionLoading, refetch: refetchInspection } = useQuery<Inspection>({
     queryKey: ["/api/inspections", id],
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 0, // Always consider data stale
+    gcTime: 0, // Don't cache (gcTime replaces cacheTime in newer versions)
+    // Poll for updates every 1 second for real-time updates
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true, // Continue polling even when tab is in background
   });
 
-  // Fetch all inspection entries
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<any[]>({
+  // Fetch all inspection entries - refetch on mount to ensure fresh data including new photos and AI notes
+  const { data: entries = [], isLoading: entriesLoading, refetch: refetchEntries } = useQuery<any[]>({
     queryKey: [`/api/inspections/${id}/entries`],
     enabled: !!id,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 0, // Always consider data stale
+    gcTime: 0, // Don't cache (gcTime replaces cacheTime in newer versions)
+    // Poll for updates every 1 second for real-time updates
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true, // Continue polling even when tab is in background
   });
+
+  // Refetch entries when component mounts or when page becomes visible to ensure we have the latest data
+  useEffect(() => {
+    if (id) {
+      // Immediately invalidate and refetch to get latest data
+      const refetchData = async () => {
+        await queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+        // Force immediate refetch
+        await Promise.all([
+          refetchEntries(),
+          refetchInspection(),
+        ]);
+      };
+      refetchData();
+      
+      // Set up interval to continuously refetch every second
+      const interval = setInterval(() => {
+        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+        queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+        refetchEntries();
+        refetchInspection();
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [id, queryClient, refetchEntries, refetchInspection]);
+
+  // Also refetch when page becomes visible (user switches back to tab)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && id) {
+        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+        refetchEntries();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [id, queryClient, refetchEntries]);
 
   // Fetch user role for edit permissions
   const { data: currentUser } = useQuery<any>({
@@ -249,8 +305,8 @@ export default function InspectionReport() {
   const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
 
-  // Initialize edited notes from entries
-  useState(() => {
+  // Initialize edited notes from entries - update when entries change
+  useEffect(() => {
     const initialNotes: Record<string, string> = {};
     entries.forEach((entry: any) => {
       const key = `${entry.sectionRef}-${entry.fieldKey}`;
@@ -259,7 +315,7 @@ export default function InspectionReport() {
       }
     });
     setEditedNotes(initialNotes);
-  });
+  }, [entries]);
 
   // Save edited notes mutation
   const saveNotesMutation = useMutation({
@@ -890,15 +946,21 @@ export default function InspectionReport() {
                             <div className="space-y-2">
                               <div className="text-sm font-medium">Photos</div>
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                {entry.photos.map((photo: string, idx: number) => (
-                                  <img
-                                    key={idx}
-                                    src={photo}
-                                    alt={`${field.label} - Photo ${idx + 1}`}
-                                    className="w-full h-40 object-cover rounded-lg border"
-                                    data-testid={`photo-${field.id || field.key}-${idx}`}
-                                  />
-                                ))}
+                                {entry.photos.map((photo: string, idx: number) => {
+                                  // Ensure photo URL is correct
+                                  const photoUrl = photo.startsWith('/objects/') || photo.startsWith('http') 
+                                    ? photo 
+                                    : `/objects/${photo}`;
+                                  return (
+                                    <img
+                                      key={`${entry.id}-${idx}-${photo}`}
+                                      src={photoUrl}
+                                      alt={`${field.label} - Photo ${idx + 1}`}
+                                      className="w-full h-40 object-cover rounded-lg border"
+                                      data-testid={`photo-${field.id || field.key}-${idx}`}
+                                    />
+                                  );
+                                })}
                               </div>
                             </div>
                           )}

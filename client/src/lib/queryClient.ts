@@ -28,9 +28,19 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: data 
+      ? { 
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
+        } 
+      : {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
+        },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
+    cache: "no-store", // Never cache
   });
 
   await throwIfResNotOk(res);
@@ -43,8 +53,19 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    // Add cache-busting headers to prevent any caching
+    const url = queryKey.join("/") as string;
+    const cacheBuster = `?t=${Date.now()}`;
+    const urlWithCacheBuster = url.includes('?') ? `${url}&_t=${Date.now()}` : `${url}${cacheBuster}`;
+    
+    const res = await fetch(urlWithCacheBuster, {
       credentials: "include",
+      cache: "no-store", // Never cache
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
