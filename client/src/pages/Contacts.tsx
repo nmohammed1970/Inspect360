@@ -169,6 +169,42 @@ export default function Contacts() {
     createTagMutation.mutate({ name: newTagName.trim(), color: randomColor });
   };
 
+  // Handle Enter key to move to next field instead of submitting
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && e.target instanceof HTMLElement) {
+      // Don't prevent default for textarea (allow new lines)
+      if (e.target.tagName === "TEXTAREA") {
+        return;
+      }
+      
+      e.preventDefault();
+      
+      // Get all focusable form elements
+      const form = e.currentTarget.closest('form');
+      if (!form) return;
+      
+      const focusableElements = form.querySelectorAll<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])'
+      );
+      
+      const currentIndex = Array.from(focusableElements).indexOf(e.target as HTMLElement);
+      
+      if (currentIndex !== -1 && currentIndex < focusableElements.length - 1) {
+        // Focus next element
+        const nextElement = focusableElements[currentIndex + 1];
+        // Skip submit buttons
+        if (nextElement.tagName === "BUTTON" && (nextElement as HTMLButtonElement).type === "submit") {
+          // If next is submit button, focus the one before it or stay on current
+          if (currentIndex > 0) {
+            focusableElements[currentIndex - 1]?.focus();
+          }
+        } else {
+          nextElement.focus();
+        }
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -346,6 +382,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.companyName || ""}
                       placeholder="Acme Corporation"
                       data-testid="input-company-name"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
                 </div>
@@ -360,6 +397,7 @@ export default function Contacts() {
                       required
                       placeholder="John"
                       data-testid="input-first-name"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
 
@@ -372,6 +410,7 @@ export default function Contacts() {
                       required
                       placeholder="Doe"
                       data-testid="input-last-name"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
                 </div>
@@ -386,6 +425,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.email || ""}
                       placeholder="john@example.com"
                       data-testid="input-email"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
 
@@ -397,6 +437,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.jobTitle || ""}
                       placeholder="Property Manager"
                       data-testid="input-job-title"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
                 </div>
@@ -432,6 +473,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.city || ""}
                       placeholder="New York"
                       data-testid="input-city"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
 
@@ -443,6 +485,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.state || ""}
                       placeholder="NY"
                       data-testid="input-state"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
 
@@ -454,6 +497,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.postalCode || ""}
                       placeholder="10001"
                       data-testid="input-postal-code"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
                 </div>
@@ -467,6 +511,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.country || ""}
                       placeholder="United States"
                       data-testid="input-country"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
 
@@ -479,6 +524,7 @@ export default function Contacts() {
                       defaultValue={editingContact?.website || ""}
                       placeholder="https://example.com"
                       data-testid="input-website"
+                      onKeyDown={handleKeyDown}
                     />
                   </div>
                 </div>
@@ -492,6 +538,7 @@ export default function Contacts() {
                     placeholder="Additional notes or information"
                     data-testid="input-notes"
                     rows={3}
+                    onKeyDown={handleKeyDown}
                   />
                 </div>
 

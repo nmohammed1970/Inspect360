@@ -11,6 +11,8 @@ import { useLocale } from "@/contexts/LocaleContext";
 interface ComparisonReport {
   id: string;
   propertyId: string;
+  checkInInspectionId?: string;
+  checkOutInspectionId?: string;
   status: string;
   totalEstimatedCost: string;
   tenantSignature: string | null;

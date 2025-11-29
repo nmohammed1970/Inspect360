@@ -170,7 +170,8 @@ export function FieldWidget({
   };
 
   const handlePhotoAdd = (photoUrl: string) => {
-    const newPhotos = field.type === "photo" ? [photoUrl] : [...localPhotos, photoUrl];
+    // Always allow multiple photos - append to existing photos
+    const newPhotos = [...localPhotos, photoUrl];
     setLocalPhotos(newPhotos);
     const composedValue = composeValue(localValue, localCondition, localCleanliness);
     onChange(composedValue, localNote || undefined, newPhotos);
@@ -267,7 +268,8 @@ export function FieldWidget({
   };
 
   const createPhotoUppy = () => {
-    const maxFiles = field.type === "photo" ? 1 : 10;
+    // Allow up to 10 photos for all photo field types
+    const maxFiles = 10;
     const uppy = new Uppy({
       restrictions: {
         maxNumberOfFiles: maxFiles,
@@ -821,7 +823,6 @@ export function FieldWidget({
               type="button"
               variant="outline"
               onClick={() => setShowPhotoUpload(true)}
-              disabled={field.type === "photo" && localPhotos.length >= 1}
               data-testid={`button-upload-photo-${field.id}`}
             >
               <Upload className="w-4 h-4 mr-2" />

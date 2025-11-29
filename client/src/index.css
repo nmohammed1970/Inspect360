@@ -457,18 +457,40 @@
 
   /* Fix Google Maps Autocomplete dropdown z-index to appear above dialogs */
   .pac-container {
-    z-index: 10000 !important;
+    z-index: 99999 !important;
     position: absolute !important;
     pointer-events: auto !important;
+    box-shadow: 0 4px 12px -1px rgb(0 0 0 / 0.15), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+    border-radius: 0.5rem !important;
+    overflow: hidden !important;
+    margin-top: 4px !important;
   }
 
   .pac-item {
     cursor: pointer !important;
     pointer-events: auto !important;
     user-select: none !important;
+    padding: 0.75rem 1rem !important;
+    border-bottom: 1px solid hsl(var(--border)) !important;
+    transition: background-color 150ms ease-out !important;
+  }
+
+  .pac-item:last-child {
+    border-bottom: none !important;
   }
 
   .pac-item:hover {
-    background-color: #f0f0f0 !important;
+    background-color: hsl(var(--muted)) !important;
+  }
+
+  .pac-item-selected,
+  .pac-item-selected:hover {
+    background-color: hsl(var(--accent)) !important;
+    color: hsl(var(--accent-foreground)) !important;
+  }
+
+  /* Prevent clicks on pac-container from closing dialogs */
+  .pac-container * {
+    pointer-events: auto !important;
   }
 }

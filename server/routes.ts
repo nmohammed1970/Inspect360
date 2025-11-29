@@ -3713,14 +3713,62 @@ LIABILITY: [tenant/landlord/shared]`;
                    e.fieldKey === checkOutEntry.fieldKey
             );
 
+            // Log check-in entry matching for debugging
+            if (checkInEntry) {
+              console.log(`[ComparisonReport] Found matching check-in entry for ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}, photos: ${checkInEntry.photos?.length || 0}`);
+            } else {
+              console.log(`[ComparisonReport] No matching check-in entry found for ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}`);
+            }
+
             let aiComparison: any = { summary: "No images to compare" };
             let estimatedCost = 0;
             let depreciation = 0;
 
+            // Always get check-in photos, even if check-out has no photos
+            // Helper function to convert photo path to absolute URL
+            const convertPhotoToAbsoluteUrl = (photo: string): string => {
+              // If already absolute URL, return as-is
+              if (photo.startsWith("http://") || photo.startsWith("https://")) {
+                return photo;
+              }
+              // If data URL, return as-is
+              if (photo.startsWith("data:")) {
+                return photo;
+              }
+              // Convert relative path to absolute URL
+              // Photos are typically stored as /objects/... or objects/...
+              const photoPath = photo.startsWith('/') ? photo : `/${photo}`;
+              // We'll need to get the base URL from environment or construct it
+              // For now, return the path as-is and let the frontend handle it
+              // The frontend should be able to handle /objects/... paths
+              return photoPath;
+            };
+
+            // Get check-in photos - always include them even if empty
+            // Check both photos array and valueJson for photos
+            let checkInPhotosRaw: string[] = [];
+            if (checkInEntry) {
+              // First try photos column
+              if (checkInEntry.photos && Array.isArray(checkInEntry.photos) && checkInEntry.photos.length > 0) {
+                checkInPhotosRaw = checkInEntry.photos;
+              } 
+              // Also check valueJson for photos (for backward compatibility)
+              else if (checkInEntry.valueJson && typeof checkInEntry.valueJson === 'object') {
+                const valueJson = checkInEntry.valueJson as any;
+                if (Array.isArray(valueJson.photos)) {
+                  checkInPhotosRaw = valueJson.photos;
+                } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
+                  checkInPhotosRaw = [valueJson.photo];
+                }
+              }
+            }
+            
+            const checkInPhotos = checkInPhotosRaw.map(convertPhotoToAbsoluteUrl);
+            console.log(`[ComparisonReport] Check-in photos for ${checkOutEntry.fieldKey}: ${checkInPhotos.length} photos`);
+            
             // AI image comparison using OpenAI Vision API
             if (checkOutEntry.photos && checkOutEntry.photos.length > 0) {
               try {
-                const checkInPhotos = checkInEntry?.photos || [];
                 const checkOutPhotos = checkOutEntry.photos || [];
 
                 // Helper function to convert photo URL to base64 data URL if needed
@@ -3939,20 +3987,40 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                   // Use mid-point of cost range as estimate
                   estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) + 
                                    (aiComparison.estimated_cost_range?.max || 0)) / 2;
-                  // Add photos to the comparison object
-                  aiComparison.checkInPhotos = checkInEntry?.photos || [];
-                  aiComparison.checkOutPhotos = checkOutEntry.photos || [];
+                  // Add photos to the comparison object (always include check-in photos)
+                  aiComparison.checkInPhotos = checkInPhotos;
+                  aiComparison.checkOutPhotos = checkOutPhotos.map(convertPhotoToAbsoluteUrl);
                 } catch {
                   aiComparison = { 
                     summary: aiResponse,
-                    checkInPhotos: checkInEntry?.photos || [],
-                    checkOutPhotos: checkOutEntry.photos || []
+                    checkInPhotos: checkInPhotos,
+                    checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl)
                   };
                 }
                 }
               } catch (error) {
                 console.error("Error in AI comparison:", error);
-                aiComparison = { error: "Failed to analyze images" };
+                const checkOutPhotos = checkOutEntry.photos || [];
+                aiComparison = { 
+                  error: "Failed to analyze images",
+                  checkInPhotos: checkInPhotos,
+                  checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl)
+                };
+              }
+            } else {
+              // Even if check-out has no photos, still include check-in photos if available
+              if (checkInPhotos.length > 0) {
+                aiComparison = {
+                  summary: "Check-in photos available but no check-out photos for comparison",
+                  checkInPhotos: checkInPhotos,
+                  checkOutPhotos: []
+                };
+              } else {
+                aiComparison = {
+                  summary: "No images to compare",
+                  checkInPhotos: [],
+                  checkOutPhotos: []
+                };
               }
             }
 
@@ -4008,8 +4076,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             itemAnalyses.push({
               sectionRef: checkOutEntry.sectionRef,
               fieldKey: checkOutEntry.fieldKey,
-              checkInPhotos: checkInEntry?.photos || [],
-              checkOutPhotos: checkOutEntry.photos || [],
+              checkInPhotos: checkInPhotos,
+              checkOutPhotos: (checkOutEntry.photos || []).map(convertPhotoToAbsoluteUrl),
               aiComparison,
               estimatedCost,
               depreciation,
@@ -4116,7 +4184,65 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Get report items
       const items = await storage.getComparisonReportItems(id);
 
-      res.json({ ...report, items });
+      // Extract photos from aiComparisonJson and also fetch from entries if needed
+      const itemsWithPhotos = await Promise.all(items.map(async (item) => {
+        const aiComparison = item.aiComparisonJson || {};
+        let checkInPhotos = aiComparison.checkInPhotos || [];
+        let checkOutPhotos = aiComparison.checkOutPhotos || [];
+        
+        // If check-in photos are missing from aiComparisonJson, fetch from check-in entry
+        if ((!checkInPhotos || checkInPhotos.length === 0) && item.checkInEntryId) {
+          try {
+            const checkInEntry = await storage.getInspectionEntry(item.checkInEntryId);
+            if (checkInEntry) {
+              // Get photos from photos column or valueJson
+              if (checkInEntry.photos && Array.isArray(checkInEntry.photos) && checkInEntry.photos.length > 0) {
+                checkInPhotos = checkInEntry.photos;
+              } else if (checkInEntry.valueJson && typeof checkInEntry.valueJson === 'object') {
+                const valueJson = checkInEntry.valueJson as any;
+                if (Array.isArray(valueJson.photos)) {
+                  checkInPhotos = valueJson.photos;
+                } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
+                  checkInPhotos = [valueJson.photo];
+                }
+              }
+              console.log(`[ComparisonReport] Fetched ${checkInPhotos.length} check-in photos from entry ${item.checkInEntryId} for item ${item.id}`);
+            }
+          } catch (error) {
+            console.error(`[ComparisonReport] Error fetching check-in entry ${item.checkInEntryId}:`, error);
+          }
+        }
+        
+        // If check-out photos are missing from aiComparisonJson, fetch from check-out entry
+        if ((!checkOutPhotos || checkOutPhotos.length === 0) && item.checkOutEntryId) {
+          try {
+            const checkOutEntry = await storage.getInspectionEntry(item.checkOutEntryId);
+            if (checkOutEntry) {
+              // Get photos from photos column or valueJson
+              if (checkOutEntry.photos && Array.isArray(checkOutEntry.photos) && checkOutEntry.photos.length > 0) {
+                checkOutPhotos = checkOutEntry.photos;
+              } else if (checkOutEntry.valueJson && typeof checkOutEntry.valueJson === 'object') {
+                const valueJson = checkOutEntry.valueJson as any;
+                if (Array.isArray(valueJson.photos)) {
+                  checkOutPhotos = valueJson.photos;
+                } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
+                  checkOutPhotos = [valueJson.photo];
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`[ComparisonReport] Error fetching check-out entry ${item.checkOutEntryId}:`, error);
+          }
+        }
+        
+        return {
+          ...item,
+          checkInPhotos: checkInPhotos,
+          checkOutPhotos: checkOutPhotos,
+        };
+      }));
+
+      res.json({ ...report, items: itemsWithPhotos });
     } catch (error) {
       console.error("Error fetching comparison report:", error);
       res.status(500).json({ message: "Failed to fetch comparison report" });
@@ -12388,12 +12514,70 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Get report items
       const items = await storage.getComparisonReportItems(id);
 
+      // Extract photos from aiComparisonJson and also fetch from entries if needed
+      const itemsWithPhotos = await Promise.all(items.map(async (item) => {
+        const aiComparison = item.aiComparisonJson || {};
+        let checkInPhotos = aiComparison.checkInPhotos || [];
+        let checkOutPhotos = aiComparison.checkOutPhotos || [];
+        
+        // If check-in photos are missing from aiComparisonJson, fetch from check-in entry
+        if ((!checkInPhotos || checkInPhotos.length === 0) && item.checkInEntryId) {
+          try {
+            const checkInEntry = await storage.getInspectionEntry(item.checkInEntryId);
+            if (checkInEntry) {
+              // Get photos from photos column or valueJson
+              if (checkInEntry.photos && Array.isArray(checkInEntry.photos) && checkInEntry.photos.length > 0) {
+                checkInPhotos = checkInEntry.photos;
+              } else if (checkInEntry.valueJson && typeof checkInEntry.valueJson === 'object') {
+                const valueJson = checkInEntry.valueJson as any;
+                if (Array.isArray(valueJson.photos)) {
+                  checkInPhotos = valueJson.photos;
+                } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
+                  checkInPhotos = [valueJson.photo];
+                }
+              }
+              console.log(`[ComparisonReport] Fetched ${checkInPhotos.length} check-in photos from entry ${item.checkInEntryId} for item ${item.id}`);
+            }
+          } catch (error) {
+            console.error(`[ComparisonReport] Error fetching check-in entry ${item.checkInEntryId}:`, error);
+          }
+        }
+        
+        // If check-out photos are missing from aiComparisonJson, fetch from check-out entry
+        if ((!checkOutPhotos || checkOutPhotos.length === 0) && item.checkOutEntryId) {
+          try {
+            const checkOutEntry = await storage.getInspectionEntry(item.checkOutEntryId);
+            if (checkOutEntry) {
+              // Get photos from photos column or valueJson
+              if (checkOutEntry.photos && Array.isArray(checkOutEntry.photos) && checkOutEntry.photos.length > 0) {
+                checkOutPhotos = checkOutEntry.photos;
+              } else if (checkOutEntry.valueJson && typeof checkOutEntry.valueJson === 'object') {
+                const valueJson = checkOutEntry.valueJson as any;
+                if (Array.isArray(valueJson.photos)) {
+                  checkOutPhotos = valueJson.photos;
+                } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
+                  checkOutPhotos = [valueJson.photo];
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`[ComparisonReport] Error fetching check-out entry ${item.checkOutEntryId}:`, error);
+          }
+        }
+        
+        return {
+          ...item,
+          checkInPhotos: checkInPhotos,
+          checkOutPhotos: checkOutPhotos,
+        };
+      }));
+
       // Get property info
       const property = await storage.getProperty(report.propertyId);
 
       res.json({ 
         ...report, 
-        items,
+        items: itemsWithPhotos,
         property: property ? { id: property.id, name: property.name, address: property.address } : null,
       });
     } catch (error) {

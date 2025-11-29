@@ -33,9 +33,69 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, ClipboardList, Calendar, MapPin, User, Play, FileText, Filter } from "lucide-react";
+import { Plus, ClipboardList, Calendar, MapPin, User, Play, FileText, Filter, Sparkles } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
+
+// Component to display AI Analysis progress for an inspection
+function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
+  const { data: aiAnalysisStatus } = useQuery<{
+    status: "idle" | "processing" | "completed" | "failed";
+    progress: number;
+    totalFields: number;
+    error: string | null;
+  }>({
+    queryKey: [`/api/ai/analyze-inspection/${inspectionId}/status`],
+    enabled: !!inspectionId,
+    refetchInterval: (query) => {
+      // Poll every 3 seconds while processing
+      const status = query.state.data?.status;
+      return status === "processing" ? 3000 : false;
+    },
+  });
+
+  if (!aiAnalysisStatus || aiAnalysisStatus.status === "idle" || aiAnalysisStatus.status === "completed") {
+    return null;
+  }
+
+  if (aiAnalysisStatus.status === "failed") {
+    return (
+      <div className="rounded-md border border-destructive/20 bg-destructive/5 p-2">
+        <div className="flex items-center gap-2 text-xs text-destructive">
+          <Sparkles className="w-3 h-3" />
+          <span>AI Analysis Failed</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (aiAnalysisStatus.status === "processing") {
+    const progressPercent = aiAnalysisStatus.totalFields > 0
+      ? (aiAnalysisStatus.progress / aiAnalysisStatus.totalFields) * 100
+      : 0;
+
+    return (
+      <div className="rounded-md border border-primary/20 bg-primary/5 p-2 space-y-1.5">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-primary" />
+            <span>AI Analysing</span>
+          </span>
+          <span className="font-medium text-primary">
+            {aiAnalysisStatus.progress} / {aiAnalysisStatus.totalFields}
+          </span>
+        </div>
+        <Progress 
+          value={progressPercent} 
+          className="h-1.5"
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
 
 const createInspectionSchema = z.object({
   propertyId: z.string().min(1, "Property is required"),
@@ -556,6 +616,9 @@ export default function Inspections() {
                     </div>
                   )}
                 </div>
+                
+                {/* AI Analysis Progress */}
+                <InspectionAIAnalysisProgress inspectionId={inspection.id} />
                 
                 <div className="flex gap-2 flex-wrap">
                   {inspection.templateSnapshotJson && inspection.status !== "completed" && (

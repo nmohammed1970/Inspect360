@@ -123,16 +123,17 @@ export function PWAInstallPrompt() {
   const renderInstallInstructions = () => {
     if (deferredPrompt) {
       return (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
             Click the button below to install Inspect360 on your device for quick access and offline support.
           </p>
           <Button 
             onClick={handleInstallClick} 
-            className="w-full"
+            className="w-full text-xs h-8"
+            size="sm"
             data-testid="button-install-pwa"
           >
-            <Download className="w-4 h-4 mr-2" />
+            <Download className="w-3 h-3 mr-2" />
             Install Now
           </Button>
         </div>
@@ -141,11 +142,11 @@ export function PWAInstallPrompt() {
 
     if (deviceType === 'ios') {
       return (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
             Follow these steps to install Inspect360 on your iPhone or iPad:
           </p>
-          <ol className="space-y-2 text-sm">
+          <ol className="space-y-1.5 text-xs">
             <li className="flex items-start gap-2">
               <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
               <span>
@@ -175,11 +176,11 @@ export function PWAInstallPrompt() {
     if (deviceType === 'android') {
       if (browserType === 'chrome' || browserType === 'edge') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Follow these steps to install Inspect360 on your Android device:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -205,11 +206,11 @@ export function PWAInstallPrompt() {
 
       if (browserType === 'firefox') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Follow these steps to install Inspect360 using Firefox:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -233,11 +234,11 @@ export function PWAInstallPrompt() {
 
       if (browserType === 'samsung') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Follow these steps to install Inspect360 using Samsung Internet:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -261,11 +262,11 @@ export function PWAInstallPrompt() {
     if (deviceType === 'desktop') {
       if (browserType === 'chrome') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Follow these steps to install Inspect360 on your computer:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -288,11 +289,11 @@ export function PWAInstallPrompt() {
 
       if (browserType === 'edge') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Follow these steps to install Inspect360 on your computer:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -315,11 +316,11 @@ export function PWAInstallPrompt() {
 
       if (browserType === 'safari') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Follow these steps to add Inspect360 to your Dock:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -341,11 +342,11 @@ export function PWAInstallPrompt() {
 
       if (browserType === 'firefox') {
         return (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
               Firefox desktop doesn't support PWA installation natively. For the best experience:
             </p>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-1.5 text-xs">
               <li className="flex items-start gap-2">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
                 <span>
@@ -366,11 +367,11 @@ export function PWAInstallPrompt() {
     }
 
     return (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">
           To install Inspect360 on your device:
         </p>
-        <ol className="space-y-2 text-sm">
+        <ol className="space-y-1.5 text-xs">
           <li className="flex items-start gap-2">
             <Badge variant="secondary" className="mt-0.5 shrink-0">1</Badge>
             <span>Open the browser menu</span>
@@ -389,43 +390,43 @@ export function PWAInstallPrompt() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 md:left-4 md:right-auto md:max-w-sm" data-testid="pwa-install-prompt">
-      <Card className="shadow-lg border-2 border-primary/30 bg-card">
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Download className="w-5 h-5 text-primary" />
+    <div className="fixed bottom-4 left-0 z-50 w-[16rem] px-2" data-testid="pwa-install-prompt">
+      <Card className="shadow-lg border-2 border-primary/30 bg-card w-full overflow-hidden">
+        <CardHeader className="pb-2 px-2 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
+                <Download className="w-4 h-4 text-primary" />
               </div>
-              <div>
-                <CardTitle className="text-base">Install Inspect360</CardTitle>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <CardTitle className="text-sm font-semibold truncate">Install Inspect360</CardTitle>
                 <CardDescription className="text-xs flex items-center gap-1 mt-0.5">
                   {getDeviceIcon()}
-                  <span>{getBrowserName()}</span>
+                  <span className="truncate">{getBrowserName()}</span>
                 </CardDescription>
               </div>
             </div>
             <Button
               size="icon"
               variant="ghost"
-              className="h-8 w-8 shrink-0"
+              className="h-6 w-6 shrink-0"
               data-testid="button-toggle-install-instructions"
             >
               {isExpanded ? (
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-3 h-3" />
               ) : (
-                <ChevronUp className="w-4 h-4" />
+                <ChevronUp className="w-3 h-3" />
               )}
             </Button>
           </div>
         </CardHeader>
         {isExpanded && (
-          <CardContent className="pt-0 pb-4">
+          <CardContent className="pt-0 pb-3 px-2">
             {renderInstallInstructions()}
           </CardContent>
         )}
         {!isExpanded && (
-          <CardContent className="pt-0 pb-3">
+          <CardContent className="pt-0 pb-2 px-2">
             <p className="text-xs text-muted-foreground">
               Tap to see how to install the app on your device
             </p>

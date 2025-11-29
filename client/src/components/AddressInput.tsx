@@ -154,6 +154,16 @@ export function AddressInput({
     let mounted = true;
     let observer: MutationObserver | null = null;
     let fixPacContainerZIndex: (() => void) | null = null;
+    let handlePacContainerClick: ((e: Event) => void) | null = null;
+    let handleBlur: (() => void) | null = null;
+    let handleClickOutside: ((e: MouseEvent) => void) | null = null;
+    
+    // Update position on window resize/scroll - defined in outer scope for cleanup
+    const updatePositionOnScroll = () => {
+      if (fixPacContainerZIndex) {
+        fixPacContainerZIndex();
+      }
+    };
 
     const initializeAutocomplete = async () => {
       try {
@@ -196,6 +206,33 @@ export function AddressInput({
         // Test that autocomplete is working
         console.log('[AddressInput] Autocomplete instance created:', !!autocomplete);
 
+        // Handler to prevent clicks on pac-container from propagating
+        handlePacContainerClick = (e: Event) => {
+          e.stopPropagation();
+          // Don't prevent default - allow Google's click handler to run
+          // This ensures the address selection works properly
+        };
+
+        // Helper function to extract city and country from address
+        const extractCityAndCountry = (address: string) => {
+          const parts = address.split(',').map(p => p.trim()).filter(p => p.length > 0);
+          let city = '';
+          let country = '';
+          
+          if (parts.length >= 2) {
+            // Last part is country
+            country = parts[parts.length - 1];
+            // Second to last part is city (may include postal code like "London W1F")
+            city = parts[parts.length - 2];
+          } else if (parts.length === 1) {
+            // Only one part, assume it's the address without city/country
+            city = '';
+            country = '';
+          }
+          
+          return { city, country };
+        };
+
         // Handle place selection
         autocomplete.addListener('place_changed', () => {
           const place = autocomplete.getPlace();
@@ -206,25 +243,94 @@ export function AddressInput({
             if (onChange) {
               onChange(addressValue);
             }
+            
+            // Extract city and country from the address
+            const { city, country } = extractCityAndCountry(addressValue);
+            
+            // Update city field if it exists
+            if (city) {
+              const cityField = document.querySelector('input[name="city"]') as HTMLInputElement;
+              if (cityField) {
+                cityField.value = city;
+                cityField.dispatchEvent(new Event('input', { bubbles: true }));
+                cityField.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }
+            
+            // Update country field if it exists
+            if (country) {
+              const countryField = document.querySelector('input[name="country"]') as HTMLInputElement;
+              if (countryField) {
+                countryField.value = country;
+                countryField.dispatchEvent(new Event('input', { bubbles: true }));
+                countryField.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }
+            
             // Update form field if name is provided
             if (name && inputRef.current) {
               inputRef.current.value = addressValue;
-              // Trigger input event for form libraries
+              // Trigger multiple events to ensure form libraries pick it up
               inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+              inputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
+              // Also trigger React's synthetic event
+              const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype,
+                'value'
+              )?.set;
+              if (nativeInputValueSetter) {
+                nativeInputValueSetter.call(inputRef.current, addressValue);
+                const event = new Event('input', { bubbles: true });
+                inputRef.current.dispatchEvent(event);
+              }
             }
+            
+            // Hide the autocomplete dropdown after selection
+            setTimeout(() => {
+              const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+              if (pacContainer) {
+                pacContainer.style.display = 'none';
+              }
+            }, 100);
           }
         });
 
-        // Fix z-index for Google Maps Autocomplete dropdown to appear above dialogs
-        // The pac-container is created by Google Maps, we need to ensure it has proper z-index
+        // Fix z-index and positioning for Google Maps Autocomplete dropdown
+        // The pac-container is created by Google Maps, we need to ensure it has proper z-index and positioning
         fixPacContainerZIndex = () => {
           const pacContainer = document.querySelector('.pac-container') as HTMLElement;
-          if (pacContainer) {
-            pacContainer.style.zIndex = '9999';
-            pacContainer.style.position = 'absolute';
+          if (pacContainer && inputRef.current) {
+            // Only show if input is focused
+            if (inputRef.current !== document.activeElement) {
+              pacContainer.style.display = 'none';
+              return;
+            }
+            
+            // Get input position relative to viewport
+            const inputRect = inputRef.current.getBoundingClientRect();
+            
+            pacContainer.style.zIndex = '99999';
+            pacContainer.style.position = 'fixed';
+            pacContainer.style.left = `${inputRect.left}px`;
+            pacContainer.style.top = `${inputRect.bottom + 4}px`;
+            pacContainer.style.width = `${inputRect.width}px`;
+            pacContainer.style.maxWidth = `${inputRect.width}px`;
+            pacContainer.style.display = 'block';
             // Ensure pointer events work
             pacContainer.style.pointerEvents = 'auto';
-            console.log('[AddressInput] Fixed pac-container z-index to 9999');
+            
+            // Prevent clicks on pac-container from closing dialogs
+            // Remove existing listeners to avoid duplicates
+            pacContainer.removeEventListener('mousedown', handlePacContainerClick);
+            pacContainer.removeEventListener('click', handlePacContainerClick);
+            pacContainer.removeEventListener('touchstart', handlePacContainerClick);
+            
+            // Add click handlers to prevent event propagation (use capture phase)
+            pacContainer.addEventListener('mousedown', handlePacContainerClick, true);
+            pacContainer.addEventListener('click', handlePacContainerClick, true);
+            pacContainer.addEventListener('touchstart', handlePacContainerClick, true);
+            
+            console.log('[AddressInput] Fixed pac-container positioning and z-index');
           }
         };
 
@@ -232,7 +338,21 @@ export function AddressInput({
         fixPacContainerZIndex();
         
         // Use MutationObserver to fix z-index when dropdown is created/shown
+        // Also hide it if input is not focused or user is not typing
         observer = new MutationObserver(() => {
+          const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+          if (pacContainer && inputRef.current) {
+            // If input is not focused, hide the dropdown immediately
+            if (inputRef.current !== document.activeElement) {
+              pacContainer.style.display = 'none';
+              return; // Don't show it if not focused
+            }
+            // Also hide if input is empty (user hasn't typed anything)
+            if (inputRef.current.value.length === 0) {
+              pacContainer.style.display = 'none';
+              return;
+            }
+          }
           if (fixPacContainerZIndex) {
             fixPacContainerZIndex();
           }
@@ -243,12 +363,82 @@ export function AddressInput({
           childList: true,
           subtree: true,
         });
-
-        // Also fix on input focus (when dropdown might appear)
+        
+        // Also fix on input focus/input/blur (when dropdown might appear or needs repositioning)
         if (inputRef.current && fixPacContainerZIndex) {
-          inputRef.current.addEventListener('focus', fixPacContainerZIndex);
-          inputRef.current.addEventListener('input', fixPacContainerZIndex);
+          const updatePosition = () => {
+            // Small delay to ensure pac-container is created
+            setTimeout(() => {
+              if (fixPacContainerZIndex) {
+                fixPacContainerZIndex();
+              }
+            }, 50);
+          };
+          
+          // Don't show dropdown on focus - only when typing
+          inputRef.current.addEventListener('focus', () => {
+            // Hide dropdown on focus if there's no text or user hasn't started typing
+            const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+            if (pacContainer) {
+              pacContainer.style.display = 'none';
+            }
+          });
+          
+          // Show dropdown only when user is actively typing
+          inputRef.current.addEventListener('input', (e) => {
+            const target = e.target as HTMLInputElement;
+            updatePosition();
+            // Show dropdown only when typing (has text and is focused)
+            if (target.value.length > 0 && inputRef.current === document.activeElement) {
+              setTimeout(() => {
+                const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+                if (pacContainer) {
+                  pacContainer.style.display = 'block';
+                  if (fixPacContainerZIndex) {
+                    fixPacContainerZIndex();
+                  }
+                }
+              }, 100);
+            } else {
+              // Hide dropdown if input is cleared or not focused
+              const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+              if (pacContainer) {
+                pacContainer.style.display = 'none';
+              }
+            }
+          });
+          
+          // Hide pac-container immediately when input loses focus
+          handleBlur = () => {
+            // Close dropdown immediately when field loses focus
+            const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+            if (pacContainer) {
+              pacContainer.style.display = 'none';
+            }
+          };
+          
+          inputRef.current.addEventListener('blur', handleBlur);
+          
+          // Also hide on any click outside the input
+          handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (inputRef.current && 
+                target !== inputRef.current && 
+                !target.closest('.pac-container') &&
+                inputRef.current !== document.activeElement) {
+              const pacContainer = document.querySelector('.pac-container') as HTMLElement;
+              if (pacContainer) {
+                pacContainer.style.display = 'none';
+              }
+            }
+          };
+          
+          // Listen for clicks on the document to hide dropdown when clicking elsewhere
+          document.addEventListener('click', handleClickOutside, true);
         }
+        
+        window.addEventListener('scroll', updatePositionOnScroll, true);
+        window.addEventListener('resize', updatePositionOnScroll);
 
         setIsLoading(false);
         console.log('[AddressInput] Autocomplete setup complete - ready for user input');
@@ -275,10 +465,29 @@ export function AddressInput({
         observer.disconnect();
         observer = null;
       }
+      // Cleanup window event listeners
+      window.removeEventListener('scroll', updatePositionOnScroll, true);
+      window.removeEventListener('resize', updatePositionOnScroll);
       // Cleanup event listeners
-      if (inputRef.current && fixPacContainerZIndex) {
-        inputRef.current.removeEventListener('focus', fixPacContainerZIndex);
-        inputRef.current.removeEventListener('input', fixPacContainerZIndex);
+      if (inputRef.current && handleBlur) {
+        inputRef.current.removeEventListener('blur', handleBlur);
+      }
+      
+      // Remove click outside listener
+      if (handleClickOutside) {
+        document.removeEventListener('click', handleClickOutside, true);
+      }
+      
+      // Cleanup and hide pac-container
+      const pacContainerForCleanup = document.querySelector('.pac-container') as HTMLElement;
+      if (pacContainerForCleanup) {
+        if (handlePacContainerClick) {
+          pacContainerForCleanup.removeEventListener('mousedown', handlePacContainerClick, true);
+          pacContainerForCleanup.removeEventListener('click', handlePacContainerClick, true);
+          pacContainerForCleanup.removeEventListener('touchstart', handlePacContainerClick, true);
+        }
+        // Hide the pac-container when component unmounts
+        pacContainerForCleanup.style.display = 'none';
       }
       // Cleanup autocomplete
       if (autocompleteRef.current) {

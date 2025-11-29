@@ -30,6 +30,8 @@ interface ComparisonReport {
   id: string;
   propertyId: string;
   tenantId: string;
+  checkInInspectionId: string;
+  checkOutInspectionId: string;
   status: "draft" | "under_review" | "awaiting_signatures" | "signed" | "filed";
   totalEstimatedCost: string;
   operatorSignature: string | null;
