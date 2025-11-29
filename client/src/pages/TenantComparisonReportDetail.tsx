@@ -294,7 +294,7 @@ export default function TenantComparisonReportDetail() {
                       <h4 className="text-sm font-medium text-muted-foreground">Check-In (Move In)</h4>
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkInPhotos && item.checkInPhotos.length > 0 ? (
-                          item.checkInPhotos.slice(0, 2).map((photo, idx) => (
+                          item.checkInPhotos.map((photo, idx) => (
                             <img
                               key={idx}
                               src={photo}
@@ -313,7 +313,7 @@ export default function TenantComparisonReportDetail() {
                       <h4 className="text-sm font-medium text-muted-foreground">Check-Out (Move Out)</h4>
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkOutPhotos && item.checkOutPhotos.length > 0 ? (
-                          item.checkOutPhotos.slice(0, 2).map((photo, idx) => (
+                          item.checkOutPhotos.map((photo, idx) => (
                             <img
                               key={idx}
                               src={photo}

@@ -24,14 +24,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  ArrowLeft, 
-  Printer, 
-  Download, 
-  Edit2, 
-  Save, 
-  X, 
-  AlertTriangle, 
+import {
+  ArrowLeft,
+  Printer,
+  Download,
+  Edit2,
+  Save,
+  X,
+  AlertTriangle,
   FileText,
   Calendar,
   User,
@@ -160,7 +160,7 @@ export default function InspectionReport() {
         ]);
       };
       refetchData();
-      
+
       // Set up interval to continuously refetch every second
       const interval = setInterval(() => {
         queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
@@ -168,7 +168,7 @@ export default function InspectionReport() {
         refetchEntries();
         refetchInspection();
       }, 1000);
-      
+
       return () => clearInterval(interval);
     }
   }, [id, queryClient, refetchEntries, refetchInspection]);
@@ -260,12 +260,12 @@ export default function InspectionReport() {
       if (!inspection?.propertyId) {
         throw new Error("This inspection must be assigned to a property before creating a comparison report");
       }
-      
+
       const response = await fetch(`/api/comparison-reports/auto`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           propertyId: inspection.propertyId,
           checkOutInspectionId: context.inspectionId,
           fieldKey: context.fieldKey
@@ -398,7 +398,7 @@ export default function InspectionReport() {
 
   const handlePrint = async () => {
     if (!inspection) return;
-    
+
     try {
       toast({
         title: "Generating PDF",
@@ -485,9 +485,9 @@ export default function InspectionReport() {
         break;
       case "signature":
         displayValue = actualValue ? (
-          <img 
-            src={actualValue} 
-            alt="Signature" 
+          <img
+            src={actualValue}
+            alt="Signature"
             className="max-w-md h-32 object-contain border rounded bg-background p-2"
           />
         ) : (
@@ -499,26 +499,30 @@ export default function InspectionReport() {
         if (typeof actualValue === 'object' && actualValue !== null) {
           // If it's still an object, try to stringify it nicely or show a message
           if (Array.isArray(actualValue)) {
-            displayValue = actualValue.length > 0 
-              ? actualValue.join(", ") 
+            displayValue = actualValue.length > 0
+              ? actualValue.join(", ")
               : <span className="text-muted-foreground italic">Empty list</span>;
           } else {
-            // Try to extract meaningful data from the object with error handling
+            // Format object as bullet points instead of JSON
             try {
-              // Check if object has a meaningful toString or specific properties to display
-              const jsonStr = JSON.stringify(actualValue, null, 2);
-              if (jsonStr && jsonStr !== '{}' && jsonStr !== 'null') {
+              const entries = Object.entries(actualValue).filter(([_, v]) => v !== null && v !== undefined && v !== '');
+              if (entries.length > 0) {
                 displayValue = (
-                  <pre className="text-sm bg-muted p-2 rounded whitespace-pre-wrap break-words">
-                    {jsonStr}
-                  </pre>
+                  <ul className="list-disc list-inside space-y-1 text-sm">
+                    {entries.map(([key, value]) => (
+                      <li key={key}>
+                        <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span>{' '}
+                        <span>{String(value)}</span>
+                      </li>
+                    ))}
+                  </ul>
                 );
               } else {
                 displayValue = <span className="text-muted-foreground italic">No data</span>;
               }
             } catch (error) {
-              // Handle circular references or other JSON.stringify errors
-              console.warn('Failed to stringify field value:', error);
+              // Handle circular references or other errors
+              console.warn('Failed to format field value:', error);
               displayValue = <span className="text-muted-foreground italic">Complex data structure</span>;
             }
           }
@@ -657,9 +661,9 @@ export default function InspectionReport() {
         <div className="space-y-12 max-w-2xl mx-auto">
           {/* Logo */}
           <div className="flex justify-center mb-16">
-            <img 
+            <img
               src={new URL("@assets/Inspect360 Logo_1761302629835.png", import.meta.url).href}
-              alt="Inspect360 Logo" 
+              alt="Inspect360 Logo"
               className="h-24 w-auto"
             />
           </div>
@@ -710,9 +714,9 @@ export default function InspectionReport() {
             <div className="space-y-2 pt-6">
               <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Inspection Date</div>
               <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
-                {inspection.completedDate 
+                {inspection.completedDate
                   ? format(new Date(inspection.completedDate), "MMMM dd, yyyy")
-                  : inspection.scheduledDate 
+                  : inspection.scheduledDate
                     ? format(new Date(inspection.scheduledDate), "MMMM dd, yyyy")
                     : "Not Scheduled"}
               </div>
@@ -722,10 +726,10 @@ export default function InspectionReport() {
             {inspection.status && (
               <div className="pt-6">
                 <div className="inline-block px-6 py-2 text-sm font-semibold uppercase tracking-wide border-2 rounded-lg"
-                     style={{ 
-                       borderColor: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF',
-                       color: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF'
-                     }}>
+                  style={{
+                    borderColor: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF',
+                    color: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF'
+                  }}>
                   {inspection.status.replace(/_/g, ' ')}
                 </div>
               </div>
@@ -873,9 +877,9 @@ export default function InspectionReport() {
                 <div>
                   <div className="text-sm font-medium">Inspection Date</div>
                   <div className="text-sm text-muted-foreground">
-                    {inspection.completedDate 
+                    {inspection.completedDate
                       ? format(new Date(inspection.completedDate), "MMMM dd, yyyy")
-                      : inspection.scheduledDate 
+                      : inspection.scheduledDate
                         ? format(new Date(inspection.scheduledDate), "MMMM dd, yyyy")
                         : "Not scheduled"}
                   </div>
@@ -902,7 +906,7 @@ export default function InspectionReport() {
         ) : (
           sections.map((section) => {
             const sectionEntries = entries.filter(e => e.sectionRef === section.id);
-            
+
             return (
               <Card key={section.id} className="print-break-inside-avoid" data-testid={`section-${section.id}`}>
                 <CardHeader>
@@ -915,11 +919,11 @@ export default function InspectionReport() {
                   {section.fields.map((field) => {
                     const entry = getEntryValue(section.id, field.id || field.key || field.label);
                     const entryKey = `${section.id}-${field.id || field.key || field.label}`;
-                    
+
                     if (!entry && !editMode) return null; // Hide unfilled fields in view mode
 
                     return (
-                      <div 
+                      <div
                         key={field.id || field.key || field.label}
                         className="border-b pb-6 last:border-b-0 last:pb-0"
                         data-testid={`field-${field.id || field.key}`}
@@ -948,8 +952,8 @@ export default function InspectionReport() {
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                 {entry.photos.map((photo: string, idx: number) => {
                                   // Ensure photo URL is correct
-                                  const photoUrl = photo.startsWith('/objects/') || photo.startsWith('http') 
-                                    ? photo 
+                                  const photoUrl = photo.startsWith('/objects/') || photo.startsWith('http')
+                                    ? photo
                                     : `/objects/${photo}`;
                                   return (
                                     <img
@@ -1005,9 +1009,9 @@ export default function InspectionReport() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => autoCreateComparisonMutation.mutate({ 
-                                    inspectionId: id!, 
-                                    fieldKey: field.id || field.key 
+                                  onClick={() => autoCreateComparisonMutation.mutate({
+                                    inspectionId: id!,
+                                    fieldKey: field.id || field.key
                                   })}
                                   disabled={autoCreateComparisonMutation.isPending}
                                   data-testid={`button-comparison-${field.id || field.key}`}
@@ -1053,8 +1057,8 @@ export default function InspectionReport() {
                                           <div className="flex items-center gap-2 mt-2">
                                             <Badge variant={
                                               request.status === 'open' ? 'default' :
-                                              request.status === 'in_progress' ? 'secondary' :
-                                              request.status === 'resolved' ? 'outline' : 'default'
+                                                request.status === 'in_progress' ? 'secondary' :
+                                                  request.status === 'resolved' ? 'outline' : 'default'
                                             }>
                                               {request.status}
                                             </Badge>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import SignatureCanvas from "react-signature-canvas";
 import {
   Select,
   SelectContent,
@@ -17,12 +18,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { 
-  FileText, 
-  ArrowLeft, 
-  MessageSquare, 
-  Pen, 
-  TrendingDown, 
+import {
+  FileText,
+  ArrowLeft,
+  MessageSquare,
+  Pen,
+  TrendingDown,
   Calculator,
   Image as ImageIcon,
   AlertCircle,
@@ -38,7 +39,8 @@ import {
   Download,
   Loader2,
   Mail,
-  Paperclip
+  Paperclip,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -127,7 +129,8 @@ export default function ComparisonReportDetail() {
   const locale = useLocale();
   const [commentText, setCommentText] = useState("");
   const [isInternalComment, setIsInternalComment] = useState(false);
-  const [signatureName, setSignatureName] = useState("");
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const signaturePadRef = useRef<SignatureCanvas>(null);
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [itemEdits, setItemEdits] = useState<Record<string, any>>({});
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -137,17 +140,17 @@ export default function ComparisonReportDetail() {
   // Download comparison report as PDF
   const handleDownloadPdf = async () => {
     if (!id) return;
-    
+
     setIsDownloadingPdf(true);
     try {
       const response = await fetch(`/api/comparison-reports/${id}/pdf`, {
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to generate PDF');
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -157,7 +160,7 @@ export default function ComparisonReportDetail() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-      
+
       toast({
         title: "PDF Downloaded",
         description: "Your comparison report has been downloaded successfully.",
@@ -177,19 +180,19 @@ export default function ComparisonReportDetail() {
   // Send comparison report to finance department
   const handleSendToFinance = async () => {
     if (!id) return;
-    
+
     setIsSendingToFinance(true);
     try {
       const response = await apiRequest("POST", `/api/comparison-reports/${id}/send-to-finance`, {
         includePdf: includeAttachmentForFinance,
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.message || 'Failed to send report');
       }
-      
+
       toast({
         title: "Sent to Finance",
         description: data.message || "The liability summary has been sent to your finance department.",
@@ -270,9 +273,9 @@ export default function ComparisonReportDetail() {
 
   const addCommentMutation = useMutation({
     mutationFn: async ({ content, isInternal }: { content: string; isInternal: boolean }) => {
-      const response = await apiRequest("POST", `/api/comparison-reports/${id}/comments`, { 
+      const response = await apiRequest("POST", `/api/comparison-reports/${id}/comments`, {
         content,
-        isInternal 
+        isInternal
       });
       return response.json();
     },
@@ -293,7 +296,10 @@ export default function ComparisonReportDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/comparison-reports", id] });
-      setSignatureName("");
+      setSignatureDataUrl(null);
+      if (signaturePadRef.current) {
+        signaturePadRef.current.clear();
+      }
       toast({ title: "Report Signed", description: "Your electronic signature has been recorded." });
     },
     onError: (error: any) => {
@@ -301,7 +307,29 @@ export default function ComparisonReportDetail() {
     },
   });
 
+  const handleClearSignature = () => {
+    if (signaturePadRef.current) {
+      signaturePadRef.current.clear();
+      setSignatureDataUrl(null);
+    }
+  };
+
+  const handleSignReport = () => {
+    if (signaturePadRef.current && !signaturePadRef.current.isEmpty()) {
+      const signatureData = signaturePadRef.current.toDataURL();
+      setSignatureDataUrl(signatureData);
+      signMutation.mutate(signatureData);
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Signature Required",
+        description: "Please draw your signature before signing the report.",
+      });
+    }
+  };
+
   const handleEditItem = (item: ComparisonReportItem) => {
+    const aiAnalysis = item.aiComparisonJson || {};
     setEditingItem(item.id);
     setItemEdits({
       status: item.status || "pending",
@@ -309,11 +337,33 @@ export default function ComparisonReportDetail() {
       estimatedCost: item.estimatedCost || "0",
       depreciation: item.depreciation || "0",
       finalCost: item.finalCost || "0",
+      notesComparison: aiAnalysis.notes_comparison || "",
     });
   };
 
   const handleSaveItem = (itemId: string) => {
-    updateItemMutation.mutate({ itemId, updates: itemEdits });
+    // Get the current item to update aiComparisonJson
+    const item = report?.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    const aiComparisonJson = item.aiComparisonJson || {};
+    const updates: any = {
+      status: itemEdits.status,
+      liabilityDecision: itemEdits.liabilityDecision,
+      estimatedCost: itemEdits.estimatedCost,
+      depreciation: itemEdits.depreciation,
+      finalCost: itemEdits.finalCost,
+    };
+
+    // Update notes_comparison in aiComparisonJson if it was edited
+    if (itemEdits.notesComparison !== undefined) {
+      updates.aiComparisonJson = {
+        ...aiComparisonJson,
+        notes_comparison: itemEdits.notesComparison,
+      };
+    }
+
+    updateItemMutation.mutate({ itemId, updates });
   };
 
   const recalculateFinalCost = () => {
@@ -356,7 +406,7 @@ export default function ComparisonReportDetail() {
   const statusInfo = statusConfig[report.status] || statusConfig.draft;
   const totalCost = parseFloat(report.totalEstimatedCost || "0");
   const isOperator = user?.role === "owner" || user?.role === "clerk";
-  const canSign = isOperator && !report.operatorSignature && 
+  const canSign = isOperator && !report.operatorSignature &&
     (report.status === "awaiting_signatures" || report.status === "under_review");
   const canEdit = isOperator && report.status !== "signed" && report.status !== "filed";
 
@@ -464,6 +514,7 @@ export default function ComparisonReportDetail() {
             const finalCost = isEditing ? parseFloat(itemEdits.finalCost || "0") : parseFloat(item.finalCost || "0");
             const currentStatus = isEditing ? itemEdits.status : (item.status || "pending");
             const currentLiability = isEditing ? itemEdits.liabilityDecision : (item.liabilityDecision || "tenant");
+            const currentNotesComparison = isEditing ? (itemEdits.notesComparison || "") : (aiAnalysis.notes_comparison || "");
 
             return (
               <div key={item.id} className="space-y-4 pb-6 border-b last:border-b-0" data-testid={`item-${item.id}`}>
@@ -573,7 +624,7 @@ export default function ComparisonReportDetail() {
                       <h4 className="text-sm font-medium text-muted-foreground">Check-In Photos</h4>
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkInPhotos && item.checkInPhotos.length > 0 ? (
-                          item.checkInPhotos.slice(0, 2).map((photo, idx) => (
+                          item.checkInPhotos.map((photo, idx) => (
                             <img
                               key={idx}
                               src={photo}
@@ -592,7 +643,7 @@ export default function ComparisonReportDetail() {
                       <h4 className="text-sm font-medium text-muted-foreground">Check-Out Photos</h4>
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkOutPhotos && item.checkOutPhotos.length > 0 ? (
-                          item.checkOutPhotos.slice(0, 2).map((photo, idx) => (
+                          item.checkOutPhotos.map((photo, idx) => (
                             <img
                               key={idx}
                               src={photo}
@@ -660,22 +711,29 @@ export default function ComparisonReportDetail() {
                 </div>
 
                 {/* Notes Comparison Section - Show if notes_comparison exists OR if both notes exist (will be generated) */}
-                {(aiAnalysis.notes_comparison || (aiAnalysis.checkInNote && aiAnalysis.checkOutNote)) && (
+                {(currentNotesComparison || (aiAnalysis.checkInNote && aiAnalysis.checkOutNote)) && (
                   <div className="mt-4 pt-4 border-t">
                     <div className="space-y-3">
                       <h4 className="text-sm font-medium text-muted-foreground">Notes Comparison</h4>
-                      
-                      {/* AI Notes Comparison - Only show the comparison result */}
-                      {aiAnalysis.notes_comparison ? (
+
+                      {/* AI Notes Comparison - Show comparison result or allow editing */}
+                      {currentNotesComparison || isEditing ? (
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-muted-foreground">AI Analysis of Notes</label>
-                          <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800 text-sm whitespace-pre-wrap text-blue-900 dark:text-blue-100">
-                            {aiAnalysis.notes_comparison}
-                          </div>
+                          {isEditing ? (
+                            <Textarea
+                              value={itemEdits.notesComparison || ""}
+                              onChange={(e) => setItemEdits({ ...itemEdits, notesComparison: e.target.value })}
+                              className="min-h-[150px] font-sans"
+                              placeholder="Enter notes comparison..."
+                            />
+                          ) : (
+                            <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800 text-sm whitespace-pre-wrap text-blue-900 dark:text-blue-100">
+                              {currentNotesComparison}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-muted-foreground">AI Analysis of Notes</label>
                           <div className="p-4 bg-muted rounded-lg text-sm text-muted-foreground">
                             Generating notes comparison...
                           </div>
@@ -708,15 +766,14 @@ export default function ComparisonReportDetail() {
               </p>
             ) : (
               comments.map((comment) => (
-                <div 
+                <div
                   key={comment.id}
-                  className={`p-4 rounded-lg ${
-                    comment.isInternal 
-                      ? "bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800" 
-                      : comment.authorRole === "tenant"
-                        ? "bg-primary/10 ml-8"
-                        : "bg-muted mr-8"
-                  }`}
+                  className={`p-4 rounded-lg ${comment.isInternal
+                    ? "bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800"
+                    : comment.authorRole === "tenant"
+                      ? "bg-primary/10 ml-8"
+                      : "bg-muted mr-8"
+                    }`}
                   data-testid={`comment-${comment.id}`}
                 >
                   <div className="flex items-start justify-between mb-2 gap-2 flex-wrap">
@@ -814,8 +871,17 @@ export default function ComparisonReportDetail() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="text-sm">Signed: {report.operatorSignature}</span>
+                    <span className="text-sm">Signed</span>
                   </div>
+                  {report.operatorSignature.startsWith('data:image/') ? (
+                    <img 
+                      src={report.operatorSignature} 
+                      alt="Operator signature" 
+                      className="h-16 object-contain border rounded bg-background mt-2"
+                    />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">{report.operatorSignature}</span>
+                  )}
                   {report.operatorSignedAt && (
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(report.operatorSignedAt), "MMM d, yyyy 'at' h:mm a")}
@@ -843,8 +909,17 @@ export default function ComparisonReportDetail() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="text-sm">Signed: {report.tenantSignature}</span>
+                    <span className="text-sm">Signed</span>
                   </div>
+                  {report.tenantSignature.startsWith('data:image/') ? (
+                    <img 
+                      src={report.tenantSignature} 
+                      alt="Tenant signature" 
+                      className="h-16 object-contain border rounded bg-background mt-2"
+                    />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">{report.tenantSignature}</span>
+                  )}
                   {report.tenantSignedAt && (
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(report.tenantSignedAt), "MMM d, yyyy 'at' h:mm a")}
@@ -859,22 +934,70 @@ export default function ComparisonReportDetail() {
 
           {canSign && (
             <div className="space-y-3 p-4 bg-muted rounded-lg">
-              <Label>Type your full name to sign</Label>
-              <Input
-                placeholder="Your full name"
-                value={signatureName}
-                onChange={(e) => setSignatureName(e.target.value)}
-                data-testid="input-signature"
-              />
-              <Button
-                onClick={() => signMutation.mutate(signatureName)}
-                disabled={!signatureName.trim() || signMutation.isPending}
-                className="w-full"
-                data-testid="button-sign"
-              >
-                <Pen className="w-4 h-4 mr-2" />
-                {signMutation.isPending ? "Signing..." : "Sign Report as Operator"}
-              </Button>
+              <Label>Draw your signature to sign</Label>
+              {signatureDataUrl ? (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="space-y-3">
+                      <img 
+                        src={signatureDataUrl} 
+                        alt="Signature" 
+                        className="w-full h-40 object-contain border rounded bg-background"
+                        data-testid="img-signature"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleClearSignature}
+                        data-testid="button-clear-signature"
+                        className="w-full"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Clear Signature
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="space-y-3">
+                      <div className="border-2 border-dashed rounded bg-background">
+                        <SignatureCanvas
+                          ref={signaturePadRef}
+                          canvasProps={{
+                            className: "w-full h-40 cursor-crosshair",
+                            "data-testid": "canvas-signature"
+                          }}
+                          backgroundColor="transparent"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleClearSignature}
+                          data-testid="button-clear-signature"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Clear
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={handleSignReport}
+                          disabled={signMutation.isPending}
+                          className="flex-1"
+                          data-testid="button-sign"
+                        >
+                          <Pen className="w-4 h-4 mr-2" />
+                          {signMutation.isPending ? "Signing..." : "Sign Report as Operator"}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <p className="text-xs text-muted-foreground">
                 By signing, you confirm the accuracy of this comparison report. This is a legally binding electronic signature.
               </p>

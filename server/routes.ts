@@ -31,15 +31,15 @@ function detectFileMimeType(buffer: Buffer): string {
   }
 
   // GIF: 47 49 46 38 or 47 49 46 39
-  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && 
-      (buffer[3] === 0x38 || buffer[3] === 0x39)) {
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 &&
+    (buffer[3] === 0x38 || buffer[3] === 0x39)) {
     return 'image/gif';
   }
 
   // WebP: RIFF...WEBP
   if (buffer.length >= 12 &&
-      buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
     return 'image/webp';
   }
 
@@ -90,19 +90,19 @@ function detectFileMimeType(buffer: Buffer): string {
  */
 function normalizeSectionRef(sectionRef: string): string {
   if (!sectionRef) return "";
-  
+
   // Convert to lowercase for case-insensitive matching
   let normalized = sectionRef.toLowerCase().trim();
-  
+
   // Normalize common separators: "/", " / ", " /", "/ " to a single space
   normalized = normalized.replace(/\s*\/\s*/g, " ");
-  
+
   // Normalize multiple spaces to single space
   normalized = normalized.replace(/\s+/g, " ");
-  
+
   // Remove leading/trailing spaces
   normalized = normalized.trim();
-  
+
   // For hierarchical paths like "Bedrooms/Bedroom 1", extract the last part
   // This helps match "Bedroom 1" with "Bedrooms/Bedroom 1"
   const parts = normalized.split(/\s+/);
@@ -111,7 +111,7 @@ function normalizeSectionRef(sectionRef: string): string {
     // But keep the full normalized string as primary match
     return normalized;
   }
-  
+
   return normalized;
 }
 
@@ -130,16 +130,16 @@ function normalizeFieldKey(fieldKey: string): string {
  */
 function mapCheckOutToCheckInFieldKey(checkOutFieldKey: string): string {
   if (!checkOutFieldKey) return "";
-  
+
   // Replace "checkout" with "checkin" in the field key
   // This handles the pattern: field_checkout_* -> field_checkin_*
   const normalized = checkOutFieldKey.toLowerCase().trim();
-  
+
   // Direct replacement pattern
   if (normalized.includes("field_checkout_")) {
     return normalized.replace("field_checkout_", "field_checkin_");
   }
-  
+
   // If it doesn't match the pattern, return as-is (might be a custom field)
   return normalized;
 }
@@ -151,14 +151,14 @@ function mapCheckOutToCheckInFieldKey(checkOutFieldKey: string): string {
  */
 function mapCheckInToCheckOutFieldKey(checkInFieldKey: string): string {
   if (!checkInFieldKey) return "";
-  
+
   const normalized = checkInFieldKey.toLowerCase().trim();
-  
+
   // Direct replacement pattern
   if (normalized.includes("field_checkin_")) {
     return normalized.replace("field_checkin_", "field_checkout_");
   }
-  
+
   // If it doesn't match the pattern, return as-is (might be a custom field)
   return normalized;
 }
@@ -168,21 +168,21 @@ function mapCheckInToCheckOutFieldKey(checkInFieldKey: string): string {
  */
 function fieldKeysMatch(checkInFieldKey: string, checkOutFieldKey: string): boolean {
   if (!checkInFieldKey || !checkOutFieldKey) return false;
-  
+
   const normalizedCheckIn = normalizeFieldKey(checkInFieldKey);
   const normalizedCheckOut = normalizeFieldKey(checkOutFieldKey);
-  
+
   // Direct match after normalization
   if (normalizedCheckIn === normalizedCheckOut) return true;
-  
+
   // Try mapping check-out to check-in and compare
   const mappedCheckOut = mapCheckOutToCheckInFieldKey(checkOutFieldKey);
   if (normalizedCheckIn === mappedCheckOut) return true;
-  
+
   // Try mapping check-in to check-out and compare
   const mappedCheckIn = mapCheckInToCheckOutFieldKey(checkInFieldKey);
   if (normalizedCheckOut === mappedCheckIn) return true;
-  
+
   return false;
 }
 
@@ -192,15 +192,15 @@ function fieldKeysMatch(checkInFieldKey: string, checkOutFieldKey: string): bool
 function sectionRefsMatch(ref1: string, ref2: string): boolean {
   const normalized1 = normalizeSectionRef(ref1);
   const normalized2 = normalizeSectionRef(ref2);
-  
+
   // Exact match after normalization
   if (normalized1 === normalized2) return true;
-  
+
   // Also try matching the last part of hierarchical paths
   // e.g., "bedrooms/bedroom 1" should match "bedroom 1"
   const parts1 = normalized1.split(/\s+/);
   const parts2 = normalized2.split(/\s+/);
-  
+
   // If one is a subset of the other (last parts match), consider it a match
   if (parts1.length > parts2.length) {
     const lastParts = parts1.slice(-parts2.length).join(" ");
@@ -209,7 +209,7 @@ function sectionRefsMatch(ref1: string, ref2: string): boolean {
     const lastParts = parts2.slice(-parts1.length).join(" ");
     if (lastParts === normalized1) return true;
   }
-  
+
   return false;
 }
 
@@ -241,15 +241,15 @@ function detectImageMimeType(buffer: Buffer): string {
   }
 
   // GIF: 47 49 46 38 (GIF8) or 47 49 46 39 (GIF9)
-  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && 
-      (buffer[3] === 0x38 || buffer[3] === 0x39)) {
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 &&
+    (buffer[3] === 0x38 || buffer[3] === 0x39)) {
     return 'image/gif';
   }
 
   // WebP: Check for RIFF...WEBP
   if (buffer.length >= 12 &&
-      buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
     return 'image/webp';
   }
 
@@ -260,7 +260,7 @@ function detectImageMimeType(buffer: Buffer): string {
 
   // Default to JPEG if we can't detect (most common image format)
   // This ensures we always return a valid image MIME type
-  console.warn('[detectImageMimeType] Could not detect image type from magic bytes, defaulting to image/jpeg. First bytes:', 
+  console.warn('[detectImageMimeType] Could not detect image type from magic bytes, defaulting to image/jpeg. First bytes:',
     Array.from(buffer.slice(0, 8)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
   return 'image/jpeg';
 }
@@ -341,9 +341,9 @@ import {
 
 // Detect if running in a cloud/sandboxed environment (AWS Lambda, Vercel, Netlify, Replit)
 const isCloudEnvironment = !!(
-  process.env.AWS_LAMBDA_FUNCTION_NAME || 
-  process.env.VERCEL || 
-  process.env.NETLIFY || 
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.VERCEL ||
+  process.env.NETLIFY ||
   process.env.REPLIT_ENVIRONMENT ||
   process.env.REPLIT_CLUSTER
 );
@@ -354,7 +354,7 @@ async function launchPuppeteerBrowser() {
     // Cloud/sandboxed environment (Replit, AWS Lambda, etc.) - use @sparticuz/chromium
     const chromium = await import("@sparticuz/chromium");
     const puppeteer = await import("puppeteer-core");
-    
+
     return await puppeteer.default.launch({
       args: [
         ...chromium.default.args,
@@ -443,13 +443,13 @@ async function processInspectionAIAnalysis(
   organizationId: string
 ): Promise<void> {
   console.log(`[FullInspectAI] Starting background analysis for inspection ${inspectionId} with ${entriesWithPhotos.length} entries`);
-  
+
   const objectStorageService = new ObjectStorageService();
-  
+
   // Get template settings for AI configuration
   let aiMaxWords: number = 150;
   let aiInstruction: string = "";
-  
+
   if (inspection.templateId) {
     const template = await storage.getInspectionTemplate(inspection.templateId);
     if (template) {
@@ -460,14 +460,14 @@ async function processInspectionAIAnalysis(
     aiMaxWords = organization.defaultAiMaxWords ?? 150;
     aiInstruction = organization.defaultAiInstruction || "";
   }
-  
+
   let processedCount = 0;
   let totalCreditsUsed = 0;
-  
+
   for (const entry of entriesWithPhotos) {
     try {
       console.log(`[FullInspectAI] Processing entry ${processedCount + 1}/${entriesWithPhotos.length}: ${entry.fieldKey}`);
-      
+
       // Convert photos to base64 data URLs
       const photoUrls: string[] = [];
       for (const photo of entry.photos) {
@@ -476,16 +476,16 @@ async function processInspectionAIAnalysis(
             photoUrls.push(photo);
             continue;
           }
-          
+
           const photoPath = photo.startsWith('/objects/') ? photo : `/objects/${photo}`;
           const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
           const fileBuffer = await fs.readFile(objectFile.name);
-          
+
           let contentType = detectImageMimeType(fileBuffer);
           if (!contentType || !contentType.startsWith('image/')) {
             contentType = 'image/jpeg';
           }
-          
+
           const base64Data = fileBuffer.toString('base64');
           const dataUrl = `data:${contentType};base64,${base64Data}`;
           photoUrls.push(dataUrl);
@@ -494,16 +494,16 @@ async function processInspectionAIAnalysis(
           // Skip this photo but continue with others
         }
       }
-      
+
       if (photoUrls.length === 0) {
         console.log(`[FullInspectAI] No valid photos for entry ${entry.fieldKey}, skipping`);
         processedCount++;
         continue;
       }
-      
+
       // Build the field label from sectionRef and fieldKey
       const fieldLabel = `${entry.sectionRef}${entry.itemRef ? ` - ${entry.itemRef}` : ''} - ${entry.fieldKey}`;
-      
+
       // Build prompt
       let promptText: string;
       if (aiInstruction) {
@@ -540,23 +540,23 @@ IMPORTANT FORMATTING RULES:
 
 Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not comment on items outside the scope of "${fieldLabel}". This will be used in a professional property inspection report.`;
       }
-      
+
       // Build content array
       const content: any[] = [{ type: "text", text: promptText }];
       photoUrls.forEach(url => {
         content.push({ type: "image_url", image_url: url });
       });
-      
+
       // Call OpenAI Vision API
       const response = await getOpenAI().responses.create({
         model: "gpt-5",
         input: [{ role: "user", content: normalizeApiContent(content) }],
         max_output_tokens: 10000,
       });
-      
+
       // Extract analysis text from response
       let analysis: string | null = null;
-      
+
       if (response.output_text) {
         analysis = response.output_text;
       } else if (response.output && response.output.length > 0) {
@@ -576,7 +576,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
           }
         }
       }
-      
+
       if (!analysis || analysis.trim().length === 0) {
         console.error(`[FullInspectAI] Empty analysis for entry ${entry.fieldKey}`);
         processedCount++;
@@ -585,7 +585,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
         } as any);
         continue;
       }
-      
+
       // Strip forbidden characters
       analysis = analysis
         .replace(/\*+/g, '')
@@ -593,39 +593,38 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
         .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
-      
+
       // Update entry note - append if existing notes
       const existingNote = entry.note || "";
-      const aiPrefix = "[AI Analysis]\n";
-      const newNote = existingNote 
-        ? `${existingNote}\n\n${aiPrefix}${analysis}`
-        : `${aiPrefix}${analysis}`;
-      
+      const newNote = existingNote
+        ? `${existingNote}\n\n${analysis}`
+        : `${analysis}`;
+
       await storage.updateInspectionEntry(entry.id, { note: newNote });
-      
+
       // Deduct credit
       await storage.updateOrganizationCredits(
         organization.id,
         (organization.creditsRemaining ?? 0) - 1 - totalCreditsUsed
       );
       totalCreditsUsed++;
-      
+
       await storage.createCreditTransaction({
         organizationId: organization.id,
         amount: -1,
         type: "inspection",
         description: `InspectAI full report analysis: ${fieldLabel}`,
       });
-      
+
       processedCount++;
-      
+
       // Update progress
       await storage.updateInspection(inspectionId, {
         aiAnalysisProgress: processedCount
       } as any);
-      
+
       console.log(`[FullInspectAI] Completed entry ${processedCount}/${entriesWithPhotos.length}: ${entry.fieldKey}`);
-      
+
     } catch (entryError: any) {
       console.error(`[FullInspectAI] Error processing entry ${entry.fieldKey}:`, entryError.message);
       // Continue with next entry rather than failing completely
@@ -635,14 +634,14 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       } as any);
     }
   }
-  
+
   // Mark as completed
   await storage.updateInspection(inspectionId, {
     aiAnalysisStatus: "completed",
     aiAnalysisProgress: entriesWithPhotos.length,
     aiAnalysisError: null
   } as any);
-  
+
   console.log(`[FullInspectAI] Completed analysis for inspection ${inspectionId}. Processed ${processedCount} entries, used ${totalCreditsUsed} credits.`);
 }
 
@@ -717,14 +716,14 @@ function getBaseUrl(req: any): string {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== CONFIG ROUTES ====================
-  
+
   // Get Google Maps API key (public endpoint, but API key is restricted by domain in Google Console)
   app.get("/api/config/google-maps-key", async (req: any, res) => {
     try {
       // Check all possible ways the key might be set
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim() || 
-                     process.env['GOOGLE_MAPS_API_KEY']?.trim();
-      
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim() ||
+        process.env['GOOGLE_MAPS_API_KEY']?.trim();
+
       console.log('[Google Maps API] Checking API key:', {
         exists: !!apiKey,
         length: apiKey?.length || 0,
@@ -732,10 +731,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rawEnvValue: process.env.GOOGLE_MAPS_API_KEY ? 'present' : 'missing',
         allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
       });
-      
+
       if (!apiKey || apiKey.length === 0) {
         console.warn('[Google Maps API] API key not configured in environment variables');
-        console.warn('[Google Maps API] Available env vars with GOOGLE:', 
+        console.warn('[Google Maps API] Available env vars with GOOGLE:',
           Object.keys(process.env).filter(k => k.toUpperCase().includes('GOOGLE')));
         // Return 200 with null to indicate API key is not configured
         // This allows the client to gracefully handle missing API key
@@ -799,7 +798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // ==================== AUTH ROUTES ====================
-  
+
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -807,16 +806,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      
+
       // Include organization info if user belongs to one
       let organization = null;
       if (user.organizationId) {
         organization = await storage.getOrganization(user.organizationId);
       }
-      
+
       // Exclude password from response for security
       const { password, resetToken, resetTokenExpiry, ...userWithoutPassword } = user;
-      
+
       // Return user object directly (not wrapped in { user: ... })
       // This matches what the frontend expects
       res.json({ ...userWithoutPassword, organization });
@@ -833,7 +832,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      
+
       // Exclude password from response for security
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
@@ -850,9 +849,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate request body using the self-profile update schema
       const validation = updateSelfProfileSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -861,7 +860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedUser = await storage.updateUser(userId, validation.data);
-      
+
       // Exclude password from response
       const { password, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
@@ -875,9 +874,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/auth/complete-onboarding', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      
+
       const updatedUser = await storage.updateUser(userId, { onboardingCompleted: true });
-      
+
       // Exclude password from response
       const { password, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
@@ -888,17 +887,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== ORGANIZATION ROUTES ====================
-  
+
   app.post("/api/organizations", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      
+
       // Validate request body
       const validation = createOrganizationSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -956,7 +955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use timestamp-based unique suffix for idempotency
       try {
         const uniqueSuffix = Date.now().toString(36); // Convert timestamp to base36 for shorter suffix
-        
+
         // Create Block A
         const blockA = await storage.createBlock({
           organizationId: organization.id,
@@ -1036,7 +1035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const organizationId = req.params.id;
-      
+
       const user = await storage.getUser(userId);
       if (!user?.organizationId || user.organizationId !== organizationId) {
         return res.status(403).json({ message: "Access denied" });
@@ -1059,7 +1058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const organizationId = req.params.id;
-      
+
       const user = await storage.getUser(userId);
       if (!user?.organizationId || user.organizationId !== organizationId) {
         return res.status(403).json({ message: "Access denied" });
@@ -1085,16 +1084,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== TEAM MANAGEMENT ROUTES ====================
-  
+
   app.get("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
-      
+
       const organizationId = user.organizationId;
 
       // Fetch all users but exclude tenants (they should appear in Contacts instead)
@@ -1111,20 +1110,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const requesterId = req.user.id;
       const requester = await storage.getUser(requesterId);
-      
+
       if (!requester?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
-      
+
       const { userId } = req.params;
       const organizationId = requester.organizationId;
 
       // Validate request body
       const validation = updateUserRoleSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -1152,19 +1151,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const requesterId = req.user.id;
       const requester = await storage.getUser(requesterId);
-      
+
       if (!requester?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
-      
+
       const { userId } = req.params;
 
       // Validate request body
       const validation = updateUserStatusSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -1192,7 +1191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const requesterId = req.user.id;
       const requester = await storage.getUser(requesterId);
-      
+
       if (!requester?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -1200,9 +1199,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate request body
       const validation = createTeamMemberSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -1268,19 +1267,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const requesterId = req.user.id;
       const requester = await storage.getUser(requesterId);
-      
+
       if (!requester?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
-      
+
       const { userId } = req.params;
 
       // Validate request body
       const validation = updateTeamMemberSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -1295,7 +1294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedUser = await storage.updateUser(userId, validation.data);
-      
+
       // Don't return password
       const { password, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
@@ -1311,13 +1310,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
-      
+
       const contacts = await storage.getContactsByOrganization(user.organizationId);
-      
+
       // Fetch tags for each contact
       const contactsWithTags = await Promise.all(
         contacts.map(async (contact) => {
@@ -1325,7 +1324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return { ...contact, tags };
         })
       );
-      
+
       res.json(contactsWithTags);
     } catch (error) {
       console.error("Error fetching contacts:", error);
@@ -1337,21 +1336,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
-      
+
       const contact = await storage.getContact(req.params.id);
-      
+
       if (!contact) {
         return res.status(404).json({ error: "Contact not found" });
       }
-      
+
       if (contact.organizationId !== user.organizationId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      
+
       res.json(contact);
     } catch (error) {
       console.error("Error fetching contact:", error);
@@ -1363,21 +1362,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
-      
+
       const validation = insertContactSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({ error: "Invalid request data", details: validation.error });
       }
-      
+
       const contact = await storage.createContact({
         ...validation.data,
         organizationId: user.organizationId
       });
-      
+
       res.status(201).json(contact);
     } catch (error) {
       console.error("Error creating contact:", error);
@@ -1390,15 +1389,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
-      
+
       // Get all tenant users in the organization
       const allUsers = await storage.getUsersByOrganization(user.organizationId);
       const tenantUsers = allUsers.filter(u => u.role === 'tenant');
-      
+
       // Get all existing contacts to check for linkedUserId
       const existingContacts = await storage.getContactsByOrganization(user.organizationId);
       const linkedUserIds = new Set(
@@ -1406,7 +1405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .filter(c => c.linkedUserId)
           .map(c => c.linkedUserId)
       );
-      
+
       // Create contacts for tenant users that don't have one yet
       const results = {
         total: tenantUsers.length,
@@ -1414,13 +1413,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         skipped: 0,
         errors: [] as string[],
       };
-      
+
       for (const tenant of tenantUsers) {
         if (linkedUserIds.has(tenant.id)) {
           results.skipped++;
           continue;
         }
-        
+
         try {
           await storage.createContact({
             organizationId: user.organizationId,
@@ -1440,7 +1439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error(`Error creating contact for tenant ${tenant.id}:`, contactError);
         }
       }
-      
+
       res.json(results);
     } catch (error) {
       console.error("Error syncing tenants to contacts:", error);
@@ -1452,30 +1451,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
-      
+
       const contact = await storage.getContact(req.params.id);
-      
+
       if (!contact) {
         return res.status(404).json({ error: "Contact not found" });
       }
-      
+
       if (contact.organizationId !== user.organizationId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      
+
       // Validate request body
       const validation = updateContactSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
-      
+
       const updatedContact = await storage.updateContact(req.params.id, validation.data);
       res.json(updatedContact);
     } catch (error) {
@@ -1488,21 +1487,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
-      
+
       const contact = await storage.getContact(req.params.id);
-      
+
       if (!contact) {
         return res.status(404).json({ error: "Contact not found" });
       }
-      
+
       if (contact.organizationId !== user.organizationId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      
+
       await storage.deleteContact(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -1512,22 +1511,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PROPERTY ROUTES ====================
-  
+
   app.post("/api/properties", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
-      
+
       // Validate request body
       const validation = insertPropertySchema.omit({ organizationId: true }).safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -1551,7 +1550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -1568,7 +1567,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const property = await storage.getProperty(id);
-      
+
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
       }
@@ -1585,7 +1584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
       }
@@ -1602,15 +1601,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate request body (partial update) with Zod
       const parseResult = updatePropertySchema.safeParse(req.body);
       if (!parseResult.success) {
-        return res.status(400).json({ 
-          error: "Invalid request data", 
-          details: parseResult.error.errors 
+        return res.status(400).json({
+          error: "Invalid request data",
+          details: parseResult.error.errors
         });
       }
 
       const updates = parseResult.data;
       const updateData: any = {};
-      
+
       // Only include fields that are provided in the update
       if (updates.name !== undefined) {
         updateData.name = updates.name;
@@ -1623,9 +1622,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Convert null string to actual null
         updateData.blockId = updates.blockId === null || updates.blockId === "null" ? null : updates.blockId;
       }
-      
+
       const property = await storage.updateProperty(req.params.id, updateData);
-      
+
       res.json(property);
     } catch (error: any) {
       console.error("Error updating property:", error);
@@ -1639,7 +1638,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -1653,17 +1652,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const inspections = await storage.getInspectionsByProperty(id);
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
+
       // Overdue: scheduled date is before today
-      const overdueInspections = inspections.filter(i => 
+      const overdueInspections = inspections.filter(i =>
         i.status === 'scheduled' && i.scheduledDate && new Date(i.scheduledDate) < today
       ).length;
-      
+
       // Due soon: scheduled date is today or in the near future (next 7 days)
       const weekFromNow = new Date(today);
       weekFromNow.setDate(weekFromNow.getDate() + 7);
-      const dueInspections = inspections.filter(i => 
-        i.status === 'scheduled' && i.scheduledDate && 
+      const dueInspections = inspections.filter(i =>
+        i.status === 'scheduled' && i.scheduledDate &&
         new Date(i.scheduledDate) >= today &&
         new Date(i.scheduledDate) <= weekFromNow
       ).length;
@@ -1675,19 +1674,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!d.expiryDate) return true;
         return new Date(d.expiryDate) > now;
       }).length;
-      const complianceRate = complianceDocs.length > 0 
+      const complianceRate = complianceDocs.length > 0
         ? Math.round((validDocs / complianceDocs.length) * 100)
         : 100;
 
       // Get maintenance requests
       const maintenanceRequests = await storage.getMaintenanceRequestsByProperty(id);
-      const openRequests = maintenanceRequests.filter(m => 
+      const openRequests = maintenanceRequests.filter(m =>
         m.status !== 'completed' && m.status !== 'closed'
       ).length;
 
       // Get inventory count
       const inventory = await storage.getAssetInventoryByProperty(id);
-      
+
       // Get tenants
       const tenants = await storage.getUsersByOrganizationAndRole(user.organizationId, "tenant");
       const propertyTenants = tenants.filter((t: any) => t.propertyId === id);
@@ -1712,7 +1711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -1738,7 +1737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -1749,7 +1748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const inspections = await storage.getInspectionsByProperty(id);
-      
+
       // Enhance with template names and inspector info
       const enhancedInspections = await Promise.all(inspections.map(async (inspection: any) => {
         let templateName = 'Unknown Template';
@@ -1786,7 +1785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -1797,7 +1796,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const inventory = await storage.getAssetInventoryByProperty(id);
-      
+
       // Enhance with formatted data for BTR managers
       const enhancedInventory = inventory.map((item: any) => ({
         id: item.id,
@@ -1824,7 +1823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -1836,7 +1835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const allComplianceDocs = await storage.getComplianceDocuments(user.organizationId);
       const complianceDocs = allComplianceDocs.filter((d: any) => d.propertyId === id);
-      
+
       // Add status based on expiry and enhance with names
       const now = new Date();
       const enhancedDocs = complianceDocs.map((doc: any) => {
@@ -1844,7 +1843,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (doc.expiryDate) {
           const expiryDate = new Date(doc.expiryDate);
           const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          
+
           if (daysUntilExpiry < 0) {
             status = 'expired';
           } else if (daysUntilExpiry <= 30) {
@@ -1853,7 +1852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             status = 'valid';
           }
         }
-        
+
         return {
           id: doc.id,
           documentName: doc.documentType, // Use documentType as name
@@ -1878,7 +1877,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -1890,21 +1889,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get all inspections for this property
       const allInspections = await storage.getInspectionsByProperty(id);
-      
+
       // Get all inspection templates
       const templates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
       const activeTemplates = templates.filter(t => t.isActive && (t.scope === 'property' || t.scope === 'both'));
-      
+
       // Build compliance data by template and month
       const currentYear = new Date().getFullYear();
       const months = [
         'January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'
       ];
-      
+
       const complianceData = activeTemplates.map(template => {
         const templateInspections = allInspections.filter(i => i.templateId === template.id);
-        
+
         const monthData = months.map((monthName, monthIndex) => {
           // Find inspections scheduled for this month
           const monthInspections = templateInspections.filter(inspection => {
@@ -1912,11 +1911,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const schedDate = new Date(inspection.scheduledDate);
             return schedDate.getFullYear() === currentYear && schedDate.getMonth() === monthIndex;
           });
-          
+
           if (monthInspections.length === 0) {
             return { month: monthName, status: 'not_scheduled', count: 0 };
           }
-          
+
           const now = new Date();
           const completedCount = monthInspections.filter(i => i.status === 'completed').length;
           const overdueCount = monthInspections.filter(i => {
@@ -1924,14 +1923,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const schedDate = new Date(i.scheduledDate);
             return schedDate < now;
           }).length;
-          
+
           const dueCount = monthInspections.filter(i => {
             if (i.status === 'completed' || !i.scheduledDate) return false;
             const schedDate = new Date(i.scheduledDate);
             const daysUntil = Math.ceil((schedDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
             return daysUntil >= 0 && daysUntil <= 30;
           }).length;
-          
+
           let status = 'not_scheduled';
           if (overdueCount > 0) {
             status = 'overdue';
@@ -1942,7 +1941,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             status = 'scheduled';
           }
-          
+
           return {
             month: monthName,
             status,
@@ -1951,12 +1950,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             overdue: overdueCount,
           };
         });
-        
+
         // Calculate compliance percentage for this template
         const totalScheduled = monthData.reduce((sum, m) => sum + m.count, 0);
         const totalCompleted = monthData.reduce((sum, m) => sum + (m.completed || 0), 0);
         const complianceRate = totalScheduled > 0 ? Math.round((totalCompleted / totalScheduled) * 100) : 0;
-        
+
         return {
           templateId: template.id,
           templateName: template.name,
@@ -1966,12 +1965,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalCompleted,
         };
       });
-      
+
       // Calculate overall compliance
       const totalScheduled = complianceData.reduce((sum, t) => sum + t.totalScheduled, 0);
       const totalCompleted = complianceData.reduce((sum, t) => sum + t.totalCompleted, 0);
       const overallCompliance = totalScheduled > 0 ? Math.round((totalCompleted / totalScheduled) * 100) : 100;
-      
+
       res.json({
         year: currentYear,
         months,
@@ -1992,7 +1991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -2003,7 +2002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const maintenance = await storage.getMaintenanceRequestsByProperty(id);
-      
+
       // Enhance with user info
       const enhancedMaintenance = await Promise.all(maintenance.map(async (request: any) => {
         let reportedByName = 'Unknown';
@@ -2040,12 +2039,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== USER ROUTES ====================
-  
+
   app.get("/api/users/clerks", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -2064,7 +2063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -2080,7 +2079,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PROPERTY BY BLOCK ROUTES ====================
-  
+
   // Get properties by block
   app.get("/api/blocks/:blockId/properties", isAuthenticated, async (req, res) => {
     try {
@@ -2094,18 +2093,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== INSPECTION ROUTES ====================
-  
+
   app.post("/api/inspections", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
       const { propertyId, blockId, type, scheduledDate, notes, clerkId, templateId } = req.body;
-      
+
       // Must specify either propertyId OR blockId (not both)
       if ((!propertyId && !blockId) || (propertyId && blockId)) {
         return res.status(400).json({ message: "Must specify either propertyId OR blockId (not both)" });
       }
-      
+
       if (!type) {
         return res.status(400).json({ message: "Inspection type is required" });
       }
@@ -2116,7 +2115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use provided clerkId if available, otherwise assign to current user
       let inspectorId = userId;
-      
+
       if (clerkId) {
         // Validate that the clerk belongs to the same organization
         const clerk = await storage.getUser(clerkId);
@@ -2130,12 +2129,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let templateSnapshotJson = null;
       let templateVersion = null;
       let finalTemplateId = templateId;
-      
+
       if (!finalTemplateId) {
         const orgTemplates = await storage.getInspectionTemplatesByOrganization(currentUser.organizationId);
-        
+
         if (type === 'check_in') {
-          const checkInTemplate = orgTemplates.find(t => 
+          const checkInTemplate = orgTemplates.find(t =>
             t.name.toLowerCase().includes('check in') && t.isActive
           );
           if (checkInTemplate) {
@@ -2143,7 +2142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`Auto-selected Check In template: ${checkInTemplate.id}`);
           }
         } else if (type === 'check_out') {
-          const checkOutTemplate = orgTemplates.find(t => 
+          const checkOutTemplate = orgTemplates.find(t =>
             t.name.toLowerCase().includes('check out') && t.isActive
           );
           if (checkOutTemplate) {
@@ -2152,27 +2151,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
-      
+
       if (finalTemplateId) {
         const template = await storage.getInspectionTemplate(finalTemplateId);
         if (!template) {
           return res.status(404).json({ message: "Template not found" });
         }
-        
+
         if (template.organizationId !== currentUser.organizationId) {
           return res.status(403).json({ message: "Template does not belong to your organization" });
         }
-        
+
         const isPropertyInspection = !!propertyId;
         const isBlockInspection = !!blockId;
-        
+
         if (isPropertyInspection && template.scope === 'block') {
           return res.status(400).json({ message: "Cannot use block-scoped template for property inspection" });
         }
         if (isBlockInspection && template.scope === 'property') {
           return res.status(400).json({ message: "Cannot use property-scoped template for block inspection" });
         }
-        
+
         templateSnapshotJson = template.structureJson;
         templateVersion = template.version;
       }
@@ -2195,7 +2194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error creating inspection:", error);
       console.error("Request body:", req.body);
       console.error("Error details:", error instanceof Error ? error.message : String(error));
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to create inspection",
         error: error instanceof Error ? error.message : String(error)
       });
@@ -2206,7 +2205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.json([]);
       }
@@ -2219,7 +2218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         inspections = await storage.getInspectionsByInspector(userId);
       }
-      
+
       res.json(inspections);
     } catch (error) {
       console.error("Error fetching inspections:", error);
@@ -2236,13 +2235,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
 
       const inspection = await storage.getInspection(id);
-      
+
       if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
       }
@@ -2285,7 +2284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         block,
         clerk,
       };
-      
+
       console.log(`[GET /api/inspections/:id] Returning inspection with ${response.items.length} items`);
       res.json(response);
     } catch (error) {
@@ -2299,7 +2298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "No organization found" });
       }
@@ -2359,11 +2358,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Set headers for PDF download
       const propertyName = property?.name || "inspection";
       const filename = `${propertyName.replace(/[^a-zA-Z0-9]/g, "_")}_inspection_report.pdf`;
-      
+
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.setHeader("Content-Length", pdfBuffer.length);
-      
+
       res.send(pdfBuffer);
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -2376,7 +2375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "No organization found" });
       }
@@ -2417,9 +2416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate and update inspection
       const validation = updateInspectionSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -2443,16 +2442,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // This allows flexible status management without credit restrictions
 
       const updatedInspection = await storage.updateInspection(id, updates);
-      
+
       // Send email if status changed to completed
       if (validation.data.status === "completed" && inspection.status !== "completed") {
         try {
           const inspector = await storage.getUser(inspection.inspectorId);
           const inspectorName = inspector ? `${inspector.firstName || ''} ${inspector.lastName || ''}`.trim() || inspector.username : 'Unknown Inspector';
-          
+
           let propertyName: string | undefined;
           let blockName: string | undefined;
-          
+
           if (inspection.propertyId) {
             const property = await storage.getProperty(inspection.propertyId);
             propertyName = property?.name;
@@ -2464,7 +2463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (ownerOrgId) {
             const owners = await storage.getUsersByOrganization(ownerOrgId);
             const owner = owners.find(u => u.role === 'owner');
-            
+
             if (owner && owner.email) {
               await sendInspectionCompleteEmail(
                 owner.email,
@@ -2496,13 +2495,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const { status } = req.body;
-      
+
       // Get inspection details before updating
       const inspection = await storage.getInspection(id);
       if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
       }
-      
+
       // NOTE: Credit consumption removed from manual status changes
       // Credits are only consumed during actual inspection submission workflow
       // This allows flexible status management without credit restrictions
@@ -2520,12 +2519,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Get inspector details
           const inspector = await storage.getUser(inspection.inspectorId);
           const inspectorName = inspector ? `${inspector.firstName || ''} ${inspector.lastName || ''}`.trim() || inspector.username : 'Unknown Inspector';
-          
+
           // Get property or block name
           let propertyName: string | undefined;
           let blockName: string | undefined;
           let organizationId: string | undefined;
-          
+
           if (inspection.propertyId) {
             const property = await storage.getProperty(inspection.propertyId);
             propertyName = property?.name;
@@ -2540,7 +2539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (organizationId) {
             const owners = await storage.getUsersByOrganization(organizationId);
             const owner = owners.find(u => u.role === 'owner');
-            
+
             if (owner && owner.email) {
               await sendInspectionCompleteEmail(
                 owner.email, // Email address
@@ -2737,12 +2736,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== INSPECTION ITEM ROUTES ====================
-  
+
   app.post("/api/inspection-items", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { inspectionId, category, itemName, photoUrl, conditionRating, notes } = req.body;
-      
+
       if (!inspectionId || !category || !itemName) {
         return res.status(400).json({ message: "Inspection ID, category, and item name are required" });
       }
@@ -2771,15 +2770,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== AI ANALYSIS ROUTES ====================
-  
+
   app.post("/api/ai/analyze-photo", isAuthenticated, async (req: any, res) => {
     try {
       // Validate request body
       const validation = analyzePhotoSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -2787,7 +2786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get the inspection item
       const item = await storage.getInspectionItem(itemId);
-      
+
       if (!item || !item.photoUrl) {
         return res.status(400).json({ message: "Inspection item not found or has no photo" });
       }
@@ -2806,7 +2805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check ownership via property OR block
       let ownerOrgId: string | null = null;
-      
+
       if (inspection.propertyId) {
         const property = await storage.getProperty(inspection.propertyId);
         if (!property) {
@@ -2836,7 +2835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Convert photo to base64 data URL
       console.log("[Inspection Item Analysis] Converting photo to base64:", item.photoUrl);
-      
+
       let photoUrl: string;
       if (item.photoUrl.startsWith("http")) {
         // External URL - use directly
@@ -2848,33 +2847,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Ensure path starts with /objects/
           const photoPath = item.photoUrl.startsWith('/objects/') ? item.photoUrl : `/objects/${item.photoUrl}`;
           const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
-          
+
           // Read the file contents using fs.readFile first
           const photoBuffer = await fs.readFile(objectFile.name);
-          
+
           // Always detect MIME type from buffer for reliability
           let mimeType = detectImageMimeType(photoBuffer);
-          
+
           // Get metadata for logging purposes
           const [metadata] = await objectFile.getMetadata();
           const metadataContentType = metadata.contentType;
-          
+
           console.log(`[Inspection Item Analysis] MIME type detection:`, {
             detected: mimeType,
             fromMetadata: metadataContentType,
             bufferSize: photoBuffer.length,
           });
-          
+
           // Ensure we have a valid image MIME type
           if (!mimeType || !mimeType.startsWith('image/')) {
             console.warn(`[Inspection Item Analysis] Invalid MIME type detected: ${mimeType}, defaulting to image/jpeg`);
             mimeType = 'image/jpeg';
           }
-          
+
           // Convert to base64 data URL
           const base64Image = photoBuffer.toString('base64');
           photoUrl = `data:${mimeType};base64,${base64Image}`;
-          
+
           console.log("[Inspection Item Analysis] Converted to base64 data URL:", photoPath, `(${mimeType})`);
         } catch (error: any) {
           // Safely log error without circular reference issues
@@ -2913,7 +2912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       let analysis = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "Unable to analyze image";
-      
+
       // Strip markdown asterisks from the response
       analysis = analysis.replace(/\*\*/g, '');
 
@@ -2954,9 +2953,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!validation.success) {
         console.error("[InspectAI] Validation failed:", validation.error.errors);
         console.error("[InspectAI] Request body:", req.body);
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -2976,7 +2975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check ownership via property OR block
       let ownerOrgId: string | null = null;
-      
+
       if (inspection.propertyId) {
         const property = await storage.getProperty(inspection.propertyId);
         if (!property) {
@@ -3011,39 +3010,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (photo.startsWith("http")) {
           return photo;
         }
-        
+
         // If it's an /objects/ path, download the image and convert to base64 data URL
         try {
           // Ensure path starts with /objects/
           const photoPath = photo.startsWith('/objects/') ? photo : `/objects/${photo}`;
           const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
-          
+
           // Read the file contents using fs.readFile first
           const fileBuffer = await fs.readFile(objectFile.name);
-          
+
           // Always detect MIME type from buffer for reliability
           let contentType = detectImageMimeType(fileBuffer);
-          
+
           // Get metadata for logging purposes
           const [metadata] = await objectFile.getMetadata();
           const metadataContentType = metadata.contentType;
-          
+
           console.log(`[InspectAI] MIME type detection:`, {
             detected: contentType,
             fromMetadata: metadataContentType,
             bufferSize: fileBuffer.length,
           });
-          
+
           // Ensure we have a valid image MIME type
           if (!contentType || !contentType.startsWith('image/')) {
             console.warn(`[InspectAI] Invalid MIME type detected: ${contentType}, defaulting to image/jpeg`);
             contentType = 'image/jpeg';
           }
-          
+
           // Convert to base64 data URL
           const base64Data = fileBuffer.toString('base64');
           const dataUrl = `data:${contentType};base64,${base64Data}`;
-          
+
           console.log(`[InspectAI] Converted photo to base64 data URL: ${photoPath} (${contentType}, ${base64Data.length} bytes)`);
           return dataUrl;
         } catch (error: any) {
@@ -3065,11 +3064,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Template settings > Organization defaults > System defaults
       let aiMaxWords: number;
       let aiInstruction: string;
-      
+
       // Get template settings if available
       let templateAiMaxWords: number | null = null;
       let templateAiInstruction: string | null = null;
-      
+
       if (inspection.templateId) {
         const template = await storage.getInspectionTemplate(inspection.templateId);
         if (template) {
@@ -3081,13 +3080,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Apply inheritance chain independently for each field:
       // aiMaxWords: template > organization > system default (150)
       aiMaxWords = templateAiMaxWords ?? organization.defaultAiMaxWords ?? 150;
-      
+
       // aiInstruction: template > organization > empty (use default prompt)
       aiInstruction = templateAiInstruction ?? organization.defaultAiInstruction ?? "";
 
       // Build the prompt with field context - using custom instruction if provided
       let promptText: string;
-      
+
       if (aiInstruction) {
         // Use custom AI instruction from template or organization
         promptText = `${aiInstruction}
@@ -3170,12 +3169,12 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
           outputTokens: response.usage?.output_tokens,
           reasoningTokens: response.usage?.output_tokens_details?.reasoning_tokens,
         });
-        
+
         if (reason === "max_output_tokens") {
           // Return user-friendly message instead of throwing error
-          return res.status(200).json({ 
+          return res.status(200).json({
             analysis: "Token limit exceeded. Please try again later.",
-            tokenExceeded: true 
+            tokenExceeded: true
           });
         } else {
           throw new Error(`The analysis response is incomplete: ${reason || "unknown reason"}. Please try again.`);
@@ -3200,7 +3199,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
 
       // Try multiple ways to extract the analysis text
       let analysis = "";
-      
+
       // Method 1: Direct output_text (most common)
       if (response.output_text && response.output_text.trim().length > 0) {
         analysis = response.output_text;
@@ -3238,13 +3237,13 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
         analysis = response;
         console.log("[InspectAI] Response is a string");
       }
-      
+
       // Validate we got analysis text
       if (!analysis || analysis.trim().length === 0) {
         console.error("[InspectAI] Analysis text is empty. Response:", JSON.stringify(response, null, 2));
         throw new Error("OpenAI API returned an empty analysis. The response may have been incomplete. Please try again.");
       }
-      
+
       // Strip forbidden characters from the response:
       // - Remove all asterisks (*, **)
       // - Remove all hash symbols (#)
@@ -3282,16 +3281,16 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
         type: error?.type,
         param: error?.param,
       });
-      
+
       // Return more specific error message
-      const userMessage = errorMessage.includes("OpenAI") 
+      const userMessage = errorMessage.includes("OpenAI")
         ? "AI service returned an error. Please try again."
         : errorMessage.includes("credits")
-        ? "Insufficient credits for AI analysis"
-        : errorMessage.includes("unexpected response format") || errorMessage.includes("empty analysis")
-        ? "AI service returned an invalid response. Please try again."
-        : "Failed to analyze field. Please try again.";
-      
+          ? "Insufficient credits for AI analysis"
+          : errorMessage.includes("unexpected response format") || errorMessage.includes("empty analysis")
+            ? "AI service returned an invalid response. Please try again."
+            : "Failed to analyze field. Please try again.";
+
       res.status(500).json({ message: userMessage });
     }
   });
@@ -3300,7 +3299,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
   app.post("/api/ai/analyze-inspection/:inspectionId", isAuthenticated, async (req: any, res) => {
     try {
       const { inspectionId } = req.params;
-      
+
       // Get user and verify organization membership
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -3337,7 +3336,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
 
       // Check if already processing
       if (inspection.aiAnalysisStatus === "processing") {
-        return res.status(409).json({ 
+        return res.status(409).json({
           message: "AI analysis is already in progress for this inspection",
           status: "processing",
           progress: inspection.aiAnalysisProgress || 0,
@@ -3348,7 +3347,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       // Get all inspection entries with photos
       const entries = await storage.getInspectionEntries(inspectionId);
       const entriesWithPhotos = entries.filter((e: any) => e.photos && e.photos.length > 0);
-      
+
       if (entriesWithPhotos.length === 0) {
         return res.status(400).json({ message: "No photos found in inspection entries to analyze" });
       }
@@ -3356,8 +3355,8 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       // Get organization for credits check
       const organization = await storage.getOrganization(user.organizationId);
       if (!organization || (organization.creditsRemaining ?? 0) < entriesWithPhotos.length) {
-        return res.status(402).json({ 
-          message: `Insufficient credits. You need ${entriesWithPhotos.length} credits but have ${organization?.creditsRemaining ?? 0}` 
+        return res.status(402).json({
+          message: `Insufficient credits. You need ${entriesWithPhotos.length} credits but have ${organization?.creditsRemaining ?? 0}`
         });
       }
 
@@ -3386,7 +3385,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       });
 
       // Return immediately with job started message
-      res.json({ 
+      res.json({
         message: "AI analysis started in background. You can continue working and check back later.",
         status: "processing",
         totalFields: entriesWithPhotos.length
@@ -3402,7 +3401,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
   app.get("/api/ai/analyze-inspection/:inspectionId/status", isAuthenticated, async (req: any, res) => {
     try {
       const { inspectionId } = req.params;
-      
+
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -3429,7 +3428,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
   app.get("/api/inspections/:id/check-in-reference", isAuthenticated, async (req: any, res) => {
     try {
       const { id: checkOutInspectionId } = req.params;
-      
+
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -3473,13 +3472,13 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
 
       const allInspections = await storage.getInspectionsByOrganization(user.organizationId);
       const checkInInspections = allInspections
-        .filter((i: any) => 
-          i.propertyId === currentInspection.propertyId && 
-          i.type === "check_in" && 
+        .filter((i: any) =>
+          i.propertyId === currentInspection.propertyId &&
+          i.type === "check_in" &&
           i.status === "completed"
         )
-        .sort((a: any, b: any) => 
-          new Date(b.completedDate || b.scheduledDate).getTime() - 
+        .sort((a: any, b: any) =>
+          new Date(b.completedDate || b.scheduledDate).getTime() -
           new Date(a.completedDate || a.scheduledDate).getTime()
         );
 
@@ -3496,9 +3495,9 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
         fieldRef: entry.fieldKey, // Add fieldRef as alias for fieldKey
       }));
 
-      res.json({ 
-        checkInInspection, 
-        checkInEntries: mappedCheckInEntries 
+      res.json({
+        checkInInspection,
+        checkInEntries: mappedCheckInEntries
       });
     } catch (error) {
       console.error("Error fetching check-in reference:", error);
@@ -3510,11 +3509,11 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
   app.post("/api/comparison-reports/auto", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const { propertyId, checkOutInspectionId, fieldKey } = req.body;
-      
+
       if (!propertyId) {
         return res.status(400).json({ message: "Property ID is required" });
       }
-      
+
       // Store context for potential future use (e.g., auto-scrolling to the field)
       const context = { checkOutInspectionId, fieldKey };
 
@@ -3533,7 +3532,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       const existingReports = await storage.getComparisonReportsByProperty(propertyId);
       if (existingReports && existingReports.length > 0) {
         // Return the most recent report
-        const latestReport = existingReports.sort((a: any, b: any) => 
+        const latestReport = existingReports.sort((a: any, b: any) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         )[0];
         return res.json({ report: latestReport, created: false });
@@ -3614,8 +3613,8 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
             // Use normalized matching to handle variations in sectionRef naming
             // and map field keys between check-in and check-out templates
             const checkInEntry = checkInEntries.find(
-              e => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef) && 
-                   fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey)
+              e => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef) &&
+                fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey)
             );
 
             let aiComparison: any = { summary: "No images to compare" };
@@ -3628,7 +3627,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
                 const checkOutPhotos = checkOutEntry.photos || [];
 
                 const imageContent: any[] = [];
-                
+
                 if (checkInPhotos.length > 0) {
                   imageContent.push({
                     type: "text",
@@ -3656,7 +3655,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
                 // Get notes from both inspections for comparison
                 const checkInNote = checkInEntry?.note || "";
                 const checkOutNote = checkOutEntry.note || "";
-                
+
                 let prompt = `You are a professional BTR property inspector. Compare check-in vs check-out photos and provide a DETAILED analysis.
 
 CRITICAL: Your SUMMARY must be EXACTLY 100 words (count them). This is mandatory for legal documentation.
@@ -3668,11 +3667,11 @@ ANALYSIS REQUIREMENTS:
 - Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
 - Consider age and expected condition for this property type
 - Consider both visual evidence from photos AND written notes from inspectors`;
-                
+
                 if (checkInNote || checkOutNote) {
                   prompt += `\n\nCHECK-IN NOTES (baseline condition):\n${checkInNote || "No notes provided"}\n\nCHECK-OUT NOTES (current condition):\n${checkOutNote || "No notes provided"}`;
                 }
-                
+
                 prompt += `\n\nRESPONSE FORMAT (use EXACTLY this structure):
 SUMMARY: [Write EXACTLY 100 words. Describe: 1) Overall condition change (considering both photos and notes), 2) Specific damage locations and types, 3) Whether damage exceeds fair wear, 4) Evidence supporting your assessment. Be detailed and specific.]
 SEVERITY: [low/medium/high]
@@ -3680,7 +3679,7 @@ DAMAGE: [1-2 sentence damage summary]
 COST: [number in GBP, 0 if acceptable]
 ACTION: [acceptable/clean/repair/replace]
 LIABILITY: [tenant/landlord/shared]`;
-                
+
                 // If both notes exist, also request notes comparison
                 if (checkInNote && checkOutNote) {
                   prompt += `\n\nNOTES_COMPARISON: [Compare the check-in and check-out notes in detail. Identify: 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out, 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in, 3) Any items that were damaged at check-in but are now repaired or improved, 4) Changes in condition descriptions, 5) Specific discrepancies. Focus on actionable differences and tenant liability. Write 100-150 words.]`;
@@ -3698,7 +3697,7 @@ LIABILITY: [tenant/landlord/shared]`;
                 });
 
                 const analysis = visionResponse.output_text || (visionResponse.output?.[0] as any)?.content?.[0]?.text || "";
-                
+
                 // Parse structured response
                 const costMatch = analysis.match(/COST:\s*£?(\d+)/i) || analysis.match(/COST:\s*(\d+)/i);
                 const severityMatch = analysis.match(/SEVERITY:\s*(low|medium|high)/i);
@@ -3707,9 +3706,9 @@ LIABILITY: [tenant/landlord/shared]`;
                 const summaryMatch = analysis.match(/SUMMARY:\s*([\s\S]+?)(?=\n(?:SEVERITY|DAMAGE|COST|ACTION|LIABILITY|NOTES_COMPARISON):|$)/i);
                 const damageMatch = analysis.match(/DAMAGE:\s*([\s\S]+?)(?=\n(?:COST|ACTION|LIABILITY|NOTES_COMPARISON):|$)/i);
                 // Try to match NOTES_COMPARISON - it might be at the end or in the middle
-                const notesComparisonMatch = analysis.match(/NOTES_COMPARISON:\s*([\s\S]+?)(?=\n(?:SUMMARY|SEVERITY|DAMAGE|COST|ACTION|LIABILITY):|$)/i) || 
-                                            analysis.match(/NOTES_COMPARISON:\s*([\s\S]+)$/i);
-                
+                const notesComparisonMatch = analysis.match(/NOTES_COMPARISON:\s*([\s\S]+?)(?=\n(?:SUMMARY|SEVERITY|DAMAGE|COST|ACTION|LIABILITY):|$)/i) ||
+                  analysis.match(/NOTES_COMPARISON:\s*([\s\S]+)$/i);
+
                 estimatedCost = costMatch ? parseInt(costMatch[1]) : 0;
 
                 aiComparison = {
@@ -3725,7 +3724,7 @@ LIABILITY: [tenant/landlord/shared]`;
                   checkInNote: checkInNote,
                   checkOutNote: checkOutNote
                 };
-                
+
                 // Extract notes_comparison if present in response
                 if (notesComparisonMatch && notesComparisonMatch[1]) {
                   aiComparison.notes_comparison = notesComparisonMatch[1].trim();
@@ -3804,9 +3803,9 @@ LIABILITY: [tenant/landlord/shared]`;
       // Validate request body
       const validation = generateComparisonSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -3877,8 +3876,8 @@ LIABILITY: [tenant/landlord/shared]`;
             // This handles variations like "Entry Hallway" vs "Entry / Hallway"
             // and maps field keys between check-in and check-out templates
             const checkInEntry = checkInEntries.find(
-              e => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef) && 
-                   fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey)
+              e => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef) &&
+                fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey)
             );
 
             // Log check-in entry matching for debugging
@@ -3919,7 +3918,7 @@ LIABILITY: [tenant/landlord/shared]`;
               // First try photos column
               if (checkInEntry.photos && Array.isArray(checkInEntry.photos) && checkInEntry.photos.length > 0) {
                 checkInPhotosRaw = checkInEntry.photos;
-              } 
+              }
               // Also check valueJson for photos (for backward compatibility)
               else if (checkInEntry.valueJson && typeof checkInEntry.valueJson === 'object') {
                 const valueJson = checkInEntry.valueJson as any;
@@ -3930,10 +3929,10 @@ LIABILITY: [tenant/landlord/shared]`;
                 }
               }
             }
-            
+
             const checkInPhotos = checkInPhotosRaw.map(convertPhotoToAbsoluteUrl);
             console.log(`[ComparisonReport] Check-in photos for ${checkOutEntry.fieldKey}: ${checkInPhotos.length} photos`);
-            
+
             // AI image comparison using OpenAI Vision API
             if (checkOutEntry.photos && checkOutEntry.photos.length > 0) {
               try {
@@ -3953,7 +3952,7 @@ LIABILITY: [tenant/landlord/shared]`;
                         return null;
                       }
                     }
-                    
+
                     // If already a data URL, validate format
                     if (photo.startsWith("data:")) {
                       // Basic validation: should have format data:image/...;base64,...
@@ -3969,36 +3968,36 @@ LIABILITY: [tenant/landlord/shared]`;
                         return null;
                       }
                     }
-                    
+
                     // Convert relative path to base64 data URL
                     const objectStorageService = new ObjectStorageService();
                     const photoPath = photo.startsWith('/objects/') ? photo : `/objects/${photo}`;
                     const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
                     const fileBuffer = await fs.readFile(objectFile.name);
-                    
+
                     // Check file size (OpenAI has limits on data URLs)
                     const maxSize = 20 * 1024 * 1024; // 20MB
                     if (fileBuffer.length > maxSize) {
                       console.warn(`[ComparisonReport] Photo too large (${Math.round(fileBuffer.length / 1024)}KB), skipping: ${photoPath}`);
                       return null;
                     }
-                    
+
                     // Detect MIME type from buffer
                     let contentType = detectImageMimeType(fileBuffer);
                     if (!contentType || !contentType.startsWith('image/')) {
                       contentType = 'image/jpeg';
                     }
-                    
+
                     // Convert to base64 data URL
                     const base64Data = fileBuffer.toString('base64');
                     const dataUrl = `data:${contentType};base64,${base64Data}`;
-                    
+
                     // Validate the resulting data URL
                     if (!dataUrl.match(/^data:image\/[^;]+;base64,/)) {
                       console.error(`[ComparisonReport] Failed to create valid data URL for: ${photoPath}`);
                       return null;
                     }
-                    
+
                     return dataUrl;
                   } catch (error: any) {
                     console.error(`[ComparisonReport] Error converting photo ${photo} to data URL:`, error.message);
@@ -4008,7 +4007,7 @@ LIABILITY: [tenant/landlord/shared]`;
 
                 // Prepare image content for Vision API
                 const imageContent: any[] = [];
-                
+
                 // Add check-in photos (if available)
                 if (checkInPhotos.length > 0) {
                   imageContent.push({
@@ -4021,8 +4020,8 @@ LIABILITY: [tenant/landlord/shared]`;
                   for (const photoUrl of checkInPhotoUrls) {
                     if (photoUrl && typeof photoUrl === 'string' && photoUrl.length > 0) {
                       // Validate URL format before adding
-                      if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://') || 
-                          photoUrl.match(/^data:image\/[^;]+;base64,/)) {
+                      if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://') ||
+                        photoUrl.match(/^data:image\/[^;]+;base64,/)) {
                         // Pass URL as string directly (matching pattern used elsewhere in codebase)
                         imageContent.push({
                           type: "image_url",
@@ -4040,29 +4039,29 @@ LIABILITY: [tenant/landlord/shared]`;
                   type: "text",
                   text: "CHECK-OUT PHOTOS (current condition):"
                 });
-                  const checkOutPhotoUrls = await Promise.all(
-                    checkOutPhotos.slice(0, 2).map(convertPhotoToDataUrl)
-                  );
-                  for (const photoUrl of checkOutPhotoUrls) {
-                    if (photoUrl && typeof photoUrl === 'string' && photoUrl.length > 0) {
-                      // Validate URL format before adding
-                      if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://') || 
-                          photoUrl.match(/^data:image\/[^;]+;base64,/)) {
-                        // Pass URL as string directly (matching pattern used elsewhere in codebase)
-                        imageContent.push({
-                          type: "image_url",
-                          image_url: photoUrl
-                        });
-                      } else {
-                        console.warn(`[ComparisonReport] Skipping invalid check-out photo URL format: ${photoUrl.substring(0, 50)}...`);
-                      }
+                const checkOutPhotoUrls = await Promise.all(
+                  checkOutPhotos.slice(0, 2).map(convertPhotoToDataUrl)
+                );
+                for (const photoUrl of checkOutPhotoUrls) {
+                  if (photoUrl && typeof photoUrl === 'string' && photoUrl.length > 0) {
+                    // Validate URL format before adding
+                    if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://') ||
+                      photoUrl.match(/^data:image\/[^;]+;base64,/)) {
+                      // Pass URL as string directly (matching pattern used elsewhere in codebase)
+                      imageContent.push({
+                        type: "image_url",
+                        image_url: photoUrl
+                      });
+                    } else {
+                      console.warn(`[ComparisonReport] Skipping invalid check-out photo URL format: ${photoUrl.substring(0, 50)}...`);
                     }
                   }
+                }
 
                 // Get notes from both inspections for comparison
                 const checkInNote = checkInEntry?.note || "";
                 const checkOutNote = checkOutEntry.note || "";
-                
+
                 // Check if we have any valid images before making API call
                 const hasValidImages = imageContent.some(item => item.type === "image_url");
                 if (!hasValidImages && !checkInNote && !checkOutNote) {
@@ -4076,21 +4075,21 @@ CRITICAL: The "differences" field must contain EXACTLY 100 words. Count them. Th
 
 ANALYSIS REQUIREMENTS:
 - Compare baseline (check-in) to current (check-out) condition`;
-                  
+
                   if (hasValidImages) {
                     prompt += `
 - Analyze the provided photos to identify ALL damage: scratches, stains, dents, tears, discoloration, wear
 - Note specific locations: "top left corner", "center panel", "near handle"`;
                   }
-                  
+
                   prompt += `
 - Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
 - Consider both visual evidence from photos AND written notes from inspectors`;
-                  
+
                   if (checkInNote || checkOutNote) {
                     prompt += `\n\nCHECK-IN NOTES (baseline condition):\n${checkInNote || "No notes provided"}\n\nCHECK-OUT NOTES (current condition):\n${checkOutNote || "No notes provided"}`;
                   }
-                  
+
                   prompt += `
 
 Respond with ONLY valid JSON (no markdown, no code blocks):
@@ -4101,26 +4100,26 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "repair_description": "Specific repairs needed",
   "suggested_liability": "tenant or landlord or shared",
   "estimated_cost_range": {"min": 0, "max": 0}`;
-                  
+
                   // Add notes comparison if both notes exist
                   if (checkInNote && checkOutNote) {
                     prompt += `,
   "notes_comparison": "Analyze and compare the check-in and check-out notes. Identify: 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out, 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in, 3) Any items that were damaged at check-in but are now repaired or improved, 4) Changes in condition descriptions (e.g., 'good' to 'poor', 'clean' to 'dirty'), 5) Specific discrepancies and what changed between the two inspections. Focus on actionable differences and tenant liability. Be detailed and specific. Write 100-150 words."`;
                   }
-                  
+
                   prompt += `
 }`;
 
                   // Log image content for debugging (without full data URLs)
                   const imageCount = imageContent.filter(item => item.type === "image_url").length;
                   console.log(`[ComparisonReport] Sending ${imageCount} images for AI analysis on entry ${checkOutEntry.fieldKey}`);
-                  
+
                   // Build content array with text and images
                   const content = [
                     { type: "text", text: prompt },
                     ...imageContent
                   ];
-                  
+
                   // Log content structure for debugging (without full URLs)
                   console.log(`[ComparisonReport] Content structure:`, content.map((c, idx) => ({
                     index: idx,
@@ -4129,10 +4128,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                     urlType: typeof c.image_url,
                     urlPreview: c.image_url ? (typeof c.image_url === 'string' ? c.image_url.substring(0, 50) + '...' : 'object') : 'none'
                   })));
-                  
+
                   // Validate all image URLs before sending
                   const normalizedContent = normalizeApiContent(content);
-                  
+
                   // Double-check all image URLs are valid strings after normalization
                   for (let i = 0; i < normalizedContent.length; i++) {
                     const item = normalizedContent[i];
@@ -4157,7 +4156,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                       console.log(`[ComparisonReport] Valid image URL at index ${i}: ${url.substring(0, 50)}... (${url.length} chars)`);
                     }
                   }
-                  
+
                   // Call OpenAI Vision API
                   const response = await getOpenAI().responses.create({
                     model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
@@ -4170,27 +4169,27 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                     max_output_tokens: 800,
                   });
 
-                let aiResponse = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "{}";
-                
-                // Strip markdown code blocks and asterisks from the response
-                aiResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
-                
-                try {
-                  aiComparison = JSON.parse(aiResponse);
-                  // Use mid-point of cost range as estimate
-                  estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) + 
-                                   (aiComparison.estimated_cost_range?.max || 0)) / 2;
-                  // Add photos and notes to the comparison object
-                  aiComparison.checkInPhotos = checkInPhotos;
-                  aiComparison.checkOutPhotos = checkOutPhotos.map(convertPhotoToAbsoluteUrl);
-                  aiComparison.checkInNote = checkInNote;
-                  aiComparison.checkOutNote = checkOutNote;
-                  // notes_comparison should already be in the parsed JSON if AI returned it
-                  // If not present but both notes exist, generate it separately
-                  if (!aiComparison.notes_comparison && checkInNote && checkOutNote) {
-                    console.log(`[ComparisonReport] Notes comparison not found in AI response, generating separately...`);
-                    try {
-                      const notesComparisonPrompt = `You are a professional BTR property inspector. Compare the following check-in and check-out notes in detail.
+                  let aiResponse = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "{}";
+
+                  // Strip markdown code blocks and asterisks from the response
+                  aiResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+
+                  try {
+                    aiComparison = JSON.parse(aiResponse);
+                    // Use mid-point of cost range as estimate
+                    estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) +
+                      (aiComparison.estimated_cost_range?.max || 0)) / 2;
+                    // Add photos and notes to the comparison object
+                    aiComparison.checkInPhotos = checkInPhotos;
+                    aiComparison.checkOutPhotos = checkOutPhotos.map(convertPhotoToAbsoluteUrl);
+                    aiComparison.checkInNote = checkInNote;
+                    aiComparison.checkOutNote = checkOutNote;
+                    // notes_comparison should already be in the parsed JSON if AI returned it
+                    // If not present but both notes exist, generate it separately
+                    if (!aiComparison.notes_comparison && checkInNote && checkOutNote) {
+                      console.log(`[ComparisonReport] Notes comparison not found in AI response, generating separately...`);
+                      try {
+                        const notesComparisonPrompt = `You are a professional BTR property inspector. Compare the following check-in and check-out notes in detail.
 
 CHECK-IN NOTES (baseline condition):
 ${checkInNote}
@@ -4212,44 +4211,44 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "notes_comparison": "Your detailed comparison here (100-150 words)"
 }`;
 
-                      const notesResponse = await getOpenAI().responses.create({
-                        model: "gpt-5",
-                        input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
-                        max_output_tokens: 400,
-                      });
+                        const notesResponse = await getOpenAI().responses.create({
+                          model: "gpt-5",
+                          input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
+                          max_output_tokens: 400,
+                        });
 
-                      let notesAiResponse = notesResponse.output_text || (notesResponse.output?.[0] as any)?.content?.[0]?.text || "{}";
-                      notesAiResponse = notesAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
-                      
-                      try {
-                        const notesComparison = JSON.parse(notesAiResponse);
-                        if (notesComparison.notes_comparison) {
-                          aiComparison.notes_comparison = notesComparison.notes_comparison;
-                          console.log(`[ComparisonReport] Generated notes comparison separately`);
+                        let notesAiResponse = notesResponse.output_text || (notesResponse.output?.[0] as any)?.content?.[0]?.text || "{}";
+                        notesAiResponse = notesAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+
+                        try {
+                          const notesComparison = JSON.parse(notesAiResponse);
+                          if (notesComparison.notes_comparison) {
+                            aiComparison.notes_comparison = notesComparison.notes_comparison;
+                            console.log(`[ComparisonReport] Generated notes comparison separately`);
+                          }
+                        } catch (parseError) {
+                          console.error(`[ComparisonReport] Error parsing notes comparison response:`, parseError);
                         }
-                      } catch (parseError) {
-                        console.error(`[ComparisonReport] Error parsing notes comparison response:`, parseError);
+                      } catch (notesError) {
+                        console.error(`[ComparisonReport] Error generating notes comparison separately:`, notesError);
                       }
-                    } catch (notesError) {
-                      console.error(`[ComparisonReport] Error generating notes comparison separately:`, notesError);
                     }
+                  } catch {
+                    aiComparison = {
+                      summary: aiResponse,
+                      checkInPhotos: checkInPhotos,
+                      checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl),
+                      checkInNote: checkInNote,
+                      checkOutNote: checkOutNote
+                    };
                   }
-                } catch {
-                  aiComparison = { 
-                    summary: aiResponse,
-                    checkInPhotos: checkInPhotos,
-                    checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl),
-                    checkInNote: checkInNote,
-                    checkOutNote: checkOutNote
-                  };
-                }
                 }
               } catch (error) {
                 console.error("Error in AI comparison:", error);
                 const checkOutPhotos = checkOutEntry.photos || [];
                 const checkInNote = checkInEntry?.note || "";
                 const checkOutNote = checkOutEntry.note || "";
-                aiComparison = { 
+                aiComparison = {
                   error: "Failed to analyze images",
                   checkInPhotos: checkInPhotos,
                   checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl),
@@ -4261,7 +4260,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               // Even if check-out has no photos, still try to compare using notes if available
               const checkInNote = checkInEntry?.note || "";
               const checkOutNote = checkOutEntry.note || "";
-              
+
               if (checkInPhotos.length > 0 || checkInNote || checkOutNote) {
                 // If we have notes, try to do a text-based comparison
                 if (checkInNote || checkOutNote) {
@@ -4286,33 +4285,35 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "repair_description": "Specific repairs needed if any",
   "suggested_liability": "tenant or landlord or shared",
   "estimated_cost_range": {"min": 0, "max": 0}`;
-                    
+
                     // Add notes comparison if both notes exist
                     if (checkInNote && checkOutNote) {
                       prompt += `,
   "notes_comparison": "Analyze and compare the check-in and check-out notes. Identify: 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out, 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in, 3) Any items that were damaged at check-in but are now repaired or improved, 4) Changes in condition descriptions (e.g., 'good' to 'poor', 'clean' to 'dirty'), 5) Specific discrepancies and what changed between the two inspections. Focus on actionable differences and tenant liability. Be detailed and specific. Write 100-150 words."`;
                     }
-                    
+
                     prompt += `
 }`;
 
                     const response = await getOpenAI().responses.create({
-                      model: "gpt-5",
+                      model: "gpt-4o",
                       input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: prompt }]) }],
                       max_output_tokens: 800,
                     });
 
+                    console.log(`[ComparisonReport] Raw AI response status:`, response);
+
                     let aiResponse = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "{}";
                     aiResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
-                    
+
                     try {
                       aiComparison = JSON.parse(aiResponse);
-                      estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) + 
-                                       (aiComparison.estimated_cost_range?.max || 0)) / 2;
+                      estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) +
+                        (aiComparison.estimated_cost_range?.max || 0)) / 2;
                       aiComparison.checkInPhotos = checkInPhotos;
                       aiComparison.checkOutPhotos = [];
                     } catch {
-                      aiComparison = { 
+                      aiComparison = {
                         summary: aiResponse,
                         checkInPhotos: checkInPhotos,
                         checkOutPhotos: []
@@ -4350,10 +4351,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                   const purchasePrice = parseFloat(asset.purchasePrice);
                   const purchaseDate = new Date(asset.datePurchased);
                   const currentDate = new Date();
-                  
+
                   // Calculate years since purchase
                   const yearsSincePurchase = (currentDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-                  
+
                   // Use asset's depreciation rate or calculate from expected lifespan
                   let annualDepreciationAmount = 0;
                   if (asset.depreciationPerYear) {
@@ -4361,12 +4362,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                   } else if (asset.expectedLifespanYears && asset.expectedLifespanYears > 0) {
                     annualDepreciationAmount = purchasePrice / asset.expectedLifespanYears;
                   }
-                  
+
                   // If no depreciation data available, fall back to 10%
                   if (annualDepreciationAmount > 0) {
                     // Calculate total accumulated depreciation
                     const accumulatedDepreciation = annualDepreciationAmount * yearsSincePurchase;
-                    
+
                     // Apply depreciation as percentage of repair cost
                     // If asset has depreciated 50% and repair costs $100, tenant pays $50
                     const depreciationPercentage = Math.min(1.0, accumulatedDepreciation / purchasePrice);
@@ -4420,9 +4421,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           // Update report with total cost and analysis
           await storage.updateComparisonReport(report.id, {
             totalEstimatedCost: totalCost.toFixed(2),
-            aiAnalysisJson: { 
-              summary: `Analyzed ${markedEntries.length} items. Total estimated cost: $${totalCost.toFixed(2)}`, 
-              items: itemAnalyses 
+            aiAnalysisJson: {
+              summary: `Analyzed ${markedEntries.length} items. Total estimated cost: $${totalCost.toFixed(2)}`,
+              items: itemAnalyses
             },
             status: "under_review",
           });
@@ -4519,11 +4520,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         const aiComparison = item.aiComparisonJson || {};
         let checkInPhotos = aiComparison.checkInPhotos || [];
         let checkOutPhotos = aiComparison.checkOutPhotos || [];
-        
+
         // If check-in photos are missing, try to fetch from check-in entry
         if (!checkInPhotos || checkInPhotos.length === 0) {
           let checkInEntry = null;
-          
+
           // First, try using the stored checkInEntryId
           if (item.checkInEntryId) {
             try {
@@ -4533,7 +4534,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               console.error(`[ComparisonReport] Error fetching check-in entry ${item.checkInEntryId}:`, error);
             }
           }
-          
+
           // If no entry found by ID, try to find matching entry using field key mapping
           if (!checkInEntry && checkInEntries.length > 0) {
             // Get the check-out entry to find its fieldKey
@@ -4542,10 +4543,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               if (checkOutEntry) {
                 // Use the new matching logic to find corresponding check-in entry
                 checkInEntry = checkInEntries.find(
-                  (e: any) => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef || item.sectionRef) && 
-                              fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey || item.fieldKey)
+                  (e: any) => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef || item.sectionRef) &&
+                    fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey || item.fieldKey)
                 );
-                
+
                 if (checkInEntry) {
                   console.log(`[ComparisonReport] Found matching check-in entry using field key mapping: ${checkInEntry.id} for check-out field ${checkOutEntry.fieldKey}`);
                   // Update the comparison report item with the found checkInEntryId for future use
@@ -4563,7 +4564,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               console.error(`[ComparisonReport] Error fetching check-out entry for matching:`, error);
             }
           }
-          
+
           // If we found a check-in entry, extract photos and notes from it
           if (checkInEntry) {
             // Get photos from photos column or valueJson
@@ -4577,7 +4578,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 checkInPhotos = [valueJson.photo];
               }
             }
-            
+
             // Update aiComparisonJson with notes if missing
             if (checkInEntry.note && !aiComparison.checkInNote) {
               aiComparison.checkInNote = checkInEntry.note;
@@ -4587,13 +4588,13 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             } else {
               console.log(`[ComparisonReport] No check-in note found in entry ${checkInEntry.id} for item ${item.id}`);
             }
-            
+
             console.log(`[ComparisonReport] Fetched ${checkInPhotos.length} check-in photos for item ${item.id}`);
           } else {
             console.log(`[ComparisonReport] No check-in entry found for item ${item.id} (sectionRef: ${item.sectionRef}, fieldKey: ${item.fieldKey})`);
           }
         }
-        
+
         // Also fetch check-out entry notes if missing
         if (!aiComparison.checkOutNote) {
           try {
@@ -4608,7 +4609,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             console.error(`[ComparisonReport] Error fetching check-out entry notes:`, error);
           }
         }
-        
+
         // Debug: Log current state BEFORE generation
         console.log(`[ComparisonReport] Item ${item.id} - BEFORE generation check:`);
         console.log(`  - checkInNote exists: ${!!aiComparison.checkInNote}, length: ${aiComparison.checkInNote?.length || 0}`);
@@ -4620,139 +4621,287 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         if (aiComparison.checkOutNote) {
           console.log(`  - checkOutNote preview: "${aiComparison.checkOutNote.substring(0, 50)}..."`);
         }
-        
-        // Generate notes_comparison based on photo comparison if missing
-        // Check if we have photos to compare
-        const hasCheckInPhotos = checkInPhotos && checkInPhotos.length > 0;
-        const hasCheckOutPhotos = checkOutPhotos && checkOutPhotos.length > 0;
-        
-        console.log(`[ComparisonReport] Item ${item.id} - Photo check: hasCheckInPhotos=${hasCheckInPhotos}, hasCheckOutPhotos=${hasCheckOutPhotos}, hasNotesComparison=${!!aiComparison.notes_comparison}`);
-        
-        if (!aiComparison.notes_comparison && (hasCheckInPhotos || hasCheckOutPhotos)) {
-          console.log(`[ComparisonReport] 🚀 STARTING photo-based comparison generation for item ${item.id}`);
+
+        // Generate notes_comparison based on check-in and check-out notes if missing
+        // Check that notes are not just empty strings or whitespace
+        const hasValidCheckInNote = aiComparison.checkInNote && aiComparison.checkInNote.trim().length > 0;
+        const hasValidCheckOutNote = aiComparison.checkOutNote && aiComparison.checkOutNote.trim().length > 0;
+
+        console.log(`[ComparisonReport] Item ${item.id} - Notes check: hasValidCheckInNote=${hasValidCheckInNote}, hasValidCheckOutNote=${hasValidCheckOutNote}, hasNotesComparison=${!!aiComparison.notes_comparison}`);
+
+        if (!aiComparison.notes_comparison && hasValidCheckInNote && hasValidCheckOutNote) {
+          console.log(`[ComparisonReport] 🚀 STARTING notes comparison generation for item ${item.id}`);
+          console.log(`[ComparisonReport] Check-in note (first 100 chars): ${aiComparison.checkInNote.substring(0, 100)}...`);
+          console.log(`[ComparisonReport] Check-out note (first 100 chars): ${aiComparison.checkOutNote.substring(0, 100)}...`);
+
+          let comparisonGenerated = false;
           try {
-            // Helper function to convert photo to data URL for AI vision API
-            const convertPhotoForAI = async (photo: string): Promise<string | null> => {
+            const notesComparisonPrompt = `You are a professional BTR property inspector. Your task is to compare check-in and check-out inspection notes and identify ALL changes, damage, and condition differences.
+
+CHECK-IN NOTES (baseline condition at move-in):
+${aiComparison.checkInNote}
+
+CHECK-OUT NOTES (current condition at move-out):
+${aiComparison.checkOutNote}
+
+REQUIRED ANALYSIS - You must identify and describe:
+1. What was in GOOD condition at check-in but is now DAMAGED, BROKEN, or MISSING at check-out
+2. What NEW damage, issues, or problems appeared at check-out that were NOT present at check-in
+3. What was DAMAGED at check-in but is now REPAIRED or IMPROVED at check-out
+4. CONDITION CHANGES: Compare specific condition descriptions (e.g., "good" became "poor", "clean" became "dirty", "intact" became "cracked")
+5. SPECIFIC DISCREPANCIES: List exact differences between the two inspections
+
+Write a detailed comparison analysis using BULLET POINTS for readability. Clearly explain how the condition changed from check-in to check-out. Focus on actionable differences that determine tenant liability.
+
+CRITICAL: You MUST respond with ONLY valid JSON. Do NOT include markdown, code blocks, or any text outside the JSON. Your response must be in this exact format:
+{"notes_comparison": "• Bullet point 1\n• Bullet point 2\n• Bullet point 3\n..."}
+
+Example of what you should write:
+{"notes_comparison": "The check-in notes indicate the floor was structurally sound with no visible damage. The check-out notes reveal the same floor now shows signs of wear and damage. Specifically, the check-in noted 'no obvious cracks' while check-out mentions visible damage. This indicates deterioration occurred during tenancy. The condition changed from 'structurally sound' to showing 'visible damage', suggesting tenant liability for the deterioration."}
+
+Now provide your comparison analysis:`;
+
+            console.log(`[ComparisonReport] Making AI call for notes comparison with model gpt-4o...`);
+            const notesResponse = await getOpenAI().responses.create({
+              model: "gpt-4o",
+              input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
+              max_output_tokens: 400,
+            });
+
+            console.log(`[ComparisonReport] Raw AI response object:`, JSON.stringify(notesResponse, null, 2));
+
+            let notesAiResponse = notesResponse.output_text || (notesResponse.output?.[0] as any)?.content?.[0]?.text || "";
+            console.log(`[ComparisonReport] Raw AI response for notes comparison (first 500 chars): ${notesAiResponse.substring(0, 500)}`);
+            console.log(`[ComparisonReport] Full response length: ${notesAiResponse.length}`);
+
+            // Clean up the response - remove markdown code blocks, trim whitespace
+            notesAiResponse = notesAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+
+            // If response is empty or just "{}", trigger retry directly instead of throwing
+            if (!notesAiResponse || notesAiResponse === "{}" || notesAiResponse.trim() === "") {
+              console.warn(`[ComparisonReport] ⚠️ AI returned empty or invalid response. Full response: "${notesAiResponse}"`);
+              console.log(`[ComparisonReport] Triggering retry with simpler prompt...`);
+
+              // Retry with a simpler, more direct prompt
               try {
-                if (photo.startsWith("http://") || photo.startsWith("https://")) {
-                  try {
-                    new URL(photo);
-                    return photo;
-                  } catch {
-                    return null;
-                  }
-                }
-                if (photo.startsWith("data:")) {
-                  if (photo.match(/^data:image\/[^;]+;base64,/)) {
-                    if (photo.length > 20 * 1024 * 1024) return null;
-                    return photo;
-                  }
-                  return null;
-                }
-                const objectStorageService = new ObjectStorageService();
-                const photoPath = photo.startsWith('/objects/') ? photo : `/objects/${photo}`;
-                const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
-                const fileBuffer = await fs.readFile(objectFile.name);
-                if (fileBuffer.length > 20 * 1024 * 1024) return null;
-                let contentType = detectImageMimeType(fileBuffer);
-                if (!contentType || !contentType.startsWith('image/')) {
-                  contentType = 'image/jpeg';
-                }
-                const base64Data = fileBuffer.toString('base64');
-                return `data:${contentType};base64,${base64Data}`;
-              } catch (error) {
-                console.error(`[ComparisonReport] Error converting photo:`, error);
-                return null;
-              }
-            };
-            
-            // Prepare image content for comparison
-            const imageContent: any[] = [];
-            
-            // Add check-in photos first
-            if (hasCheckInPhotos) {
-              for (const photo of checkInPhotos.slice(0, 2)) { // Limit to 2 photos
-                const photoUrl = await convertPhotoForAI(photo);
-                if (photoUrl) {
-                  imageContent.push({ type: "image_url", image_url: photoUrl });
-                }
-              }
-            }
-            
-            // Add check-out photos
-            if (hasCheckOutPhotos) {
-              for (const photo of checkOutPhotos.slice(0, 2)) { // Limit to 2 photos
-                const photoUrl = await convertPhotoForAI(photo);
-                if (photoUrl) {
-                  imageContent.push({ type: "image_url", image_url: photoUrl });
-                }
-              }
-            }
-            
-            if (imageContent.length === 0) {
-              console.log(`[ComparisonReport] No valid photos to compare for item ${item.id}`);
-            } else {
-              const photoComparisonPrompt = `You are a professional BTR property inspector. Compare the check-in and check-out photos to identify ALL changes, damage, and differences.
+                const retryPrompt = `Compare these inspection notes and describe the changes:
 
-INSTRUCTIONS:
-- The first photo(s) are from CHECK-IN (baseline condition)
-- The remaining photo(s) are from CHECK-OUT (current condition)
-- Compare them side-by-side and identify:
-  1) What was in good condition at check-in but is now broken, damaged, or missing at check-out
-  2) New damage, cracks, stains, or issues that appeared at check-out (not present at check-in)
-  3) Items that were damaged at check-in but are now repaired or improved
-  4) Any visible changes in condition (e.g., clean to dirty, intact to cracked, good to poor)
-  5) Specific locations of damage (e.g., "wall above bed", "floor near door", "corner of room")
+CHECK-IN NOTES:
+${aiComparison.checkInNote.substring(0, 800)}
 
-Be detailed, specific, and focus on actionable differences. Identify what changed and where. Write 100-150 words.
+CHECK-OUT NOTES:
+${aiComparison.checkOutNote.substring(0, 800)}
 
-Respond with ONLY valid JSON (no markdown, no code blocks):
-{
-  "notes_comparison": "Your detailed visual comparison here (100-150 words)"
-}`;
+Write a detailed comparison using BULLET POINTS explaining:
+- What was good at check-in but damaged at check-out
+- What new damage appeared
+- How conditions changed (e.g., "good" to "poor")
+- Specific differences between the two inspections
 
-              imageContent.unshift({ type: "text", text: photoComparisonPrompt });
-              
-              console.log(`[ComparisonReport] Making AI call for photo comparison with ${imageContent.length - 1} photos...`);
-              const photoResponse = await getOpenAI().responses.create({
-                model: "gpt-5",
-                input: [{ role: "user", content: normalizeApiContent(imageContent) }],
-                max_output_tokens: 400,
-              });
+Respond with ONLY this JSON (no other text):
+{"notes_comparison": "• Point 1\n• Point 2\n..."}`;
 
-              let photoAiResponse = photoResponse.output_text || (photoResponse.output?.[0] as any)?.content?.[0]?.text || "{}";
-              console.log(`[ComparisonReport] Raw AI response for photo comparison (first 200 chars): ${photoAiResponse.substring(0, 200)}`);
-              
-              photoAiResponse = photoAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
-              
-              try {
-                const photoComparison = JSON.parse(photoAiResponse);
-                if (photoComparison.notes_comparison) {
-                  aiComparison.notes_comparison = photoComparison.notes_comparison;
-                  console.log(`[ComparisonReport] ✅ Successfully generated photo-based notes_comparison for item ${item.id} (length: ${photoComparison.notes_comparison.length})`);
-                  // Update the database
-                  try {
-                    await storage.updateComparisonReportItem(item.id, { 
-                      aiComparisonJson: aiComparison 
+                const retryResponse = await getOpenAI().responses.create({
+                  model: "gpt-4o",
+                  input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: retryPrompt }]) }],
+                  max_output_tokens: 500,
+                });
+
+                let retryAiResponse = retryResponse.output_text || (retryResponse.output?.[0] as any)?.content?.[0]?.text || "";
+                retryAiResponse = retryAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+
+                console.log(`[ComparisonReport] Retry response (first 300 chars): ${retryAiResponse.substring(0, 300)}`);
+                console.log(`[ComparisonReport] Retry response length: ${retryAiResponse.length}`);
+
+                if (retryAiResponse && retryAiResponse !== "{}" && retryAiResponse.trim() !== "") {
+                  const retryComparison = JSON.parse(retryAiResponse);
+                  if (retryComparison.notes_comparison && retryComparison.notes_comparison.trim().length > 0) {
+                    aiComparison.notes_comparison = retryComparison.notes_comparison.trim();
+                    console.log(`[ComparisonReport] ✅ Retry successful - generated notes_comparison (${aiComparison.notes_comparison.length} chars)`);
+                    await storage.updateComparisonReportItem(item.id, {
+                      aiComparisonJson: aiComparison
                     });
-                    console.log(`[ComparisonReport] Updated database with photo-based notes_comparison for item ${item.id}`);
-                  } catch (updateError) {
-                    console.error(`[ComparisonReport] Error updating notes_comparison in database:`, updateError);
+                    // Success - mark as generated
+                    comparisonGenerated = true;
+                  } else {
+                    console.warn(`[ComparisonReport] Retry response missing notes_comparison field`);
                   }
                 } else {
-                  console.warn(`[ComparisonReport] AI response missing notes_comparison field. Keys: ${Object.keys(photoComparison)}`);
+                  console.warn(`[ComparisonReport] Retry returned empty response`);
                 }
-              } catch (parseError) {
-                console.error(`[ComparisonReport] Error parsing photo comparison response:`, parseError);
-                console.error(`[ComparisonReport] Response that failed to parse: ${photoAiResponse.substring(0, 500)}`);
+
+                // If retry also failed and we haven't generated, continue to final fallback
+                if (!comparisonGenerated) {
+                  throw new Error("Both initial and retry attempts returned empty or invalid responses");
+                }
+              } catch (retryError) {
+                console.error(`[ComparisonReport] Retry also failed:`, retryError);
+                // Fall through to outer catch block
+                throw retryError;
               }
             }
-          } catch (photoError) {
-            console.error(`[ComparisonReport] Error generating photo-based comparison:`, photoError);
-            console.error(`[ComparisonReport] Error details:`, photoError instanceof Error ? photoError.message : String(photoError));
+
+            try {
+              const notesComparison = JSON.parse(notesAiResponse);
+              console.log(`[ComparisonReport] Parsed JSON successfully. Keys: ${Object.keys(notesComparison)}`);
+              if (notesComparison.notes_comparison && notesComparison.notes_comparison.trim().length > 0) {
+                aiComparison.notes_comparison = notesComparison.notes_comparison.trim();
+                console.log(`[ComparisonReport] ✅✅✅ Successfully generated notes_comparison for item ${item.id}`);
+                console.log(`[ComparisonReport] Comparison length: ${notesComparison.notes_comparison.length} chars`);
+                console.log(`[ComparisonReport] Preview: ${notesComparison.notes_comparison.substring(0, 100)}...`);
+                // Update the database
+                try {
+                  await storage.updateComparisonReportItem(item.id, {
+                    aiComparisonJson: aiComparison
+                  });
+                  console.log(`[ComparisonReport] ✅ Database updated with notes_comparison for item ${item.id}`);
+                } catch (updateError) {
+                  console.error(`[ComparisonReport] ❌ Error updating notes_comparison in database:`, updateError);
+                }
+              } else {
+                console.warn(`[ComparisonReport] ⚠️ AI response missing or empty notes_comparison field. Full response:`, JSON.stringify(notesComparison, null, 2));
+                // Retry with a simpler, more direct prompt
+                console.log(`[ComparisonReport] Retrying with simpler, more direct prompt...`);
+                try {
+                  const retryPrompt = `Compare these inspection notes and describe the changes:
+
+CHECK-IN NOTES:
+${aiComparison.checkInNote.substring(0, 800)}
+
+CHECK-OUT NOTES:
+${aiComparison.checkOutNote.substring(0, 800)}
+
+Write a detailed comparison using BULLET POINTS explaining:
+- What was good at check-in but damaged at check-out
+- What new damage appeared
+- How conditions changed (e.g., "good" to "poor")
+- Specific differences between the two inspections
+
+Respond with ONLY this JSON (no other text):
+{"notes_comparison": "• Point 1\n• Point 2\n..."}`;
+
+                  const retryResponse = await getOpenAI().responses.create({
+                    model: "gpt-4o",
+                    input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: retryPrompt }]) }],
+                    max_output_tokens: 500,
+                  });
+
+                  let retryAiResponse = retryResponse.output_text || (retryResponse.output?.[0] as any)?.content?.[0]?.text || "";
+                  retryAiResponse = retryAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+
+                  console.log(`[ComparisonReport] Retry response (first 300 chars): ${retryAiResponse.substring(0, 300)}`);
+
+                  if (retryAiResponse && retryAiResponse !== "{}" && retryAiResponse.trim() !== "") {
+                    const retryComparison = JSON.parse(retryAiResponse);
+                    if (retryComparison.notes_comparison && retryComparison.notes_comparison.trim().length > 0) {
+                      aiComparison.notes_comparison = retryComparison.notes_comparison.trim();
+                      console.log(`[ComparisonReport] ✅ Retry successful - generated notes_comparison (${aiComparison.notes_comparison.length} chars)`);
+                      await storage.updateComparisonReportItem(item.id, {
+                        aiComparisonJson: aiComparison
+                      });
+                    } else {
+                      throw new Error("Retry response missing notes_comparison");
+                    }
+                  } else {
+                    throw new Error("Retry returned empty response");
+                  }
+                } catch (retryError) {
+                  console.error(`[ComparisonReport] Retry also failed:`, retryError);
+                  // Don't use fallback - let the user know it needs manual review
+                  aiComparison.notes_comparison = `[AI Comparison Unavailable] Please manually compare the check-in and check-out notes to identify changes, damage, or discrepancies between the two inspections.`;
+                  console.log(`[ComparisonReport] Using placeholder text - AI comparison unavailable`);
+                  try {
+                    await storage.updateComparisonReportItem(item.id, {
+                      aiComparisonJson: aiComparison
+                    });
+                  } catch (updateError) {
+                    console.error(`[ComparisonReport] Error updating with placeholder:`, updateError);
+                  }
+                }
+              }
+            } catch (parseError) {
+              console.error(`[ComparisonReport] ❌ Error parsing notes comparison response:`, parseError);
+              console.error(`[ComparisonReport] Full response that failed to parse: ${notesAiResponse}`);
+
+              // Try to extract JSON from the response if it's wrapped in text
+              try {
+                const jsonMatch = notesAiResponse.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const extractedJson = JSON.parse(jsonMatch[0]);
+                  if (extractedJson.notes_comparison && extractedJson.notes_comparison.trim().length > 0) {
+                    aiComparison.notes_comparison = extractedJson.notes_comparison.trim();
+                    console.log(`[ComparisonReport] ✅ Extracted notes_comparison from wrapped response`);
+                    await storage.updateComparisonReportItem(item.id, {
+                      aiComparisonJson: aiComparison
+                    });
+                  } else {
+                    throw new Error("Extracted JSON missing notes_comparison");
+                  }
+                } else {
+                  throw new Error("No JSON found in response");
+                }
+              } catch (extractError) {
+                console.error(`[ComparisonReport] Failed to extract JSON:`, extractError);
+                // Generate a detailed fallback comparison
+                const checkInSummary = aiComparison.checkInNote.length > 300 ? aiComparison.checkInNote.substring(0, 300) + "..." : aiComparison.checkInNote;
+                const checkOutSummary = aiComparison.checkOutNote.length > 300 ? aiComparison.checkOutNote.substring(0, 300) + "..." : aiComparison.checkOutNote;
+                const fallbackComparison = `COMPARISON ANALYSIS:\n\nThe check-in inspection noted: ${checkInSummary}\n\nThe check-out inspection noted: ${checkOutSummary}\n\nANALYSIS: Please compare the specific condition descriptions, damage reports, and observations between these two inspections to identify changes, new damage, or deterioration that occurred during the tenancy period.`;
+                aiComparison.notes_comparison = fallbackComparison;
+                console.log(`[ComparisonReport] Using detailed fallback comparison text after parse error`);
+                try {
+                  await storage.updateComparisonReportItem(item.id, {
+                    aiComparisonJson: aiComparison
+                  });
+                } catch (updateError) {
+                  console.error(`[ComparisonReport] Error updating with fallback:`, updateError);
+                }
+              }
+            }
+          } catch (notesError) {
+            console.error(`[ComparisonReport] Error generating notes comparison:`, notesError);
+            console.error(`[ComparisonReport] Error details:`, notesError instanceof Error ? notesError.message : String(notesError));
+
+            // Final fallback - try one more time with an even simpler prompt
+            if (!aiComparison.notes_comparison) {
+              console.log(`[ComparisonReport] Attempting final fallback with minimal prompt...`);
+              try {
+                const finalPrompt = `Compare these two notes and write a comparison:
+
+CHECK-IN: ${aiComparison.checkInNote.substring(0, 600)}
+CHECK-OUT: ${aiComparison.checkOutNote.substring(0, 600)}
+
+Write how the condition changed. JSON only: {"notes_comparison": "comparison text here"}`;
+
+                const finalResponse = await getOpenAI().responses.create({
+                  model: "gpt-4o",
+                  input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: finalPrompt }]) }],
+                  max_output_tokens: 400,
+                });
+
+                let finalAiResponse = finalResponse.output_text || (finalResponse.output?.[0] as any)?.content?.[0]?.text || "";
+                finalAiResponse = finalAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+
+                if (finalAiResponse && finalAiResponse !== "{}" && finalAiResponse.trim() !== "") {
+                  try {
+                    const finalComparison = JSON.parse(finalAiResponse);
+                    if (finalComparison.notes_comparison && finalComparison.notes_comparison.trim().length > 0) {
+                      aiComparison.notes_comparison = finalComparison.notes_comparison.trim();
+                      console.log(`[ComparisonReport] ✅ Final fallback successful - generated notes_comparison`);
+                      await storage.updateComparisonReportItem(item.id, {
+                        aiComparisonJson: aiComparison
+                      });
+                    }
+                  } catch (parseErr) {
+                    console.error(`[ComparisonReport] Failed to parse final fallback response:`, parseErr);
+                  }
+                }
+              } catch (finalError) {
+                console.error(`[ComparisonReport] Final fallback also failed:`, finalError);
+              }
+            }
           }
         }
-        
+
         // If check-out photos are missing from aiComparisonJson, fetch from check-out entry
         if ((!checkOutPhotos || checkOutPhotos.length === 0) && item.checkOutEntryId) {
           try {
@@ -4774,7 +4923,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             console.error(`[ComparisonReport] Error fetching check-out entry ${item.checkOutEntryId}:`, error);
           }
         }
-        
+
         // Log what we're returning for debugging AFTER generation attempt
         if (aiComparison.notes_comparison) {
           console.log(`[ComparisonReport] ✅ Item ${item.id} HAS notes_comparison (${aiComparison.notes_comparison.length} chars): ${aiComparison.notes_comparison.substring(0, 50)}...`);
@@ -4786,14 +4935,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         } else {
           console.log(`[ComparisonReport] Item ${item.id} - checkInNote: ${!!aiComparison.checkInNote}, checkOutNote: ${!!aiComparison.checkOutNote}`);
         }
-        
+
         // Ensure aiComparisonJson is a proper object
         const finalAiComparison = {
           ...aiComparison,
           checkInPhotos: aiComparison.checkInPhotos || [],
           checkOutPhotos: aiComparison.checkOutPhotos || [],
         };
-        
+
         return {
           ...item,
           checkInPhotos: checkInPhotos,
@@ -4875,7 +5024,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -4883,7 +5032,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Get item and verify access through report
       const items = await storage.getComparisonReportItems(req.body.comparisonReportId);
       const item = items.find((i: any) => i.id === id);
-      
+
       if (!item) {
         return res.status(404).json({ message: "Comparison report item not found" });
       }
@@ -4894,13 +5043,22 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       // Validate allowed fields
-      const allowedFields = ["status", "liabilityDecision", "estimatedCost", "depreciation", "finalCost", "operatorNotes"];
+      const allowedFields = ["status", "liabilityDecision", "estimatedCost", "depreciation", "finalCost", "operatorNotes", "aiComparisonJson"];
       const updates: any = {};
-      
+
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
           updates[field] = req.body[field];
         }
+      }
+
+      // If aiComparisonJson is provided, merge it with existing data
+      if (updates.aiComparisonJson) {
+        const existingAiComparison = item.aiComparisonJson || {};
+        updates.aiComparisonJson = {
+          ...existingAiComparison,
+          ...updates.aiComparisonJson,
+        };
       }
 
       // Validate status if provided (must match comparisonItemStatusEnum)
@@ -4943,7 +5101,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const { id } = req.params;
       const { content, isInternal } = req.body;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -4986,15 +5144,28 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   app.post("/api/comparison-reports/:id/sign", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { signature } = req.body; // Typed name
+      const { signature } = req.body; // Signature data URL (base64 image) or typed name
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
 
       if (!signature || signature.trim().length === 0) {
-        return res.status(400).json({ message: "Signature (typed name) is required" });
+        return res.status(400).json({ message: "Signature is required" });
+      }
+
+      // If signature is a data URL (image), extract the user's name from user object
+      // Otherwise, use the signature as the typed name (backward compatibility)
+      let signatureName: string;
+      if (signature.startsWith('data:image/')) {
+        // It's a signature image - use user's full name
+        signatureName = user.firstName && user.lastName 
+          ? `${user.firstName} ${user.lastName}`.trim()
+          : user.email || user.username || 'Operator';
+      } else {
+        // It's a typed name (backward compatibility)
+        signatureName = signature.trim();
       }
 
       const report = await storage.getComparisonReport(id);
@@ -5031,18 +5202,22 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const now = new Date();
 
       if (isOperator) {
-        updates.operatorSignature = signature.trim();
+        // Store signature data URL if it's an image, otherwise store typed name
+        const signatureToStore = signature.startsWith('data:image/') ? signature : signatureName;
+        updates.operatorSignature = signatureToStore;
         updates.operatorSignedAt = now;
         updates.operatorSignedIp = ipAddress;
       } else if (isTenant) {
-        updates.tenantSignature = signature.trim();
+        // Store signature data URL if it's an image, otherwise store typed name
+        const signatureToStore = signature.startsWith('data:image/') ? signature : signatureName;
+        updates.tenantSignature = signatureToStore;
         updates.tenantSignedAt = now;
         updates.tenantSignedIp = ipAddress;
       }
 
       // Check if both parties have now signed
       const bothSigned = (
-        (isOperator || report.operatorSignature) && 
+        (isOperator || report.operatorSignature) &&
         (isTenant || report.tenantSignature)
       );
 
@@ -5063,7 +5238,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -5080,18 +5255,18 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Get report items
       const items = await storage.getComparisonReportItems(id);
-      
+
       // Get property and tenant info
       const property = await storage.getProperty(report.propertyId);
       const block = property?.blockId ? await storage.getBlock(property.blockId) : null;
-      
+
       // Get check-in and check-out inspections
       const checkInInspection = await storage.getInspection(report.checkInInspectionId);
       const checkOutInspection = await storage.getInspection(report.checkOutInspectionId);
-      
+
       // Get comments for the report
       const comments = await storage.getComparisonComments(id);
-      
+
       // Get organization branding
       const organization = await storage.getOrganization(user.organizationId);
       const branding: ReportBrandingInfo = organization ? {
@@ -5102,7 +5277,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         brandingWebsite: organization.brandingWebsite,
       } : {};
 
-      // Generate HTML for the comparison report
+      // Build base URL for converting relative image paths to absolute (same as inspection report)
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const baseUrl = `${protocol}://${host}`;
+      
+      console.log('[PDF Generation] Using baseUrl:', baseUrl, 'for', items.length, 'items');
+
+      // Generate HTML for the comparison report (photos will be converted to absolute URLs in HTML generation)
       const html = generateComparisonReportHTML(
         report,
         items,
@@ -5111,7 +5293,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         checkInInspection,
         checkOutInspection,
         comments.filter((c: any) => !c.isInternal), // Only public comments in PDF
-        branding
+        branding,
+        baseUrl
       );
 
       let browser;
@@ -5154,7 +5337,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const { id } = req.params;
       const { includePdf } = req.body;
-      
+
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -5290,10 +5473,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         propertyAddress: property?.address || '',
         blockName: block?.name || '',
         tenantName,
-        checkInDate: checkInInspection?.completedDate 
+        checkInDate: checkInInspection?.completedDate
           ? format(new Date(checkInInspection.completedDate), 'dd MMM yyyy')
           : 'N/A',
-        checkOutDate: checkOutInspection?.completedDate 
+        checkOutDate: checkOutInspection?.completedDate
           ? format(new Date(checkOutInspection.completedDate), 'dd MMM yyyy')
           : 'N/A',
         totalEstimatedCost,
@@ -5313,10 +5496,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         signedByTenant: !!report.tenantSignature,
         operatorSignature: report.operatorSignature || undefined,
         tenantSignature: report.tenantSignature || undefined,
-        operatorSignedAt: report.operatorSignedAt 
+        operatorSignedAt: report.operatorSignedAt
           ? format(new Date(report.operatorSignedAt), 'dd MMM yyyy HH:mm')
           : undefined,
-        tenantSignedAt: report.tenantSignedAt 
+        tenantSignedAt: report.tenantSignedAt
           ? format(new Date(report.tenantSignedAt), 'dd MMM yyyy HH:mm')
           : undefined,
         generatedAt: format(new Date(), 'dd MMM yyyy HH:mm'),
@@ -5325,9 +5508,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         pdfAttachment,
       });
 
-      res.json({ 
-        success: true, 
-        message: `Report sent to finance department (${organization.financeEmail})` 
+      res.json({
+        success: true,
+        message: `Report sent to finance department (${organization.financeEmail})`
       });
     } catch (error) {
       console.error("Error sending comparison report to finance:", error);
@@ -5344,7 +5527,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     checkInInspection: any,
     checkOutInspection: any,
     comments: any[],
-    branding?: ReportBrandingInfo
+    branding?: ReportBrandingInfo,
+    baseUrl?: string
   ) {
     const escapeHtml = (str: string) => {
       if (!str) return '';
@@ -5356,15 +5540,55 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         .replace(/'/g, "&#039;");
     };
 
+    // Sanitize and convert URLs for PDF generation
+    // Sanitize and convert URLs for PDF generation (same logic as inspection report)
+    const sanitizeReportUrl = (url: string): string => {
+      if (!url || typeof url !== 'string') return '';
+      
+      const trimmed = url.trim();
+      const lower = trimmed.toLowerCase();
+      
+      // Handle relative URLs (convert to absolute using baseUrl) - same as inspection report
+      if (trimmed.startsWith('/') && baseUrl) {
+        const absoluteUrl = `${baseUrl}${trimmed}`;
+        return escapeHtml(absoluteUrl);
+      }
+      
+      // Allow only safe protocols via whitelist
+      const safeProtocols = ['https://', 'http://'];
+      const isSafeProtocol = safeProtocols.some(protocol => lower.startsWith(protocol));
+      
+      if (!isSafeProtocol) {
+        // For data URLs, only allow safe image types (NO SVG - can contain XSS)
+        const safeDataImages = [
+          'data:image/png',
+          'data:image/jpeg',
+          'data:image/jpg',
+          'data:image/gif',
+          'data:image/webp',
+        ];
+        
+        const isSafeDataUrl = safeDataImages.some(prefix => lower.startsWith(prefix));
+        
+        if (!isSafeDataUrl) {
+          // Reject all other protocols/schemes (javascript:, data:image/svg+xml, vbscript:, etc.)
+          console.warn(`Blocked potentially unsafe URL: ${url.substring(0, 50)}...`);
+          return '';
+        }
+      }
+      
+      // Return escaped URL (escape special chars for HTML attribute safety)
+      return escapeHtml(trimmed);
+    };
+
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
     const hasLogo = !!branding?.logoUrl;
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
-      : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
       : '';
+    // Always show company name, below logo if logo exists
+    const companyNameHtml = `<div class="cover-company-name">${escapeHtml(companyName)}</div>`;
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
     if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
@@ -5405,13 +5629,13 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const itemRows = items.map((item, index) => {
       const aiAnalysis = item.aiComparisonJson || {};
       const liability = liabilityColors[item.liabilityDecision] || liabilityColors.tenant;
-      const liabilityLabel = item.liabilityDecision ? 
-        item.liabilityDecision.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) : 
+      const liabilityLabel = item.liabilityDecision ?
+        item.liabilityDecision.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) :
         'Pending';
-      
+
       const checkInPhotos = aiAnalysis.checkInPhotos || [];
       const checkOutPhotos = aiAnalysis.checkOutPhotos || [];
-      
+
       return `
         <div class="item-card" style="page-break-inside: avoid; margin-bottom: 20px;">
           <div class="item-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f9fafb; border-radius: 8px 8px 0 0; border: 1px solid #e5e7eb; border-bottom: none;">
@@ -5436,10 +5660,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 <div style="font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 8px; font-weight: 600;">Check-In Photos</div>
                 ${checkInPhotos.length > 0 ? `
                   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    ${checkInPhotos.slice(0, 3).map((photo: string) => `
-                      <img src="${sanitizeReportUrl(photo)}" style="width: 80px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e7eb;" />
-                    `).join('')}
-                    ${checkInPhotos.length > 3 ? `<span style="font-size: 12px; color: #666; align-self: center;">+${checkInPhotos.length - 3} more</span>` : ''}
+                    ${checkInPhotos.map((photo: string) => {
+                      const sanitizedUrl = sanitizeReportUrl(photo);
+                      if (!sanitizedUrl) {
+                        console.warn(`[PDF] Skipping invalid check-in photo URL: ${photo.substring(0, 50)}...`);
+                        return '';
+                      }
+                      return `<img src="${sanitizedUrl}" alt="Check-in photo" style="max-width: 150px; max-height: 120px; width: auto; height: auto; object-fit: contain; border-radius: 4px; border: 1px solid #e5e7eb; background: #f9fafb;" />`;
+                    }).filter((html: string) => html !== '').join('')}
                   </div>
                 ` : '<span style="font-size: 12px; color: #999;">No photos</span>'}
               </div>
@@ -5447,10 +5675,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 <div style="font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 8px; font-weight: 600;">Check-Out Photos</div>
                 ${checkOutPhotos.length > 0 ? `
                   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    ${checkOutPhotos.slice(0, 3).map((photo: string) => `
-                      <img src="${sanitizeReportUrl(photo)}" style="width: 80px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e7eb;" />
-                    `).join('')}
-                    ${checkOutPhotos.length > 3 ? `<span style="font-size: 12px; color: #666; align-self: center;">+${checkOutPhotos.length - 3} more</span>` : ''}
+                    ${checkOutPhotos.map((photo: string) => {
+                      const sanitizedUrl = sanitizeReportUrl(photo);
+                      if (!sanitizedUrl) {
+                        console.warn(`[PDF] Skipping invalid check-out photo URL: ${photo.substring(0, 50)}...`);
+                        return '';
+                      }
+                      return `<img src="${sanitizedUrl}" alt="Check-out photo" style="max-width: 150px; max-height: 120px; width: auto; height: auto; object-fit: contain; border-radius: 4px; border: 1px solid #e5e7eb; background: #f9fafb;" />`;
+                    }).filter((html: string) => html !== '').join('')}
                   </div>
                 ` : '<span style="font-size: 12px; color: #999;">No photos</span>'}
               </div>
@@ -5470,6 +5702,13 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 <div style="font-size: 16px; font-weight: 700; color: #00D5CC;">£${parseFloat(item.finalCost || '0').toFixed(2)}</div>
               </div>
             </div>
+            
+            ${aiAnalysis.notes_comparison ? `
+              <div style="margin-top: 12px; background: #fef3c7; border-left: 3px solid #f59e0b; padding: 12px; border-radius: 4px;">
+                <div style="font-weight: 500; color: #92400e; margin-bottom: 4px; font-size: 13px;">Notes Comparison:</div>
+                <div style="color: #78350f; font-size: 14px; white-space: pre-wrap;">${escapeHtml(aiAnalysis.notes_comparison)}</div>
+              </div>
+            ` : ''}
           </div>
         </div>
       `;
@@ -5491,6 +5730,36 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       </div>
     ` : '';
 
+    // Helper function to render signature (data URL or text)
+    const renderSignature = (signature: string | null | undefined): string => {
+      if (!signature) {
+        return `
+          <div style="padding: 16px; background: #fef2f2; border-radius: 6px; border: 1px solid #fecaca; text-align: center;">
+            <span style="color: #dc2626; font-size: 13px;">Pending Signature</span>
+          </div>
+        `;
+      }
+      
+      const trimmedSig = signature.trim();
+      if (trimmedSig.startsWith('data:image/')) {
+        // For data URLs, use single quotes in the src attribute to avoid issues with double quotes in the data URL
+        // Only escape single quotes if they exist (though they shouldn't in base64)
+        const safeDataUrl = trimmedSig.replace(/'/g, '&#039;');
+        return `
+          <div style="padding: 16px; background: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0;">
+            <img src='${safeDataUrl}' alt="Signature" style="max-width: 100%; max-height: 100px; height: auto; object-fit: contain; margin-bottom: 8px; display: block; background: white; padding: 4px;" />
+          </div>
+        `;
+      } else {
+        // For text signatures (backward compatibility)
+        return `
+          <div style="padding: 16px; background: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0;">
+            <div style="font-size: 18px; font-weight: 700; color: #166534; font-style: italic; margin-bottom: 8px;">${escapeHtml(trimmedSig)}</div>
+          </div>
+        `;
+      }
+    };
+
     // Signature section
     const signatureHtml = `
       <div style="page-break-before: always;">
@@ -5498,33 +5767,21 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;">
           <div style="padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
             <div style="font-weight: 600; margin-bottom: 12px; font-size: 14px;">Operator Signature</div>
+            ${renderSignature(report.operatorSignature)}
             ${report.operatorSignature ? `
-              <div style="padding: 16px; background: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0;">
-                <div style="font-size: 18px; font-weight: 700; color: #166534; font-style: italic; margin-bottom: 8px;">${escapeHtml(report.operatorSignature)}</div>
-                <div style="font-size: 11px; color: #166534;">
-                  Signed on ${report.operatorSignedAt ? format(new Date(report.operatorSignedAt), "MMMM d, yyyy 'at' h:mm a") : 'N/A'}
-                </div>
+              <div style="font-size: 11px; color: #166534; margin-top: 8px;">
+                Signed on ${report.operatorSignedAt ? format(new Date(report.operatorSignedAt), "MMMM d, yyyy 'at' h:mm a") : 'N/A'}
               </div>
-            ` : `
-              <div style="padding: 16px; background: #fef2f2; border-radius: 6px; border: 1px solid #fecaca; text-align: center;">
-                <span style="color: #dc2626; font-size: 13px;">Pending Signature</span>
-              </div>
-            `}
+            ` : ''}
           </div>
           <div style="padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
             <div style="font-weight: 600; margin-bottom: 12px; font-size: 14px;">Tenant Signature</div>
+            ${renderSignature(report.tenantSignature)}
             ${report.tenantSignature ? `
-              <div style="padding: 16px; background: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0;">
-                <div style="font-size: 18px; font-weight: 700; color: #166534; font-style: italic; margin-bottom: 8px;">${escapeHtml(report.tenantSignature)}</div>
-                <div style="font-size: 11px; color: #166534;">
-                  Signed on ${report.tenantSignedAt ? format(new Date(report.tenantSignedAt), "MMMM d, yyyy 'at' h:mm a") : 'N/A'}
-                </div>
+              <div style="font-size: 11px; color: #166534; margin-top: 8px;">
+                Signed on ${report.tenantSignedAt ? format(new Date(report.tenantSignedAt), "MMMM d, yyyy 'at' h:mm a") : 'N/A'}
               </div>
-            ` : `
-              <div style="padding: 16px; background: #fef2f2; border-radius: 6px; border: 1px solid #fecaca; text-align: center;">
-                <span style="color: #dc2626; font-size: 13px;">Pending Signature</span>
-              </div>
-            `}
+            ` : ''}
           </div>
         </div>
         <div style="margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 6px; font-size: 11px; color: #666; text-align: center;">
@@ -5577,10 +5834,16 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       flex-direction: column;
       align-items: center;
     }
-    .cover-logo-container { margin-bottom: 32px; }
+    .cover-logo-container { 
+      margin-bottom: 32px; 
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
     .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
+      max-height: 120px;
+      max-width: 320px;
       width: auto;
       height: auto;
       object-fit: contain;
@@ -5595,7 +5858,6 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     .cover-company-name {
       font-size: 24px;
       font-weight: 600;
-      margin-top: 12px;
       opacity: 0.95;
     }
     .cover-divider {
@@ -5743,12 +6005,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   }
 
   // ==================== COMPLIANCE ROUTES ====================
-  
+
   app.post("/api/compliance", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
@@ -5758,9 +6020,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const validation = insertComplianceDocumentSchema.omit({ organizationId: true, uploadedBy: true }).safeParse(req.body);
       if (!validation.success) {
         console.error("Compliance document validation errors:", validation.error.errors);
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -5810,14 +6072,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       const docId = req.params.id;
       const doc = await storage.getComplianceDocument(docId);
-      
+
       if (!doc || doc.organizationId !== user.organizationId) {
         return res.status(404).json({ message: "Compliance document not found" });
       }
 
       // Get the file from object storage
       const objectStorageService = new ObjectStorageService();
-      
+
       // Normalize documentUrl - it might be absolute URL or relative path
       let documentPath = doc.documentUrl;
       if (documentPath.startsWith('http://') || documentPath.startsWith('https://')) {
@@ -5833,18 +6095,18 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           }
         }
       }
-      
+
       // Ensure path starts with /objects/
       if (!documentPath.startsWith('/objects/')) {
         documentPath = `/objects/${documentPath.replace(/^\/+/, '')}`;
       }
-      
+
       const objectFile = await objectStorageService.getObjectEntityFile(documentPath);
-      
+
       // Read file buffer to detect actual file type (read first 4KB for detection)
       let fileBuffer: Buffer | undefined;
       let detectedContentType = 'application/octet-stream';
-      
+
       try {
         // Verify file exists
         const [fileExists] = await objectFile.exists();
@@ -5852,16 +6114,16 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           console.error(`[Compliance View] File does not exist: ${objectFile.name}`);
           return res.status(404).json({ message: "Document file not found" });
         }
-        
+
         fileBuffer = await fs.readFile(objectFile.name);
-        
+
         if (!fileBuffer || fileBuffer.length === 0) {
           console.error(`[Compliance View] File is empty: ${objectFile.name}`);
         } else {
           // Read first 4KB for detection (magic bytes are usually at the start)
           const sampleBuffer = fileBuffer.slice(0, Math.min(4096, fileBuffer.length));
           detectedContentType = detectFileMimeType(sampleBuffer);
-          
+
           // Log first bytes for debugging
           const firstBytes = Array.from(sampleBuffer.slice(0, 8))
             .map(b => `0x${b.toString(16).padStart(2, '0')}`)
@@ -5881,13 +6143,13 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         });
         // Continue with metadata fallback
       }
-      
+
       // Get file metadata (fallback if detection fails)
       const [metadata] = await objectFile.getMetadata();
-      let contentType = detectedContentType !== 'application/octet-stream' 
-        ? detectedContentType 
+      let contentType = detectedContentType !== 'application/octet-stream'
+        ? detectedContentType
         : (metadata.contentType || "application/octet-stream");
-      
+
       // If we still have octet-stream and have file buffer, try re-detection with larger sample
       if (contentType === 'application/octet-stream' && fileBuffer) {
         const largerSample = fileBuffer.slice(0, Math.min(8192, fileBuffer.length));
@@ -5897,7 +6159,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           console.log(`[Compliance View] Re-detected file type for ${docId}: ${reDetected}`);
         }
       }
-      
+
       console.log(`[Compliance View] Document ${docId} final:`, {
         detectedType: detectedContentType,
         metadataType: metadata.contentType,
@@ -5906,7 +6168,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         documentUrl: doc.documentUrl,
         filePath: documentPath
       });
-      
+
       // Determine file extension from content type
       let fileExtension = 'pdf'; // default
       if (contentType === 'application/pdf') {
@@ -5943,14 +6205,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           }
         }
       }
-      
+
       // Create filename from document type
       const safeDocumentType = doc.documentType.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
       const filename = `${safeDocumentType}.${fileExtension}`;
-      
+
       // Encode filename for Content-Disposition header
       const encodedFilename = encodeURIComponent(filename);
-      
+
       // Set headers for download with proper filename
       res.set({
         "Content-Type": contentType,
@@ -6002,25 +6264,25 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       const docId = req.params.id;
       const existingDoc = await storage.getComplianceDocument(docId);
-      
+
       if (!existingDoc) {
         return res.status(404).json({ message: "Compliance document not found" });
       }
-      
+
       if (existingDoc.organizationId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const updateSchema = insertComplianceDocumentSchema.partial().omit({ 
-        organizationId: true, 
-        uploadedBy: true 
+      const updateSchema = insertComplianceDocumentSchema.partial().omit({
+        organizationId: true,
+        uploadedBy: true
       });
-      
+
       const validation = updateSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -6038,16 +6300,16 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== MAINTENANCE ROUTES ====================
-  
+
   // AI analyze maintenance image for fix suggestions
   app.post("/api/maintenance/analyze-image", isAuthenticated, async (req: any, res) => {
     try {
       // Validate request body
       const validation = analyzeMaintenanceImageSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -6063,7 +6325,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const organization = await storage.getOrganization(user.organizationId);
       const currentCredits = organization?.creditsRemaining ?? 0;
       if (!organization || currentCredits < 1) {
-        return res.status(402).json({ 
+        return res.status(402).json({
           message: "Insufficient credits. Please purchase more credits to use AI analysis.",
           creditsRemaining: currentCredits
         });
@@ -6071,7 +6333,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Call OpenAI Vision API for maintenance issue analysis
       const openaiInstance = getOpenAI();
-      const prompt = issueDescription 
+      const prompt = issueDescription
         ? `You are a maintenance expert analyzing a property maintenance issue. The tenant reports: "${issueDescription}". 
            Analyze the image and provide:
            1. A brief assessment of the issue (2-3 sentences)
@@ -6104,7 +6366,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Deduct credit
       await storage.deductCredit(user.organizationId, 1, "AI maintenance image analysis");
 
-      res.json({ 
+      res.json({
         suggestedFixes,
         analysis: {
           model: "gpt-5",
@@ -6117,7 +6379,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       res.status(500).json({ message: "Failed to analyze image" });
     }
   });
-  
+
   app.post("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -6131,9 +6393,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body
       const validation = insertMaintenanceRequestSchema.omit({ organizationId: true, reportedBy: true }).safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -6144,7 +6406,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
       }
-      
+
       if (property.organizationId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
       }
@@ -6185,9 +6447,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body with quick-add schema
       const validation = quickAddMaintenanceSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -6198,7 +6460,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
       }
-      
+
       if (property.organizationId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
       }
@@ -6264,7 +6526,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -6272,7 +6534,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Fetch the maintenance request to verify organization ownership
       const existingRequests = await storage.getMaintenanceByOrganization(user.organizationId);
       const existingRequest = existingRequests.find(r => r.id === id);
-      
+
       if (!existingRequest) {
         return res.status(404).json({ message: "Maintenance request not found" });
       }
@@ -6290,9 +6552,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body
       const validation = updateMaintenanceRequestSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validation.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validation.error.errors
         });
       }
 
@@ -6309,7 +6571,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== CREDIT ROUTES ====================
-  
+
   app.get("/api/credits/transactions", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -6326,7 +6588,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== STRIPE ROUTES ====================
-  
+
   app.post("/api/stripe/create-checkout", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -6377,7 +6639,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
   app.post("/api/stripe/webhook", async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    
+
     try {
       const stripe = await getUncachableStripeClient();
       const event = stripe.webhooks.constructEvent(
@@ -6416,7 +6678,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== BLOCK ROUTES ====================
-  
+
   app.post("/api/blocks", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -6428,9 +6690,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body with Zod
       const parseResult = insertBlockSchema.safeParse(req.body);
       if (!parseResult.success) {
-        return res.status(400).json({ 
-          error: "Invalid request data", 
-          details: parseResult.error.errors 
+        return res.status(400).json({
+          error: "Invalid request data",
+          details: parseResult.error.errors
         });
       }
 
@@ -6495,7 +6757,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const blockId = req.params.id;
-      
+
       // Verify block belongs to user's organization
       const block = await storage.getBlock(blockId);
       if (!block || block.organizationId !== user.organizationId) {
@@ -6516,7 +6778,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const { id } = req.params;
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
@@ -6528,21 +6790,21 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Get all inspections for this block
       const allInspections = await storage.getInspectionsByBlock(id);
-      
+
       // Get all inspection templates
       const templates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
       const activeTemplates = templates.filter(t => t.isActive && (t.scope === 'block' || t.scope === 'both'));
-      
+
       // Build compliance data by template and month
       const currentYear = new Date().getFullYear();
       const months = [
         'January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'
       ];
-      
+
       const complianceData = activeTemplates.map(template => {
         const templateInspections = allInspections.filter(i => i.templateId === template.id);
-        
+
         const monthData = months.map((monthName, monthIndex) => {
           // Find inspections scheduled for this month
           const monthInspections = templateInspections.filter(inspection => {
@@ -6550,11 +6812,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             const schedDate = new Date(inspection.scheduledDate);
             return schedDate.getFullYear() === currentYear && schedDate.getMonth() === monthIndex;
           });
-          
+
           if (monthInspections.length === 0) {
             return { month: monthName, status: 'not_scheduled', count: 0 };
           }
-          
+
           const now = new Date();
           const completedCount = monthInspections.filter(i => i.status === 'completed').length;
           const overdueCount = monthInspections.filter(i => {
@@ -6562,14 +6824,14 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             const schedDate = new Date(i.scheduledDate);
             return schedDate < now;
           }).length;
-          
+
           const dueCount = monthInspections.filter(i => {
             if (i.status === 'completed' || !i.scheduledDate) return false;
             const schedDate = new Date(i.scheduledDate);
             const daysUntil = Math.ceil((schedDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
             return daysUntil >= 0 && daysUntil <= 30;
           }).length;
-          
+
           let status = 'not_scheduled';
           if (overdueCount > 0) {
             status = 'overdue';
@@ -6580,7 +6842,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           } else {
             status = 'scheduled';
           }
-          
+
           return {
             month: monthName,
             status,
@@ -6589,12 +6851,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             overdue: overdueCount,
           };
         });
-        
+
         // Calculate compliance percentage for this template
         const totalScheduled = monthData.reduce((sum, m) => sum + m.count, 0);
         const totalCompleted = monthData.reduce((sum, m) => sum + (m.completed || 0), 0);
         const complianceRate = totalScheduled > 0 ? Math.round((totalCompleted / totalScheduled) * 100) : 0;
-        
+
         return {
           templateId: template.id,
           templateName: template.name,
@@ -6604,12 +6866,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           totalCompleted,
         };
       });
-      
+
       // Calculate overall compliance
       const totalScheduled = complianceData.reduce((sum, t) => sum + t.totalScheduled, 0);
       const totalCompleted = complianceData.reduce((sum, t) => sum + t.totalCompleted, 0);
       const overallCompliance = totalScheduled > 0 ? Math.round((totalCompleted / totalScheduled) * 100) : 100;
-      
+
       res.json({
         year: currentYear,
         months,
@@ -6644,9 +6906,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body (partial update) with Zod
       const parseResult = insertBlockSchema.partial().safeParse(req.body);
       if (!parseResult.success) {
-        return res.status(400).json({ 
-          error: "Invalid request data", 
-          details: parseResult.error.errors 
+        return res.status(400).json({
+          error: "Invalid request data",
+          details: parseResult.error.errors
         });
       }
 
@@ -6743,7 +7005,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Prepare message template
       let templateData: { subject: string; body: string };
-      
+
       if (templateId) {
         // Use existing template
         const template = await storage.getMessageTemplate(templateId);
@@ -6890,7 +7152,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const transformedBody: any = {
         ...req.body,
       };
-      
+
       // Convert date strings to Date objects
       if (req.body.leaseStartDate && typeof req.body.leaseStartDate === 'string') {
         transformedBody.leaseStartDate = new Date(req.body.leaseStartDate);
@@ -6898,7 +7160,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (req.body.leaseEndDate && typeof req.body.leaseEndDate === 'string') {
         transformedBody.leaseEndDate = new Date(req.body.leaseEndDate);
       }
-      
+
       // Convert numeric fields to strings (Drizzle numeric fields expect strings)
       if (req.body.monthlyRent !== undefined && req.body.monthlyRent !== null) {
         transformedBody.monthlyRent = String(req.body.monthlyRent);
@@ -6906,16 +7168,16 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
         transformedBody.depositAmount = String(req.body.depositAmount);
       }
-      
+
       const validatedData = insertTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
         console.error("[Tenant Assignment] Validation errors:", validatedData.error.errors);
         console.error("[Tenant Assignment] Request body:", req.body);
         console.error("[Tenant Assignment] Transformed body:", transformedBody);
-        return res.status(400).json({ 
-          error: "Invalid request data", 
+        return res.status(400).json({
+          error: "Invalid request data",
           message: validatedData.error.errors[0]?.message || "Validation failed",
-          details: validatedData.error.errors 
+          details: validatedData.error.errors
         });
       }
 
@@ -7020,10 +7282,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         console.error("[Tenant Assignment Update] Validation errors:", validatedData.error.errors);
         console.error("[Tenant Assignment Update] Request body:", req.body);
         console.error("[Tenant Assignment Update] Transformed body:", transformedBody);
-        return res.status(400).json({ 
-          error: "Invalid request data", 
+        return res.status(400).json({
+          error: "Invalid request data",
           message: validatedData.error.errors[0]?.message || "Validation failed",
-          details: validatedData.error.errors 
+          details: validatedData.error.errors
         });
       }
 
@@ -7172,7 +7434,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         passwordToSend = req.body.password;
         const { hashPassword } = await import('./auth');
         const hashedPassword = await hashPassword(passwordToSend);
-        
+
         // Update tenant password with the provided password
         await storage.upsertUser({
           ...tenant,
@@ -7197,7 +7459,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           passwordToSend = originalPassword;
           const { hashPassword } = await import('./auth');
           const hashedPassword = await hashPassword(passwordToSend);
-          
+
           // Update tenant password with the original password (in case it was changed)
           await storage.upsertUser({
             ...tenant,
@@ -7218,7 +7480,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             ...tenant,
             password: hashedPassword,
           });
-          
+
           // Note: The email will be sent with the new password, but this is not ideal
           // Ideally, all tenants should have their original password stored
         }
@@ -7226,24 +7488,24 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Send email with credentials using the proper helper function
       const fullName = [tenant.firstName, tenant.lastName].filter(Boolean).join(" ") || tenant.email;
-      
+
       // Validate email and password before sending
       if (!tenant.email || !tenant.email.trim()) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Cannot send email: Tenant does not have a valid email address",
           emailSent: false
         });
       }
-      
+
       if (!passwordToSend || !passwordToSend.trim()) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Cannot send email: No password available to send",
           emailSent: false
         });
       }
-      
+
       console.log(`[Send Password] Sending credentials email to ${tenant.email} with password length: ${passwordToSend.length}`);
-      
+
       let emailSent = false;
       try {
         const { sendTenantCredentialsEmail } = await import('./resend');
@@ -7257,21 +7519,21 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       } catch (emailError) {
         console.error('Failed to send tenant credentials email:', emailError);
         // Return error but don't fail the entire request - password was already updated
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: "Failed to send email. Password was updated but email could not be sent.",
           emailSent: false,
           details: emailError instanceof Error ? emailError.message : 'Unknown error'
         });
       }
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: "Credentials sent successfully",
         emailSent: true
       });
     } catch (error) {
       console.error("Error sending tenant password:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to send credentials",
         details: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -7389,7 +7651,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         }
         throw storageError;
       }
-      
+
       // Delete the file from object storage (don't fail if file deletion fails)
       if (result?.fileUrl) {
         try {
@@ -7400,11 +7662,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           console.warn("Failed to delete file from storage (database record already deleted):", fileError);
         }
       }
-      
+
       res.status(204).send();
     } catch (error: any) {
       console.error("Error deleting tenancy attachment:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to delete attachment",
         message: error?.message || "An error occurred while deleting the attachment"
       });
@@ -7449,9 +7711,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body with quick-add schema
       const validation = quickAddAssetSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          error: "Invalid request data", 
-          details: validation.error.errors 
+        return res.status(400).json({
+          error: "Invalid request data",
+          details: validation.error.errors
         });
       }
 
@@ -7548,9 +7810,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Validate request body with quick-update schema
       const validation = quickUpdateAssetSchema.safeParse(req.body);
       if (!validation.success) {
-        return res.status(400).json({ 
-          error: "Invalid request data", 
-          details: validation.error.errors 
+        return res.status(400).json({
+          error: "Invalid request data",
+          details: validation.error.errors
         });
       }
 
@@ -7788,7 +8050,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== INVENTORY TEMPLATE ROUTES ====================
-  
+
   app.post("/api/inventory-templates", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -7907,7 +8169,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== INVENTORY ROUTES ====================
-  
+
   app.post("/api/inventories", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -7982,7 +8244,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== INVENTORY ITEM ROUTES ====================
-  
+
   app.post("/api/inventory-items", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -8056,7 +8318,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== WORK ORDER ROUTES ====================
-  
+
   app.post("/api/work-orders", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -8098,7 +8360,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             .where(eq(maintenanceRequests.id, validatedData.maintenanceRequestId))
             .limit(1)
             .then(rows => rows[0]);
-          
+
           if (team?.email && maintenanceRequest) {
             // Fetch property details if available
             let propertyName: string | undefined;
@@ -8143,7 +8405,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             .where(eq(maintenanceRequests.id, validatedData.maintenanceRequestId))
             .limit(1)
             .then(rows => rows[0]);
-          
+
           if (contractor?.email && maintenanceRequest) {
             // Fetch property details if available
             let propertyName: string | undefined;
@@ -8152,7 +8414,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               propertyName = property?.name;
             }
 
-            const contractorName = contractor.firstName 
+            const contractorName = contractor.firstName
               ? `${contractor.firstName}${contractor.lastName ? ' ' + contractor.lastName : ''}`
               : contractor.username;
 
@@ -8204,7 +8466,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const workOrders = user.role === "contractor"
         ? await storage.getWorkOrdersByContractor(userId)
         : await storage.getWorkOrdersByOrganization(user.organizationId);
-      
+
       res.json(workOrders);
     } catch (error) {
       console.error("Error fetching work orders:", error);
@@ -8305,7 +8567,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== WORK LOG ROUTES ====================
-  
+
   app.post("/api/work-logs", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -8405,7 +8667,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         completed: 0,
         rejected: 0,
       };
-      
+
       for (const wo of workOrders) {
         if (wo.status === "assigned" || wo.status === "waiting_parts") {
           statusDistribution.open++;
@@ -8431,9 +8693,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const completedWorkOrders = workOrders.filter(wo => wo.status === "completed" && wo.completedAt && wo.createdAt);
       const averageResolutionTimeMinutes = completedWorkOrders.length > 0
         ? completedWorkOrders.reduce((sum, wo) => {
-            const resolutionTime = wo.completedAt!.getTime() - wo.createdAt!.getTime();
-            return sum + (resolutionTime / (1000 * 60)); // Convert to minutes
-          }, 0) / completedWorkOrders.length
+          const resolutionTime = wo.completedAt!.getTime() - wo.createdAt!.getTime();
+          return sum + (resolutionTime / (1000 * 60)); // Convert to minutes
+        }, 0) / completedWorkOrders.length
         : 0;
 
       // Calculate team distribution
@@ -8475,7 +8737,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== TAG ROUTES ====================
-  
+
   // Create a new tag
   app.post("/api/tags", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
     try {
@@ -8846,7 +9108,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== DASHBOARD PREFERENCES ROUTES ====================
-  
+
   // Define role-based panel permissions
   const PANEL_PERMISSIONS: Record<string, string[]> = {
     stats: ["owner", "clerk", "compliance"],
@@ -8862,7 +9124,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
   // Get allowed panels for a role
   function getAllowedPanels(role: string): string[] {
-    return Object.keys(PANEL_PERMISSIONS).filter(panel => 
+    return Object.keys(PANEL_PERMISSIONS).filter(panel =>
       PANEL_PERMISSIONS[panel].includes(role)
     );
   }
@@ -8883,10 +9145,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const prefs = await storage.getDashboardPreferences(userId);
-      
+
       // Default panels based on role
       const defaultPanels = getAllowedPanels(user.role);
-      
+
       if (!prefs) {
         return res.json({ enabledPanels: defaultPanels });
       }
@@ -8899,7 +9161,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Filter panels to only those allowed for user's role
       const filteredPanels = filterPanelsByRole(enabledPanels as string[], user.role);
-      
+
       res.json({ enabledPanels: filteredPanels });
     } catch (error) {
       console.error("Error fetching dashboard preferences:", error);
@@ -8917,7 +9179,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const { enabledPanels } = req.body;
-      
+
       if (!Array.isArray(enabledPanels)) {
         return res.status(400).json({ error: "enabledPanels must be an array" });
       }
@@ -9014,7 +9276,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
       const { scope, categoryId, active } = req.query;
       let templates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
-      
+
       // Apply filtering based on query parameters
       if (scope && scope !== 'all') {
         if (scope === 'both') {
@@ -9032,7 +9294,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         const isActive = active === 'true';
         templates = templates.filter(t => t.isActive === isActive);
       }
-      
+
       res.json(templates);
     } catch (error) {
       console.error("Error fetching inspection templates:", error);
@@ -9086,20 +9348,20 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!existing || existing.organizationId !== user.organizationId) {
         return res.status(404).json({ message: "Template not found" });
       }
-      
+
       // Prepare updates - stringify structureJson if it's an object
       const updates: any = { ...req.body };
       if (updates.structureJson && typeof updates.structureJson !== 'string') {
         updates.structureJson = JSON.stringify(updates.structureJson);
       }
-      
+
       // Remove fields that shouldn't be updated via API
       delete updates.id;
       delete updates.organizationId;
       delete updates.createdBy;
       delete updates.createdAt;
       delete updates.updatedAt;
-      
+
       const template = await storage.updateInspectionTemplate(req.params.id, updates);
       res.json(template);
     } catch (error) {
@@ -9137,7 +9399,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!existing || existing.organizationId !== user.organizationId) {
         return res.status(404).json({ message: "Template not found" });
       }
-      
+
       // Create new template with incremented version
       const newVersion = existing.version + 1;
       const clonedTemplate = await storage.createInspectionTemplate({
@@ -9152,7 +9414,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         isActive: req.body.isActive ?? false,
         createdBy: req.user.id
       });
-      
+
       res.status(201).json(clonedTemplate);
     } catch (error) {
       console.error("Error cloning inspection template:", error);
@@ -9256,17 +9518,17 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(403).json({ message: "User not in organization" });
       }
       const validatedData = insertInspectionEntrySchema.parse(req.body);
-      
+
       // Check if an entry already exists for this inspection, section, and field
       // This allows updating existing entries instead of creating duplicates
       const existingEntries = await storage.getInspectionEntries(validatedData.inspectionId);
       const existingEntry = existingEntries.find(
-        (e: any) => 
-          e.sectionRef === validatedData.sectionRef && 
+        (e: any) =>
+          e.sectionRef === validatedData.sectionRef &&
           e.fieldKey === validatedData.fieldKey &&
           e.inspectionId === validatedData.inspectionId
       );
-      
+
       let entry;
       if (existingEntry?.id) {
         // Update existing entry
@@ -9397,7 +9659,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Convert image URL to base64 data URL (for internal object storage)
       console.log("[Individual Photo Analysis] Processing photo:", imageUrl);
-      
+
       let dataUrl: string;
       if (imageUrl.startsWith("http")) {
         // External URL - use directly
@@ -9410,39 +9672,39 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           // Ensure path starts with /objects/
           const photoPath = imageUrl.startsWith('/objects/') ? imageUrl : `/objects/${imageUrl}`;
           const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
-          
+
           // Read the file contents using fs.readFile first
           const photoBuffer = await fs.readFile(objectFile.name);
-          
+
           // Always detect MIME type from buffer for reliability
           let mimeType = detectImageMimeType(photoBuffer);
-          
+
           // Get metadata for logging purposes
           const [metadata] = await objectFile.getMetadata();
           const metadataContentType = metadata.contentType;
-          
+
           console.log(`[Individual Photo Analysis] MIME type detection:`, {
             detected: mimeType,
             fromMetadata: metadataContentType,
             bufferSize: photoBuffer.length,
             firstBytes: Array.from(photoBuffer.slice(0, 12)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' ')
           });
-          
+
           // Ensure we have a valid image MIME type
           if (!mimeType || !mimeType.startsWith('image/')) {
             console.warn(`[Individual Photo Analysis] Invalid MIME type detected: ${mimeType}, defaulting to image/jpeg`);
             mimeType = 'image/jpeg';
           }
-          
+
           // Convert to base64 data URL
           const base64Image = photoBuffer.toString('base64');
           dataUrl = `data:${mimeType};base64,${base64Image}`;
-          
+
           // Validate the data URL format
           if (!dataUrl.startsWith(`data:${mimeType};base64,`)) {
             throw new Error(`Invalid data URL format: ${dataUrl.substring(0, 50)}...`);
           }
-          
+
           console.log("[Individual Photo Analysis] Converted to base64 data URL:", photoPath, `(${mimeType}, ${base64Image.length} bytes)`);
         } catch (error: any) {
           // Safely log error without circular reference issues
@@ -9482,7 +9744,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       });
 
       let analysisText = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "";
-      
+
       // Strip markdown asterisks from the response
       analysisText = analysisText.replace(/\*\*/g, '');
 
@@ -9517,7 +9779,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== OBJECT STORAGE ROUTES ====================
-  
+
   app.get("/objects/:objectPath(*)", async (req: any, res) => {
     const userId = req.user?.claims?.sub || req.user?.id;
     const objectStorageService = new ObjectStorageService();
@@ -9547,11 +9809,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const objectStorageService = new ObjectStorageService();
       const relativePath = await objectStorageService.getObjectEntityUploadURL();
-      
+
       // Convert relative path to absolute URL
       const baseUrl = getBaseUrl(req);
       const uploadURL = `${baseUrl}${relativePath}`;
-      
+
       res.json({ uploadURL });
     } catch (error: any) {
       console.error("Error generating upload URL:", error);
@@ -9564,11 +9826,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const objectStorageService = new ObjectStorageService();
       const relativePath = await objectStorageService.getObjectEntityUploadURL();
-      
+
       // Convert relative path to absolute URL
       const baseUrl = getBaseUrl(req);
       const uploadUrl = `${baseUrl}${relativePath}`;
-      
+
       res.json({ uploadUrl });
     } catch (error: any) {
       console.error("Error generating upload URL:", error);
@@ -9595,7 +9857,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Generate ETag for S3 compatibility (Uppy AwsS3 plugin requires this)
       const etag = createHash('md5').update(req.file.buffer).digest('hex');
-      
+
       // Set ETag header for S3 compatibility (required by Uppy)
       res.set('ETag', `"${etag}"`);
       // Also set CORS headers to allow reading ETag
@@ -9614,7 +9876,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         }
       }
 
-      res.json({ 
+      res.json({
         url: normalizedPath,
         uploadURL: normalizedPath
       });
@@ -9635,20 +9897,20 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       hasBody: !!req.body,
       contentType: req.headers['content-type'],
     });
-    
+
     // Set JSON content type IMMEDIATELY to prevent any HTML responses
     res.set('Content-Type', 'application/json');
-    
+
     // Check authentication first and return JSON if not authenticated
     if (!req.isAuthenticated()) {
       console.error('[upload-direct] Unauthenticated PUT request');
       return res.status(401).json({ error: "Unauthorized" });
     }
-    
+
     // Set content type early to prevent HTML responses
     // For successful uploads, return empty body (S3-compatible)
     // For errors, return JSON
-    
+
     let responseSent = false;
     const sendError = (status: number, message: string) => {
       if (!responseSent) {
@@ -9665,15 +9927,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // For PUT requests, read raw body
       const chunks: Buffer[] = [];
-      
+
       req.on('data', (chunk: Buffer) => {
         chunks.push(chunk);
       });
-      
+
       req.on('end', async () => {
         try {
           const fileBuffer = Buffer.concat(chunks);
-          
+
           if (fileBuffer.length === 0) {
             return sendError(400, "No file uploaded");
           }
@@ -9689,7 +9951,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
           // Generate ETag for S3 compatibility (Uppy AwsS3 plugin requires this)
           const etag = createHash('md5').update(fileBuffer).digest('hex');
-          
+
           // Set ETag header for S3 compatibility (required by Uppy)
           res.set('ETag', `"${etag}"`);
           // Also set CORS headers to allow reading ETag
@@ -9723,12 +9985,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           sendError(500, error.message || "Internal server error");
         }
       });
-      
+
       req.on('error', (error: any) => {
         console.error("Error reading request body in upload-direct PUT:", error);
         sendError(500, "Error reading file data");
       });
-      
+
       // Set timeout to prevent hanging requests
       req.setTimeout(300000, () => { // 5 minutes
         if (!responseSent) {
@@ -9779,7 +10041,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   app.post("/api/objects/upload-file", isAuthenticated, upload.single('file'), async (req: any, res) => {
     // Always set JSON content type to prevent HTML responses
     res.set('Content-Type', 'application/json');
-    
+
     try {
       const objectId = req.query.objectId || randomUUID();
       const objectStorageService = new ObjectStorageService();
@@ -9807,7 +10069,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         }
       }
 
-      res.json({ 
+      res.json({
         url: normalizedPath,
         path: normalizedPath,
         objectId: objectId
@@ -9881,17 +10143,17 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const objectStorageService = new ObjectStorageService();
-      
+
       // Get all assets with photos
       const assets = await storage.getAssetInventoryByOrganization(user.organizationId);
       const photosToFix: string[] = [];
-      
+
       for (const asset of assets) {
         if (asset.photos && asset.photos.length > 0) {
           photosToFix.push(...asset.photos);
         }
       }
-      
+
       // Get all inspection entries with photos
       const inspections = await storage.getInspectionsByOrganization(user.organizationId);
       for (const inspection of inspections) {
@@ -9902,11 +10164,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           }
         }
       }
-      
+
       // Update ACL for each photo
       const fixed: string[] = [];
       const errors: string[] = [];
-      
+
       for (const photoPath of photosToFix) {
         try {
           await objectStorageService.trySetObjectEntityAclPolicy(
@@ -9922,11 +10184,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           errors.push(photoPath);
         }
       }
-      
-      res.json({ 
+
+      res.json({
         message: `Fixed ${fixed.length} photos (assets + inspections), ${errors.length} errors`,
         fixed: fixed.length,
-        errors: errors.length 
+        errors: errors.length
       });
     } catch (error) {
       console.error("Error fixing ACLs:", error);
@@ -9946,7 +10208,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const inspections = await storage.getInspectionsByOrganization(user.organizationId);
       let syncedCount = 0;
       let errorCount = 0;
-      
+
       for (const inspection of inspections) {
         const entries = await storage.getInspectionEntries(inspection.id);
         for (const entry of entries) {
@@ -9954,7 +10216,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             // Extract photos from valueJson
             let extractedPhotos: string[] | null = null;
             const valueJson = entry.valueJson as any;
-            
+
             if (valueJson && typeof valueJson === 'object') {
               if (Array.isArray(valueJson.photos)) {
                 extractedPhotos = valueJson.photos;
@@ -9967,15 +10229,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 }
               }
             }
-            
+
             // Check if photos column needs updating
             const currentPhotos = entry.photos || [];
             const newPhotos = extractedPhotos || [];
-            
+
             // Only update if there's a difference
-            const photosMatch = currentPhotos.length === newPhotos.length && 
+            const photosMatch = currentPhotos.length === newPhotos.length &&
               currentPhotos.every((p, i) => p === newPhotos[i]);
-            
+
             if (!photosMatch && extractedPhotos !== null) {
               await storage.updateInspectionEntry(entry.id, {
                 photos: extractedPhotos.length > 0 ? extractedPhotos : null
@@ -9989,11 +10251,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           }
         }
       }
-      
-      res.json({ 
+
+      res.json({
         message: `Synced photos for ${syncedCount} entries, ${errorCount} errors`,
         synced: syncedCount,
-        errors: errorCount 
+        errors: errorCount
       });
     } catch (error) {
       console.error("Error syncing entry photos:", error);
@@ -10002,7 +10264,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // ==================== ADMIN ROUTES ====================
-  
+
   // Admin authentication middleware
   const isAdminAuthenticated = (req: any, res: any, next: any) => {
     if (req.session && (req.session as any).adminUser) {
@@ -10015,19 +10277,19 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   app.post("/api/admin/login", async (req, res) => {
     try {
       const { email, password } = req.body;
-      
+
       if (!email || !password) {
         return res.status(400).json({ message: "Email and password are required" });
       }
 
       const adminUser = await storage.getAdminByEmail(email);
-      
+
       if (!adminUser) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
       const isValidPassword = await bcrypt.compare(password, adminUser.password);
-      
+
       if (!isValidPassword) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
@@ -10113,7 +10375,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!org) {
         return res.status(404).json({ message: "Instance not found" });
       }
-      
+
       const updated = await storage.updateOrganization(req.params.id, {
         isActive: !org.isActive,
       });
@@ -10143,7 +10405,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   app.post("/api/admin/team", isAdminAuthenticated, async (req, res) => {
     try {
       const { email, password, firstName, lastName } = req.body;
-      
+
       if (!email || !password || !firstName || !lastName) {
         return res.status(400).json({ message: "All fields are required" });
       }
@@ -10213,7 +10475,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
       }
-      
+
       const config = await storage.getFixfloConfig(user.organizationId);
       if (!config) {
         return res.status(404).json({ message: "Fixflo not configured for this organization" });
@@ -10237,7 +10499,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const { baseUrl, bearerToken, webhookVerifyToken, isEnabled } = req.body;
-      
+
       if (!baseUrl || !bearerToken) {
         return res.status(400).json({ message: "Base URL and Bearer Token are required" });
       }
@@ -10285,7 +10547,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       res.json({ healthy: isHealthy });
     } catch (error: any) {
       console.error("Error performing Fixflo health check:", error);
-      
+
       const user = await storage.getUser(req.user.id);
       if (user?.organizationId) {
         await storage.updateFixfloHealthCheck(user.organizationId, {
@@ -10295,9 +10557,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         });
       }
 
-      res.status(500).json({ 
-        healthy: false, 
-        message: error.message || "Health check failed" 
+      res.status(500).json({
+        healthy: false,
+        message: error.message || "Health check failed"
       });
     }
   });
@@ -10329,15 +10591,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       if (!property.fixfloPropertyId) {
-        return res.status(400).json({ 
-          message: "Property is not mapped to Fixflo. Please configure property mapping first." 
+        return res.status(400).json({
+          message: "Property is not mapped to Fixflo. Please configure property mapping first."
         });
       }
 
       // Create issue in Fixflo
       const { createFixfloClient } = await import("./services/fixflo-client");
       const client = await createFixfloClient(config);
-      
+
       const fixfloResponse = await client.createIssue({
         propertyId: property.fixfloPropertyId,
         title,
@@ -10363,9 +10625,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       });
     } catch (error: any) {
       console.error("Error creating Fixflo issue:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to create issue in Fixflo",
-        error: error.message 
+        error: error.message
       });
     }
   });
@@ -10390,7 +10652,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Update issue in Fixflo
       const { createFixfloClient } = await import("./services/fixflo-client");
       const client = await createFixfloClient(config);
-      
+
       const fixfloResponse = await client.updateIssue(issueId, {
         priority,
         status,
@@ -10408,9 +10670,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       });
     } catch (error: any) {
       console.error("Error updating Fixflo issue:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to update issue in Fixflo",
-        error: error.message 
+        error: error.message
       });
     }
   });
@@ -10451,11 +10713,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   // Inbound webhook endpoint from Fixflo
   app.post("/api/integrations/fixflo/webhook", async (req, res) => {
     const { processFixfloWebhook } = await import("./services/fixflo-webhook-processor");
-    
+
     try {
       // Get the organization ID from webhook payload or headers
       const organizationId = req.body.organizationId || req.headers["x-organization-id"];
-      
+
       if (!organizationId) {
         console.error("[Fixflo Webhook] No organization ID provided");
         return res.status(400).json({ message: "Organization ID required" });
@@ -10477,7 +10739,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       const payload = req.body;
       const eventType = payload.eventType || payload.event || "Unknown";
-      
+
       // Create webhook log for audit trail
       const webhookLog = await storage.createFixfloWebhookLog({
         organizationId: organizationId as string,
@@ -10500,15 +10762,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
     } catch (error: any) {
       console.error("[Fixflo Webhook] Error receiving webhook:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to process webhook",
-        error: error.message 
+        error: error.message
       });
     }
   });
 
   // ==================== SUBSCRIPTION & BILLING ROUTES ====================
-  
+
   const { subscriptionService } = await import("./subscriptionService");
 
   // Get all active subscription plans
@@ -10527,7 +10789,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const { planId } = req.params;
       const countryCode = (req.query.country as string) || "GB";
-      
+
       const pricing = await subscriptionService.getEffectivePricing(planId, countryCode);
       res.json(pricing);
     } catch (error: any) {
@@ -10563,7 +10825,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Determine billing interval and price
       const isAnnual = billingPeriod === "annual";
       const interval = isAnnual ? "year" : "month";
-      
+
       // Get effective pricing based on organization's country
       const pricing = await subscriptionService.getEffectivePricing(
         plan.id,
@@ -10598,10 +10860,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Create checkout session
       const baseUrl = getBaseUrl(req);
-      
+
       const successUrl = `${baseUrl}/billing?success=true&session_id={CHECKOUT_SESSION_ID}`;
       const cancelUrl = `${baseUrl}/billing?canceled=true`;
-      
+
       console.log(`[Subscription Checkout] Creating session with:`, {
         successUrl,
         cancelUrl,
@@ -10610,7 +10872,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         unitAmount,
         organizationId: org.id
       });
-      
+
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.create({
         customer: stripeCustomerId,
@@ -10652,8 +10914,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       console.error("Error creating checkout session:", error);
       const errorMessage = error.message || "Unknown error";
       const errorDetails = error.type ? `Stripe ${error.type}: ${errorMessage}` : errorMessage;
-      res.status(500).json({ 
-        message: "Failed to create checkout session", 
+      res.status(500).json({
+        message: "Failed to create checkout session",
         error: errorDetails,
         details: process.env.NODE_ENV === "development" ? error.stack : undefined
       });
@@ -10674,7 +10936,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const baseUrl = getBaseUrl(req);
-      
+
       const stripe = await getUncachableStripeClient();
       const session = await stripe.billingPortal.sessions.create({
         customer: org.stripeCustomerId,
@@ -10778,7 +11040,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
         // Handle top-up payment
         console.log(`[Process Session] Processing top-up of ${packSize} credits for verified org ${user.organizationId}`);
-        
+
         await storage.updateTopupOrder(topupOrderId, {
           status: "paid" as any,
         });
@@ -10795,8 +11057,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
         console.log(`[Process Session] Granted ${packSize} credits to verified org ${user.organizationId}`);
         return res.json({ message: "Credits granted successfully", processed: true });
-      } 
-      
+      }
+
       // Handle subscription payment
       if (planId) {
         try {
@@ -10849,7 +11111,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               console.warn(`[Process Session] Could not update organization Stripe: ${error.message}`);
             }
           }
-          
+
           // Get plan details
           const plan = await storage.getPlan(planId);
           if (!plan) {
@@ -10871,7 +11133,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           // Calculate period dates
           const now = new Date();
           const interval = billingPeriod || "month";
-          
+
           // Helper function to safely create Date from Stripe timestamp
           const safeDateFromTimestamp = (timestamp: any, fallback: Date): Date => {
             if (!timestamp || typeof timestamp !== 'number' || isNaN(timestamp)) {
@@ -10880,21 +11142,21 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             const date = new Date(timestamp * 1000);
             return isNaN(date.getTime()) ? fallback : date;
           };
-          
-          const periodStart = subscription 
+
+          const periodStart = subscription
             ? safeDateFromTimestamp((subscription as any).current_period_start, now)
             : now;
           const periodEnd = subscription
-            ? safeDateFromTimestamp((subscription as any).current_period_end, 
-                new Date(now.getTime() + (interval === "year" ? 365 : 30) * 24 * 60 * 60 * 1000))
+            ? safeDateFromTimestamp((subscription as any).current_period_end,
+              new Date(now.getTime() + (interval === "year" ? 365 : 30) * 24 * 60 * 60 * 1000))
             : new Date(now.getTime() + (interval === "year" ? 365 : 30) * 24 * 60 * 60 * 1000);
           const billingCycleAnchor = subscription
             ? safeDateFromTimestamp((subscription as any).billing_cycle_anchor, now)
             : now;
 
           // Get price from subscription or plan
-          const monthlyPrice = subscription?.items?.data?.[0]?.price?.unit_amount 
-            || (pricing?.monthlyPrice) 
+          const monthlyPrice = subscription?.items?.data?.[0]?.price?.unit_amount
+            || (pricing?.monthlyPrice)
             || plan.monthlyPriceGbp;
 
           // Validate includedCredits
@@ -10914,7 +11176,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             stripeSubscriptionId: subscriptionId,
             status: (subscription?.status || "active")
           });
-          
+
           const createdSubscription = await storage.createSubscription({
             organizationId: user.organizationId,
             planSnapshotJson: {
@@ -10994,8 +11256,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         code: error.code,
         statusCode: error.statusCode
       });
-      res.status(500).json({ 
-        message: "Failed to process session", 
+      res.status(500).json({
+        message: "Failed to process session",
         error: error.message,
         details: process.env.NODE_ENV === "development" ? error.stack : undefined
       });
@@ -11005,7 +11267,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   // Stripe webhook handler
   app.post("/api/billing/webhook", async (req, res) => {
     const sig = req.headers["stripe-signature"] as string;
-    
+
     let event: any;
     try {
       // In production, verify the webhook signature
@@ -11056,7 +11318,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
             // Handle top-up payment
             console.log(`[Stripe Webhook] Processing top-up of ${packSize} credits for verified org: ${organizationId}`);
-            
+
             // Update top-up order status
             await storage.updateTopupOrder(topupOrderId, {
               status: "paid" as any,
@@ -11099,7 +11361,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             const stripe = await getUncachableStripeClient();
             const subscription = await stripe.subscriptions.retrieve(session.subscription);
             const plan = await storage.getPlan(planId);
-            
+
             if (plan) {
               console.log(`[Stripe Webhook] Creating subscription for verified org ${organizationId}`);
 
@@ -11111,10 +11373,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 const date = new Date(timestamp * 1000);
                 return isNaN(date.getTime()) ? fallback : date;
               };
-              
+
               const now = new Date();
               const defaultPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days default
-              
+
               await storage.createSubscription({
                 organizationId,
                 planSnapshotJson: {
@@ -11150,7 +11412,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
         case "invoice.paid": {
           const invoice = event.data.object;
-          
+
           if (invoice.subscription) {
             const stripe = await getUncachableStripeClient();
             const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
@@ -11165,10 +11427,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 const date = new Date(timestamp * 1000);
                 return isNaN(date.getTime()) ? fallback : date;
               };
-              
+
               const now = new Date();
               const defaultPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days default
-              
+
               // Update subscription period
               await storage.updateSubscription(dbSubscription.id, {
                 currentPeriodStart: safeDateFromTimestamp((subscription as any).current_period_start, dbSubscription.currentPeriodStart || now),
@@ -11199,7 +11461,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
         case "invoice.payment_failed": {
           const invoice = event.data.object;
-          
+
           if (invoice.subscription) {
             const stripe = await getUncachableStripeClient();
             const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
@@ -11209,7 +11471,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
               await storage.updateSubscription(dbSubscription.id, {
                 status: "inactive" as any,
               });
-              
+
               console.log(`[Stripe Webhook] Payment failed for org ${dbSubscription.organizationId}`);
             }
           }
@@ -11244,20 +11506,20 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const balance = await storage.getCreditBalance(user.organizationId);
-      
+
       // Get ledger to calculate consumed credits
       const ledger = await storage.getCreditLedgerByOrganization(user.organizationId, 10000);
-      
+
       let consumed = 0;
       let expired = 0;
-      
+
       for (const entry of ledger) {
         if (entry.quantity < 0) {
           // Negative quantities are consumption
           consumed += Math.abs(entry.quantity);
         }
       }
-      
+
       // Get expired batches
       const expiredBatches = await db
         .select()
@@ -11269,11 +11531,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             gt(creditBatches.remainingQuantity, 0)
           )
         );
-      
+
       for (const batch of expiredBatches) {
         expired += batch.remainingQuantity;
       }
-      
+
       // Return in the format the frontend expects
       res.json({
         available: balance.total,
@@ -11344,7 +11606,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Create Stripe checkout session
       const baseUrl = getBaseUrl(req);
-      
+
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.create({
         customer: org.stripeCustomerId || undefined,
@@ -11388,7 +11650,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     try {
       const { organizationId, quantity, reason } = req.body;
       const user = await storage.getUser(req.user.id);
-      
+
       if (!organizationId || !quantity || quantity <= 0) {
         return res.status(400).json({ message: "Invalid request" });
       }
@@ -11670,19 +11932,19 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       console.log(`[Get Subscription] Fetching subscription for org: ${user.organizationId}, user: ${user.id}`);
-      
+
       // Get all subscriptions for this org to debug
       const allSubscriptions = await db
         .select()
         .from(subscriptions)
         .where(eq(subscriptions.organizationId, user.organizationId));
-      
-      console.log(`[Get Subscription] Found ${allSubscriptions.length} subscription(s) for org ${user.organizationId}:`, 
+
+      console.log(`[Get Subscription] Found ${allSubscriptions.length} subscription(s) for org ${user.organizationId}:`,
         allSubscriptions.map(s => ({ id: s.id, status: s.status, planName: s.planSnapshotJson?.planName }))
       );
-      
+
       const subscription = await storage.getSubscriptionByOrganization(user.organizationId);
-      
+
       if (subscription) {
         console.log(`[Get Subscription] Returning subscription:`, {
           id: subscription.id,
@@ -11696,7 +11958,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         console.log(`[Get Subscription] No subscription found for org: ${user.organizationId}`);
         console.log(`[Get Subscription] All subscriptions in DB for this org:`, allSubscriptions);
       }
-      
+
       res.json(subscription || null);
     } catch (error: any) {
       console.error("[Get Subscription] Error fetching subscription:", error);
@@ -11715,7 +11977,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Get all organizations associated with this normalized email
       const orgs = await storage.getOrganizationsByNormalizedEmail(user.email);
-      
+
       // Get credit balances for each organization
       const orgBalances = await Promise.all(
         orgs.map(async (org) => {
@@ -11735,10 +11997,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       const totalCredits = orgBalances.reduce((sum, org) => sum + org.credits, 0);
       const totalRolled = orgBalances.reduce((sum, org) => sum + org.rolled, 0);
       const grandTotal = orgBalances.reduce((sum, org) => sum + org.total, 0);
-      
+
       // Find current org balance
       const currentOrgBalance = orgBalances.find(org => org.organizationId === user.organizationId);
-      
+
       res.json({
         primaryOrganizationCredits: currentOrgBalance?.credits || 0,
         duplicateOrganizations: orgBalances.filter(org => org.organizationId !== user.organizationId),
@@ -11755,7 +12017,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // User/Contact endpoints for team management (restricted)
-  
+
   // Get users for team management (admin/owner only)
   app.get("/api/users", isAuthenticated, async (req: any, res) => {
     try {
@@ -11770,7 +12032,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const users = await storage.getUsersByOrganization(user.organizationId);
-      
+
       // Return minimal user data for team selection
       const sanitizedUsers = users.map(u => ({
         id: u.id,
@@ -11779,7 +12041,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         email: u.email,
         role: u.role,
       }));
-      
+
       res.json(sanitizedUsers);
     } catch (error: any) {
       console.error("Error fetching users:", error);
@@ -11801,7 +12063,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const contacts = await storage.getContactsByOrganization(user.organizationId);
-      
+
       // Return minimal contact data for team selection
       const sanitizedContacts = contacts.map(c => ({
         id: c.id,
@@ -11810,7 +12072,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         email: c.email,
         type: c.type,
       }));
-      
+
       res.json(sanitizedContacts);
     } catch (error: any) {
       console.error("Error fetching contacts:", error);
@@ -11819,7 +12081,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   });
 
   // Team Management Routes
-  
+
   // Get all teams for organization
   app.get("/api/teams", isAuthenticated, async (req: any, res) => {
     try {
@@ -12071,7 +12333,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const { id } = req.params;
-      
+
       // Validate request body
       const bodySchema = z.object({
         name: z.string().min(1).optional(),
@@ -12082,15 +12344,15 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         contactIds: z.array(z.string()).optional(),
         categories: z.array(z.string()).optional(),
       });
-      
+
       const validationResult = bodySchema.safeParse(req.body);
       if (!validationResult.success) {
-        return res.status(400).json({ 
-          message: "Invalid request data", 
-          errors: validationResult.error.errors 
+        return res.status(400).json({
+          message: "Invalid request data",
+          errors: validationResult.error.errors
         });
       }
-      
+
       const { name, description, email, isActive, userIds, contactIds, categories } = validationResult.data;
 
       const team = await storage.getTeam(id);
@@ -12112,7 +12374,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           if (description !== undefined) teamUpdates.description = description;
           if (email !== undefined) teamUpdates.email = email;
           if (isActive !== undefined) teamUpdates.isActive = isActive;
-          
+
           const [updatedTeam] = await tx
             .update(teams)
             .set(teamUpdates)
@@ -12606,7 +12868,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       });
 
       const documents = await storage.searchKnowledgeBase(content);
-      
+
       let contextChunks: string[] = [];
       const usedDocIds: string[] = [];
 
@@ -12671,7 +12933,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   app.post("/api/tenant/login", async (req, res) => {
     try {
       const { email, password } = req.body;
-      
+
       if (!email || !password) {
         return res.status(400).json({ message: "Email and password are required" });
       }
@@ -12680,16 +12942,16 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // This looks up the user in the same 'users' table where they were created
       const normalizedEmail = email.toLowerCase().trim();
       console.log(`[Tenant Login] Attempting login for email: ${normalizedEmail}`);
-      
+
       const user = await storage.getUserByEmail(normalizedEmail);
-      
+
       if (!user) {
         console.log(`[Tenant Login] User not found for email: ${normalizedEmail}`);
         return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
       }
-      
+
       console.log(`[Tenant Login] User found: ${user.id}, role: ${user.role}, isActive: ${user.isActive}, hasPassword: ${!!user.password}`);
-      
+
       if (user.role !== "tenant") {
         console.log(`[Tenant Login] User role is '${user.role}', expected 'tenant'`);
         return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
@@ -12703,7 +12965,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Verify password - this is the same password that was set during tenant creation
       const isValid = await comparePasswords(password, user.password);
-      
+
       if (!isValid) {
         console.log(`[Tenant Login] Password mismatch for user: ${user.email}`);
         return res.status(401).json({ message: "Invalid credentials" });
@@ -12715,24 +12977,24 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       console.log(`[Tenant Login] Authentication successful for user: ${user.email}`);
-      
+
       req.login(user, async (err) => {
         if (err) {
           console.error("[Tenant Login] Session creation error:", err);
           return res.status(500).json({ message: "Login failed" });
         }
-        
+
         // Explicitly save the session before responding (like regular login)
         req.session.save(async (saveErr) => {
           if (saveErr) {
             console.error("[Tenant Login] Session save failed:", saveErr);
             return res.status(500).json({ message: "Login failed" });
           }
-          
+
           // Sanitize user object - remove all sensitive fields
           const { password: _, resetToken, resetTokenExpiry, ...sanitizedUser } = user;
           console.log(`[Tenant Login] Session created and saved successfully for user: ${user.email}`);
-          
+
           // Return user object in same format as /api/auth/user endpoint
           // Include organization if available
           try {
@@ -12876,7 +13138,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       try {
         const openaiClient = getOpenAI();
-        
+
         if (imageUrl) {
           const analysisCompletion = await openaiClient.chat.completions.create({
             model: "gpt-5",
@@ -13031,7 +13293,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const reports = await storage.getComparisonReportsByTenant(userId);
-      
+
       // Enrich with property info
       const enrichedReports = await Promise.all(
         reports.map(async (report) => {
@@ -13079,7 +13341,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         const aiComparison = item.aiComparisonJson || {};
         let checkInPhotos = aiComparison.checkInPhotos || [];
         let checkOutPhotos = aiComparison.checkOutPhotos || [];
-        
+
         // If check-in photos are missing from aiComparisonJson, fetch from check-in entry
         if ((!checkInPhotos || checkInPhotos.length === 0) && item.checkInEntryId) {
           try {
@@ -13102,7 +13364,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             console.error(`[ComparisonReport] Error fetching check-in entry ${item.checkInEntryId}:`, error);
           }
         }
-        
+
         // If check-out photos are missing from aiComparisonJson, fetch from check-out entry
         if ((!checkOutPhotos || checkOutPhotos.length === 0) && item.checkOutEntryId) {
           try {
@@ -13124,7 +13386,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
             console.error(`[ComparisonReport] Error fetching check-out entry ${item.checkOutEntryId}:`, error);
           }
         }
-        
+
         return {
           ...item,
           checkInPhotos: checkInPhotos,
@@ -13135,8 +13397,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Get property info
       const property = await storage.getProperty(report.propertyId);
 
-      res.json({ 
-        ...report, 
+      res.json({
+        ...report,
         items: itemsWithPhotos,
         property: property ? { id: property.id, name: property.name, address: property.address } : null,
       });
@@ -13233,7 +13495,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       if (!signature || signature.trim().length === 0) {
-        return res.status(400).json({ message: "Signature (typed name) is required" });
+        return res.status(400).json({ message: "Signature is required" });
       }
 
       const report = await storage.getComparisonReport(id);
@@ -13250,11 +13512,27 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         return res.status(400).json({ message: "You have already signed this report" });
       }
 
+      // If signature is a data URL (image), extract the user's name from user object
+      // Otherwise, use the signature as the typed name (backward compatibility)
+      let signatureName: string;
+      if (signature.startsWith('data:image/')) {
+        // It's a signature image - use user's full name
+        signatureName = user.firstName && user.lastName 
+          ? `${user.firstName} ${user.lastName}`.trim()
+          : user.email || user.username || 'Tenant';
+      } else {
+        // It's a typed name (backward compatibility)
+        signatureName = signature.trim();
+      }
+
       const ipAddress = req.ip || req.connection?.remoteAddress || "unknown";
       const now = new Date();
 
+      // Store signature data URL if it's an image, otherwise store typed name
+      const signatureToStore = signature.startsWith('data:image/') ? signature : signatureName;
+
       const updates: any = {
-        tenantSignature: signature.trim(),
+        tenantSignature: signatureToStore,
         tenantSignedAt: now,
         tenantIpAddress: ipAddress,
       };
@@ -13348,8 +13626,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
       : '';
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
@@ -13574,8 +13852,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
       : '';
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
@@ -13589,17 +13867,17 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const blocksWithStats = blocks.map(block => {
       const blockProperties = properties.filter(p => p.blockId === block.id);
       const totalUnits = blockProperties.length;
-      
+
       const occupiedUnits = blockProperties.filter(property => {
         return tenantAssignments.some(
-          assignment => 
-            assignment.propertyId === property.id && 
+          assignment =>
+            assignment.propertyId === property.id &&
             assignment.status === "active"
         );
       }).length;
 
-      const occupancyRate = totalUnits > 0 
-        ? Math.round((occupiedUnits / totalUnits) * 100) 
+      const occupancyRate = totalUnits > 0
+        ? Math.round((occupiedUnits / totalUnits) * 100)
         : 0;
 
       return {
@@ -13614,9 +13892,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const totalProperties = properties.length;
     const avgOccupancyRate = blocksWithStats.length > 0
       ? Math.round(
-          blocksWithStats.reduce((sum, block) => sum + block.occupancyRate, 0) / 
-          blocksWithStats.length
-        )
+        blocksWithStats.reduce((sum, block) => sum + block.occupancyRate, 0) /
+        blocksWithStats.length
+      )
       : 0;
     const totalActiveTenants = tenantAssignments.filter(a => a.status === "active").length;
 
@@ -14000,8 +14278,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
       : '';
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
@@ -14013,8 +14291,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
     const propertiesWithStats = properties.map(property => {
       const propertyInspections = inspections.filter(i => i.propertyId === property.id);
-      const latestInspection = propertyInspections.sort((a, b) => 
-        new Date(b.scheduledDate || b.createdAt).getTime() - 
+      const latestInspection = propertyInspections.sort((a, b) =>
+        new Date(b.scheduledDate || b.createdAt).getTime() -
         new Date(a.scheduledDate || a.createdAt).getTime()
       )[0];
 
@@ -14280,7 +14558,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        properties = properties.filter(p => 
+        properties = properties.filter(p =>
           p.address?.toLowerCase().includes(searchLower) ||
           p.name?.toLowerCase().includes(searchLower)
         );
@@ -14350,8 +14628,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
       : '';
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
@@ -14625,7 +14903,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        tenantAssignments = tenantAssignments.filter(t => 
+        tenantAssignments = tenantAssignments.filter(t =>
           t.tenantFirstName?.toLowerCase().includes(searchLower) ||
           t.tenantLastName?.toLowerCase().includes(searchLower) ||
           t.tenantEmail?.toLowerCase().includes(searchLower)
@@ -14696,8 +14974,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
       : '';
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
@@ -14709,8 +14987,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
     const enrichedInventory = assetInventory.map(asset => {
       const property = properties.find(p => p.id === asset.propertyId);
-      const block = property ? blocks.find(b => b.id === property.blockId) : 
-                    blocks.find(b => b.id === asset.blockId);
+      const block = property ? blocks.find(b => b.id === property.blockId) :
+        blocks.find(b => b.id === asset.blockId);
 
       return {
         ...asset,
@@ -14722,7 +15000,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const totalAssets = enrichedInventory.length;
     const blockAssets = enrichedInventory.filter(i => i.blockId && !i.propertyId).length;
     const propertyAssets = enrichedInventory.filter(i => i.propertyId).length;
-    const damagedAssets = enrichedInventory.filter(i => 
+    const damagedAssets = enrichedInventory.filter(i =>
       i.condition === "poor" || i.condition === "damaged"
     ).length;
 
@@ -14738,13 +15016,11 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
         <td style="padding: 10px 12px;">${asset.block ? escapeHtml(asset.block.name) : '-'}</td>
         <td style="padding: 10px 12px;">${asset.property ? escapeHtml(asset.property.name) : '-'}</td>
         <td style="padding: 10px 12px; text-align: center;">
-          <span style="padding: 3px 10px; border-radius: 4px; background: ${
-            asset.condition === 'excellent' || asset.condition === 'good' ? '#00D5CC' :
-            asset.condition === 'fair' ? '#e5e7eb' : '#ef4444'
-          }; color: ${
-            asset.condition === 'excellent' || asset.condition === 'good' ? 'white' :
-            asset.condition === 'fair' ? '#374151' : 'white'
-          }; font-size: 11px;">
+          <span style="padding: 3px 10px; border-radius: 4px; background: ${asset.condition === 'excellent' || asset.condition === 'good' ? '#00D5CC' :
+        asset.condition === 'fair' ? '#e5e7eb' : '#ef4444'
+      }; color: ${asset.condition === 'excellent' || asset.condition === 'good' ? 'white' :
+        asset.condition === 'fair' ? '#374151' : 'white'
+      }; font-size: 11px;">
             ${escapeHtml(asset.condition || 'Unknown')}
           </span>
         </td>
@@ -14947,7 +15223,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Apply filters
       if (blockId && blockId !== "all") {
-        assetInventory = assetInventory.filter(i => 
+        assetInventory = assetInventory.filter(i =>
           i.blockId === blockId || properties.find(p => p.id === i.propertyId)?.blockId === blockId
         );
       }
@@ -14966,7 +15242,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        assetInventory = assetInventory.filter(i => 
+        assetInventory = assetInventory.filter(i =>
           i.name?.toLowerCase().includes(searchLower) ||
           i.description?.toLowerCase().includes(searchLower) ||
           i.serialNumber?.toLowerCase().includes(searchLower) ||
@@ -15038,8 +15314,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     const logoHtml = hasLogo
       ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo 
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
       : '';
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
@@ -15051,8 +15327,8 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
     const enrichedDocuments = complianceDocuments.map(doc => {
       const property = properties.find(p => p.id === doc.propertyId);
-      const block = property ? blocks.find(b => b.id === property.blockId) : 
-                    blocks.find(b => b.id === doc.blockId);
+      const block = property ? blocks.find(b => b.id === property.blockId) :
+        blocks.find(b => b.id === doc.blockId);
 
       let status = "current";
       let daysUntilExpiry = null;
@@ -15060,7 +15336,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       if (doc.expiryDate) {
         const expiryDate = new Date(doc.expiryDate);
         daysUntilExpiry = Math.floor((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        
+
         if (daysUntilExpiry < 0) {
           status = "expired";
         } else if (daysUntilExpiry <= 30) {
@@ -15100,10 +15376,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           ${doc.daysUntilExpiry !== null && doc.daysUntilExpiry < 0 ? `<br><span style="font-size: 10px; color: #ef4444;">${Math.abs(doc.daysUntilExpiry)} days overdue</span>` : ''}
         </td>
         <td style="padding: 10px 12px; text-align: center;">
-          <span style="padding: 3px 10px; border-radius: 4px; background: ${
-            doc.status === 'expired' ? '#ef4444' :
-            doc.status === 'expiring-soon' ? '#f59e0b' : '#00D5CC'
-          }; color: white; font-size: 11px;">
+          <span style="padding: 3px 10px; border-radius: 4px; background: ${doc.status === 'expired' ? '#ef4444' :
+        doc.status === 'expiring-soon' ? '#f59e0b' : '#00D5CC'
+      }; color: white; font-size: 11px;">
             ${doc.status === 'expired' ? 'Expired' : doc.status === 'expiring-soon' ? 'Expiring Soon' : 'Current'}
           </span>
         </td>
@@ -15304,7 +15579,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       // Apply filters
       if (blockId && blockId !== "all") {
-        complianceDocuments = complianceDocuments.filter(d => 
+        complianceDocuments = complianceDocuments.filter(d =>
           d.blockId === blockId || properties.find(p => p.id === d.propertyId)?.blockId === blockId
         );
       }
@@ -15323,7 +15598,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           if (d.expiryDate) {
             const expiryDate = new Date(d.expiryDate);
             const daysUntilExpiry = Math.floor((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-            
+
             if (daysUntilExpiry < 0) {
               docStatus = "expired";
             } else if (daysUntilExpiry <= 30) {
@@ -15338,7 +15613,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        complianceDocuments = complianceDocuments.filter(d => 
+        complianceDocuments = complianceDocuments.filter(d =>
           d.documentType?.toLowerCase().includes(searchLower)
         );
       }
@@ -15400,7 +15675,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       }
 
       const { title, description, priority, category } = req.body;
-      
+
       if (!title || !description) {
         return res.status(400).json({ message: "Title and description are required" });
       }
@@ -15427,12 +15702,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       try {
         const teamConfig = await storage.getCentralTeamConfig();
         const activeEmails = teamConfig.filter(c => c.isActive).map(c => c.notificationEmail);
-        
+
         if (activeEmails.length > 0) {
           const { sendEmail } = await import("./resend");
           const priorityLabel = priority === "high" ? "HIGH" : priority === "medium" ? "Medium" : "Low";
           const categoryLabel = category === "bug" ? "Bug Report" : category === "improvement" ? "Improvement" : "Feature Request";
-          
+
           for (const email of activeEmails) {
             await sendEmail({
               to: email,
@@ -15485,7 +15760,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       const { status, category, priority } = req.query;
       const filters: { status?: string; category?: string; priority?: string } = {};
-      
+
       if (status && status !== "all") filters.status = status as string;
       if (category && category !== "all") filters.category = category as string;
       if (priority && priority !== "all") filters.priority = priority as string;
@@ -15527,7 +15802,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
       const { status, assignedTo, assignedDepartment, resolutionNotes } = req.body;
       const updates: any = {};
-      
+
       if (status) updates.status = status;
       if (assignedTo !== undefined) updates.assignedTo = assignedTo;
       if (assignedDepartment !== undefined) updates.assignedDepartment = assignedDepartment;
