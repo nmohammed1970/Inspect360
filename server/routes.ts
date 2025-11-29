@@ -84,6 +84,136 @@ function detectFileMimeType(buffer: Buffer): string {
 }
 
 /**
+ * Normalize sectionRef for matching between check-in and check-out inspections
+ * Handles variations like "Entry Hallway" vs "Entry / Hallway" vs "Entry/Hallway"
+ * Also handles "Bedroom" vs "Bedrooms/Bedroom 1" by extracting the base section name
+ */
+function normalizeSectionRef(sectionRef: string): string {
+  if (!sectionRef) return "";
+  
+  // Convert to lowercase for case-insensitive matching
+  let normalized = sectionRef.toLowerCase().trim();
+  
+  // Normalize common separators: "/", " / ", " /", "/ " to a single space
+  normalized = normalized.replace(/\s*\/\s*/g, " ");
+  
+  // Normalize multiple spaces to single space
+  normalized = normalized.replace(/\s+/g, " ");
+  
+  // Remove leading/trailing spaces
+  normalized = normalized.trim();
+  
+  // For hierarchical paths like "Bedrooms/Bedroom 1", extract the last part
+  // This helps match "Bedroom 1" with "Bedrooms/Bedroom 1"
+  const parts = normalized.split(/\s+/);
+  if (parts.length > 1) {
+    // If it looks like a hierarchical path, try to match on the last meaningful part
+    // But keep the full normalized string as primary match
+    return normalized;
+  }
+  
+  return normalized;
+}
+
+/**
+ * Normalize fieldKey for matching (usually just lowercase and trim)
+ */
+function normalizeFieldKey(fieldKey: string): string {
+  if (!fieldKey) return "";
+  return fieldKey.toLowerCase().trim();
+}
+
+/**
+ * Map check-out field key to corresponding check-in field key
+ * This handles the naming difference between check-in and check-out templates
+ * e.g., "field_checkout_entry_door_condition" -> "field_checkin_entry_door_condition"
+ */
+function mapCheckOutToCheckInFieldKey(checkOutFieldKey: string): string {
+  if (!checkOutFieldKey) return "";
+  
+  // Replace "checkout" with "checkin" in the field key
+  // This handles the pattern: field_checkout_* -> field_checkin_*
+  const normalized = checkOutFieldKey.toLowerCase().trim();
+  
+  // Direct replacement pattern
+  if (normalized.includes("field_checkout_")) {
+    return normalized.replace("field_checkout_", "field_checkin_");
+  }
+  
+  // If it doesn't match the pattern, return as-is (might be a custom field)
+  return normalized;
+}
+
+/**
+ * Map check-in field key to corresponding check-out field key
+ * This handles the reverse mapping
+ * e.g., "field_checkin_entry_door_condition" -> "field_checkout_entry_door_condition"
+ */
+function mapCheckInToCheckOutFieldKey(checkInFieldKey: string): string {
+  if (!checkInFieldKey) return "";
+  
+  const normalized = checkInFieldKey.toLowerCase().trim();
+  
+  // Direct replacement pattern
+  if (normalized.includes("field_checkin_")) {
+    return normalized.replace("field_checkin_", "field_checkout_");
+  }
+  
+  // If it doesn't match the pattern, return as-is (might be a custom field)
+  return normalized;
+}
+
+/**
+ * Check if two field keys match, considering the check-in/check-out mapping
+ */
+function fieldKeysMatch(checkInFieldKey: string, checkOutFieldKey: string): boolean {
+  if (!checkInFieldKey || !checkOutFieldKey) return false;
+  
+  const normalizedCheckIn = normalizeFieldKey(checkInFieldKey);
+  const normalizedCheckOut = normalizeFieldKey(checkOutFieldKey);
+  
+  // Direct match after normalization
+  if (normalizedCheckIn === normalizedCheckOut) return true;
+  
+  // Try mapping check-out to check-in and compare
+  const mappedCheckOut = mapCheckOutToCheckInFieldKey(checkOutFieldKey);
+  if (normalizedCheckIn === mappedCheckOut) return true;
+  
+  // Try mapping check-in to check-out and compare
+  const mappedCheckIn = mapCheckInToCheckOutFieldKey(checkInFieldKey);
+  if (normalizedCheckOut === mappedCheckIn) return true;
+  
+  return false;
+}
+
+/**
+ * Check if two sectionRefs match after normalization
+ */
+function sectionRefsMatch(ref1: string, ref2: string): boolean {
+  const normalized1 = normalizeSectionRef(ref1);
+  const normalized2 = normalizeSectionRef(ref2);
+  
+  // Exact match after normalization
+  if (normalized1 === normalized2) return true;
+  
+  // Also try matching the last part of hierarchical paths
+  // e.g., "bedrooms/bedroom 1" should match "bedroom 1"
+  const parts1 = normalized1.split(/\s+/);
+  const parts2 = normalized2.split(/\s+/);
+  
+  // If one is a subset of the other (last parts match), consider it a match
+  if (parts1.length > parts2.length) {
+    const lastParts = parts1.slice(-parts2.length).join(" ");
+    if (lastParts === normalized2) return true;
+  } else if (parts2.length > parts1.length) {
+    const lastParts = parts2.slice(-parts1.length).join(" ");
+    if (lastParts === normalized1) return true;
+  }
+  
+  return false;
+}
+
+/**
  * Detect image MIME type from file buffer using magic bytes
  * Returns a valid image MIME type (always starts with 'image/')
  */
@@ -3360,9 +3490,15 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       const checkInInspection = checkInInspections[0];
       const checkInEntries = await storage.getInspectionEntries(checkInInspection.id);
 
+      // Map entries to include fieldRef (for frontend compatibility) and apply field key mapping
+      const mappedCheckInEntries = checkInEntries.map((entry: any) => ({
+        ...entry,
+        fieldRef: entry.fieldKey, // Add fieldRef as alias for fieldKey
+      }));
+
       res.json({ 
         checkInInspection, 
-        checkInEntries 
+        checkInEntries: mappedCheckInEntries 
       });
     } catch (error) {
       console.error("Error fetching check-in reference:", error);
@@ -3475,9 +3611,11 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
           const itemAnalyses: any[] = [];
 
           for (const checkOutEntry of markedEntries) {
+            // Use normalized matching to handle variations in sectionRef naming
+            // and map field keys between check-in and check-out templates
             const checkInEntry = checkInEntries.find(
-              e => e.sectionRef === checkOutEntry.sectionRef && 
-                   e.fieldKey === checkOutEntry.fieldKey
+              e => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef) && 
+                   fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey)
             );
 
             let aiComparison: any = { summary: "No images to compare" };
@@ -3515,7 +3653,11 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
                   });
                 });
 
-                const prompt = `You are a professional BTR property inspector. Compare check-in vs check-out photos and provide a DETAILED analysis.
+                // Get notes from both inspections for comparison
+                const checkInNote = checkInEntry?.note || "";
+                const checkOutNote = checkOutEntry.note || "";
+                
+                let prompt = `You are a professional BTR property inspector. Compare check-in vs check-out photos and provide a DETAILED analysis.
 
 CRITICAL: Your SUMMARY must be EXACTLY 100 words (count them). This is mandatory for legal documentation.
 
@@ -3525,14 +3667,24 @@ ANALYSIS REQUIREMENTS:
 - Note specific locations: "top left corner", "center panel", "near door handle"
 - Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
 - Consider age and expected condition for this property type
-
-RESPONSE FORMAT (use EXACTLY this structure):
-SUMMARY: [Write EXACTLY 100 words. Describe: 1) Overall condition change, 2) Specific damage locations and types, 3) Whether damage exceeds fair wear, 4) Evidence supporting your assessment. Be detailed and specific.]
+- Consider both visual evidence from photos AND written notes from inspectors`;
+                
+                if (checkInNote || checkOutNote) {
+                  prompt += `\n\nCHECK-IN NOTES (baseline condition):\n${checkInNote || "No notes provided"}\n\nCHECK-OUT NOTES (current condition):\n${checkOutNote || "No notes provided"}`;
+                }
+                
+                prompt += `\n\nRESPONSE FORMAT (use EXACTLY this structure):
+SUMMARY: [Write EXACTLY 100 words. Describe: 1) Overall condition change (considering both photos and notes), 2) Specific damage locations and types, 3) Whether damage exceeds fair wear, 4) Evidence supporting your assessment. Be detailed and specific.]
 SEVERITY: [low/medium/high]
 DAMAGE: [1-2 sentence damage summary]
 COST: [number in GBP, 0 if acceptable]
 ACTION: [acceptable/clean/repair/replace]
 LIABILITY: [tenant/landlord/shared]`;
+                
+                // If both notes exist, also request notes comparison
+                if (checkInNote && checkOutNote) {
+                  prompt += `\n\nNOTES_COMPARISON: [Compare the check-in and check-out notes in detail. Identify: 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out, 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in, 3) Any items that were damaged at check-in but are now repaired or improved, 4) Changes in condition descriptions, 5) Specific discrepancies. Focus on actionable differences and tenant liability. Write 100-150 words.]`;
+                }
 
                 imageContent.unshift({
                   type: "text",
@@ -3552,8 +3704,11 @@ LIABILITY: [tenant/landlord/shared]`;
                 const severityMatch = analysis.match(/SEVERITY:\s*(low|medium|high)/i);
                 const actionMatch = analysis.match(/ACTION:\s*(acceptable|clean|repair|replace)/i);
                 const liabilityMatch = analysis.match(/LIABILITY:\s*(tenant|landlord|shared)/i);
-                const summaryMatch = analysis.match(/SUMMARY:\s*(.+?)(?=\n(?:SEVERITY|DAMAGE|COST|ACTION|LIABILITY):|$)/is);
-                const damageMatch = analysis.match(/DAMAGE:\s*(.+?)(?=\n(?:COST|ACTION|LIABILITY):|$)/is);
+                const summaryMatch = analysis.match(/SUMMARY:\s*([\s\S]+?)(?=\n(?:SEVERITY|DAMAGE|COST|ACTION|LIABILITY|NOTES_COMPARISON):|$)/i);
+                const damageMatch = analysis.match(/DAMAGE:\s*([\s\S]+?)(?=\n(?:COST|ACTION|LIABILITY|NOTES_COMPARISON):|$)/i);
+                // Try to match NOTES_COMPARISON - it might be at the end or in the middle
+                const notesComparisonMatch = analysis.match(/NOTES_COMPARISON:\s*([\s\S]+?)(?=\n(?:SUMMARY|SEVERITY|DAMAGE|COST|ACTION|LIABILITY):|$)/i) || 
+                                            analysis.match(/NOTES_COMPARISON:\s*([\s\S]+)$/i);
                 
                 estimatedCost = costMatch ? parseInt(costMatch[1]) : 0;
 
@@ -3566,8 +3721,19 @@ LIABILITY: [tenant/landlord/shared]`;
                   suggestedLiability: liabilityMatch ? liabilityMatch[1].toLowerCase() : "tenant",
                   checkInPhotos,
                   checkOutPhotos,
-                  estimatedCost
+                  estimatedCost,
+                  checkInNote: checkInNote,
+                  checkOutNote: checkOutNote
                 };
+                
+                // Extract notes_comparison if present in response
+                if (notesComparisonMatch && notesComparisonMatch[1]) {
+                  aiComparison.notes_comparison = notesComparisonMatch[1].trim();
+                  console.log(`[ComparisonReport] Extracted notes_comparison from auto-create response (length: ${aiComparison.notes_comparison.length})`);
+                } else if (checkInNote && checkOutNote) {
+                  // If notes_comparison wasn't in the response, generate it separately
+                  console.log(`[ComparisonReport] notes_comparison not found in auto-create response, will generate separately if needed`);
+                }
 
               } catch (visionError) {
                 console.error("Vision API error:", visionError);
@@ -3707,10 +3873,12 @@ LIABILITY: [tenant/landlord/shared]`;
           const itemAnalyses: any[] = [];
 
           for (const checkOutEntry of markedEntries) {
-            // Find matching check-in entry
+            // Find matching check-in entry using normalized matching
+            // This handles variations like "Entry Hallway" vs "Entry / Hallway"
+            // and maps field keys between check-in and check-out templates
             const checkInEntry = checkInEntries.find(
-              e => e.sectionRef === checkOutEntry.sectionRef && 
-                   e.fieldKey === checkOutEntry.fieldKey
+              e => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef) && 
+                   fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey)
             );
 
             // Log check-in entry matching for debugging
@@ -3891,31 +4059,56 @@ LIABILITY: [tenant/landlord/shared]`;
                     }
                   }
 
+                // Get notes from both inspections for comparison
+                const checkInNote = checkInEntry?.note || "";
+                const checkOutNote = checkOutEntry.note || "";
+                
                 // Check if we have any valid images before making API call
                 const hasValidImages = imageContent.some(item => item.type === "image_url");
-                if (!hasValidImages) {
-                  console.warn(`[ComparisonReport] No valid images found for entry ${checkOutEntry.fieldKey}, skipping AI analysis`);
-                  aiComparison = { summary: "No valid images available for comparison" };
+                if (!hasValidImages && !checkInNote && !checkOutNote) {
+                  console.warn(`[ComparisonReport] No valid images or notes found for entry ${checkOutEntry.fieldKey}, skipping AI analysis`);
+                  aiComparison = { summary: "No valid images or notes available for comparison" };
                 } else {
                   // Define prompt before using it
-                  const prompt = `You are a professional BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+                  let prompt = `You are a professional BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
 
 CRITICAL: The "differences" field must contain EXACTLY 100 words. Count them. This is mandatory for legal documentation.
 
 ANALYSIS REQUIREMENTS:
-- Compare baseline (check-in) to current (check-out) condition
-- Identify ALL damage: scratches, stains, dents, tears, discoloration, wear
-- Note specific locations: "top left corner", "center panel", "near handle"
+- Compare baseline (check-in) to current (check-out) condition`;
+                  
+                  if (hasValidImages) {
+                    prompt += `
+- Analyze the provided photos to identify ALL damage: scratches, stains, dents, tears, discoloration, wear
+- Note specific locations: "top left corner", "center panel", "near handle"`;
+                  }
+                  
+                  prompt += `
 - Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
+- Consider both visual evidence from photos AND written notes from inspectors`;
+                  
+                  if (checkInNote || checkOutNote) {
+                    prompt += `\n\nCHECK-IN NOTES (baseline condition):\n${checkInNote || "No notes provided"}\n\nCHECK-OUT NOTES (current condition):\n${checkOutNote || "No notes provided"}`;
+                  }
+                  
+                  prompt += `
 
 Respond with ONLY valid JSON (no markdown, no code blocks):
 {
-  "differences": "EXACTLY 100 WORDS describing: 1) Overall condition change between photos, 2) Specific damage locations and types observed, 3) Whether damage exceeds normal fair wear and tear, 4) Evidence supporting your liability assessment. Be detailed, specific, and professional.",
+  "differences": "EXACTLY 100 WORDS describing: 1) Overall condition change between check-in and check-out (considering both photos and notes), 2) Specific damage locations and types observed, 3) Whether damage exceeds normal fair wear and tear, 4) Evidence supporting your liability assessment. Be detailed, specific, and professional.",
   "damage": "1-2 sentence summary of main damage",
   "severity": "low or medium or high",
   "repair_description": "Specific repairs needed",
   "suggested_liability": "tenant or landlord or shared",
-  "estimated_cost_range": {"min": 0, "max": 0}
+  "estimated_cost_range": {"min": 0, "max": 0}`;
+                  
+                  // Add notes comparison if both notes exist
+                  if (checkInNote && checkOutNote) {
+                    prompt += `,
+  "notes_comparison": "Analyze and compare the check-in and check-out notes. Identify: 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out, 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in, 3) Any items that were damaged at check-in but are now repaired or improved, 4) Changes in condition descriptions (e.g., 'good' to 'poor', 'clean' to 'dirty'), 5) Specific discrepancies and what changed between the two inspections. Focus on actionable differences and tenant liability. Be detailed and specific. Write 100-150 words."`;
+                  }
+                  
+                  prompt += `
 }`;
 
                   // Log image content for debugging (without full data URLs)
@@ -3987,37 +4180,162 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                   // Use mid-point of cost range as estimate
                   estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) + 
                                    (aiComparison.estimated_cost_range?.max || 0)) / 2;
-                  // Add photos to the comparison object (always include check-in photos)
+                  // Add photos and notes to the comparison object
                   aiComparison.checkInPhotos = checkInPhotos;
                   aiComparison.checkOutPhotos = checkOutPhotos.map(convertPhotoToAbsoluteUrl);
+                  aiComparison.checkInNote = checkInNote;
+                  aiComparison.checkOutNote = checkOutNote;
+                  // notes_comparison should already be in the parsed JSON if AI returned it
+                  // If not present but both notes exist, generate it separately
+                  if (!aiComparison.notes_comparison && checkInNote && checkOutNote) {
+                    console.log(`[ComparisonReport] Notes comparison not found in AI response, generating separately...`);
+                    try {
+                      const notesComparisonPrompt = `You are a professional BTR property inspector. Compare the following check-in and check-out notes in detail.
+
+CHECK-IN NOTES (baseline condition):
+${checkInNote}
+
+CHECK-OUT NOTES (current condition):
+${checkOutNote}
+
+Analyze and compare these notes. Identify:
+1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out
+2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in
+3) Any items that were damaged at check-in but are now repaired or improved
+4) Changes in condition descriptions (e.g., 'good' to 'poor', 'clean' to 'dirty')
+5) Specific discrepancies and what changed between the two inspections
+
+Focus on actionable differences and tenant liability. Be detailed and specific. Write 100-150 words.
+
+Respond with ONLY valid JSON (no markdown, no code blocks):
+{
+  "notes_comparison": "Your detailed comparison here (100-150 words)"
+}`;
+
+                      const notesResponse = await getOpenAI().responses.create({
+                        model: "gpt-5",
+                        input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
+                        max_output_tokens: 400,
+                      });
+
+                      let notesAiResponse = notesResponse.output_text || (notesResponse.output?.[0] as any)?.content?.[0]?.text || "{}";
+                      notesAiResponse = notesAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+                      
+                      try {
+                        const notesComparison = JSON.parse(notesAiResponse);
+                        if (notesComparison.notes_comparison) {
+                          aiComparison.notes_comparison = notesComparison.notes_comparison;
+                          console.log(`[ComparisonReport] Generated notes comparison separately`);
+                        }
+                      } catch (parseError) {
+                        console.error(`[ComparisonReport] Error parsing notes comparison response:`, parseError);
+                      }
+                    } catch (notesError) {
+                      console.error(`[ComparisonReport] Error generating notes comparison separately:`, notesError);
+                    }
+                  }
                 } catch {
                   aiComparison = { 
                     summary: aiResponse,
                     checkInPhotos: checkInPhotos,
-                    checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl)
+                    checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl),
+                    checkInNote: checkInNote,
+                    checkOutNote: checkOutNote
                   };
                 }
                 }
               } catch (error) {
                 console.error("Error in AI comparison:", error);
                 const checkOutPhotos = checkOutEntry.photos || [];
+                const checkInNote = checkInEntry?.note || "";
+                const checkOutNote = checkOutEntry.note || "";
                 aiComparison = { 
                   error: "Failed to analyze images",
                   checkInPhotos: checkInPhotos,
-                  checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl)
+                  checkOutPhotos: checkOutPhotos.map(convertPhotoToAbsoluteUrl),
+                  checkInNote: checkInNote,
+                  checkOutNote: checkOutNote
                 };
               }
             } else {
-              // Even if check-out has no photos, still include check-in photos if available
-              if (checkInPhotos.length > 0) {
-                aiComparison = {
-                  summary: "Check-in photos available but no check-out photos for comparison",
-                  checkInPhotos: checkInPhotos,
-                  checkOutPhotos: []
-                };
+              // Even if check-out has no photos, still try to compare using notes if available
+              const checkInNote = checkInEntry?.note || "";
+              const checkOutNote = checkOutEntry.note || "";
+              
+              if (checkInPhotos.length > 0 || checkInNote || checkOutNote) {
+                // If we have notes, try to do a text-based comparison
+                if (checkInNote || checkOutNote) {
+                  try {
+                    let prompt = `You are a professional BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+
+Compare the check-in and check-out notes to identify any changes, damage, or issues.
+
+CHECK-IN NOTES (baseline condition):
+${checkInNote || "No notes provided"}
+
+CHECK-OUT NOTES (current condition):
+${checkOutNote || "No notes provided"}
+
+CRITICAL: The "differences" field must contain EXACTLY 100 words. Count them. This is mandatory for legal documentation.
+
+Respond with ONLY valid JSON (no markdown, no code blocks):
+{
+  "differences": "EXACTLY 100 WORDS describing: 1) Overall condition change based on notes, 2) Specific issues or damage mentioned, 3) Whether changes exceed normal fair wear and tear, 4) Evidence supporting your liability assessment. Be detailed, specific, and professional.",
+  "damage": "1-2 sentence summary of main issues or damage",
+  "severity": "low or medium or high",
+  "repair_description": "Specific repairs needed if any",
+  "suggested_liability": "tenant or landlord or shared",
+  "estimated_cost_range": {"min": 0, "max": 0}`;
+                    
+                    // Add notes comparison if both notes exist
+                    if (checkInNote && checkOutNote) {
+                      prompt += `,
+  "notes_comparison": "Analyze and compare the check-in and check-out notes. Identify: 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out, 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in, 3) Any items that were damaged at check-in but are now repaired or improved, 4) Changes in condition descriptions (e.g., 'good' to 'poor', 'clean' to 'dirty'), 5) Specific discrepancies and what changed between the two inspections. Focus on actionable differences and tenant liability. Be detailed and specific. Write 100-150 words."`;
+                    }
+                    
+                    prompt += `
+}`;
+
+                    const response = await getOpenAI().responses.create({
+                      model: "gpt-5",
+                      input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: prompt }]) }],
+                      max_output_tokens: 800,
+                    });
+
+                    let aiResponse = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "{}";
+                    aiResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+                    
+                    try {
+                      aiComparison = JSON.parse(aiResponse);
+                      estimatedCost = ((aiComparison.estimated_cost_range?.min || 0) + 
+                                       (aiComparison.estimated_cost_range?.max || 0)) / 2;
+                      aiComparison.checkInPhotos = checkInPhotos;
+                      aiComparison.checkOutPhotos = [];
+                    } catch {
+                      aiComparison = { 
+                        summary: aiResponse,
+                        checkInPhotos: checkInPhotos,
+                        checkOutPhotos: []
+                      };
+                    }
+                  } catch (error) {
+                    console.error("Error in text-based comparison:", error);
+                    aiComparison = {
+                      summary: "Check-in photos/notes available but no check-out photos for comparison",
+                      checkInPhotos: checkInPhotos,
+                      checkOutPhotos: []
+                    };
+                  }
+                } else {
+                  aiComparison = {
+                    summary: "Check-in photos available but no check-out photos for comparison",
+                    checkInPhotos: checkInPhotos,
+                    checkOutPhotos: []
+                  };
+                }
               } else {
                 aiComparison = {
-                  summary: "No images to compare",
+                  summary: "No images or notes to compare",
                   checkInPhotos: [],
                   checkOutPhotos: []
                 };
@@ -4184,32 +4502,254 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
       // Get report items
       const items = await storage.getComparisonReportItems(id);
 
+      // Get check-in inspection ID from report to fetch entries for fallback matching
+      const checkInInspectionId = report.checkInInspectionId;
+      let checkInEntries: any[] = [];
+      if (checkInInspectionId) {
+        try {
+          checkInEntries = await storage.getInspectionEntries(checkInInspectionId);
+          console.log(`[ComparisonReport] Loaded ${checkInEntries.length} check-in entries for fallback matching`);
+        } catch (error) {
+          console.error(`[ComparisonReport] Error loading check-in entries:`, error);
+        }
+      }
+
       // Extract photos from aiComparisonJson and also fetch from entries if needed
       const itemsWithPhotos = await Promise.all(items.map(async (item) => {
         const aiComparison = item.aiComparisonJson || {};
         let checkInPhotos = aiComparison.checkInPhotos || [];
         let checkOutPhotos = aiComparison.checkOutPhotos || [];
         
-        // If check-in photos are missing from aiComparisonJson, fetch from check-in entry
-        if ((!checkInPhotos || checkInPhotos.length === 0) && item.checkInEntryId) {
-          try {
-            const checkInEntry = await storage.getInspectionEntry(item.checkInEntryId);
-            if (checkInEntry) {
-              // Get photos from photos column or valueJson
-              if (checkInEntry.photos && Array.isArray(checkInEntry.photos) && checkInEntry.photos.length > 0) {
-                checkInPhotos = checkInEntry.photos;
-              } else if (checkInEntry.valueJson && typeof checkInEntry.valueJson === 'object') {
-                const valueJson = checkInEntry.valueJson as any;
-                if (Array.isArray(valueJson.photos)) {
-                  checkInPhotos = valueJson.photos;
-                } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
-                  checkInPhotos = [valueJson.photo];
+        // If check-in photos are missing, try to fetch from check-in entry
+        if (!checkInPhotos || checkInPhotos.length === 0) {
+          let checkInEntry = null;
+          
+          // First, try using the stored checkInEntryId
+          if (item.checkInEntryId) {
+            try {
+              checkInEntry = await storage.getInspectionEntry(item.checkInEntryId);
+              console.log(`[ComparisonReport] Found check-in entry by ID: ${item.checkInEntryId}`);
+            } catch (error) {
+              console.error(`[ComparisonReport] Error fetching check-in entry ${item.checkInEntryId}:`, error);
+            }
+          }
+          
+          // If no entry found by ID, try to find matching entry using field key mapping
+          if (!checkInEntry && checkInEntries.length > 0) {
+            // Get the check-out entry to find its fieldKey
+            try {
+              const checkOutEntry = await storage.getInspectionEntry(item.checkOutEntryId);
+              if (checkOutEntry) {
+                // Use the new matching logic to find corresponding check-in entry
+                checkInEntry = checkInEntries.find(
+                  (e: any) => sectionRefsMatch(e.sectionRef, checkOutEntry.sectionRef || item.sectionRef) && 
+                              fieldKeysMatch(e.fieldKey, checkOutEntry.fieldKey || item.fieldKey)
+                );
+                
+                if (checkInEntry) {
+                  console.log(`[ComparisonReport] Found matching check-in entry using field key mapping: ${checkInEntry.id} for check-out field ${checkOutEntry.fieldKey}`);
+                  // Update the comparison report item with the found checkInEntryId for future use
+                  try {
+                    await storage.updateComparisonReportItem(item.id, { checkInEntryId: checkInEntry.id });
+                    console.log(`[ComparisonReport] Updated comparison report item ${item.id} with checkInEntryId ${checkInEntry.id}`);
+                  } catch (updateError) {
+                    console.error(`[ComparisonReport] Error updating checkInEntryId:`, updateError);
+                  }
+                } else {
+                  console.log(`[ComparisonReport] No matching check-in entry found for sectionRef: ${item.sectionRef}, fieldKey: ${item.fieldKey}`);
                 }
               }
-              console.log(`[ComparisonReport] Fetched ${checkInPhotos.length} check-in photos from entry ${item.checkInEntryId} for item ${item.id}`);
+            } catch (error) {
+              console.error(`[ComparisonReport] Error fetching check-out entry for matching:`, error);
+            }
+          }
+          
+          // If we found a check-in entry, extract photos and notes from it
+          if (checkInEntry) {
+            // Get photos from photos column or valueJson
+            if (checkInEntry.photos && Array.isArray(checkInEntry.photos) && checkInEntry.photos.length > 0) {
+              checkInPhotos = checkInEntry.photos;
+            } else if (checkInEntry.valueJson && typeof checkInEntry.valueJson === 'object') {
+              const valueJson = checkInEntry.valueJson as any;
+              if (Array.isArray(valueJson.photos)) {
+                checkInPhotos = valueJson.photos;
+              } else if (typeof valueJson.photo === 'string' && valueJson.photo) {
+                checkInPhotos = [valueJson.photo];
+              }
+            }
+            
+            // Update aiComparisonJson with notes if missing
+            if (checkInEntry.note && !aiComparison.checkInNote) {
+              aiComparison.checkInNote = checkInEntry.note;
+              console.log(`[ComparisonReport] Fetched check-in note for item ${item.id}: ${checkInEntry.note.substring(0, 50)}...`);
+            } else if (checkInEntry.note) {
+              console.log(`[ComparisonReport] Check-in note already exists for item ${item.id}`);
+            } else {
+              console.log(`[ComparisonReport] No check-in note found in entry ${checkInEntry.id} for item ${item.id}`);
+            }
+            
+            console.log(`[ComparisonReport] Fetched ${checkInPhotos.length} check-in photos for item ${item.id}`);
+          } else {
+            console.log(`[ComparisonReport] No check-in entry found for item ${item.id} (sectionRef: ${item.sectionRef}, fieldKey: ${item.fieldKey})`);
+          }
+        }
+        
+        // Also fetch check-out entry notes if missing
+        if (!aiComparison.checkOutNote) {
+          try {
+            const checkOutEntry = await storage.getInspectionEntry(item.checkOutEntryId);
+            if (checkOutEntry?.note) {
+              aiComparison.checkOutNote = checkOutEntry.note;
+              console.log(`[ComparisonReport] Fetched check-out note for item ${item.id}: ${checkOutEntry.note.substring(0, 50)}...`);
+            } else {
+              console.log(`[ComparisonReport] No check-out note found for item ${item.id}`);
             }
           } catch (error) {
-            console.error(`[ComparisonReport] Error fetching check-in entry ${item.checkInEntryId}:`, error);
+            console.error(`[ComparisonReport] Error fetching check-out entry notes:`, error);
+          }
+        }
+        
+        // Debug: Log current state BEFORE generation
+        console.log(`[ComparisonReport] Item ${item.id} - BEFORE generation check:`);
+        console.log(`  - checkInNote exists: ${!!aiComparison.checkInNote}, length: ${aiComparison.checkInNote?.length || 0}`);
+        console.log(`  - checkOutNote exists: ${!!aiComparison.checkOutNote}, length: ${aiComparison.checkOutNote?.length || 0}`);
+        console.log(`  - notes_comparison exists: ${!!aiComparison.notes_comparison}`);
+        if (aiComparison.checkInNote) {
+          console.log(`  - checkInNote preview: "${aiComparison.checkInNote.substring(0, 50)}..."`);
+        }
+        if (aiComparison.checkOutNote) {
+          console.log(`  - checkOutNote preview: "${aiComparison.checkOutNote.substring(0, 50)}..."`);
+        }
+        
+        // Generate notes_comparison based on photo comparison if missing
+        // Check if we have photos to compare
+        const hasCheckInPhotos = checkInPhotos && checkInPhotos.length > 0;
+        const hasCheckOutPhotos = checkOutPhotos && checkOutPhotos.length > 0;
+        
+        console.log(`[ComparisonReport] Item ${item.id} - Photo check: hasCheckInPhotos=${hasCheckInPhotos}, hasCheckOutPhotos=${hasCheckOutPhotos}, hasNotesComparison=${!!aiComparison.notes_comparison}`);
+        
+        if (!aiComparison.notes_comparison && (hasCheckInPhotos || hasCheckOutPhotos)) {
+          console.log(`[ComparisonReport] 🚀 STARTING photo-based comparison generation for item ${item.id}`);
+          try {
+            // Helper function to convert photo to data URL for AI vision API
+            const convertPhotoForAI = async (photo: string): Promise<string | null> => {
+              try {
+                if (photo.startsWith("http://") || photo.startsWith("https://")) {
+                  try {
+                    new URL(photo);
+                    return photo;
+                  } catch {
+                    return null;
+                  }
+                }
+                if (photo.startsWith("data:")) {
+                  if (photo.match(/^data:image\/[^;]+;base64,/)) {
+                    if (photo.length > 20 * 1024 * 1024) return null;
+                    return photo;
+                  }
+                  return null;
+                }
+                const objectStorageService = new ObjectStorageService();
+                const photoPath = photo.startsWith('/objects/') ? photo : `/objects/${photo}`;
+                const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+                const fileBuffer = await fs.readFile(objectFile.name);
+                if (fileBuffer.length > 20 * 1024 * 1024) return null;
+                let contentType = detectImageMimeType(fileBuffer);
+                if (!contentType || !contentType.startsWith('image/')) {
+                  contentType = 'image/jpeg';
+                }
+                const base64Data = fileBuffer.toString('base64');
+                return `data:${contentType};base64,${base64Data}`;
+              } catch (error) {
+                console.error(`[ComparisonReport] Error converting photo:`, error);
+                return null;
+              }
+            };
+            
+            // Prepare image content for comparison
+            const imageContent: any[] = [];
+            
+            // Add check-in photos first
+            if (hasCheckInPhotos) {
+              for (const photo of checkInPhotos.slice(0, 2)) { // Limit to 2 photos
+                const photoUrl = await convertPhotoForAI(photo);
+                if (photoUrl) {
+                  imageContent.push({ type: "image_url", image_url: photoUrl });
+                }
+              }
+            }
+            
+            // Add check-out photos
+            if (hasCheckOutPhotos) {
+              for (const photo of checkOutPhotos.slice(0, 2)) { // Limit to 2 photos
+                const photoUrl = await convertPhotoForAI(photo);
+                if (photoUrl) {
+                  imageContent.push({ type: "image_url", image_url: photoUrl });
+                }
+              }
+            }
+            
+            if (imageContent.length === 0) {
+              console.log(`[ComparisonReport] No valid photos to compare for item ${item.id}`);
+            } else {
+              const photoComparisonPrompt = `You are a professional BTR property inspector. Compare the check-in and check-out photos to identify ALL changes, damage, and differences.
+
+INSTRUCTIONS:
+- The first photo(s) are from CHECK-IN (baseline condition)
+- The remaining photo(s) are from CHECK-OUT (current condition)
+- Compare them side-by-side and identify:
+  1) What was in good condition at check-in but is now broken, damaged, or missing at check-out
+  2) New damage, cracks, stains, or issues that appeared at check-out (not present at check-in)
+  3) Items that were damaged at check-in but are now repaired or improved
+  4) Any visible changes in condition (e.g., clean to dirty, intact to cracked, good to poor)
+  5) Specific locations of damage (e.g., "wall above bed", "floor near door", "corner of room")
+
+Be detailed, specific, and focus on actionable differences. Identify what changed and where. Write 100-150 words.
+
+Respond with ONLY valid JSON (no markdown, no code blocks):
+{
+  "notes_comparison": "Your detailed visual comparison here (100-150 words)"
+}`;
+
+              imageContent.unshift({ type: "text", text: photoComparisonPrompt });
+              
+              console.log(`[ComparisonReport] Making AI call for photo comparison with ${imageContent.length - 1} photos...`);
+              const photoResponse = await getOpenAI().responses.create({
+                model: "gpt-5",
+                input: [{ role: "user", content: normalizeApiContent(imageContent) }],
+                max_output_tokens: 400,
+              });
+
+              let photoAiResponse = photoResponse.output_text || (photoResponse.output?.[0] as any)?.content?.[0]?.text || "{}";
+              console.log(`[ComparisonReport] Raw AI response for photo comparison (first 200 chars): ${photoAiResponse.substring(0, 200)}`);
+              
+              photoAiResponse = photoAiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').replace(/\*\*/g, '').trim();
+              
+              try {
+                const photoComparison = JSON.parse(photoAiResponse);
+                if (photoComparison.notes_comparison) {
+                  aiComparison.notes_comparison = photoComparison.notes_comparison;
+                  console.log(`[ComparisonReport] ✅ Successfully generated photo-based notes_comparison for item ${item.id} (length: ${photoComparison.notes_comparison.length})`);
+                  // Update the database
+                  try {
+                    await storage.updateComparisonReportItem(item.id, { 
+                      aiComparisonJson: aiComparison 
+                    });
+                    console.log(`[ComparisonReport] Updated database with photo-based notes_comparison for item ${item.id}`);
+                  } catch (updateError) {
+                    console.error(`[ComparisonReport] Error updating notes_comparison in database:`, updateError);
+                  }
+                } else {
+                  console.warn(`[ComparisonReport] AI response missing notes_comparison field. Keys: ${Object.keys(photoComparison)}`);
+                }
+              } catch (parseError) {
+                console.error(`[ComparisonReport] Error parsing photo comparison response:`, parseError);
+                console.error(`[ComparisonReport] Response that failed to parse: ${photoAiResponse.substring(0, 500)}`);
+              }
+            }
+          } catch (photoError) {
+            console.error(`[ComparisonReport] Error generating photo-based comparison:`, photoError);
+            console.error(`[ComparisonReport] Error details:`, photoError instanceof Error ? photoError.message : String(photoError));
           }
         }
         
@@ -4235,10 +4775,30 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
           }
         }
         
+        // Log what we're returning for debugging AFTER generation attempt
+        if (aiComparison.notes_comparison) {
+          console.log(`[ComparisonReport] ✅ Item ${item.id} HAS notes_comparison (${aiComparison.notes_comparison.length} chars): ${aiComparison.notes_comparison.substring(0, 50)}...`);
+        } else if (aiComparison.checkInNote && aiComparison.checkOutNote) {
+          console.log(`[ComparisonReport] ⚠️ Item ${item.id} has both notes but NO notes_comparison after generation attempt`);
+          console.log(`[ComparisonReport]   - checkInNote exists: ${!!aiComparison.checkInNote}, length: ${aiComparison.checkInNote?.length || 0}`);
+          console.log(`[ComparisonReport]   - checkOutNote exists: ${!!aiComparison.checkOutNote}, length: ${aiComparison.checkOutNote?.length || 0}`);
+          console.log(`[ComparisonReport]   - This means generation either failed or didn't complete`);
+        } else {
+          console.log(`[ComparisonReport] Item ${item.id} - checkInNote: ${!!aiComparison.checkInNote}, checkOutNote: ${!!aiComparison.checkOutNote}`);
+        }
+        
+        // Ensure aiComparisonJson is a proper object
+        const finalAiComparison = {
+          ...aiComparison,
+          checkInPhotos: aiComparison.checkInPhotos || [],
+          checkOutPhotos: aiComparison.checkOutPhotos || [],
+        };
+        
         return {
           ...item,
           checkInPhotos: checkInPhotos,
           checkOutPhotos: checkOutPhotos,
+          aiComparisonJson: finalAiComparison, // Include updated notes in aiComparisonJson
         };
       }));
 

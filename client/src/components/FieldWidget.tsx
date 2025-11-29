@@ -101,9 +101,26 @@ export function FieldWidget({
   });
 
   // Find matching check-in entry for this field
-  const checkInEntry = checkInReference?.checkInEntries?.find(
-    (entry: any) => entry.fieldRef === field.id
-  );
+  // Try matching by fieldRef first (for compatibility), then by fieldKey with mapping
+  const checkInEntry = checkInReference?.checkInEntries?.find((entry: any) => {
+    // Direct match on fieldRef (if it exists)
+    if (entry.fieldRef === field.id) return true;
+    
+    // Try field key mapping: convert check-out field key to check-in field key
+    // e.g., "field_checkout_entry_door_condition" -> "field_checkin_entry_door_condition"
+    const checkOutFieldKey = field.id || field.key || "";
+    const mappedCheckInFieldKey = checkOutFieldKey.replace(/field_checkout_/g, "field_checkin_");
+    const entryFieldKey = entry.fieldKey || entry.fieldRef || "";
+    
+    // Match if entry's fieldKey matches the mapped check-in field key
+    if (entryFieldKey.toLowerCase() === mappedCheckInFieldKey.toLowerCase()) return true;
+    
+    // Also try reverse: if entry has check-in field key, map it to check-out and compare
+    const mappedCheckOutFieldKey = entryFieldKey.replace(/field_checkin_/g, "field_checkout_");
+    if (checkOutFieldKey.toLowerCase() === mappedCheckOutFieldKey.toLowerCase()) return true;
+    
+    return false;
+  });
   const checkInPhotos = checkInEntry?.photos || [];
 
   // Rehydrate local state when props change (e.g., when existing entries load)

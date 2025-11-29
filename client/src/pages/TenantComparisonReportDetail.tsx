@@ -331,13 +331,14 @@ export default function TenantComparisonReportDetail() {
                   </div>
                 )}
 
+                {/* Always show AI comparison after photos if available */}
                 {(item.aiSummary || aiAnalysis.differences) && (
-                  <div className="bg-muted p-4 rounded-lg space-y-2">
-                    <h4 className="font-medium text-sm flex items-center gap-2">
+                  <div className="mt-4 bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800 space-y-2">
+                    <h4 className="font-medium text-sm flex items-center gap-2 text-blue-900 dark:text-blue-100">
                       <ImageIcon className="w-4 h-4" />
-                      Analysis Summary
+                      AI Comparison Analysis
                     </h4>
-                    <p className="text-sm">{item.aiSummary || aiAnalysis.differences}</p>
+                    <p className="text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap">{item.aiSummary || aiAnalysis.differences}</p>
                   </div>
                 )}
 

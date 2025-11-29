@@ -324,13 +324,16 @@ export default function ComparisonReports() {
                     </div>
 
                     {/* View Button */}
-                    <Link href={`/comparisons/${report.id}`}>
-                      <a>
-                        <Button variant="outline" size="sm" data-testid={`button-view-${report.id}`}>
-                          View Details
-                          <ArrowRight className="w-4 h-4 ml-2" />
-                        </Button>
-                      </a>
+                    <Link href={`/comparisons/${report.id}`} className="inline-block">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        data-testid={`button-view-${report.id}`}
+                        className="cursor-pointer"
+                      >
+                        View Details
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
                     </Link>
                   </div>
                 </CardContent>

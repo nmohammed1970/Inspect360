@@ -212,10 +212,18 @@ export default function ComparisonReportDetail() {
     select: (data) => {
       const items = data.items.map(item => {
         const aiAnalysis = item.aiComparisonJson || {};
+        // Debug logging
+        if (aiAnalysis.notes_comparison) {
+          console.log(`[Frontend] Item ${item.id} has notes_comparison`);
+        } else if (aiAnalysis.checkInNote && aiAnalysis.checkOutNote) {
+          console.log(`[Frontend] Item ${item.id} has both notes but no notes_comparison`);
+        }
         return {
           ...item,
           checkInPhotos: aiAnalysis.checkInPhotos || [],
           checkOutPhotos: aiAnalysis.checkOutPhotos || [],
+          // Ensure aiComparisonJson is preserved
+          aiComparisonJson: item.aiComparisonJson || {},
         };
       });
       return { ...data, items };
@@ -602,13 +610,14 @@ export default function ComparisonReportDetail() {
                   </div>
                 )}
 
+                {/* Always show AI comparison after photos if available */}
                 {(item.aiSummary || aiAnalysis.differences) && (
-                  <div className="bg-muted p-4 rounded-lg space-y-2">
-                    <h4 className="font-medium text-sm flex items-center gap-2">
+                  <div className="mt-4 bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800 space-y-2">
+                    <h4 className="font-medium text-sm flex items-center gap-2 text-blue-900 dark:text-blue-100">
                       <ImageIcon className="w-4 h-4" />
-                      AI Analysis Summary
+                      AI Comparison Analysis
                     </h4>
-                    <p className="text-sm">{item.aiSummary || aiAnalysis.differences}</p>
+                    <p className="text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap">{item.aiSummary || aiAnalysis.differences}</p>
                   </div>
                 )}
 
@@ -649,6 +658,32 @@ export default function ComparisonReportDetail() {
                     </div>
                   </div>
                 </div>
+
+                {/* Notes Comparison Section - Show if notes_comparison exists OR if both notes exist (will be generated) */}
+                {(aiAnalysis.notes_comparison || (aiAnalysis.checkInNote && aiAnalysis.checkOutNote)) && (
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-medium text-muted-foreground">Notes Comparison</h4>
+                      
+                      {/* AI Notes Comparison - Only show the comparison result */}
+                      {aiAnalysis.notes_comparison ? (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">AI Analysis of Notes</label>
+                          <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800 text-sm whitespace-pre-wrap text-blue-900 dark:text-blue-100">
+                            {aiAnalysis.notes_comparison}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">AI Analysis of Notes</label>
+                          <div className="p-4 bg-muted rounded-lg text-sm text-muted-foreground">
+                            Generating notes comparison...
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
