@@ -499,11 +499,14 @@ export default function PropertyDetail() {
                             )}
                           </div>
                         </div>
-                        <Badge variant={
-                          inspection.status === 'completed' ? 'default' :
-                          inspection.status === 'in_progress' ? 'secondary' :
-                          'outline'
-                        }>
+                        <Badge 
+                          variant={
+                            inspection.status === 'completed' ? 'default' :
+                            inspection.status === 'in_progress' ? 'secondary' :
+                            'outline'
+                          }
+                          className={inspection.status === 'completed' ? 'bg-primary text-primary-foreground' : ''}
+                        >
                           {inspection.status.replace('_', ' ')}
                         </Badge>
                       </div>

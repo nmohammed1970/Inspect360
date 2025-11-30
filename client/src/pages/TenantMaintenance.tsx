@@ -9,9 +9,18 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Send, ImagePlus, Loader2, CheckCircle2, AlertCircle, MessageSquare, ArrowLeft } from "lucide-react";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { useLocation } from "wouter";
+import { extractFileUrlFromUploadResponse } from "@/lib/utils";
+import { useLocation, Link } from "wouter";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
 
 interface ChatMessage {
   id: string;
@@ -131,9 +140,22 @@ export default function TenantMaintenance() {
   }
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col">
+    <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <div className="p-6 border-b">
+      <div className="p-6 border-b flex-shrink-0">
+        <Breadcrumb className="mb-4">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/tenant/home">Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Maintenance</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -155,7 +177,7 @@ export default function TenantMaintenance() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 min-h-0">
         {/* Chat History Sidebar */}
         <div className="border-r p-4 overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
@@ -300,21 +322,82 @@ export default function TenantMaintenance() {
             <div className="flex gap-2">
               <ObjectUploader
                 onGetUploadParameters={async () => {
-                  const res = await apiRequest("POST", "/api/object-storage/upload-url");
-                  const data = await res.json();
-                  return { method: "PUT" as const, url: data.uploadUrl };
+                  try {
+                    const response = await fetch('/api/objects/upload', {
+                      method: 'POST',
+                      credentials: 'include',
+                    });
+                    
+                    if (!response.ok) {
+                      throw new Error(`Failed to get upload URL: ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (!data.uploadURL) {
+                      throw new Error("Invalid upload URL response");
+                    }
+                    
+                    return {
+                      method: 'PUT',
+                      url: data.uploadURL,
+                    };
+                  } catch (error: any) {
+                    console.error('[TenantMaintenance] Error getting upload parameters:', error);
+                    toast({
+                      title: "Upload Error",
+                      description: error.message || "Failed to get upload URL. Please try again.",
+                      variant: "destructive",
+                    });
+                    throw error;
+                  }
                 }}
                 onComplete={(result) => {
-                  if (result.successful && result.successful[0]) {
-                    let uploadedUrl = result.successful[0].uploadURL;
-                    
-                    // Normalize URL: if absolute, extract pathname; if relative, use as is
-                    if (uploadedUrl && (uploadedUrl.startsWith('http://') || uploadedUrl.startsWith('https://'))) {
-                      try {
-                        const urlObj = new URL(uploadedUrl);
-                        uploadedUrl = urlObj.pathname;
-                      } catch (e) {
-                        console.error('[TenantMaintenance] Invalid upload URL:', uploadedUrl);
+                  try {
+                    if (result.successful && result.successful.length > 0) {
+                      const file = result.successful[0];
+                      
+                      // Extract file URL using the utility function (handles various response formats)
+                      let uploadURL = extractFileUrlFromUploadResponse(file, file.response);
+                      
+                      // If extraction failed, try to use objectId from metadata as fallback
+                      if (!uploadURL && file?.meta?.objectId) {
+                        uploadURL = `/objects/${file.meta.objectId}`;
+                      }
+                      
+                      // If still no URL, try direct access
+                      if (!uploadURL && file?.uploadURL) {
+                        uploadURL = file.uploadURL;
+                      }
+                      
+                      if (!uploadURL) {
+                        console.error('[TenantMaintenance] No upload URL found:', { file, result });
+                        toast({
+                          title: "Upload Error",
+                          description: "Upload succeeded but could not get image URL. Please try again.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      
+                      // Normalize URL: if absolute, extract pathname; if relative, use as is
+                      if (uploadURL && (uploadURL.startsWith('http://') || uploadURL.startsWith('https://'))) {
+                        try {
+                          const urlObj = new URL(uploadURL);
+                          uploadURL = urlObj.pathname;
+                        } catch (e) {
+                          console.error('[TenantMaintenance] Invalid upload URL:', uploadURL);
+                          toast({
+                            title: "Upload Error",
+                            description: "Invalid file URL format. Please try again.",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                      }
+                      
+                      // Ensure it's a relative path starting with /objects/
+                      if (!uploadURL || !uploadURL.startsWith('/objects/')) {
                         toast({
                           title: "Upload Error",
                           description: "Invalid file URL format. Please try again.",
@@ -322,25 +405,28 @@ export default function TenantMaintenance() {
                         });
                         return;
                       }
-                    }
-                    
-                    // Ensure it's a valid file path (should start with /objects/)
-                    if (!uploadedUrl || !uploadedUrl.startsWith('/objects/')) {
-                      console.error('[TenantMaintenance] Invalid file URL format:', uploadedUrl);
+                      
+                      // Convert to absolute URL for display
+                      const absoluteUrl = `${window.location.origin}${uploadURL}`;
+                      setUploadedImage(absoluteUrl);
                       toast({
-                        title: "Upload Error",
-                        description: "Invalid file URL format. Please try again.",
+                        title: "Image Uploaded",
+                        description: "Your image has been uploaded successfully",
+                      });
+                    } else if (result.failed && result.failed.length > 0) {
+                      const error = result.failed[0];
+                      toast({
+                        title: "Upload Failed",
+                        description: error.error?.message || "Failed to upload image. Please try again.",
                         variant: "destructive",
                       });
-                      return;
                     }
-                    
-                    // Convert to absolute URL for display
-                    const absoluteUrl = `${window.location.origin}${uploadedUrl}`;
-                    setUploadedImage(absoluteUrl);
+                  } catch (error: any) {
+                    console.error('[TenantMaintenance] Error in onComplete:', error);
                     toast({
-                      title: "Image Uploaded",
-                      description: "Your image has been uploaded successfully",
+                      title: "Upload Error",
+                      description: error.message || "An error occurred while processing the upload.",
+                      variant: "destructive",
                     });
                   }
                 }}

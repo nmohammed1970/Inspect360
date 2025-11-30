@@ -1224,10 +1224,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getComparisonReportsByTenant(tenantId: string): Promise<ComparisonReport[]> {
+    // First, get all properties assigned to this tenant
+    const assignments = await db
+      .select({ propertyId: tenantAssignments.propertyId })
+      .from(tenantAssignments)
+      .where(eq(tenantAssignments.tenantId, tenantId));
+    
+    const propertyIds = assignments.map(a => a.propertyId);
+    
+    // If tenant has no property assignments, return empty array
+    if (propertyIds.length === 0) {
+      return [];
+    }
+    
+    // Get all comparison reports for properties assigned to this tenant
+    // Use sql template for IN clause since we have a dynamic array
     return await db
       .select()
       .from(comparisonReports)
-      .where(eq(comparisonReports.tenantId, tenantId))
+      .where(
+        sql`${comparisonReports.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`
+      )
       .orderBy(desc(comparisonReports.createdAt));
   }
 

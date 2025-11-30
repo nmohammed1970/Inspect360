@@ -243,11 +243,11 @@ export default function InspectionReview() {
             : 0;
 
           return (
-            <Card key={section.id} data-testid={`section-${section.id}`}>
+            <Card key={section.id} className="border-2" data-testid={`section-${section.id}`}>
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-xl" data-testid={`text-section-title-${section.id}`}>
+                    <CardTitle className="text-xl font-bold" data-testid={`text-section-title-${section.id}`}>
                       {section.title}
                     </CardTitle>
                     {section.description && (
@@ -270,12 +270,12 @@ export default function InspectionReview() {
                     return (
                       <div
                         key={field.id}
-                        className="flex items-start justify-between gap-4 py-3 border-b last:border-0"
+                        className="border rounded-lg p-4"
                         data-testid={`field-${field.id}`}
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">{field.label}</span>
+                            <span className="font-bold">{field.label}</span>
                             {field.required && <span className="text-destructive text-xs">*</span>}
                             {hasValue && <CheckCircle2 className="w-4 h-4 text-primary" />}
                           </div>
@@ -284,7 +284,7 @@ export default function InspectionReview() {
                           </div>
                           {entry?.note && (
                             <div className="mt-2 text-sm text-muted-foreground">
-                              <span className="font-medium">Note:</span> {entry.note}
+                              <span className="font-bold">Note:</span> {entry.note}
                             </div>
                           )}
                         </div>

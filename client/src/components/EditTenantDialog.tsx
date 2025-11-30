@@ -189,18 +189,20 @@ export default function EditTenantDialog({
         nextOfKinRelationship: tenant.assignment.nextOfKinRelationship || "",
       });
     }
-  }, [open, tenant, form]);
+  }, [open, tenant.id, tenant.assignment.id]); // Only reset when dialog opens or tenant/assignment ID changes
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormData) => {
       // First, update the user (firstName, lastName, email)
       const userUpdatePayload: any = {};
-      if (data.firstName && data.firstName.trim() !== '') {
-        userUpdatePayload.firstName = data.firstName.trim();
-      }
-      if (data.lastName && data.lastName.trim() !== '') {
-        userUpdatePayload.lastName = data.lastName.trim();
-      }
+      
+      // Always update firstName (send trimmed value or null if empty)
+      userUpdatePayload.firstName = data.firstName?.trim() || null;
+      
+      // Always update lastName (send trimmed value or null if empty)
+      userUpdatePayload.lastName = data.lastName?.trim() || null;
+      
+      // Update email if provided and different
       if (data.email && data.email.trim() !== '') {
         const normalizedEmail = data.email.trim().toLowerCase();
         // Only update email if it's different from current
@@ -258,25 +260,23 @@ export default function EditTenantDialog({
         }
       }
 
-      // Add optional next of kin fields
-      if (data.nextOfKinName && data.nextOfKinName.trim() !== '') {
-        payload.nextOfKinName = data.nextOfKinName.trim();
-      }
-      if (data.nextOfKinPhone && data.nextOfKinPhone.trim() !== '') {
-        payload.nextOfKinPhone = data.nextOfKinPhone.trim();
-      }
-      if (data.nextOfKinEmail && data.nextOfKinEmail.trim() !== '') {
-        payload.nextOfKinEmail = data.nextOfKinEmail.trim();
-      }
-      if (data.nextOfKinRelationship && data.nextOfKinRelationship.trim() !== '') {
-        payload.nextOfKinRelationship = data.nextOfKinRelationship.trim();
-      }
+      // Add optional next of kin fields (allow clearing by sending null/empty)
+      payload.nextOfKinName = data.nextOfKinName?.trim() || null;
+      payload.nextOfKinPhone = data.nextOfKinPhone?.trim() || null;
+      payload.nextOfKinEmail = data.nextOfKinEmail?.trim() || null;
+      payload.nextOfKinRelationship = data.nextOfKinRelationship?.trim() || null;
 
       console.log('[EditTenantDialog] Updating assignment with payload:', payload);
       return apiRequest("PUT", `/api/tenant-assignments/${tenant.assignment.id}`, payload);
     },
     onSuccess: () => {
+      // Invalidate all relevant queries to ensure UI updates
       queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users", tenant.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
+      
       toast({
         title: "Assignment updated",
         description: "The tenant assignment has been successfully updated",

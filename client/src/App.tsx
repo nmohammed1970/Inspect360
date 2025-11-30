@@ -109,8 +109,9 @@ function AppContent() {
   }
   
   // Check if user needs to see onboarding (first-time login)
+  // Only show onboarding for owner/operator role
   useEffect(() => {
-    if (user && user.organizationId && !user.onboardingCompleted && user.role !== "tenant") {
+    if (user && user.organizationId && !user.onboardingCompleted && user.role === "owner") {
       setShowOnboarding(true);
     } else {
       setShowOnboarding(false);
@@ -166,7 +167,7 @@ function AppContent() {
               <Route path="/tenant/home" component={TenantHome} />
               <Route path="/tenant/maintenance" component={TenantMaintenance} />
               <Route path="/tenant/requests" component={TenantRequests} />
-              <Route path=" /tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />
+              <Route path="/tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />
               <Route path="/tenant/comparison-reports" component={TenantComparisonReports} />
               <Route path="/dashboard" component={TenantHome} />
               <Route component={NotFound} />

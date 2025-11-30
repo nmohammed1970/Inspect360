@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,12 +20,21 @@ import {
   Check,
   User,
   Building2,
-  Send
+  Send,
+  Download
 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocale } from "@/contexts/LocaleContext";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
 
 interface ComparisonReport {
   id: string;
@@ -169,6 +178,41 @@ export default function TenantComparisonReportDetail() {
     },
   });
 
+  const handleDownloadPdf = async () => {
+    if (!id) return;
+
+    try {
+      const response = await fetch(`/api/comparison-reports/${id}/pdf`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to download PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `comparison-report-${id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Download Complete",
+        description: "Your comparison report has been downloaded successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: error.message || "Failed to download the comparison report PDF. Please try again.",
+      });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -203,6 +247,25 @@ export default function TenantComparisonReportDetail() {
 
   return (
     <div className="p-6 space-y-6" data-testid="page-tenant-comparison-detail">
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/tenant/home">Home</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/tenant/comparison-reports">Comparison Reports</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Report Detail</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <div className="flex items-center justify-between">
         <div className="space-y-1">
           <Button variant="ghost" size="sm" onClick={() => navigate("/tenant/comparison-reports")} data-testid="button-back">
@@ -221,9 +284,19 @@ export default function TenantComparisonReportDetail() {
             Generated on {format(new Date(report.createdAt), "MMMM d, yyyy 'at' h:mm a")}
           </p>
         </div>
-        <Badge variant={statusInfo.variant} className="text-lg px-4 py-2">
-          {statusInfo.label}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={handleDownloadPdf}
+            data-testid="button-download-pdf"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Download PDF
+          </Button>
+          <Badge variant={statusInfo.variant} className="text-lg px-4 py-2">
+            {statusInfo.label}
+          </Badge>
+        </div>
       </div>
 
       {canSign && (

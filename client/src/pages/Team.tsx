@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter } from "lucide-react";
+import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter, Eye, EyeOff } from "lucide-react";
 import type { User } from "@shared/schema";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { AddressInput } from "@/components/AddressInput";
@@ -42,14 +42,7 @@ export default function Team() {
   const [education, setEducation] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState("");
   const [certificateUrls, setCertificateUrls] = useState<string[]>([]);
-  const [address, setAddress] = useState({
-    street: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "",
-    formatted: ""
-  });
+  const [showPassword, setShowPassword] = useState(false);
 
   const { data: teamMembers, isLoading } = useQuery<User[]>({
     queryKey: ["/api/team"],
@@ -153,14 +146,7 @@ export default function Team() {
     setEducation(user.education || "");
     setProfileImageUrl(user.profileImageUrl || "");
     setCertificateUrls(user.certificateUrls || []);
-    setAddress({
-      street: user.address?.street || "",
-      city: user.address?.city || "",
-      state: user.address?.state || "",
-      postalCode: user.address?.postalCode || "",
-      country: user.address?.country || "",
-      formatted: user.address?.formatted || ""
-    });
+    // Address fields are now uncontrolled and will use defaultValue from editingUser
     setIsDialogOpen(true);
   };
 
@@ -183,14 +169,7 @@ export default function Team() {
     setEducation("");
     setProfileImageUrl("");
     setCertificateUrls([]);
-    setAddress({
-      street: "",
-      city: "",
-      state: "",
-      postalCode: "",
-      country: "",
-      formatted: ""
-    });
+    // Address fields are now uncontrolled - they will reset when dialog closes/reopens
   };
 
   const handleSubmit = () => {
@@ -253,13 +232,30 @@ export default function Team() {
       return;
     }
 
+    // Read address data from form elements (uncontrolled inputs, like Contacts page)
+    const streetElement = document.getElementById('street') as HTMLInputElement;
+    const cityElement = document.getElementById('city') as HTMLInputElement;
+    const stateElement = document.getElementById('state') as HTMLInputElement;
+    const postalCodeElement = document.getElementById('postalCode') as HTMLInputElement;
+    const countryElement = document.getElementById('country') as HTMLInputElement;
+    
+    const street = streetElement?.value?.trim() || "";
+    const city = cityElement?.value?.trim() || "";
+    const state = stateElement?.value?.trim() || "";
+    const postalCode = postalCodeElement?.value?.trim() || "";
+    const country = countryElement?.value?.trim() || "";
+    
     // Check if any address field has data
-    const hasAddress = address.street || address.city || address.state || address.postalCode || address.country;
+    const hasAddress = street || city || state || postalCode || country;
     
     // Generate formatted address if we have address data
     const formattedAddress = hasAddress ? {
-      ...address,
-      formatted: [address.street, address.city, address.state, address.postalCode, address.country]
+      street,
+      city,
+      state,
+      postalCode,
+      country,
+      formatted: [street, city, state, postalCode, country]
         .filter(Boolean)
         .join(", ")
     } : undefined;
@@ -734,7 +730,18 @@ export default function Team() {
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    const newEmail = e.target.value;
+                    setEmail(newEmail);
+                    // Auto-populate username from email if username is empty or matches previous email
+                    if (!username || username === email.split('@')[0] || username === email) {
+                      // Extract username from email (part before @)
+                      const emailUsername = newEmail.split('@')[0];
+                      if (emailUsername) {
+                        setUsername(emailUsername);
+                      }
+                    }
+                  }}
                   placeholder="john.doe@example.com"
                   data-testid="input-email"
                 />
@@ -754,14 +761,29 @@ export default function Team() {
               {!editingUser && (
                 <div className="space-y-2">
                   <Label htmlFor="password">Password *</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password"
-                    data-testid="input-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter password"
+                      data-testid="input-password"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      data-testid="button-toggle-password"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -796,60 +818,60 @@ export default function Team() {
                   <MapPin className="w-4 h-4" />
                   Address
                 </Label>
-                <div className="space-y-2">
-                  <Label htmlFor="street">Street Address</Label>
-                  <AddressInput
-                    id="street"
-                    value={address.street}
-                    onChange={(value) => setAddress({ ...address, street: value, formatted: "" })}
-                    placeholder="123 Main Street"
-                    data-testid="input-street"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      value={address.city}
-                      onChange={(e) => setAddress({ ...address, city: e.target.value, formatted: "" })}
-                      placeholder="London"
-                      data-testid="input-city"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="state">State/County</Label>
-                    <Input
-                      id="state"
-                      value={address.state}
-                      onChange={(e) => setAddress({ ...address, state: e.target.value, formatted: "" })}
-                      placeholder="Greater London"
-                      data-testid="input-state"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="postalCode">Postal Code</Label>
-                    <Input
-                      id="postalCode"
-                      value={address.postalCode}
-                      onChange={(e) => setAddress({ ...address, postalCode: e.target.value, formatted: "" })}
-                      placeholder="W1A 1AA"
-                      data-testid="input-postal-code"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="country">Country</Label>
-                    <Input
-                      id="country"
-                      value={address.country}
-                      onChange={(e) => setAddress({ ...address, country: e.target.value, formatted: "" })}
-                      placeholder="United Kingdom"
-                      data-testid="input-country"
-                    />
-                  </div>
-                </div>
+                 <div className="space-y-2">
+                   <Label htmlFor="street">Street Address</Label>
+                   <AddressInput
+                     id="street"
+                     name="street"
+                     defaultValue={editingUser?.address?.street || ""}
+                     placeholder="123 Main Street"
+                     data-testid="input-street"
+                   />
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-2">
+                     <Label htmlFor="city">City</Label>
+                     <Input
+                       id="city"
+                       name="city"
+                       defaultValue={editingUser?.address?.city || ""}
+                       placeholder="London"
+                       data-testid="input-city"
+                     />
+                   </div>
+                   <div className="space-y-2">
+                     <Label htmlFor="state">State/County</Label>
+                     <Input
+                       id="state"
+                       name="state"
+                       defaultValue={editingUser?.address?.state || ""}
+                       placeholder="Greater London"
+                       data-testid="input-state"
+                     />
+                   </div>
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-2">
+                     <Label htmlFor="postalCode">Postal Code</Label>
+                     <Input
+                       id="postalCode"
+                       name="postalCode"
+                       defaultValue={editingUser?.address?.postalCode || ""}
+                       placeholder="W1A 1AA"
+                       data-testid="input-postal-code"
+                     />
+                   </div>
+                   <div className="space-y-2">
+                     <Label htmlFor="country">Country</Label>
+                     <Input
+                       id="country"
+                       name="country"
+                       defaultValue={editingUser?.address?.country || ""}
+                       placeholder="United Kingdom"
+                       data-testid="input-country"
+                     />
+                   </div>
+                 </div>
               </div>
             </TabsContent>
 

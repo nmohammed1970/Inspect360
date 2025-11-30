@@ -1,6 +1,6 @@
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,11 +39,12 @@ import {
   Building,
   Wrench,
   GitCompare,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Progress } from "@/components/ui/progress";
 
 interface TemplateField {
   id: string;
@@ -120,6 +121,8 @@ export default function InspectionReport() {
     description: "",
     priority: "medium" as "low" | "medium" | "high" | "urgent",
   });
+  const [comparisonProgress, setComparisonProgress] = useState(0);
+  const [comparisonStatusMessage, setComparisonStatusMessage] = useState("Initializing...");
 
   // Fetch inspection data - refetch on mount to ensure fresh data
   const { data: inspection, isLoading: inspectionLoading, refetch: refetchInspection } = useQuery<Inspection>({
@@ -254,12 +257,47 @@ export default function InspectionReport() {
     },
   });
 
+  // Simulate progress during auto-create comparison report
+  useEffect(() => {
+    if (autoCreateComparisonMutation.isPending) {
+      setComparisonProgress(0);
+      setComparisonStatusMessage("Initializing comparison report...");
+      
+      const interval = setInterval(() => {
+        setComparisonProgress((prev) => {
+          if (prev >= 90) return prev; // Don't go to 100% until actually done
+          const increment = Math.random() * 15 + 5; // Random increment between 5-20%
+          const newProgress = Math.min(prev + increment, 90);
+          
+          // Update status message based on progress
+          if (newProgress < 30) {
+            setComparisonStatusMessage("Finding matching check-in inspection...");
+          } else if (newProgress < 60) {
+            setComparisonStatusMessage("Comparing inspection data...");
+          } else if (newProgress < 90) {
+            setComparisonStatusMessage("Generating comparison report...");
+          }
+          
+          return newProgress;
+        });
+      }, 500);
+      
+      return () => clearInterval(interval);
+    } else {
+      setComparisonProgress(0);
+      setComparisonStatusMessage("Initializing...");
+    }
+  }, [autoCreateComparisonMutation.isPending]);
+
   // Auto-create comparison report mutation
   const autoCreateComparisonMutation = useMutation({
     mutationFn: async (context: { inspectionId: string; fieldKey: string }) => {
       if (!inspection?.propertyId) {
         throw new Error("This inspection must be assigned to a property before creating a comparison report");
       }
+
+      setComparisonProgress(10);
+      setComparisonStatusMessage("Creating comparison report...");
 
       const response = await fetch(`/api/comparison-reports/auto`, {
         method: "POST",
@@ -271,6 +309,10 @@ export default function InspectionReport() {
           fieldKey: context.fieldKey
         }),
       });
+      
+      setComparisonProgress(95);
+      setComparisonStatusMessage("Finalizing report...");
+      
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || "Failed to create comparison report");
@@ -278,22 +320,34 @@ export default function InspectionReport() {
       return await response.json();
     },
     onSuccess: (data: any) => {
+      setComparisonProgress(100);
+      setComparisonStatusMessage("Report created successfully!");
+      
       const { report, created } = data;
-      if (created) {
-        toast({
-          title: "Success",
-          description: "Comparison report created successfully using the latest check-in and check-out inspections",
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: "Navigating to existing comparison report",
-        });
-      }
-      // Navigate to the comparison report detail page
-      navigate(`/comparisons/${report.id}`);
+      
+      // Close progress dialog after a short delay
+      setTimeout(() => {
+        setComparisonProgress(0);
+        setComparisonStatusMessage("Initializing...");
+        
+        if (created) {
+          toast({
+            title: "Success",
+            description: "Comparison report created successfully using the latest check-in and check-out inspections",
+          });
+        } else {
+          toast({
+            title: "Success",
+            description: "Navigating to existing comparison report",
+          });
+        }
+        // Navigate to the comparison report detail page
+        navigate(`/comparisons/${report.id}`);
+      }, 1000);
     },
     onError: (error: any) => {
+      setComparisonProgress(0);
+      setComparisonStatusMessage("Error occurred");
       toast({
         title: "Error",
         description: error.message || "Failed to create comparison report",
@@ -908,9 +962,9 @@ export default function InspectionReport() {
             const sectionEntries = entries.filter(e => e.sectionRef === section.id);
 
             return (
-              <Card key={section.id} className="print-break-inside-avoid" data-testid={`section-${section.id}`}>
+              <Card key={section.id} className="print-break-inside-avoid border-2" data-testid={`section-${section.id}`}>
                 <CardHeader>
-                  <CardTitle className="text-2xl">{section.title}</CardTitle>
+                  <CardTitle className="text-2xl font-bold">{section.title}</CardTitle>
                   {section.description && (
                     <CardDescription>{section.description}</CardDescription>
                   )}
@@ -925,13 +979,13 @@ export default function InspectionReport() {
                     return (
                       <div
                         key={field.id || field.key || field.label}
-                        className="border-b pb-6 last:border-b-0 last:pb-0"
+                        className="border rounded-lg p-4"
                         data-testid={`field-${field.id || field.key}`}
                       >
                         <div className="space-y-3">
                           {/* Field Label and Description */}
                           <div>
-                            <h4 className="text-base font-semibold">
+                            <h4 className="text-base font-bold">
                               {field.label}
                               {field.required && <span className="text-destructive ml-1">*</span>}
                             </h4>
@@ -948,7 +1002,7 @@ export default function InspectionReport() {
                           {/* Photos */}
                           {entry?.photos && entry.photos.length > 0 && (
                             <div className="space-y-2">
-                              <div className="text-sm font-medium">Photos</div>
+                              <div className="text-sm font-bold">Photos</div>
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                 {entry.photos.map((photo: string, idx: number) => {
                                   // Ensure photo URL is correct
@@ -971,7 +1025,7 @@ export default function InspectionReport() {
 
                           {/* Notes */}
                           <div className="space-y-2">
-                            <div className="text-sm font-medium">Notes</div>
+                            <div className="text-sm font-bold">Notes</div>
                             {editMode ? (
                               <Textarea
                                 value={editedNotes[entryKey] || ""}
@@ -1158,6 +1212,33 @@ export default function InspectionReport() {
               {createMaintenanceMutation.isPending ? "Creating..." : "Create Request"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Comparison Report Progress Dialog */}
+      <Dialog open={autoCreateComparisonMutation.isPending} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-comparison-progress">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Creating Comparison Report
+            </DialogTitle>
+            <DialogDescription>
+              Please wait while we create your comparison report. This may take a few moments.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{comparisonStatusMessage}</span>
+                <span className="font-medium">{Math.round(comparisonProgress)}%</span>
+              </div>
+              <Progress value={comparisonProgress} className="h-2" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This process uses AI to analyze differences between check-in and check-out inspections.
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

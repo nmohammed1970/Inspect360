@@ -281,13 +281,13 @@ export default function Inspections() {
   };
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: any; label: string }> = {
+    const variants: Record<string, { variant: any; label: string; className?: string }> = {
       draft: { variant: "secondary", label: "Draft" },
       in_progress: { variant: "default", label: "In Progress" },
-      completed: { variant: "outline", label: "Completed" },
+      completed: { variant: "default", label: "Completed", className: "bg-primary text-primary-foreground" },
     };
     const config = variants[status] || variants.draft;
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+    return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
   };
 
   const getTypeBadge = (type: string) => {

@@ -590,7 +590,7 @@ export default function Dashboard() {
                               ? "secondary"
                               : "outline"
                           }
-                          className="whitespace-nowrap text-xs"
+                          className={`whitespace-nowrap text-xs ${inspection.status === "completed" ? "bg-primary text-primary-foreground" : ""}`}
                           data-testid={`badge-status-${inspection.id}`}
                         >
                           {inspection.status}

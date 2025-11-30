@@ -999,8 +999,8 @@ export function FieldWidget({
   };
 
   return (
-    <div className="space-y-3" data-testid={`field-widget-${field.id}`}>
-      <Label className="text-base font-medium flex items-center gap-2">
+    <div className="space-y-3 border rounded-lg p-4" data-testid={`field-widget-${field.id}`}>
+      <Label className="text-base font-bold flex items-center gap-2">
         {field.label}
         {field.required && <span className="text-destructive">*</span>}
       </Label>
@@ -1010,7 +1010,7 @@ export function FieldWidget({
       {/* Condition Rating */}
       {field.includeCondition && (
         <div className="pt-2">
-          <Label className="text-sm font-medium">Condition</Label>
+          <Label className="text-sm font-bold">Condition</Label>
           <Select value={localCondition || ""} onValueChange={handleConditionChange}>
             <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1">
               <SelectValue placeholder="Select condition" />
@@ -1027,7 +1027,7 @@ export function FieldWidget({
       {/* Cleanliness Rating */}
       {field.includeCleanliness && (
         <div className="pt-2">
-          <Label className="text-sm font-medium">Cleanliness</Label>
+          <Label className="text-sm font-bold">Cleanliness</Label>
           <Select value={localCleanliness || ""} onValueChange={handleCleanlinessChange}>
             <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1">
               <SelectValue placeholder="Select cleanliness" />
@@ -1084,7 +1084,7 @@ export function FieldWidget({
 
       {/* Optional notes */}
       <div className="pt-2">
-        <Label htmlFor={`note-${field.id}`} className="text-sm text-muted-foreground">
+        <Label htmlFor={`note-${field.id}`} className="text-sm font-bold text-muted-foreground">
           Notes (optional)
         </Label>
         <Textarea

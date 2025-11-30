@@ -333,7 +333,8 @@ import {
   insertCreditBundleSchema,
   insertCountryPricingOverrideSchema,
   creditBatches,
-  subscriptions
+  subscriptions,
+  tenantAssignments
 } from "@shared/schema";
 
 // Initialize OpenAI using Replit AI Integrations (lazy initialization)
@@ -5239,7 +5240,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
 
-      if (!user?.organizationId) {
+      // For tenants, organizationId might be null, so don't require it
+      if (user.role !== "tenant" && !user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
       }
 
@@ -5248,9 +5250,23 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         return res.status(404).json({ message: "Comparison report not found" });
       }
 
-      // Verify organization ownership
-      if (report.organizationId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied" });
+      // Verify access - for tenants, check property assignment; for others, check organization
+      if (user.role === "tenant") {
+        // For tenants, check if they have assignment to the property
+        const assignments = await db
+          .select({ propertyId: tenantAssignments.propertyId })
+          .from(tenantAssignments)
+          .where(eq(tenantAssignments.tenantId, user.id));
+        
+        const tenantPropertyIds = assignments.map(a => a.propertyId);
+        if (!tenantPropertyIds.includes(report.propertyId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else {
+        // For non-tenants, verify organization ownership
+        if (report.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
       }
 
       // Get report items
@@ -5267,8 +5283,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       // Get comments for the report
       const comments = await storage.getComparisonComments(id);
 
-      // Get organization branding
-      const organization = await storage.getOrganization(user.organizationId);
+      // Get organization branding (use report's organizationId, not user's, in case tenant doesn't have org)
+      const organization = await storage.getOrganization(report.organizationId);
       const branding: ReportBrandingInfo = organization ? {
         logoUrl: organization.logoUrl,
         brandingName: organization.brandingName,
@@ -13140,6 +13156,66 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         const openaiClient = getOpenAI();
 
         if (imageUrl) {
+          // Convert image to base64 if it's a localhost URL or internal path
+          // OpenAI can't access localhost URLs, so we need to convert them to base64
+          let imageUrlForAI = imageUrl;
+          
+          const isLocalhost = imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1');
+          const isInternalPath = !imageUrl.startsWith('http');
+          
+          if (isLocalhost || isInternalPath) {
+            try {
+              console.log("[Tenant Maintenance Chat] Converting image to base64:", imageUrl);
+              const objectStorageService = new ObjectStorageService();
+              
+              // Extract path from URL if it's a full URL
+              let photoPath = imageUrl;
+              if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+                try {
+                  const urlObj = new URL(imageUrl);
+                  photoPath = urlObj.pathname;
+                } catch (e) {
+                  // If URL parsing fails, try to extract path manually
+                  const pathMatch = imageUrl.match(/\/objects\/[^?#]+/);
+                  if (pathMatch) {
+                    photoPath = pathMatch[0];
+                  }
+                }
+              }
+              
+              // Ensure path starts with /objects/
+              if (!photoPath.startsWith('/objects/')) {
+                photoPath = `/objects/${photoPath}`;
+              }
+              
+              const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+              const photoBuffer = await fs.readFile(objectFile.name);
+              
+              // Detect MIME type from buffer
+              let mimeType = detectImageMimeType(photoBuffer);
+              
+              // Ensure we have a valid image MIME type
+              if (!mimeType || !mimeType.startsWith('image/')) {
+                console.warn(`[Tenant Maintenance Chat] Invalid MIME type detected: ${mimeType}, defaulting to image/jpeg`);
+                mimeType = 'image/jpeg';
+              }
+              
+              // Convert to base64 data URL
+              const base64Image = photoBuffer.toString('base64');
+              imageUrlForAI = `data:${mimeType};base64,${base64Image}`;
+              
+              console.log("[Tenant Maintenance Chat] Converted to base64 data URL:", photoPath, `(${mimeType})`);
+            } catch (error: any) {
+              console.error("[Tenant Maintenance Chat] Error converting image to base64:", {
+                imageUrl,
+                message: error?.message || String(error),
+                errorType: error?.constructor?.name,
+              });
+              // Fall back to original URL - might work if it's actually accessible
+              imageUrlForAI = imageUrl;
+            }
+          }
+          
           const analysisCompletion = await openaiClient.chat.completions.create({
             model: "gpt-5",
             messages: [
@@ -13151,7 +13227,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
                 role: "user",
                 content: [
                   { type: "text", text: message || "Please analyze this maintenance issue" },
-                  { type: "image_url", image_url: { url: imageUrl } },
+                  { type: "image_url", image_url: { url: imageUrlForAI } },
                 ],
               },
             ],
@@ -13328,8 +13404,17 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         return res.status(404).json({ message: "Comparison report not found" });
       }
 
-      // Verify tenant has access to this report
-      if (report.tenantId !== userId) {
+      // Verify tenant has access to this report - check if tenant has assignment to the property
+      // Get tenant assignments for this tenant
+      const assignments = await db
+        .select({ propertyId: tenantAssignments.propertyId })
+        .from(tenantAssignments)
+        .where(eq(tenantAssignments.tenantId, userId));
+      
+      const tenantPropertyIds = assignments.map(a => a.propertyId);
+      const tenantHasAccess = tenantPropertyIds.includes(report.propertyId);
+      
+      if (!tenantHasAccess) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -13420,7 +13505,20 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       }
 
       const report = await storage.getComparisonReport(id);
-      if (!report || report.tenantId !== userId) {
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify tenant has access to this report - check if tenant has assignment to the property
+      const assignments = await db
+        .select({ propertyId: tenantAssignments.propertyId })
+        .from(tenantAssignments)
+        .where(eq(tenantAssignments.tenantId, userId));
+      
+      const tenantPropertyIds = assignments.map(a => a.propertyId);
+      const tenantHasAccess = tenantPropertyIds.includes(report.propertyId);
+      
+      if (!tenantHasAccess) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -13455,7 +13553,20 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const trimmedContent = content.trim();
 
       const report = await storage.getComparisonReport(id);
-      if (!report || report.tenantId !== userId) {
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify tenant has access to this report - check if tenant has assignment to the property
+      const assignments = await db
+        .select({ propertyId: tenantAssignments.propertyId })
+        .from(tenantAssignments)
+        .where(eq(tenantAssignments.tenantId, userId));
+      
+      const tenantPropertyIds = assignments.map(a => a.propertyId);
+      const tenantHasAccess = tenantPropertyIds.includes(report.propertyId);
+      
+      if (!tenantHasAccess) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -13499,7 +13610,20 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       }
 
       const report = await storage.getComparisonReport(id);
-      if (!report || report.tenantId !== userId) {
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify tenant has access to this report - check if tenant has assignment to the property
+      const assignments = await db
+        .select({ propertyId: tenantAssignments.propertyId })
+        .from(tenantAssignments)
+        .where(eq(tenantAssignments.tenantId, userId));
+      
+      const tenantPropertyIds = assignments.map(a => a.propertyId);
+      const tenantHasAccess = tenantPropertyIds.includes(report.propertyId);
+      
+      if (!tenantHasAccess) {
         return res.status(403).json({ message: "Access denied" });
       }
 

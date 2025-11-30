@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,15 @@ interface ComparisonReport {
   tenantSignature: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ComparisonReportItem {
+  id: string;
+  comparisonReportId: string;
+  aiComparisonJson: any;
+  checkInPhotos?: string[];
+  checkOutPhotos?: string[];
+  status: string;
 }
 
 const statusConfig = {
@@ -121,6 +131,148 @@ export default function ComparisonReports() {
   const getPropertyName = (propertyId: string) => {
     const property = properties.find(p => p.id === propertyId);
     return property?.name || "Unknown Property";
+  };
+
+  // Component to calculate and display progress for a report
+  const ReportProgress = ({ reportId }: { reportId: string }) => {
+    const { data: reportData, error } = useQuery<{ items: ComparisonReportItem[] }>({
+      queryKey: ["/api/comparison-reports", reportId],
+      enabled: !!reportId,
+      refetchInterval: 5000, // Poll every 5 seconds to update progress
+      select: (data: any) => {
+        // Process items similar to ComparisonReportDetail
+        const items = (data.items || []).map((item: any) => {
+          const aiAnalysis = item.aiComparisonJson || {};
+          return {
+            ...item,
+            checkInPhotos: aiAnalysis.checkInPhotos || [],
+            checkOutPhotos: aiAnalysis.checkOutPhotos || [],
+            aiComparisonJson: item.aiComparisonJson || {},
+          };
+        });
+        return { items };
+      },
+      retry: 1,
+    });
+
+    const items = reportData?.items || [];
+
+    // Show error state if query failed
+    if (error) {
+      return (
+        <div className="space-y-2 pt-2 border-t">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Unable to load progress</span>
+            <span>-</span>
+          </div>
+          <Progress value={0} className="h-1.5" />
+        </div>
+      );
+    }
+
+    if (!items || items.length === 0) {
+      return (
+        <div className="space-y-2 pt-2 border-t">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Initializing...</span>
+            <span>0%</span>
+          </div>
+          <Progress value={0} className="h-1.5" />
+        </div>
+      );
+    }
+
+    // Calculate progress - only count items with photos that have been compared
+    // Filter to items that have photos first
+    const itemsWithPhotos = items.filter(item => {
+      const checkInPhotos = item.checkInPhotos || [];
+      const checkOutPhotos = item.checkOutPhotos || [];
+      return checkInPhotos.length > 0 || checkOutPhotos.length > 0;
+    });
+    
+    const totalItems = itemsWithPhotos.length;
+    
+    // Only count items with photos that have completed AI comparison (excluding notes_comparison)
+    const itemsWithComparison = itemsWithPhotos.filter(item => {
+      // Check for aiSummary (separate column) - this is a strong indicator
+      if (item.aiSummary && typeof item.aiSummary === 'string' && item.aiSummary.trim().length > 0) {
+        return true;
+      }
+      
+      // Check for aiComparisonJson with various possible fields (but NOT notes_comparison)
+      const aiJson = item.aiComparisonJson;
+      if (aiJson && typeof aiJson === 'object' && aiJson !== null) {
+        // Check for common AI comparison fields (excluding notes_comparison)
+        if (aiJson.summary || aiJson.differences || aiJson.analysis || 
+            aiJson.damage_assessment || aiJson.cost_estimate || aiJson.liability_recommendation) {
+          return true;
+        }
+        
+        // Check if it has photos arrays AND other meaningful content (indicates processing)
+        const hasPhotos = (Array.isArray(aiJson.checkInPhotos) && aiJson.checkInPhotos.length > 0) ||
+                         (Array.isArray(aiJson.checkOutPhotos) && aiJson.checkOutPhotos.length > 0);
+        if (hasPhotos) {
+          // If it has photos, check if there's any other meaningful content (excluding notes)
+          const otherKeys = Object.keys(aiJson).filter(k => 
+            k !== 'checkInPhotos' && k !== 'checkOutPhotos' && 
+            k !== 'checkInNote' && k !== 'checkOutNote' && k !== 'notes_comparison' &&
+            aiJson[k] !== null && aiJson[k] !== undefined
+          );
+          // If there are other keys beyond photos and notes, it's been processed
+          if (otherKeys.length > 0) {
+            return true;
+          }
+        }
+        
+        // Check if it has any meaningful string content in analysis fields (excluding notes_comparison)
+        const stringFields = ['summary', 'differences', 'analysis', 'damage_assessment', 'liability_recommendation'];
+        const hasStringContent = stringFields.some(field => {
+          const value = aiJson[field];
+          return value && typeof value === 'string' && value.trim().length > 0;
+        });
+        if (hasStringContent) {
+          return true;
+        }
+      }
+      
+      // Also check if estimatedCost or finalCost is set (indicates processing completed)
+      if (item.estimatedCost && !isNaN(parseFloat(item.estimatedCost))) {
+        return true;
+      }
+      if (item.finalCost && !isNaN(parseFloat(item.finalCost))) {
+        return true;
+      }
+      
+      return false;
+    }).length;
+
+    // Progress is based on items with completed AI comparison
+    const progress = totalItems > 0 ? Math.round((itemsWithComparison / totalItems) * 100) : 0;
+    
+    // Status message
+    let statusMessage = "Processing...";
+    if (progress === 100) {
+      statusMessage = "All comparisons complete";
+    } else if (progress > 0) {
+      statusMessage = `${itemsWithComparison} of ${totalItems} items compared`;
+    } else {
+      statusMessage = "Starting analysis...";
+    }
+
+    return (
+      <div className="space-y-2 pt-2 border-t">
+        <div className="flex justify-between items-center text-xs">
+          <span className="text-muted-foreground">{statusMessage}</span>
+          <span className="font-medium">{progress}%</span>
+        </div>
+        <Progress value={progress} className="h-1.5" />
+        <div className="flex gap-4 text-xs text-muted-foreground">
+          <span>{totalItems} items with photos</span>
+          <span>•</span>
+          <span>{itemsWithComparison} comparisons done</span>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -225,6 +377,7 @@ export default function ComparisonReports() {
             </div>
           </DialogContent>
         </Dialog>
+
       </div>
 
       {isLoading ? (
@@ -321,6 +474,9 @@ export default function ComparisonReports() {
                           )}
                         </div>
                       </div>
+
+                      {/* Progress Bar */}
+                      <ReportProgress reportId={report.id} />
                     </div>
 
                     {/* View Button */}

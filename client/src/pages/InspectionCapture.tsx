@@ -708,9 +708,9 @@ export default function InspectionCapture() {
 
       {/* Current section */}
       {currentSection && (
-        <Card>
+        <Card className="border-2">
           <CardHeader>
-            <CardTitle data-testid="text-section-title">{currentSection.title}</CardTitle>
+            <CardTitle data-testid="text-section-title" className="text-xl font-bold">{currentSection.title}</CardTitle>
             {currentSection.description && (
               <p className="text-sm text-muted-foreground" data-testid="text-section-description">
                 {currentSection.description}

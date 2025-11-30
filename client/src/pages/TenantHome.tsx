@@ -4,9 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, Home, FileText, MessageSquare, Calendar, MapPin, FileCheck, LogOut } from "lucide-react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb";
 
 export default function TenantHome() {
   const [, navigate] = useLocation();
@@ -50,6 +56,13 @@ export default function TenantHome() {
 
   return (
     <div className="p-6 space-y-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbPage>Home</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold" data-testid="text-welcome">

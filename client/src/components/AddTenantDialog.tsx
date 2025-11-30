@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Loader2, UserPlus, Users } from "lucide-react";
+import { Loader2, UserPlus, Users, Eye, EyeOff } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/contexts/LocaleContext";
 
@@ -78,6 +78,7 @@ interface AddTenantDialogProps {
 export default function AddTenantDialog({ propertyId, children, onSuccess }: AddTenantDialogProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"select" | "create">("select");
+  const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
   const locale = useLocale();
 
@@ -683,6 +684,19 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                             type="email"
                             placeholder="john.doe@example.com"
                             {...field}
+                            onChange={(e) => {
+                              const newEmail = e.target.value;
+                              field.onChange(e);
+                              // Auto-populate username from email if username is empty or matches previous email
+                              const currentUsername = createForm.getValues("username");
+                              if (!currentUsername || currentUsername === field.value?.split('@')[0] || currentUsername === field.value) {
+                                // Extract username from email (part before @)
+                                const emailUsername = newEmail.split('@')[0];
+                                if (emailUsername) {
+                                  createForm.setValue("username", emailUsername);
+                                }
+                              }
+                            }}
                             data-testid="input-email"
                           />
                         </FormControl>
@@ -717,12 +731,27 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         <FormItem>
                           <FormLabel>Password *</FormLabel>
                           <FormControl>
-                            <Input
-                              type="password"
-                              placeholder="••••••••"
-                              {...field}
-                              data-testid="input-password"
-                            />
+                            <div className="relative">
+                              <Input
+                                type={showPassword ? "text" : "password"}
+                                placeholder="••••••••"
+                                {...field}
+                                data-testid="input-password"
+                                className="pr-10"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                data-testid="button-toggle-password"
+                              >
+                                {showPassword ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
                           </FormControl>
                           <FormMessage />
                         </FormItem>
