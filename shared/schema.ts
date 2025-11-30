@@ -1556,7 +1556,7 @@ export const generateComparisonSchema = z.object({
 });
 
 export const analyzeMaintenanceImageSchema = z.object({
-  imageUrl: z.string().url("Invalid image URL"),
+  imageUrl: z.string().min(1, "Image URL is required"),
   issueDescription: z.string().optional(),
 });
 

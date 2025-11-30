@@ -202,13 +202,12 @@ export default function EditTenantDialog({
       // Always update lastName (send trimmed value or null if empty)
       userUpdatePayload.lastName = data.lastName?.trim() || null;
       
-      // Update email if provided and different
+      // Always update email if provided (to handle case changes, etc.)
       if (data.email && data.email.trim() !== '') {
-        const normalizedEmail = data.email.trim().toLowerCase();
-        // Only update email if it's different from current
-        if (normalizedEmail !== tenant.email.toLowerCase()) {
-          userUpdatePayload.email = normalizedEmail;
-        }
+        userUpdatePayload.email = data.email.trim().toLowerCase();
+      } else if (data.email === '') {
+        // Allow clearing email by sending null
+        userUpdatePayload.email = null;
       }
 
       // Update user if there are changes
@@ -269,19 +268,76 @@ export default function EditTenantDialog({
       console.log('[EditTenantDialog] Updating assignment with payload:', payload);
       return apiRequest("PUT", `/api/tenant-assignments/${tenant.assignment.id}`, payload);
     },
-    onSuccess: () => {
+    onSuccess: async (_, variables) => {
       // Invalidate all relevant queries to ensure UI updates
-      queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users", tenant.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/users", tenant.id] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/users"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] }),
+      ]);
+      
+      // Refetch the updated user and assignment data to get the latest values
+      try {
+        const [updatedUserResponse, updatedAssignmentResponse] = await Promise.all([
+          apiRequest("GET", `/api/users/${tenant.id}`, {}),
+          apiRequest("GET", `/api/tenant-assignments/${tenant.assignment.id}`, {}),
+        ]);
+        
+        const updatedUser = await updatedUserResponse.json();
+        const updatedAssignment = await updatedAssignmentResponse.json();
+        
+        // Update the form with the newly fetched data to reflect the actual saved values
+        const leaseStartDate = updatedAssignment.leaseStartDate
+          ? new Date(updatedAssignment.leaseStartDate).toISOString().split("T")[0]
+          : "";
+        const leaseEndDate = updatedAssignment.leaseEndDate
+          ? new Date(updatedAssignment.leaseEndDate).toISOString().split("T")[0]
+          : "";
+        
+        form.reset({
+          firstName: updatedUser.firstName || "",
+          lastName: updatedUser.lastName || "",
+          email: updatedUser.email || "",
+          leaseStartDate,
+          leaseEndDate,
+          monthlyRent: updatedAssignment.monthlyRent || "",
+          depositAmount: updatedAssignment.depositAmount || "",
+          isActive: updatedAssignment.isActive,
+          hasPortalAccess: updatedAssignment.hasPortalAccess ?? true,
+          nextOfKinName: updatedAssignment.nextOfKinName || "",
+          nextOfKinPhone: updatedAssignment.nextOfKinPhone || "",
+          nextOfKinEmail: updatedAssignment.nextOfKinEmail || "",
+          nextOfKinRelationship: updatedAssignment.nextOfKinRelationship || "",
+        });
+      } catch (error) {
+        console.error("[EditTenantDialog] Error refetching updated data:", error);
+        // If refetch fails, at least update the form with the values we just submitted
+        // This ensures the form shows what was sent, even if refetch fails
+        const leaseStartDate = variables.leaseStartDate || "";
+        const leaseEndDate = variables.leaseEndDate || "";
+        form.reset({
+          firstName: variables.firstName || "",
+          lastName: variables.lastName || "",
+          email: variables.email || "",
+          leaseStartDate,
+          leaseEndDate,
+          monthlyRent: variables.monthlyRent || "",
+          depositAmount: variables.depositAmount || "",
+          isActive: variables.isActive,
+          hasPortalAccess: variables.hasPortalAccess,
+          nextOfKinName: variables.nextOfKinName || "",
+          nextOfKinPhone: variables.nextOfKinPhone || "",
+          nextOfKinEmail: variables.nextOfKinEmail || "",
+          nextOfKinRelationship: variables.nextOfKinRelationship || "",
+        });
+      }
       
       toast({
         title: "Assignment updated",
         description: "The tenant assignment has been successfully updated",
       });
-      setOpen(false);
       onSuccess?.();
     },
     onError: (error: any) => {

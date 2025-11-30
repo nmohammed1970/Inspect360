@@ -268,7 +268,7 @@ import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { db } from "./db";
-import { eq, and, lt, gt, desc } from "drizzle-orm";
+import { eq, and, lt, gt, desc, inArray } from "drizzle-orm";
 import { getUncachableStripeClient, getStripeSecretKey } from "./stripeClient";
 import OpenAI from "openai";
 import bcrypt from "bcryptjs";
@@ -334,7 +334,8 @@ import {
   insertCountryPricingOverrideSchema,
   creditBatches,
   subscriptions,
-  tenantAssignments
+  tenantAssignments,
+  properties
 } from "@shared/schema";
 
 // Initialize OpenAI using Replit AI Integrations (lazy initialization)
@@ -393,6 +394,40 @@ async function launchPuppeteerBrowser() {
  * @returns Array of normalized content items with type "input_text" or "input_image"
  * @throws Error if content type is not supported
  */
+/**
+ * Clean and format markdown text for display
+ * Removes markdown syntax and formats it nicely
+ */
+function cleanMarkdownText(text: string): string {
+  if (!text) return text;
+  
+  // Remove markdown bold (**text** or __text__)
+  let cleaned = text.replace(/\*\*(.*?)\*\*/g, '$1');
+  cleaned = cleaned.replace(/__(.*?)__/g, '$1');
+  
+  // Remove markdown italic (*text* or _text_)
+  cleaned = cleaned.replace(/\*(.*?)\*/g, '$1');
+  cleaned = cleaned.replace(/_(.*?)_/g, '$1');
+  
+  // Remove markdown headers (# Header)
+  cleaned = cleaned.replace(/^#{1,6}\s+(.*)$/gm, '$1');
+  
+  // Remove markdown code blocks (```code```)
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
+  
+  // Remove inline code (`code`)
+  cleaned = cleaned.replace(/`([^`]+)`/g, '$1');
+  
+  // Remove markdown links [text](url) -> text
+  cleaned = cleaned.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+  
+  // Clean up extra whitespace
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  cleaned = cleaned.trim();
+  
+  return cleaned;
+}
+
 function normalizeApiContent(content: any[]): any[] {
   return content.map((item: any, index: number) => {
     if (item.type === "text") {
@@ -1552,12 +1587,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
 
-      if (!user?.organizationId) {
+      if (!user) {
         return res.json([]);
       }
 
-      const properties = await storage.getPropertiesByOrganization(user.organizationId);
-      res.json(properties);
+      // For tenants, return properties from their active assignments
+      if (user.role === "tenant") {
+        const assignments = await db
+          .select({
+            propertyId: tenantAssignments.propertyId,
+          })
+          .from(tenantAssignments)
+          .where(
+            and(
+              eq(tenantAssignments.tenantId, userId),
+              eq(tenantAssignments.isActive, true)
+            )
+          );
+
+        const propertyIds = assignments.map((a) => a.propertyId);
+        
+        if (propertyIds.length === 0) {
+          return res.json([]);
+        }
+
+        // Fetch the actual property objects
+        const tenantPropertiesList = await db
+          .select()
+          .from(properties)
+          .where(inArray(properties.id, propertyIds));
+
+        return res.json(tenantPropertiesList);
+      }
+
+      // For other roles, require organizationId
+      if (!user.organizationId) {
+        return res.json([]);
+      }
+
+      const orgProperties = await storage.getPropertiesByOrganization(user.organizationId);
+      res.json(orgProperties);
     } catch (error) {
       console.error("Error fetching properties:", error);
       res.status(500).json({ message: "Failed to fetch properties" });
@@ -6347,37 +6416,183 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         });
       }
 
-      // Call OpenAI Vision API for maintenance issue analysis
-      const openaiInstance = getOpenAI();
-      const prompt = issueDescription
-        ? `You are a maintenance expert analyzing a property maintenance issue. The tenant reports: "${issueDescription}". 
-           Analyze the image and provide:
-           1. A brief assessment of the issue (2-3 sentences)
-           2. 3-5 possible DIY fixes the tenant can try immediately
-           3. Whether this requires professional help
-           Format your response in clear sections.`
-        : `You are a maintenance expert analyzing a property maintenance issue. 
-           Analyze the image and provide:
-           1. A brief assessment of what maintenance issue you can see (2-3 sentences)
-           2. 3-5 possible DIY fixes that can be tried immediately
-           3. Whether this requires professional help
-           Format your response in clear sections.`;
+      // Use the same logic as tenant portal
+      const openaiClient = getOpenAI();
+      let imageUrlForAI: string | null = null;
+      let suggestedFixes = "";
 
-      const response = await openaiInstance.responses.create({
-        model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-        input: [
-          {
-            role: "user",
-            content: normalizeApiContent([
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: imageUrl }
-            ])
+      // Process image URL - convert localhost/internal URLs to base64
+      if (imageUrl) {
+        const isLocalhost = imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1');
+        const isInternalPath = imageUrl.startsWith('/objects/') || (!imageUrl.startsWith('http') && imageUrl.includes('/objects/'));
+        const isLocalhostHttp = imageUrl.startsWith('http://localhost') || imageUrl.startsWith('https://localhost');
+        
+        const needsConversion = isLocalhost || isInternalPath || isLocalhostHttp;
+        
+        console.log("[Maintenance Analyze Image] URL check:", {
+          imageUrl,
+          isLocalhost,
+          isInternalPath,
+          isLocalhostHttp,
+          needsConversion
+        });
+        
+        if (needsConversion) {
+          console.log("[Maintenance Analyze Image] Detected localhost/internal URL, converting to base64:", imageUrl);
+          try {
+            const objectStorageService = new ObjectStorageService();
+            let photoPath = imageUrl;
+            if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+              try {
+                const urlObj = new URL(imageUrl);
+                photoPath = urlObj.pathname;
+              } catch (e) {
+                const pathMatch = imageUrl.match(/\/objects\/[^?#]+/);
+                if (pathMatch) {
+                  photoPath = pathMatch[0];
+                } else {
+                  throw new Error(`Could not extract path from URL: ${imageUrl}`);
+                }
+              }
+            }
+            
+            if (!photoPath.startsWith('/objects/')) {
+              if (!photoPath.startsWith('/')) {
+                photoPath = `/objects/${photoPath}`;
+              } else {
+                photoPath = `/objects${photoPath}`;
+              }
+            }
+            
+            console.log("[Maintenance Analyze Image] Loading file from path:", photoPath);
+            const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+            const photoBuffer = await fs.readFile(objectFile.name);
+            
+            console.log("[Maintenance Analyze Image] File loaded, size:", photoBuffer.length, "bytes");
+            
+            let mimeType = detectImageMimeType(photoBuffer);
+            if (!mimeType || !mimeType.startsWith('image/')) {
+              console.warn(`[Maintenance Analyze Image] Invalid MIME type detected: ${mimeType}, defaulting to image/jpeg`);
+              mimeType = 'image/jpeg';
+            }
+            
+            const base64Image = photoBuffer.toString('base64');
+            imageUrlForAI = `data:${mimeType};base64,${base64Image}`;
+            
+            console.log("[Maintenance Analyze Image] Successfully converted to base64 data URL, MIME type:", mimeType, "Size:", base64Image.length, "chars");
+          } catch (error: any) {
+            console.error("[Maintenance Analyze Image] Error converting image to base64, will proceed with text-only:", {
+              imageUrl,
+              message: error?.message || String(error),
+              errorType: error?.constructor?.name,
+            });
+            imageUrlForAI = null;
           }
-        ],
-        max_output_tokens: 800,
-      });
+        } else {
+          console.log("[Maintenance Analyze Image] Using external URL directly:", imageUrl);
+          imageUrlForAI = imageUrl;
+        }
+      }
 
-      const suggestedFixes = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "Unable to analyze the image at this time.";
+      // Make AI call
+      let aiCallSucceeded = false;
+      
+      // Try with image first if available
+      if (imageUrlForAI) {
+        console.log("[Maintenance Analyze Image] Making AI call with image");
+        try {
+          const analysisCompletion = await openaiClient.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
+              },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: issueDescription || "Please analyze this maintenance issue" },
+                  { type: "image_url", image_url: { url: imageUrlForAI } },
+                ],
+              },
+            ],
+            max_completion_tokens: 2000,
+          });
+
+          console.log("[Maintenance Analyze Image] Full OpenAI response with image:", JSON.stringify(analysisCompletion, null, 2));
+          
+          const responseContent = analysisCompletion.choices?.[0]?.message?.content;
+          const finishReason = analysisCompletion.choices?.[0]?.finish_reason;
+          const usage = analysisCompletion.usage;
+          
+          console.log("[Maintenance Analyze Image] Extracted content:", {
+            hasChoices: !!analysisCompletion.choices,
+            choicesLength: analysisCompletion.choices?.length,
+            content: responseContent,
+            contentType: typeof responseContent,
+            contentLength: responseContent?.length,
+            finishReason: finishReason,
+          });
+
+          if (responseContent && responseContent.trim().length > 0) {
+            suggestedFixes = cleanMarkdownText(responseContent.trim());
+            aiCallSucceeded = true;
+            console.log("[Maintenance Analyze Image] Successfully got AI response with image, length:", suggestedFixes.length);
+          } else {
+            console.warn("[Maintenance Analyze Image] OpenAI returned empty or whitespace-only response with image, will try text-only");
+          }
+        } catch (imageError: any) {
+          console.error("[Maintenance Analyze Image] Error with image analysis, will try text-only:", imageError?.message);
+        }
+      }
+      
+      // If image analysis failed or no image, try text-only
+      if (!aiCallSucceeded) {
+        console.log("[Maintenance Analyze Image] Processing text-only message:", issueDescription);
+        const completion = await openaiClient.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
+            },
+            { role: "user", content: issueDescription || "Please analyze this maintenance issue" },
+          ],
+          max_completion_tokens: 2000,
+        });
+
+        console.log("[Maintenance Analyze Image] Full OpenAI response (text-only):", JSON.stringify(completion, null, 2));
+        
+        const responseContent = completion.choices?.[0]?.message?.content;
+        const finishReason = completion.choices?.[0]?.finish_reason;
+        const usage = completion.usage;
+        
+        console.log("[Maintenance Analyze Image] Extracted content (text-only):", {
+          hasChoices: !!completion.choices,
+          choicesLength: completion.choices?.length,
+          content: responseContent,
+          contentType: typeof responseContent,
+          contentLength: responseContent?.length,
+          finishReason: finishReason,
+        });
+
+        if (responseContent && responseContent.trim().length > 0) {
+          suggestedFixes = cleanMarkdownText(responseContent.trim());
+          aiCallSucceeded = true;
+          console.log("[Maintenance Analyze Image] Successfully got AI response, length:", suggestedFixes.length);
+        } else if (finishReason === "length" && usage?.completion_tokens_details?.reasoning_tokens) {
+          console.error("[Maintenance Analyze Image] Response hit token limit - all tokens used for reasoning");
+          suggestedFixes = "I'm analyzing your issue, but I need more information. Could you provide more details about the problem, such as what exactly is broken, when it started, and what you've already tried?";
+          aiCallSucceeded = true;
+        } else {
+          console.error("[Maintenance Analyze Image] OpenAI returned empty or whitespace-only response");
+          throw new Error("OpenAI returned empty response");
+        }
+      }
+
+      if (!aiCallSucceeded || !suggestedFixes) {
+        throw new Error("Failed to get AI analysis");
+      }
 
       // Deduct credit
       await storage.deductCredit(user.organizationId, 1, "AI maintenance image analysis");
@@ -6385,14 +6600,32 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       res.json({
         suggestedFixes,
         analysis: {
-          model: "gpt-5",
+          model: "gpt-4o",
           timestamp: new Date().toISOString()
         },
         creditsRemaining: currentCredits - 1
       });
-    } catch (error) {
-      console.error("Error analyzing maintenance image:", error);
-      res.status(500).json({ message: "Failed to analyze image" });
+    } catch (error: any) {
+      console.error("[Maintenance Analyze Image] Error:", {
+        error: error,
+        message: error?.message,
+        stack: error?.stack,
+        code: error?.code,
+        status: error?.status,
+      });
+      
+      let errorMessage = "Failed to analyze image";
+      if (error?.code === 'invalid_image_url' || error?.message?.includes('downloading')) {
+        errorMessage = "I'm having trouble accessing the image you uploaded. Please try uploading the image again or describe the issue in text.";
+      } else if (error?.message?.includes('base64')) {
+        errorMessage = "I'm having trouble processing the image. Please try uploading it again or describe the issue in text.";
+      } else if (error?.message?.includes('OpenAI') || error?.message?.includes('empty response')) {
+        errorMessage = "I'm having trouble connecting to the AI service. Please try again in a moment.";
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      res.status(500).json({ message: errorMessage });
     }
   });
 
@@ -7483,22 +7716,12 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
           });
           console.log(`[Send Password] Using stored original password for tenant ${tenant.email}`);
         } else {
-          // No stored original password found - this should not happen for newly created tenants
-          // For tenants created before this feature, we cannot retrieve the original password
-          // In this case, we must generate a new password and inform the user
-          console.warn(`[Send Password] No stored original password found for tenant ${tenant.email}, generating new password`);
-          passwordToSend = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase();
-          const { hashPassword } = await import('./auth');
-          const hashedPassword = await hashPassword(passwordToSend);
-
-          // Update tenant password with the new generated password
-          await storage.upsertUser({
-            ...tenant,
-            password: hashedPassword,
+          // No stored original password found - return error instead of generating new password
+          console.error(`[Send Password] No stored original password found for tenant ${tenant.email}`);
+          return res.status(400).json({
+            error: "Cannot retrieve original password. The password was not stored when the tenant was created. Please contact support or reset the password manually.",
+            emailSent: false
           });
-
-          // Note: The email will be sent with the new password, but this is not ideal
-          // Ideally, all tenants should have their original password stored
         }
       }
 
@@ -12035,6 +12258,91 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   // User/Contact endpoints for team management (restricted)
 
   // Get users for team management (admin/owner only)
+  // Update user (firstName, lastName, email) - for tenant editing
+  app.put("/api/users/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const targetUserId = req.params.id;
+      const requester = await storage.getUser(userId);
+
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Get the target user
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Allow update if:
+      // 1. User is updating themselves, OR
+      // 2. User is owner/clerk and target user is in same organization
+      const canUpdate = 
+        userId === targetUserId || 
+        (requester.role === "owner" || requester.role === "clerk") && 
+        targetUser.organizationId === requester.organizationId;
+
+      if (!canUpdate) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Extract and validate the fields we allow updating
+      const { firstName, lastName, email } = req.body;
+
+      const updatePayload: any = {};
+
+      // Update firstName if provided
+      if (firstName !== undefined) {
+        updatePayload.firstName = firstName === null || firstName === "" ? null : firstName.trim() || null;
+      }
+
+      // Update lastName if provided
+      if (lastName !== undefined) {
+        updatePayload.lastName = lastName === null || lastName === "" ? null : lastName.trim() || null;
+      }
+
+      // Update email if provided
+      if (email !== undefined) {
+        if (email === null || email === "") {
+          return res.status(400).json({ message: "Email cannot be empty" });
+        }
+        const normalizedEmail = email.trim().toLowerCase();
+        
+        // Check if email is already in use by another user
+        const existingUser = await storage.getUserByEmail(normalizedEmail);
+        if (existingUser && existingUser.id !== targetUserId) {
+          return res.status(400).json({ message: "Email is already in use by another user" });
+        }
+        
+        updatePayload.email = normalizedEmail;
+      }
+
+      if (Object.keys(updatePayload).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+
+      console.log(`[PUT /api/users/:id] Updating user ${targetUserId} with payload:`, updatePayload);
+      const updatedUser = await storage.updateUser(targetUserId, updatePayload);
+      console.log(`[PUT /api/users/:id] Updated user:`, { 
+        id: updatedUser.id, 
+        firstName: updatedUser.firstName, 
+        lastName: updatedUser.lastName, 
+        email: updatedUser.email 
+      });
+
+      // Don't return password
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      if (error.message?.includes('unique') || error.message?.includes('duplicate')) {
+        return res.status(400).json({ message: "Email is already in use by another user" });
+      }
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
   app.get("/api/users", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -13125,6 +13433,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         return res.status(400).json({ message: "Message or image required" });
       }
 
+      console.log("[Tenant Maintenance Chat] Received imageUrl:", imageUrl);
+
       let chat;
       if (chatId) {
         chat = await storage.getMaintenanceChatById(chatId);
@@ -13154,18 +13464,31 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
       try {
         const openaiClient = getOpenAI();
+        let imageUrlForAI: string | null = null;
 
+        // Try to process image if provided
         if (imageUrl) {
           // Convert image to base64 if it's a localhost URL or internal path
           // OpenAI can't access localhost URLs, so we need to convert them to base64
-          let imageUrlForAI = imageUrl;
-          
+          // Check if URL is localhost or internal (needs conversion)
           const isLocalhost = imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1');
-          const isInternalPath = !imageUrl.startsWith('http');
+          const isInternalPath = imageUrl.startsWith('/objects/') || (!imageUrl.startsWith('http') && imageUrl.includes('/objects/'));
+          const isLocalhostHttp = imageUrl.startsWith('http://localhost') || imageUrl.startsWith('https://localhost');
           
-          if (isLocalhost || isInternalPath) {
+          const needsConversion = isLocalhost || isInternalPath || isLocalhostHttp;
+          
+          console.log("[Tenant Maintenance Chat] URL check:", {
+            imageUrl,
+            isLocalhost,
+            isInternalPath,
+            isLocalhostHttp,
+            needsConversion
+          });
+          
+          // Always convert localhost URLs and internal paths to base64
+          if (needsConversion) {
+            console.log("[Tenant Maintenance Chat] Detected localhost/internal URL, converting to base64:", imageUrl);
             try {
-              console.log("[Tenant Maintenance Chat] Converting image to base64:", imageUrl);
               const objectStorageService = new ObjectStorageService();
               
               // Extract path from URL if it's a full URL
@@ -13174,22 +13497,34 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
                 try {
                   const urlObj = new URL(imageUrl);
                   photoPath = urlObj.pathname;
+                  console.log("[Tenant Maintenance Chat] Extracted pathname from URL:", photoPath);
                 } catch (e) {
                   // If URL parsing fails, try to extract path manually
                   const pathMatch = imageUrl.match(/\/objects\/[^?#]+/);
                   if (pathMatch) {
                     photoPath = pathMatch[0];
+                    console.log("[Tenant Maintenance Chat] Extracted path using regex:", photoPath);
+                  } else {
+                    throw new Error(`Could not extract path from URL: ${imageUrl}`);
                   }
                 }
               }
               
               // Ensure path starts with /objects/
               if (!photoPath.startsWith('/objects/')) {
-                photoPath = `/objects/${photoPath}`;
+                // If it's just an object ID, prepend /objects/
+                if (!photoPath.startsWith('/')) {
+                  photoPath = `/objects/${photoPath}`;
+                } else {
+                  photoPath = `/objects${photoPath}`;
+                }
               }
               
+              console.log("[Tenant Maintenance Chat] Loading file from path:", photoPath);
               const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
               const photoBuffer = await fs.readFile(objectFile.name);
+              
+              console.log("[Tenant Maintenance Chat] File loaded, size:", photoBuffer.length, "bytes");
               
               // Detect MIME type from buffer
               let mimeType = detectImageMimeType(photoBuffer);
@@ -13204,57 +13539,159 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
               const base64Image = photoBuffer.toString('base64');
               imageUrlForAI = `data:${mimeType};base64,${base64Image}`;
               
-              console.log("[Tenant Maintenance Chat] Converted to base64 data URL:", photoPath, `(${mimeType})`);
+              console.log("[Tenant Maintenance Chat] Successfully converted to base64 data URL, MIME type:", mimeType, "Size:", base64Image.length, "chars");
             } catch (error: any) {
-              console.error("[Tenant Maintenance Chat] Error converting image to base64:", {
+              console.error("[Tenant Maintenance Chat] Error converting image to base64, will proceed with text-only:", {
                 imageUrl,
                 message: error?.message || String(error),
                 errorType: error?.constructor?.name,
               });
-              // Fall back to original URL - might work if it's actually accessible
-              imageUrlForAI = imageUrl;
+              // Continue with text-only analysis if image conversion fails
+              imageUrlForAI = null;
             }
+          } else {
+            console.log("[Tenant Maintenance Chat] Using external URL directly:", imageUrl);
+            imageUrlForAI = imageUrl;
           }
-          
-          const analysisCompletion = await openaiClient.chat.completions.create({
-            model: "gpt-5",
-            messages: [
-              {
-                role: "system",
-                content: "You are a helpful AI maintenance assistant. Analyze the issue described and/or shown in the image, then provide practical troubleshooting steps and potential fixes that a tenant could try themselves. Be specific and helpful."
-              },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: message || "Please analyze this maintenance issue" },
-                  { type: "image_url", image_url: { url: imageUrlForAI } },
-                ],
-              },
-            ],
-            max_completion_tokens: 500,
-          });
+        }
 
-          aiResponse = analysisCompletion.choices[0]?.message?.content || "I analyzed the image but couldn't generate suggestions.";
-          aiSuggestedFixes = aiResponse;
-        } else {
+        // Make AI call with or without image
+        let aiCallSucceeded = false;
+        
+        // Try with image first if available
+        if (imageUrlForAI) {
+          console.log("[Tenant Maintenance Chat] Making AI call with image");
+          try {
+            const analysisCompletion = await openaiClient.chat.completions.create({
+              model: "gpt-4o",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
+                },
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: message || "Please analyze this maintenance issue" },
+                    { type: "image_url", image_url: { url: imageUrlForAI } },
+                  ],
+                },
+              ],
+              max_completion_tokens: 2000,
+            });
+
+            console.log("[Tenant Maintenance Chat] Full OpenAI response with image:", JSON.stringify(analysisCompletion, null, 2));
+            
+            const responseContent = analysisCompletion.choices?.[0]?.message?.content;
+            const finishReason = analysisCompletion.choices?.[0]?.finish_reason;
+            const usage = analysisCompletion.usage;
+            
+            console.log("[Tenant Maintenance Chat] Extracted content:", {
+              hasChoices: !!analysisCompletion.choices,
+              choicesLength: analysisCompletion.choices?.length,
+              firstChoice: analysisCompletion.choices?.[0],
+              message: analysisCompletion.choices?.[0]?.message,
+              content: responseContent,
+              contentType: typeof responseContent,
+              contentLength: responseContent?.length,
+              finishReason: finishReason,
+              reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+            });
+
+            if (responseContent && responseContent.trim().length > 0) {
+              aiResponse = "I've analyzed your issue. Here are some suggestions:";
+              aiSuggestedFixes = cleanMarkdownText(responseContent.trim());
+              aiCallSucceeded = true;
+              console.log("[Tenant Maintenance Chat] Successfully got AI response with image, length:", aiSuggestedFixes.length);
+            } else if (finishReason === "length" && usage?.completion_tokens_details?.reasoning_tokens) {
+              console.warn("[Tenant Maintenance Chat] Response hit token limit - all tokens used for reasoning, will try text-only with higher limit");
+              // Retry with text-only and higher token limit
+            } else {
+              console.warn("[Tenant Maintenance Chat] OpenAI returned empty or whitespace-only response with image, will try text-only");
+            }
+          } catch (imageError: any) {
+            console.error("[Tenant Maintenance Chat] Error with image analysis, will try text-only:", imageError?.message);
+          }
+        }
+        
+        // If image analysis failed or no image, try text-only
+        if (!aiCallSucceeded) {
+          // Text-only message - no image or image conversion failed
+          console.log("[Tenant Maintenance Chat] Processing text-only message:", message);
           const completion = await openaiClient.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",
-                content: "You are a helpful AI maintenance assistant. Provide practical troubleshooting steps and potential fixes based on the issue described. Be specific and helpful."
+                content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
               },
               { role: "user", content: message },
             ],
-            max_completion_tokens: 500,
+            max_completion_tokens: 2000,
           });
 
-          aiResponse = completion.choices[0]?.message?.content || "I couldn't generate suggestions for this issue.";
-          aiSuggestedFixes = aiResponse;
+          console.log("[Tenant Maintenance Chat] Full OpenAI response (text-only):", JSON.stringify(completion, null, 2));
+          
+          const responseContent = completion.choices?.[0]?.message?.content;
+          const finishReason = completion.choices?.[0]?.finish_reason;
+          const usage = completion.usage;
+          
+          console.log("[Tenant Maintenance Chat] Extracted content (text-only):", {
+            hasChoices: !!completion.choices,
+            choicesLength: completion.choices?.length,
+            firstChoice: completion.choices?.[0],
+            message: completion.choices?.[0]?.message,
+            content: responseContent,
+            contentType: typeof responseContent,
+            contentLength: responseContent?.length,
+            finishReason: finishReason,
+            reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+            totalTokens: usage?.total_tokens,
+          });
+
+          if (responseContent && responseContent.trim().length > 0) {
+            aiResponse = "I've analyzed your issue. Here are some suggestions:";
+            aiSuggestedFixes = cleanMarkdownText(responseContent.trim());
+            console.log("[Tenant Maintenance Chat] Successfully got AI response, length:", aiSuggestedFixes.length);
+          } else if (finishReason === "length" && usage?.completion_tokens_details?.reasoning_tokens) {
+            // All tokens were used for reasoning, provide a helpful message
+            console.error("[Tenant Maintenance Chat] Response hit token limit - all tokens used for reasoning");
+            aiResponse = "I'm analyzing your issue, but I need more information.";
+            aiSuggestedFixes = "Could you provide more details about the problem, such as what exactly is broken, when it started, and what you've already tried?";
+            aiCallSucceeded = true; // Mark as succeeded so we don't throw error
+          } else {
+            console.error("[Tenant Maintenance Chat] OpenAI returned empty or whitespace-only response");
+            throw new Error("OpenAI returned empty response");
+          }
         }
-      } catch (error) {
-        console.error("AI analysis error:", error);
-        aiResponse = "I'm having trouble analyzing this right now. You may want to create a maintenance request directly.";
+      } catch (error: any) {
+        console.error("[Tenant Maintenance Chat] AI analysis error:", {
+          error: error,
+          message: error?.message,
+          stack: error?.stack,
+          code: error?.code,
+          status: error?.status,
+          imageUrl: imageUrl || 'none',
+          hasMessage: !!message,
+        });
+        
+        // Provide more specific error messages based on error type
+        if (error?.code === 'invalid_image_url' || error?.message?.includes('downloading')) {
+          aiResponse = "I'm having trouble accessing the image you uploaded. Please try uploading the image again or describe the issue in text.";
+          aiSuggestedFixes = "";
+        } else if (error?.message?.includes('base64')) {
+          aiResponse = "I'm having trouble processing the image. Please try uploading it again or describe the issue in text.";
+          aiSuggestedFixes = "";
+        } else if (error?.message?.includes('OpenAI') || error?.message?.includes('empty response')) {
+          aiResponse = "I'm having trouble connecting to the AI service. Please try again in a moment or create a maintenance request directly.";
+          aiSuggestedFixes = "";
+        } else if (error?.message) {
+          aiResponse = "I encountered an error while analyzing your issue.";
+          aiSuggestedFixes = cleanMarkdownText(error.message);
+        } else {
+          aiResponse = "I'm having trouble analyzing this right now. You may want to create a maintenance request directly.";
+          aiSuggestedFixes = "";
+        }
       }
 
       const assistantMessage = await storage.createTenantMaintenanceChatMessage({

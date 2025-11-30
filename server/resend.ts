@@ -736,7 +736,7 @@ export async function sendTenantCredentialsEmail(
     const { client, fromEmail } = await getUncachableResendClient();
     
     const subject = 'Your Tenant Portal Credentials - Inspect360';
-    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+    const baseUrl = process.env.BASE_URL || 'https://portal.inspect360.ai';
     
     // Sanitize inputs for HTML
     const safeEmail = recipientEmail.trim();
@@ -784,9 +784,9 @@ export async function sendTenantCredentialsEmail(
       <div style="background-color: #f8f9fa; border: 2px dashed #00D5CC; padding: 24px; border-radius: 8px; margin-bottom: 24px;">
         <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Your Login Credentials</p>
         <div style="margin-bottom: 16px;">
-          <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Login URL:</p>
+          <p style="margin: 0 0 4px 0; font-size: 13px; color: #888;">Portal URL:</p>
           <p style="margin: 0; font-size: 15px; color: #333; word-break: break-all;">
-            <a href="${baseUrl}/tenant/login" style="color: #00D5CC; text-decoration: none;">${baseUrl}/tenant/login</a>
+            <a href="${baseUrl}" style="color: #00D5CC; text-decoration: none;">${baseUrl}</a>
           </p>
         </div>
         <div style="margin-bottom: 16px;">
@@ -813,7 +813,7 @@ export async function sendTenantCredentialsEmail(
 
     <!-- CTA Button -->
     <div style="text-align: center; margin: 32px 0;">
-      <a href="${baseUrl}/tenant/login" 
+      <a href="${baseUrl}" 
          style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
         Access Tenant Portal
       </a>

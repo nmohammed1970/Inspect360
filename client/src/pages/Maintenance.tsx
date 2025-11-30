@@ -784,73 +784,27 @@ export default function Maintenance() {
                   <FormField
                     control={form.control}
                     name="propertyId"
-                    render={({ field }) => {
-                      const [propertyComboboxOpen, setPropertyComboboxOpen] = useState(false);
-                      return (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>Property</FormLabel>
-                          <Popover open={propertyComboboxOpen} onOpenChange={setPropertyComboboxOpen}>
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button
-                                  variant="outline"
-                                  role="combobox"
-                                  className={cn(
-                                    "justify-between",
-                                    !field.value && "text-muted-foreground"
-                                  )}
-                                  data-testid="select-property"
-                                >
-                                  {field.value
-                                    ? properties.find((property) => property.id === field.value)?.name +
-                                      (properties.find((property) => property.id === field.value)?.address 
-                                        ? ` - ${properties.find((property) => property.id === field.value)?.address}`
-                                        : "")
-                                    : "Select a property"}
-                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[400px] p-0">
-                              <Command>
-                                <CommandInput placeholder="Search properties..." />
-                                <CommandList>
-                                  <CommandEmpty>No property found.</CommandEmpty>
-                                  <CommandGroup>
-                                    {properties.map((property) => (
-                                      <CommandItem
-                                        key={property.id}
-                                        value={`${property.name} ${property.address || ""}`}
-                                        onSelect={() => {
-                                          field.onChange(property.id);
-                                          setPropertyComboboxOpen(false);
-                                        }}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            property.id === field.value
-                                              ? "opacity-100"
-                                              : "opacity-0"
-                                          )}
-                                        />
-                                        <div className="flex flex-col">
-                                          <span>{property.name}</span>
-                                          {property.address && (
-                                            <span className="text-sm text-muted-foreground">{property.address}</span>
-                                          )}
-                                        </div>
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                          <FormMessage />
-                        </FormItem>
-                      );
-                    }}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Property</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-property">
+                              <SelectValue placeholder="Select a property" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {properties.map((property) => (
+                              <SelectItem key={property.id} value={property.id}>
+                                {property.name}
+                                {property.address ? ` - ${property.address}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
                   <FormField
                     control={form.control}

@@ -244,12 +244,56 @@ export default function TenantHome() {
                 </Badge>
               </div>
             </div>
-            {tenancy.notes && (
-              <div className="mt-6 p-4 bg-muted rounded-lg">
-                <div className="text-sm text-muted-foreground mb-2">Notes</div>
-                <div className="text-sm">{tenancy.notes}</div>
-              </div>
-            )}
+            {tenancy.notes && (() => {
+              // Try to parse JSON notes, or use as plain text
+              let displayNotes = tenancy.notes;
+              let parsedNotes: any = null;
+              
+              try {
+                // Check if it's a JSON string
+                if (typeof tenancy.notes === 'string' && tenancy.notes.trim().startsWith('{')) {
+                  parsedNotes = JSON.parse(tenancy.notes);
+                  // Filter out sensitive fields like passwords
+                  const sensitiveFields = ['_originalPassword', 'password', 'originalPassword', 'hashedPassword'];
+                  const filteredNotes: any = {};
+                  Object.keys(parsedNotes).forEach(key => {
+                    if (!sensitiveFields.some(field => key.toLowerCase().includes(field.toLowerCase()))) {
+                      filteredNotes[key] = parsedNotes[key];
+                    }
+                  });
+                  
+                  // If there are remaining fields, format them nicely
+                  const remainingKeys = Object.keys(filteredNotes);
+                  if (remainingKeys.length > 0) {
+                    displayNotes = remainingKeys.map(key => {
+                      const value = filteredNotes[key];
+                      // Format the key nicely (e.g., "originalPassword" -> "Original Password")
+                      const formattedKey = key
+                        .replace(/_/g, ' ')
+                        .replace(/([A-Z])/g, ' $1')
+                        .trim()
+                        .split(' ')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ');
+                      return `${formattedKey}: ${value}`;
+                    }).join('\n');
+                  } else {
+                    // All fields were sensitive, don't show anything
+                    return null;
+                  }
+                }
+              } catch (e) {
+                // Not JSON, use as-is
+                displayNotes = tenancy.notes;
+              }
+              
+              return (
+                <div className="mt-6 p-4 bg-muted rounded-lg">
+                  <div className="text-sm text-muted-foreground mb-2">Notes</div>
+                  <div className="text-sm whitespace-pre-wrap">{displayNotes}</div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>

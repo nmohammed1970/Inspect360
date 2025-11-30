@@ -193,6 +193,7 @@ export function ObjectUploader({
         onClick={handleButtonClick} 
         className={buttonClassName} 
         variant={buttonVariant}
+        size="icon"
         data-testid="button-upload"
       >
         {children}

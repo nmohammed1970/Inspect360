@@ -321,6 +321,8 @@ export default function TenantMaintenance() {
 
             <div className="flex gap-2">
               <ObjectUploader
+                buttonVariant="outline"
+                buttonClassName="h-10 w-10"
                 onGetUploadParameters={async () => {
                   try {
                     const response = await fetch('/api/objects/upload', {
@@ -430,10 +432,9 @@ export default function TenantMaintenance() {
                     });
                   }
                 }}
+                data-testid="button-upload-image"
               >
-                <Button variant="outline" size="icon" data-testid="button-upload-image">
-                  <ImagePlus className="h-4 w-4" />
-                </Button>
+                <ImagePlus className="h-4 w-4" />
               </ObjectUploader>
               <Textarea
                 placeholder="Describe the issue..."
