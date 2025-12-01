@@ -1,12 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 export default defineConfig({
   plugins: [
     react(),
-    runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
@@ -57,6 +55,7 @@ export default defineConfig({
       host: 'localhost',
       // Use PORT from env or default to 5000/5005
       port: process.env.PORT ? parseInt(process.env.PORT, 10) : undefined,
+      overlay: false, // Disable error overlay
     } : undefined,
   },
   optimizeDeps: {

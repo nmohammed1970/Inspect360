@@ -257,38 +257,6 @@ export default function InspectionReport() {
     },
   });
 
-  // Simulate progress during auto-create comparison report
-  useEffect(() => {
-    if (autoCreateComparisonMutation.isPending) {
-      setComparisonProgress(0);
-      setComparisonStatusMessage("Initializing comparison report...");
-      
-      const interval = setInterval(() => {
-        setComparisonProgress((prev) => {
-          if (prev >= 90) return prev; // Don't go to 100% until actually done
-          const increment = Math.random() * 15 + 5; // Random increment between 5-20%
-          const newProgress = Math.min(prev + increment, 90);
-          
-          // Update status message based on progress
-          if (newProgress < 30) {
-            setComparisonStatusMessage("Finding matching check-in inspection...");
-          } else if (newProgress < 60) {
-            setComparisonStatusMessage("Comparing inspection data...");
-          } else if (newProgress < 90) {
-            setComparisonStatusMessage("Generating comparison report...");
-          }
-          
-          return newProgress;
-        });
-      }, 500);
-      
-      return () => clearInterval(interval);
-    } else {
-      setComparisonProgress(0);
-      setComparisonStatusMessage("Initializing...");
-    }
-  }, [autoCreateComparisonMutation.isPending]);
-
   // Auto-create comparison report mutation
   const autoCreateComparisonMutation = useMutation({
     mutationFn: async (context: { inspectionId: string; fieldKey: string }) => {
@@ -355,6 +323,38 @@ export default function InspectionReport() {
       });
     },
   });
+
+  // Simulate progress during auto-create comparison report
+  useEffect(() => {
+    if (autoCreateComparisonMutation.isPending) {
+      setComparisonProgress(0);
+      setComparisonStatusMessage("Initializing comparison report...");
+      
+      const interval = setInterval(() => {
+        setComparisonProgress((prev) => {
+          if (prev >= 90) return prev; // Don't go to 100% until actually done
+          const increment = Math.random() * 15 + 5; // Random increment between 5-20%
+          const newProgress = Math.min(prev + increment, 90);
+          
+          // Update status message based on progress
+          if (newProgress < 30) {
+            setComparisonStatusMessage("Finding matching check-in inspection...");
+          } else if (newProgress < 60) {
+            setComparisonStatusMessage("Comparing inspection data...");
+          } else if (newProgress < 90) {
+            setComparisonStatusMessage("Generating comparison report...");
+          }
+          
+          return newProgress;
+        });
+      }, 500);
+      
+      return () => clearInterval(interval);
+    } else {
+      setComparisonProgress(0);
+      setComparisonStatusMessage("Initializing...");
+    }
+  }, [autoCreateComparisonMutation.isPending]);
 
   const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];

@@ -92,13 +92,20 @@ export function useAuth() {
       await apiRequest("POST", "/api/logout");
     },
     onSuccess: () => {
+      // Clear user data
       queryClient.setQueryData(["/api/auth/user"], null);
+      // Invalidate all queries to clear cached data
+      queryClient.invalidateQueries();
       toast({
         title: "Logged out",
         description: "You have been logged out successfully",
       });
-      // Force page reload to show landing page
-      window.location.href = "/";
+      // Use setTimeout to defer navigation, allowing React to complete the current render cycle
+      // This prevents the "Rendered fewer hooks than expected" error by ensuring all hooks
+      // are called and components can unmount properly before the page redirect
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 100);
     },
     onError: (error: Error) => {
       toast({
