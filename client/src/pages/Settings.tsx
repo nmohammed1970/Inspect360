@@ -76,6 +76,8 @@ export default function Settings() {
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate all organization queries to ensure sidebar and other components refresh
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId] });
       toast({
         title: "Success",

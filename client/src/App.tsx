@@ -63,6 +63,8 @@ import { AIChatbot } from "@/components/AIChatbot";
 import { LocaleProvider } from "@/contexts/LocaleContext";
 import { Onboarding } from "@/components/Onboarding";
 import { useState, useEffect } from "react";
+import { useNotifications } from "@/hooks/useNotifications";
+import { NotificationPopup } from "@/components/NotificationPopup";
 
 function AppContent() {
   // Always call hooks at the top level
@@ -174,6 +176,7 @@ function AppContent() {
             </Switch>
           </main>
         </div>
+        <NotificationSystem />
         <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
@@ -256,10 +259,39 @@ function AppContent() {
           </div>
         </div>
       </SidebarProvider>
+      <NotificationSystem />
       <AIChatbot />
       <PWAInstallPrompt />
       <Toaster />
     </TooltipProvider>
+  );
+}
+
+// Component to handle notifications (only for authenticated users)
+function NotificationSystem() {
+  const { user, isAuthenticated } = useAuth();
+  const { popupNotification, handleClosePopup, handleViewNotification } = useNotifications();
+
+  // Only show notifications for authenticated users
+  if (!isAuthenticated || !user) {
+    return null;
+  }
+
+  // Only show popup for tenants
+  if (user.role !== "tenant") {
+    return null;
+  }
+
+  if (!popupNotification) {
+    return null;
+  }
+
+  return (
+    <NotificationPopup
+      notification={popupNotification}
+      onClose={handleClosePopup}
+      onView={() => handleViewNotification(popupNotification)}
+    />
   );
 }
 

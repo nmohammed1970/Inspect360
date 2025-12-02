@@ -42,6 +42,16 @@ import {
   Paperclip,
   Trash2
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -136,6 +146,7 @@ export default function ComparisonReportDetail() {
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isSendingToFinance, setIsSendingToFinance] = useState(false);
   const [includeAttachmentForFinance, setIncludeAttachmentForFinance] = useState(true);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Download comparison report as PDF
   const handleDownloadPdf = async () => {
@@ -307,6 +318,22 @@ export default function ComparisonReportDetail() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", `/api/comparison-reports/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/comparison-reports"] });
+      toast({ title: "Report Deleted", description: "The comparison report has been deleted successfully." });
+      // Navigate back to comparison reports list
+      window.location.href = "/comparisons";
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Error", description: error.message || "Failed to delete report." });
+    },
+  });
+
   const handleClearSignature = () => {
     if (signaturePadRef.current) {
       signaturePadRef.current.clear();
@@ -443,19 +470,35 @@ export default function ComparisonReportDetail() {
             {isDownloadingPdf ? "Generating..." : "Download PDF"}
           </Button>
           {isOperator && (
-            <Button
-              variant="outline"
-              onClick={handleSendToFinance}
-              disabled={isSendingToFinance}
-              data-testid="button-send-to-finance"
-            >
-              {isSendingToFinance ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Mail className="w-4 h-4 mr-2" />
-              )}
-              {isSendingToFinance ? "Sending..." : "Send to Finance"}
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={handleSendToFinance}
+                disabled={isSendingToFinance}
+                data-testid="button-send-to-finance"
+              >
+                {isSendingToFinance ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Mail className="w-4 h-4 mr-2" />
+                )}
+                {isSendingToFinance ? "Sending..." : "Send to Finance"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={deleteMutation.isPending}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                data-testid="button-delete-report"
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4 mr-2" />
+                )}
+                {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              </Button>
+            </>
           )}
           {canEdit && (
             <Select
@@ -1023,6 +1066,31 @@ export default function ComparisonReportDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Comparison Report?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this comparison report? This action cannot be undone and will permanently remove the report and all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                deleteMutation.mutate();
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              Delete Report
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

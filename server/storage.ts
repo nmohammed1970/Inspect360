@@ -163,6 +163,9 @@ import {
   centralTeamConfig,
   type CentralTeamConfig,
   type InsertCentralTeamConfig,
+  notifications,
+  type Notification,
+  type InsertNotification,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
@@ -248,6 +251,7 @@ export interface IStorage {
   getComparisonReportsByTenant(tenantId: string): Promise<ComparisonReport[]>;
   getComparisonReport(id: string): Promise<ComparisonReport | undefined>;
   updateComparisonReport(id: string, updates: Partial<InsertComparisonReport>): Promise<ComparisonReport>;
+  deleteComparisonReport(id: string): Promise<void>;
   createComparisonReportItem(item: any): Promise<any>;
   getComparisonReportItems(reportId: string): Promise<any[]>;
   updateComparisonReportItem(id: string, updates: any): Promise<any>;
@@ -556,6 +560,13 @@ export interface IStorage {
   addCentralTeamEmail(email: string): Promise<CentralTeamConfig>;
   removeCentralTeamEmail(id: string): Promise<void>;
   updateCentralTeamEmail(id: string, isActive: boolean): Promise<CentralTeamConfig>;
+  
+  // Notification operations
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getNotificationsByUser(userId: string, unreadOnly?: boolean): Promise<Notification[]>;
+  markNotificationAsRead(id: string): Promise<Notification>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+  getUnreadNotificationCount(userId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1265,6 +1276,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(comparisonReports.id, id))
       .returning();
     return report;
+  }
+
+  async deleteComparisonReport(id: string): Promise<void> {
+    // Delete related items first (cascade delete)
+    await db
+      .delete(comparisonReportItems)
+      .where(eq(comparisonReportItems.comparisonReportId, id));
+    
+    // Delete related comments
+    await db
+      .delete(comparisonComments)
+      .where(eq(comparisonComments.comparisonReportId, id));
+    
+    // Delete the report itself
+    await db
+      .delete(comparisonReports)
+      .where(eq(comparisonReports.id, id));
   }
 
   async createComparisonReportItem(itemData: any): Promise<any> {
@@ -3749,6 +3777,53 @@ export class DatabaseStorage implements IStorage {
       .where(eq(centralTeamConfig.id, id))
       .returning();
     return config;
+  }
+
+  // Notification operations
+  async createNotification(notificationData: InsertNotification): Promise<Notification> {
+    const [notification] = await db
+      .insert(notifications)
+      .values(notificationData)
+      .returning();
+    return notification;
+  }
+
+  async getNotificationsByUser(userId: string, unreadOnly: boolean = false): Promise<Notification[]> {
+    const conditions = [eq(notifications.userId, userId)];
+    
+    if (unreadOnly) {
+      conditions.push(eq(notifications.isRead, false));
+    }
+    
+    return await db
+      .select()
+      .from(notifications)
+      .where(and(...conditions))
+      .orderBy(desc(notifications.createdAt));
+  }
+
+  async markNotificationAsRead(id: string): Promise<Notification> {
+    const [notification] = await db
+      .update(notifications)
+      .set({ isRead: true, readAt: new Date(), updatedAt: new Date() })
+      .where(eq(notifications.id, id))
+      .returning();
+    return notification;
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    await db
+      .update(notifications)
+      .set({ isRead: true, readAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  }
+
+  async getUnreadNotificationCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    return result[0]?.count || 0;
   }
 }
 

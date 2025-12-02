@@ -1999,3 +1999,31 @@ export const insertCentralTeamConfigSchema = createInsertSchema(centralTeamConfi
 
 export type CentralTeamConfig = typeof centralTeamConfig.$inferSelect;
 export type InsertCentralTeamConfig = z.infer<typeof insertCentralTeamConfigSchema>;
+
+// Notifications table for real-time alerts to tenants
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(), // User to receive the notification (typically tenant)
+  organizationId: varchar("organization_id").notNull(),
+  type: varchar("type").notNull(), // e.g., "comparison_report_created"
+  title: varchar("title").notNull(),
+  message: text("message").notNull(),
+  data: jsonb("data"), // Additional data like reportId, propertyId, etc.
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("notifications_user_id_idx").on(table.userId),
+  index("notifications_user_read_idx").on(table.userId, table.isRead),
+  index("notifications_organization_id_idx").on(table.organizationId),
+]);
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;

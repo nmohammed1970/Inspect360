@@ -999,6 +999,25 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id);
 
+-- Notifications table for real-time alerts
+CREATE TABLE IF NOT EXISTS notifications (
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+    user_id VARCHAR NOT NULL,
+    organization_id VARCHAR NOT NULL,
+    type VARCHAR NOT NULL,
+    title VARCHAR NOT NULL,
+    message TEXT NOT NULL,
+    data JSONB,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    read_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS notifications_user_read_idx ON notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS notifications_organization_id_idx ON notifications(organization_id);
+
 -- ==================== ADD MISSING COLUMNS ====================
 -- This section adds columns that might have been added later to existing tables
 

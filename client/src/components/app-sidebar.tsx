@@ -45,7 +45,18 @@ export function AppSidebar() {
     enabled: !!user?.organizationId,
   });
 
-  const logoSrc = organization?.logoUrl || defaultLogoUrl;
+  // Add cache-busting query parameter to force browser to reload logo when it changes
+  const getLogoSrc = () => {
+    if (!organization?.logoUrl) return defaultLogoUrl;
+    const separator = organization.logoUrl.includes('?') ? '&' : '?';
+    // Use organization updatedAt timestamp as cache buster
+    const cacheBuster = organization.updatedAt 
+      ? new Date(organization.updatedAt).getTime() 
+      : Date.now();
+    return `${organization.logoUrl}${separator}v=${cacheBuster}`;
+  };
+  
+  const logoSrc = getLogoSrc();
   const companyName = organization?.brandingName || organization?.name || "Inspect360";
 
   const mainMenuItems = [
@@ -83,7 +94,7 @@ export function AppSidebar() {
       title: "Comparisons",
       url: "/comparisons",
       icon: GitCompare,
-      roles: ["owner", "clerk", "tenant"],
+      roles: ["owner", "tenant"],
     },
     {
       title: "Compliance",
@@ -163,10 +174,17 @@ export function AppSidebar() {
       <SidebarHeader className="p-4 border-b">
         <div className="flex items-center gap-2">
           <img 
-            src={logoSrc} 
+            key={organization?.logoUrl || 'default'}
+            src={logoSrc}
             alt={companyName} 
             className="h-8 max-w-[180px] object-contain" 
             data-testid="img-sidebar-logo"
+            onError={(e) => {
+              // Fallback to default logo if image fails to load
+              if (e.currentTarget.src !== defaultLogoUrl) {
+                e.currentTarget.src = defaultLogoUrl;
+              }
+            }}
           />
         </div>
       </SidebarHeader>

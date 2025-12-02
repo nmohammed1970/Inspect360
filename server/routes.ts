@@ -3634,7 +3634,7 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
 
       // Get tenant assigned to property (optional - may be null for vacant units)
       const tenantAssignments = await storage.getTenantAssignmentsByProperty(propertyId, user.organizationId);
-      const activeTenant = tenantAssignments.find(ta => ta.isActive);
+      const activeTenant = tenantAssignments.find(ta => ta.assignment?.isActive);
 
       // Check credits (2 credits for comparison report generation)
       const organization = await storage.getOrganization(user.organizationId);
@@ -3653,11 +3653,12 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
       // Get all check-in entries for matching
       const checkInEntries = await storage.getInspectionEntries(lastCheckIn.id);
 
+      const tenantId = activeTenant?.id || null;
       console.log(`[Auto-Create Comparison] Creating report for property ${propertyId}`, {
         checkInId: lastCheckIn.id,
         checkOutId: lastCheckOut.id,
         hasTenant: !!activeTenant,
-        tenantId: activeTenant?.tenantId || null
+        tenantId: tenantId
       });
 
       // Create comparison report (tenant may be null for vacant units)
@@ -3666,12 +3667,49 @@ Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not
         propertyId,
         checkInInspectionId: lastCheckIn.id,
         checkOutInspectionId: lastCheckOut.id,
-        tenantId: activeTenant?.tenantId || null,
+        tenantId: tenantId,
         status: "draft",
         totalEstimatedCost: "0",
         aiAnalysisJson: { summary: "Processing...", items: [] },
         generatedBy: user.id,
       });
+
+      // Create notification for tenant if property has an active tenant
+      if (activeTenant?.id) {
+        try {
+          const { sendNotificationToUser } = await import("./websocket");
+          const notification = await storage.createNotification({
+            userId: activeTenant.id,
+            organizationId: user.organizationId,
+            type: "comparison_report_created",
+            title: "New Comparison Report Available",
+            message: `A new comparison report has been created for your property. Click to view details.`,
+            data: {
+              reportId: report.id,
+              propertyId: propertyId,
+              propertyName: property.name,
+            },
+          });
+          
+          // Send real-time notification via WebSocket
+          sendNotificationToUser(activeTenant.id, {
+            id: notification.id,
+            userId: notification.userId,
+            organizationId: notification.organizationId,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            data: notification.data,
+            isRead: notification.isRead,
+            createdAt: notification.createdAt,
+          });
+        } catch (notifError) {
+          console.error("[Notification] Error creating notification for tenant:", notifError);
+          // Don't fail the request if notification fails
+        }
+      } else {
+        console.log(`[Notification] No active tenant found for property ${propertyId}. Tenant assignments:`, tenantAssignments.map(ta => ({ id: ta.id, isActive: ta.assignment?.isActive })));
+      }
 
       // Process marked entries asynchronously (same logic as the regular endpoint)
       (async () => {
@@ -3895,7 +3933,7 @@ LIABILITY: [tenant/landlord/shared]`;
 
       // Get tenant assigned to property (optional - may be null for vacant units)
       const tenantAssignments = await storage.getTenantAssignmentsByProperty(propertyId, user.organizationId);
-      const activeTenant = tenantAssignments.find(ta => ta.isActive);
+      const activeTenant = tenantAssignments.find(ta => ta.assignment?.isActive);
 
       // Check credits (2 credits for comparison report generation)
       const organization = await storage.getOrganization(user.organizationId);
@@ -3914,11 +3952,12 @@ LIABILITY: [tenant/landlord/shared]`;
       // Get all check-in entries for matching
       const checkInEntries = await storage.getInspectionEntries(checkInInspectionId);
 
+      const tenantId = activeTenant?.id || null;
       console.log(`[Manual Create Comparison] Creating report for property ${propertyId}`, {
         checkInInspectionId,
         checkOutInspectionId,
         hasTenant: !!activeTenant,
-        tenantId: activeTenant?.tenantId || null
+        tenantId: tenantId
       });
 
       // Create comparison report (tenant may be null for vacant units)
@@ -3927,12 +3966,49 @@ LIABILITY: [tenant/landlord/shared]`;
         propertyId,
         checkInInspectionId,
         checkOutInspectionId,
-        tenantId: activeTenant?.tenantId || null,
+        tenantId: tenantId,
         status: "draft",
         totalEstimatedCost: "0",
         aiAnalysisJson: { summary: "Processing...", items: [] },
         generatedBy: user.id,
       });
+
+      // Create notification for tenant if property has an active tenant
+      if (activeTenant?.id) {
+        try {
+          const { sendNotificationToUser } = await import("./websocket");
+          const notification = await storage.createNotification({
+            userId: activeTenant.id,
+            organizationId: user.organizationId,
+            type: "comparison_report_created",
+            title: "New Comparison Report Available",
+            message: `A new comparison report has been created for your property. Click to view details.`,
+            data: {
+              reportId: report.id,
+              propertyId: propertyId,
+              propertyName: property.name,
+            },
+          });
+          
+          // Send real-time notification via WebSocket
+          sendNotificationToUser(activeTenant.id, {
+            id: notification.id,
+            userId: notification.userId,
+            organizationId: notification.organizationId,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            data: notification.data,
+            isRead: notification.isRead,
+            createdAt: notification.createdAt,
+          });
+        } catch (notifError) {
+          console.error("[Notification] Error creating notification for tenant:", notifError);
+          // Don't fail the request if notification fails
+        }
+      } else {
+        console.log(`[Notification] No active tenant found for property ${propertyId}. Tenant assignments:`, tenantAssignments.map(ta => ({ id: ta.id, isActive: ta.assignment?.isActive })));
+      }
 
       // Process each marked entry asynchronously (don't block response)
       // In production, this would be a background job
@@ -5059,6 +5135,34 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     } catch (error) {
       console.error("Error updating comparison report:", error);
       res.status(500).json({ message: "Failed to update comparison report" });
+    }
+  });
+
+  // Delete comparison report
+  app.delete("/api/comparison-reports/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const report = await storage.getComparisonReport(id);
+      if (!report) {
+        return res.status(404).json({ message: "Comparison report not found" });
+      }
+
+      // Verify organization ownership
+      if (report.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Delete the report and all related data
+      await storage.deleteComparisonReport(id);
+      res.json({ message: "Comparison report deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting comparison report:", error);
+      res.status(500).json({ message: "Failed to delete comparison report" });
     }
   });
 
@@ -16447,6 +16551,85 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     }
   });
 
+  // ==================== NOTIFICATION ROUTES ====================
+
+  // Get notifications for current user
+  app.get("/api/notifications", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const unreadOnly = req.query.unreadOnly === "true";
+      
+      const notifications = await storage.getNotificationsByUser(userId, unreadOnly);
+      res.json(notifications);
+    } catch (error: any) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  // Get unread notification count
+  app.get("/api/notifications/unread-count", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const count = await storage.getUnreadNotificationCount(userId);
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  // Mark notification as read
+  app.patch("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const notificationId = req.params.id;
+
+      // Verify notification belongs to user
+      const notifications = await storage.getNotificationsByUser(userId);
+      const notification = notifications.find(n => n.id === notificationId);
+      
+      if (!notification) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+
+      const updated = await storage.markNotificationAsRead(notificationId);
+      
+      // Update unread count via WebSocket
+      const unreadCount = await storage.getUnreadNotificationCount(userId);
+      const { updateUnreadCount } = await import("./websocket");
+      updateUnreadCount(userId, unreadCount);
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error marking notification as read:", error);
+      res.status(500).json({ message: "Failed to mark notification as read" });
+    }
+  });
+
+  // Mark all notifications as read
+  app.patch("/api/notifications/read-all", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      
+      await storage.markAllNotificationsAsRead(userId);
+      
+      // Update unread count via WebSocket
+      const { updateUnreadCount } = await import("./websocket");
+      updateUnreadCount(userId, 0);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error marking all notifications as read:", error);
+      res.status(500).json({ message: "Failed to mark all notifications as read" });
+    }
+  });
+
   const httpServer = createServer(app);
+  
+  // Set up WebSocket server for real-time notifications
+  const { setupWebSocketServer } = await import("./websocket");
+  setupWebSocketServer(httpServer, storage);
+  
   return httpServer;
 }
