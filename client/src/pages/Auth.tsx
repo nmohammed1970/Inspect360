@@ -78,7 +78,8 @@ export default function Auth() {
       if (result) {
         // Redirect to return URL if provided, otherwise go to dashboard
         const redirectPath = returnUrl ? decodeURIComponent(returnUrl) : "/dashboard";
-        navigate(redirectPath);
+        // Use window.location for reliable redirect after login
+        window.location.href = redirectPath;
       }
     } catch (error) {
       // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection
@@ -131,7 +132,8 @@ export default function Auth() {
       if (result) {
         // Redirect to return URL if provided, otherwise go to dashboard
         const redirectPath = returnUrl ? decodeURIComponent(returnUrl) : "/dashboard";
-        navigate(redirectPath);
+        // Use window.location for reliable redirect after registration
+        window.location.href = redirectPath;
       }
     } catch (error) {
       // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection

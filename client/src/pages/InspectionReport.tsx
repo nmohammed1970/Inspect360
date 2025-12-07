@@ -110,6 +110,16 @@ export default function InspectionReport() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+  
+  // IMMEDIATE redirect check - redirect to login if not authenticated
+  // This runs synchronously to prevent any blank page
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated && id) {
+      const returnUrl = encodeURIComponent(`/inspections/${id}/report`);
+      // Use window.location for immediate hard redirect
+      window.location.href = `/auth?returnUrl=${returnUrl}`;
+    }
+  }, [authLoading, isAuthenticated, id]);
   const [editMode, setEditMode] = useState(false);
   const [editedNotes, setEditedNotes] = useState<Record<string, string>>({});
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
