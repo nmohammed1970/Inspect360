@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import {
   ArrowLeft,
   Printer,
@@ -108,6 +109,7 @@ export default function InspectionReport() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [editMode, setEditMode] = useState(false);
   const [editedNotes, setEditedNotes] = useState<Record<string, string>>({});
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
@@ -188,6 +190,14 @@ export default function InspectionReport() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [id, queryClient, refetchEntries]);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      const returnUrl = encodeURIComponent(`/inspections/${id}/report`);
+      navigate(`/auth?returnUrl=${returnUrl}`);
+    }
+  }, [authLoading, isAuthenticated, id, navigate]);
 
   // Fetch user role for edit permissions
   const { data: currentUser } = useQuery<any>({
@@ -611,6 +621,21 @@ export default function InspectionReport() {
   };
 
   const canEdit = currentUser?.role === 'owner' || currentUser?.role === 'compliance';
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated (redirect will happen via useEffect)
+  if (!isAuthenticated) {
+    return null;
+  }
 
   if (inspectionLoading || entriesLoading) {
     return (
