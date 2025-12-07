@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Building2, Eye, EyeOff, FileCheck, Lock } from "lucide-react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
@@ -18,7 +18,12 @@ export default function Auth() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { loginMutation, registerMutation, user } = useAuth();
   const [, navigate] = useLocation();
+  const searchParams = useSearch();
   const { toast } = useToast();
+  
+  // Get return URL from query parameters
+  const urlParams = new URLSearchParams(searchParams);
+  const returnUrl = urlParams.get("returnUrl");
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState("");
@@ -71,7 +76,9 @@ export default function Auth() {
       });
       
       if (result) {
-        navigate("/dashboard");
+        // Redirect to return URL if provided, otherwise go to dashboard
+        const redirectPath = returnUrl ? decodeURIComponent(returnUrl) : "/dashboard";
+        navigate(redirectPath);
       }
     } catch (error) {
       // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection
@@ -122,7 +129,9 @@ export default function Auth() {
       });
 
       if (result) {
-        navigate("/dashboard");
+        // Redirect to return URL if provided, otherwise go to dashboard
+        const redirectPath = returnUrl ? decodeURIComponent(returnUrl) : "/dashboard";
+        navigate(redirectPath);
       }
     } catch (error) {
       // Error is already handled by useAuth's onError, but we catch here to prevent unhandled rejection

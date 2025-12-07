@@ -97,7 +97,9 @@ function AppContent() {
   // Redirect unauthorized users trying to access protected routes
   useEffect(() => {
     if (!isLoading && !isAuthenticated && isProtectedRoute) {
-      setLocation("/auth");
+      // Preserve the return URL so we can redirect back after login
+      const returnUrl = encodeURIComponent(location);
+      setLocation(`/auth?returnUrl=${returnUrl}`);
     }
   }, [isLoading, isAuthenticated, isProtectedRoute, location, setLocation]);
 
