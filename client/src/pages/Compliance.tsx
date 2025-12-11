@@ -444,6 +444,18 @@ export default function Compliance() {
     !doc.expiryDate || !isPast(new Date(doc.expiryDate.toString()))
   );
 
+  const dueSoonDocs = currentDocs.filter(doc => {
+    if (!doc.expiryDate) return false;
+    const daysUntil = differenceInDays(new Date(doc.expiryDate.toString()), new Date());
+    return daysUntil >= 0 && daysUntil <= 30;
+  });
+
+  const validDocs = currentDocs.filter(doc => {
+    if (!doc.expiryDate) return true;
+    const daysUntil = differenceInDays(new Date(doc.expiryDate.toString()), new Date());
+    return daysUntil > 30;
+  });
+
   if (authLoading) {
     return (
       <div className="p-4 md:p-8">
@@ -1008,6 +1020,66 @@ export default function Compliance() {
           )}
         </div>
       )}
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="border-l-4 border-l-destructive">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Overdue</p>
+                <p className="text-2xl font-bold text-destructive" data-testid="stat-overdue">{expiredDocs.length}</p>
+              </div>
+              <div className="p-2 bg-destructive/10 rounded-full">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-yellow-500">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Due Soon</p>
+                <p className="text-2xl font-bold text-yellow-600" data-testid="stat-due-soon">{dueSoonDocs.length}</p>
+                <p className="text-xs text-muted-foreground">Within 30 days</p>
+              </div>
+              <div className="p-2 bg-yellow-500/10 rounded-full">
+                <Calendar className="h-5 w-5 text-yellow-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Valid</p>
+                <p className="text-2xl font-bold text-green-600" data-testid="stat-valid">{validDocs.length}</p>
+              </div>
+              <div className="p-2 bg-green-500/10 rounded-full">
+                <Check className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Documents</p>
+                <p className="text-2xl font-bold" data-testid="stat-total">{filteredAndSortedDocs.length}</p>
+              </div>
+              <div className="p-2 bg-primary/10 rounded-full">
+                <FileText className="h-5 w-5 text-primary" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {expiringDocs.length > 0 && (
         <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
