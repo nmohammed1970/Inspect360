@@ -565,6 +565,16 @@ export default function Blocks() {
                       <span className="text-xs">Compliance</span>
                     </Button>
                   </Link>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="flex flex-col h-auto py-2 px-3"
+                    data-testid={`button-maintenance-${block.id}`}
+                    onClick={() => setMaintenanceBlockId(block.id)}
+                  >
+                    <Wrench className="h-4 w-4 mb-1" />
+                    <span className="text-xs">Maintenance</span>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
