@@ -467,81 +467,93 @@ export default function Dashboard() {
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="panel-kpis">
-        <Card className="hover-elevate cursor-pointer" data-testid="kpi-occupancy">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <Home className="h-4 w-4 text-muted-foreground" />
-              {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
-            </div>
-            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
-              {stats?.kpis?.occupancyRate ?? 0}%
-            </p>
-            <p className="text-xs text-muted-foreground">Occupancy Rate</p>
-          </CardContent>
-        </Card>
+        <Link href="/tenants">
+          <Card className="hover-elevate cursor-pointer" data-testid="kpi-occupancy">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Home className="h-4 w-4 text-muted-foreground" />
+                {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
+              </div>
+              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
+                {stats?.kpis?.occupancyRate ?? 0}%
+              </p>
+              <p className="text-xs text-muted-foreground">Occupancy Rate</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-              {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}
-            </div>
-            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}`}>
-              {stats?.kpis?.complianceRate ?? 0}%
-            </p>
-            <p className="text-xs text-muted-foreground">Compliance Rate</p>
-          </CardContent>
-        </Card>
+        <Link href="/compliance">
+          <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}
+              </div>
+              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}`}>
+                {stats?.kpis?.complianceRate ?? 0}%
+              </p>
+              <p className="text-xs text-muted-foreground">Compliance Rate</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card className="hover-elevate cursor-pointer" data-testid="kpi-inspection-completion">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-              {getKpiIcon(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
-            </div>
-            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}`}>
-              {stats?.kpis?.inspectionCompletionRate ?? 0}%
-            </p>
-            <p className="text-xs text-muted-foreground">Inspection Rate (90d)</p>
-          </CardContent>
-        </Card>
+        <Link href="/inspections">
+          <Card className="hover-elevate cursor-pointer" data-testid="kpi-inspection-completion">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                {getKpiIcon(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
+              </div>
+              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}`}>
+                {stats?.kpis?.inspectionCompletionRate ?? 0}%
+              </p>
+              <p className="text-xs text-muted-foreground">Inspection Rate (90d)</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card className="hover-elevate cursor-pointer" data-testid="kpi-resolution-time">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <Timer className="h-4 w-4 text-muted-foreground" />
-              {getKpiIcon(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
-            </div>
-            <p className="text-2xl font-bold">
-              {stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d
-            </p>
-            <p className="text-xs text-muted-foreground">Avg Resolution Time</p>
-          </CardContent>
-        </Card>
+        <Link href="/maintenance">
+          <Card className="hover-elevate cursor-pointer" data-testid="kpi-resolution-time">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Timer className="h-4 w-4 text-muted-foreground" />
+                {getKpiIcon(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
+              </div>
+              <p className="text-2xl font-bold">
+                {stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d
+              </p>
+              <p className="text-xs text-muted-foreground">Avg Resolution Time</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card className="hover-elevate cursor-pointer" data-testid="kpi-open-maintenance">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <Wrench className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <p className="text-2xl font-bold">
-              {stats?.kpis?.openMaintenanceCount ?? 0}
-            </p>
-            <p className="text-xs text-muted-foreground">Open Requests</p>
-          </CardContent>
-        </Card>
+        <Link href="/maintenance?status=open">
+          <Card className="hover-elevate cursor-pointer" data-testid="kpi-open-maintenance">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Wrench className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <p className="text-2xl font-bold">
+                {stats?.kpis?.openMaintenanceCount ?? 0}
+              </p>
+              <p className="text-xs text-muted-foreground">Open Requests</p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card className="hover-elevate cursor-pointer" data-testid="kpi-in-progress">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <p className="text-2xl font-bold">
-              {stats?.kpis?.inProgressMaintenanceCount ?? 0}
-            </p>
-            <p className="text-xs text-muted-foreground">In Progress</p>
-          </CardContent>
-        </Card>
+        <Link href="/maintenance?status=in_progress">
+          <Card className="hover-elevate cursor-pointer" data-testid="kpi-in-progress">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <p className="text-2xl font-bold">
+                {stats?.kpis?.inProgressMaintenanceCount ?? 0}
+              </p>
+              <p className="text-xs text-muted-foreground">In Progress</p>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
       )}
 
@@ -629,7 +641,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.overdueComplianceList ?? []).map((item) => (
-                        <Link key={item.id} href={`/compliance`}>
+                        <Link key={item.id} href={item.propertyId ? `/properties/${item.propertyId}?tab=compliance` : item.blockId ? `/blocks/${item.blockId}?tab=compliance` : `/compliance`}>
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-compliance-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
@@ -672,7 +684,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.urgentMaintenanceList ?? []).map((item) => (
-                        <Link key={item.id} href={`/maintenance`}>
+                        <Link key={item.id} href={`/maintenance/${item.id}`}>
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-maintenance-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
@@ -863,9 +875,33 @@ export default function Dashboard() {
                       </Link>
                     ))}
                     {(stats?.risk?.propertiesAtRiskIds?.length ?? 0) > 5 && (
-                      <Badge variant="outline" className="text-xs">
-                        +{(stats?.risk?.propertiesAtRiskIds?.length ?? 0) - 5} more
-                      </Badge>
+                      <Link href="/properties?status=at-risk">
+                        <Badge variant="outline" className="text-xs cursor-pointer hover-elevate">
+                          +{(stats?.risk?.propertiesAtRiskIds?.length ?? 0) - 5} more
+                        </Badge>
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {(stats?.risk?.blocksAtRiskCount ?? 0) > 0 && (
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground mb-2">Blocks needing attention:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {(stats?.risk?.blocksAtRiskIds ?? []).slice(0, 5).map((id) => (
+                      <Link key={id} href={`/blocks/${id}`}>
+                        <Badge variant="outline" className="text-xs cursor-pointer hover-elevate" data-testid={`risk-block-${id}`}>
+                          {blockMap.get(id) || 'Block'}
+                        </Badge>
+                      </Link>
+                    ))}
+                    {(stats?.risk?.blocksAtRiskIds?.length ?? 0) > 5 && (
+                      <Link href="/blocks?status=at-risk">
+                        <Badge variant="outline" className="text-xs cursor-pointer hover-elevate">
+                          +{(stats?.risk?.blocksAtRiskIds?.length ?? 0) - 5} more
+                        </Badge>
+                      </Link>
                     )}
                   </div>
                 </div>
