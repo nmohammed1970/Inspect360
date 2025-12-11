@@ -38,11 +38,29 @@ export default function Properties() {
   const [editingProperty, setEditingProperty] = useState<any | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [propertyType, setPropertyType] = useState<string | undefined>();
   const [blockId, setBlockId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [maintenancePropertyId, setMaintenancePropertyId] = useState<string | null>(null);
+  
+  const propertyTypes = [
+    { value: "apartment", label: "Apartment" },
+    { value: "house", label: "House" },
+    { value: "studio", label: "Studio" },
+    { value: "townhouse", label: "Townhouse" },
+    { value: "flat", label: "Flat" },
+    { value: "maisonette", label: "Maisonette" },
+    { value: "bungalow", label: "Bungalow" },
+    { value: "detached", label: "Detached" },
+    { value: "semi-detached", label: "Semi-Detached" },
+    { value: "terraced", label: "Terraced" },
+    { value: "penthouse", label: "Penthouse" },
+    { value: "duplex", label: "Duplex" },
+    { value: "commercial", label: "Commercial" },
+    { value: "other", label: "Other" },
+  ];
 
   const { data: properties = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/properties"],
@@ -133,7 +151,7 @@ export default function Properties() {
   }, [dialogOpen, editingProperty, urlBlockId, selectedBlock]);
 
   const createProperty = useMutation({
-    mutationFn: async (data: { name: string; address: string; blockId?: string }) => {
+    mutationFn: async (data: { name: string; address: string; propertyType?: string; blockId?: string }) => {
       const res = await apiRequest("POST", "/api/properties", data);
       return await res.json();
     },
@@ -162,10 +180,11 @@ export default function Properties() {
   });
 
   const updateProperty = useMutation({
-    mutationFn: async (data: { id: string; name: string; address: string; blockId?: string }) => {
+    mutationFn: async (data: { id: string; name: string; address: string; propertyType?: string; blockId?: string }) => {
       return await apiRequest("PATCH", `/api/properties/${data.id}`, {
         name: data.name,
         address: data.address,
+        propertyType: data.propertyType,
         blockId: data.blockId,
       });
     },
@@ -195,6 +214,7 @@ export default function Properties() {
     setEditingProperty(null);
     setName("");
     setAddress("");
+    setPropertyType(undefined);
     setBlockId(urlBlockId || undefined);
     setSelectedTags([]);
     setDialogOpen(true);
@@ -204,6 +224,7 @@ export default function Properties() {
     setEditingProperty(property);
     setName(property.name);
     setAddress(property.address);
+    setPropertyType(property.propertyType || undefined);
     setBlockId(property.blockId || undefined);
     
     // Fetch tags for this property
@@ -225,6 +246,7 @@ export default function Properties() {
     setEditingProperty(null);
     setName("");
     setAddress("");
+    setPropertyType(undefined);
     setBlockId(undefined);
     setSelectedTags([]);
   };
@@ -267,9 +289,9 @@ export default function Properties() {
     const finalBlockId = blockId === "none" ? null : (blockId || undefined);
     
     if (editingProperty) {
-      updateProperty.mutate({ id: editingProperty.id, name, address, blockId: finalBlockId });
+      updateProperty.mutate({ id: editingProperty.id, name, address, propertyType, blockId: finalBlockId });
     } else {
-      createProperty.mutate({ name, address, blockId: finalBlockId });
+      createProperty.mutate({ name, address, propertyType, blockId: finalBlockId });
     }
   };
 
@@ -334,10 +356,25 @@ export default function Properties() {
                   id="address"
                   value={address}
                   onChange={setAddress}
-                  placeholder="123 Main St, City, State ZIP"
+                  placeholder="Start typing to search..."
                   data-testid="input-property-address"
                   required
                 />
+              </div>
+              <div>
+                <Label htmlFor="propertyType">Property Type</Label>
+                <Select value={propertyType} onValueChange={setPropertyType}>
+                  <SelectTrigger data-testid="select-property-type">
+                    <SelectValue placeholder="Select property type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {propertyTypes.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="block">Block (Optional)</Label>

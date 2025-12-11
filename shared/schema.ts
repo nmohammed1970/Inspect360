@@ -241,6 +241,7 @@ export const properties = pgTable("properties", {
   blockId: varchar("block_id"), // Optional: properties can be grouped into blocks
   name: varchar("name").notNull(),
   address: text("address").notNull(),
+  propertyType: varchar("property_type"), // Property type: apartment, house, studio, etc.
   sqft: integer("sqft"), // Property area in square feet (for cost estimation)
   fixfloPropertyId: varchar("fixflo_property_id"), // Fixflo external property/asset ID
   fixfloSyncedAt: timestamp("fixflo_synced_at"), // Last successful sync timestamp
