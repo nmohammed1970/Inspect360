@@ -98,12 +98,30 @@ function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }
 }
 
 const createInspectionSchema = z.object({
-  propertyId: z.string().min(1, "Property is required"),
+  targetType: z.enum(["property", "block"]),
+  propertyId: z.string().optional(),
+  blockId: z.string().optional(),
+  tenantId: z.string().optional(),
   type: z.enum(["check_in", "check_out", "routine", "maintenance"]),
   scheduledDate: z.string().min(1, "Scheduled date is required"),
   templateId: z.string().optional(),
   clerkId: z.string().optional(),
   notes: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.targetType === "property" && !data.propertyId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Please select a property",
+      path: ["propertyId"],
+    });
+  }
+  if (data.targetType === "block" && !data.blockId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Please select a block",
+      path: ["blockId"],
+    });
+  }
 });
 
 type CreateInspectionData = z.infer<typeof createInspectionSchema>;
@@ -143,10 +161,19 @@ export default function Inspections() {
     queryKey: ["/api/inspection-templates?scope=property&active=true"],
   });
 
+  // Fetch tenants for selected property
+  const { data: tenants = [] } = useQuery<any[]>({
+    queryKey: ["/api/properties", selectedPropertyId, "tenants"],
+    enabled: !!selectedPropertyId,
+  });
+
   const form = useForm<CreateInspectionData>({
     resolver: zodResolver(createInspectionSchema),
     defaultValues: {
+      targetType: "property",
       propertyId: "",
+      blockId: "",
+      tenantId: "",
       type: "routine",
       scheduledDate: new Date().toISOString().split("T")[0],
       templateId: "__none__",
@@ -267,6 +294,17 @@ export default function Inspections() {
     // Create payload and remove sentinel values
     const payload: any = { ...data };
     
+    // Remove targetType from payload (not needed by API)
+    delete payload.targetType;
+    
+    // Remove the unused id field based on target type
+    if (data.targetType === "property") {
+      delete payload.blockId;
+    } else {
+      delete payload.propertyId;
+      delete payload.tenantId; // Block inspections don't have tenant
+    }
+    
     // Remove templateId if it's the sentinel or empty
     if (payload.templateId === "__none__" || !payload.templateId) {
       delete payload.templateId;
@@ -275,6 +313,11 @@ export default function Inspections() {
     // Remove clerkId if it's the sentinel or empty
     if (payload.clerkId === "__none__" || !payload.clerkId) {
       delete payload.clerkId;
+    }
+    
+    // Remove tenantId if empty or sentinel
+    if (payload.tenantId === "__none__" || !payload.tenantId) {
+      delete payload.tenantId;
     }
     
     createInspection.mutate(payload);
@@ -330,41 +373,131 @@ export default function Inspections() {
             <DialogHeader>
               <DialogTitle>Create New Inspection</DialogTitle>
               <DialogDescription>
-                Schedule a new inspection for a property unit
+                Schedule a new inspection for a block or property unit
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
-                  name="propertyId"
+                  name="targetType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Property</FormLabel>
+                      <FormLabel>Inspection Target</FormLabel>
                       <Select
                         onValueChange={(value) => {
                           field.onChange(value);
-                          setSelectedPropertyId(value);
+                          form.setValue("propertyId", "");
+                          form.setValue("blockId", "");
+                          form.setValue("tenantId", "");
+                          setSelectedPropertyId("");
                         }}
                         value={field.value}
                       >
                         <FormControl>
-                          <SelectTrigger data-testid="select-property">
-                            <SelectValue placeholder="Select property" />
+                          <SelectTrigger data-testid="select-target-type">
+                            <SelectValue placeholder="Select target type" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {properties.map((property: any) => (
-                            <SelectItem key={property.id} value={property.id}>
-                              {property.name}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="property">Property (Unit)</SelectItem>
+                          <SelectItem value="block">Block (Building)</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                {form.watch("targetType") === "block" && (
+                  <FormField
+                    control={form.control}
+                    name="blockId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Block</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-block">
+                              <SelectValue placeholder="Select block" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {blocks.map((block: any) => (
+                              <SelectItem key={block.id} value={block.id}>
+                                {block.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {form.watch("targetType") === "property" && (
+                  <FormField
+                    control={form.control}
+                    name="propertyId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Property</FormLabel>
+                        <Select
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            setSelectedPropertyId(value);
+                            form.setValue("tenantId", "");
+                          }}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-property">
+                              <SelectValue placeholder="Select property" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {properties.map((property: any) => (
+                              <SelectItem key={property.id} value={property.id}>
+                                {property.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {form.watch("targetType") === "property" && selectedPropertyId && tenants.length > 0 && (
+                  <FormField
+                    control={form.control}
+                    name="tenantId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tenant (Optional)</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "__none__"}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-tenant">
+                              <SelectValue placeholder="Select tenant" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">No Tenant Selected</SelectItem>
+                            {tenants.map((tenant: any) => (
+                              <SelectItem key={tenant.id} value={tenant.tenant?.id || tenant.id}>
+                                {tenant.tenant?.firstName} {tenant.tenant?.lastName}
+                                {tenant.assignment?.isActive && " (Active)"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <FormField
                   control={form.control}
