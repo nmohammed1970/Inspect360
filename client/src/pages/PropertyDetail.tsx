@@ -714,6 +714,7 @@ export default function PropertyDetail() {
                           <FormLabel>Document File</FormLabel>
                           <FormControl>
                             <ObjectUploader
+                              buttonClassName="w-full"
                               onGetUploadParameters={async () => {
                                 const response = await fetch('/api/objects/upload', {
                                   method: 'POST',

@@ -601,6 +601,7 @@ export default function Compliance() {
                       <FormControl>
                         <div className="space-y-2">
                           <ObjectUploader
+                            buttonClassName="w-full"
                             onGetUploadParameters={async () => {
                               try {
                                 setIsUploading(true);
