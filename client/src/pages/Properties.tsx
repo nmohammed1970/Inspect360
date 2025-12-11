@@ -494,7 +494,7 @@ export default function Properties() {
                   </CardContent>
                 </Link>
                 <CardContent className="pt-0 border-t">
-                  <div className="flex items-center justify-around pt-4">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 pt-4">
                     <Link href={`/asset-inventory?propertyId=${property.id}`}>
                       <Button 
                         variant="ghost" 
