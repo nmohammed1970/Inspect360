@@ -800,11 +800,11 @@ export function FieldWidget({
                 {localPhotos.map((photoUrl, index) => (
                   <Card key={index} className="overflow-hidden">
                     <CardContent className="p-0">
-                      <div className="relative group">
+                      <div className="relative group bg-muted">
                         <img
                           src={photoUrl}
                           alt={`${field.label} ${index + 1}`}
-                          className="w-full h-48 object-cover"
+                          className="w-full h-auto max-h-64 object-contain"
                         />
                         <Button
                           size="icon"
