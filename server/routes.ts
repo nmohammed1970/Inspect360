@@ -10170,8 +10170,10 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         avgResolutionDays = Math.round(totalDays / completedMaintenance.length * 10) / 10;
       }
 
-      // Calculate occupancy rate
-      const activeAssignments = tenantAssignments.filter(t => t.status === 'active');
+      // Calculate occupancy rate - include 'current', 'active', and 'notice_served' as occupied
+      const activeAssignments = tenantAssignments.filter(t => 
+        t.status === 'active' || t.status === 'current' || t.status === 'notice_served'
+      );
       const occupiedProperties = new Set(activeAssignments.map(t => t.propertyId));
       const occupancyRate = properties.length > 0 
         ? Math.round((occupiedProperties.size / properties.length) * 100) 
@@ -15436,7 +15438,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         return tenantAssignments.some(
           assignment =>
             assignment.propertyId === property.id &&
-            assignment.status === "active"
+            (assignment.status === "active" || assignment.status === "current" || assignment.status === "notice_served")
         );
       }).length;
 
@@ -15460,7 +15462,9 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         blocksWithStats.length
       )
       : 0;
-    const totalActiveTenants = tenantAssignments.filter(a => a.status === "active").length;
+    const totalActiveTenants = tenantAssignments.filter(a => 
+      a.status === "active" || a.status === "current" || a.status === "notice_served"
+    ).length;
 
     const getOccupancyColor = (rate: number) => {
       if (rate >= 90) return { bg: "#dcfce7", color: "#166534" };
