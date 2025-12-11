@@ -222,6 +222,7 @@ export interface IStorage {
   getInspection(id: string): Promise<Inspection | undefined>;
   updateInspectionStatus(id: string, status: string, completedDate?: Date): Promise<Inspection>;
   updateInspection(id: string, updates: Partial<InsertInspection>): Promise<Inspection>;
+  deleteInspection(id: string): Promise<void>;
 
   // Inspection Category operations
   createInspectionCategory(category: InsertInspectionCategory): Promise<InspectionCategory>;
@@ -1064,6 +1065,13 @@ export class DatabaseStorage implements IStorage {
     }
 
     return inspection;
+  }
+
+  async deleteInspection(id: string): Promise<void> {
+    await db.delete(inspectionItems).where(eq(inspectionItems.inspectionId, id));
+    await db.delete(inspectionResponses).where(eq(inspectionResponses.inspectionId, id));
+    await db.delete(inspectionEntries).where(eq(inspectionEntries.inspectionId, id));
+    await db.delete(inspections).where(eq(inspections.id, id));
   }
 
   // Inspection Item operations

@@ -1,4 +1,4 @@
-import { useParams, Link } from "wouter";
+import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,17 +9,21 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [newItem, setNewItem] = useState({
     category: "",
     itemName: "",
@@ -117,6 +121,33 @@ export default function InspectionDetail() {
     },
   });
 
+  const deleteInspectionMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("DELETE", `/api/inspections/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections"] });
+      toast({
+        title: "Deleted",
+        description: "Inspection has been permanently deleted",
+      });
+      setLocation("/inspections");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete inspection",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteInspection = () => {
+    if (deleteConfirmText === "DELETE") {
+      deleteInspectionMutation.mutate();
+    }
+  };
+
   const handleAddItem = () => {
     if (!newItem.category || !newItem.itemName) {
       toast({
@@ -204,16 +235,26 @@ export default function InspectionDetail() {
             {inspection.property?.name || inspection.block?.name}
           </p>
         </div>
-        {inspection.status !== "completed" && (
+        <div className="flex items-center gap-2">
+          {inspection.status !== "completed" && (
+            <Button
+              onClick={() => completeInspection.mutate()}
+              disabled={completeInspection.isPending}
+              data-testid="button-complete"
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              {completeInspection.isPending ? "Completing..." : "Mark Complete"}
+            </Button>
+          )}
           <Button
-            onClick={() => completeInspection.mutate()}
-            disabled={completeInspection.isPending}
-            data-testid="button-complete"
+            variant="destructive"
+            size="icon"
+            onClick={() => setShowDeleteDialog(true)}
+            data-testid="button-delete-inspection"
           >
-            <CheckCircle className="w-4 h-4 mr-2" />
-            {completeInspection.isPending ? "Completing..." : "Mark Complete"}
+            <Trash2 className="w-4 h-4" />
           </Button>
-        )}
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -548,6 +589,56 @@ export default function InspectionDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open);
+        if (!open) setDeleteConfirmText("");
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Inspection
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the inspection
+              and all associated items, photos, and data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              To confirm deletion, type <span className="font-bold text-foreground">DELETE</span> in the box below:
+            </p>
+            <Input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Type DELETE to confirm"
+              data-testid="input-delete-confirm"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteDialog(false);
+                setDeleteConfirmText("");
+              }}
+              data-testid="button-cancel-delete"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteInspection}
+              disabled={deleteConfirmText !== "DELETE" || deleteInspectionMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteInspectionMutation.isPending ? "Deleting..." : "Delete Inspection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -3006,6 +3006,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete inspection
+  app.delete("/api/inspections/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const inspection = await storage.getInspection(req.params.id);
+      if (!inspection) {
+        return res.status(404).json({ error: "Inspection not found" });
+      }
+
+      // Verify inspection belongs to user's organization
+      if (inspection.propertyId) {
+        const property = await storage.getProperty(inspection.propertyId);
+        if (!property || property.organizationId !== user.organizationId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      } else if (inspection.blockId) {
+        const block = await storage.getBlock(inspection.blockId);
+        if (!block || block.organizationId !== user.organizationId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      }
+
+      await storage.deleteInspection(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting inspection:", error);
+      res.status(500).json({ error: "Failed to delete inspection" });
+    }
+  });
+
   // ==================== INSPECTION RESPONSE ROUTES ====================
 
   // Create or update inspection response
