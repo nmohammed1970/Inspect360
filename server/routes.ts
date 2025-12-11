@@ -9948,7 +9948,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         storage.getPropertiesByOrganization(orgId),
         storage.getBlocksByOrganization(orgId),
         storage.getInspectionsByOrganization(orgId),
-        storage.getComplianceByOrganization(orgId),
+        storage.getComplianceDocuments(orgId),
         storage.getMaintenanceByOrganization(orgId),
         storage.getTenantAssignmentsByOrganization(orgId),
       ]);

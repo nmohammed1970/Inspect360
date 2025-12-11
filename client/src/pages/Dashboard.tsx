@@ -2,23 +2,36 @@ import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { 
   Building2, 
   ClipboardCheck, 
   FileText, 
   CreditCard, 
-  AlertCircle, 
+  AlertTriangle, 
   Search, 
   Settings,
   TrendingUp,
+  TrendingDown,
   Users,
   Wrench,
   Package,
   Eye,
-  EyeOff
+  EyeOff,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  CalendarClock,
+  ShieldAlert,
+  Home,
+  Timer,
+  Activity,
+  ChevronRight,
+  RefreshCw
 } from "lucide-react";
 import { Link } from "wouter";
 import { TagSearch } from "@/components/TagSearch";
@@ -27,9 +40,8 @@ import {
   Bar, 
   LineChart, 
   Line, 
-  PieChart, 
-  Pie, 
-  Cell,
+  AreaChart,
+  Area,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -53,108 +65,76 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Property, Inspection, ComplianceDocument, MaintenanceRequest, Block } from "@shared/schema";
+import type { Property, Block } from "@shared/schema";
 
-type InspectionWithDetails = Inspection & {
-  property?: Property;
-  block?: Block;
-  clerk?: { firstName: string | null; lastName: string | null };
-};
-
-type PanelType = 
-  | "stats" 
-  | "inspections" 
-  | "compliance" 
-  | "maintenance" 
-  | "assets"
-  | "workOrders"
-  | "inspectionTrend"
-  | "statusDistribution"
-  | "credits";
-
-interface PanelConfig {
-  id: PanelType;
-  title: string;
-  icon: any;
-  roles: string[];
-  description: string;
+interface DashboardStats {
+  totals: {
+    properties: number;
+    blocks: number;
+    inspections: number;
+    maintenance: number;
+    compliance: number;
+  };
+  alerts: {
+    overdueInspections: number;
+    overdueInspectionsList: Array<{
+      id: string;
+      propertyId: string | null;
+      blockId: string | null;
+      type: string;
+      scheduledDate: string;
+      daysOverdue: number;
+    }>;
+    overdueCompliance: number;
+    overdueComplianceList: Array<{
+      id: string;
+      propertyId: string | null;
+      blockId: string | null;
+      documentType: string;
+      expiryDate: string;
+      daysOverdue: number;
+    }>;
+    urgentMaintenance: number;
+    urgentMaintenanceList: Array<{
+      id: string;
+      title: string;
+      propertyId: string;
+      priority: string;
+      createdAt: string;
+    }>;
+  };
+  upcoming: {
+    inspectionsDueNext7Days: number;
+    inspectionsDueNext30Days: number;
+    complianceExpiringNext30Days: number;
+    complianceExpiringNext90Days: number;
+  };
+  kpis: {
+    occupancyRate: number;
+    complianceRate: number;
+    inspectionCompletionRate: number;
+    avgMaintenanceResolutionDays: number;
+    openMaintenanceCount: number;
+    inProgressMaintenanceCount: number;
+  };
+  risk: {
+    propertiesAtRiskCount: number;
+    blocksAtRiskCount: number;
+    propertiesAtRiskIds: string[];
+    blocksAtRiskIds: string[];
+  };
+  trends: {
+    inspections: Array<{ week: string; completed: number }>;
+    maintenance: Array<{ week: string; created: number }>;
+  };
 }
-
-const AVAILABLE_PANELS: PanelConfig[] = [
-  { 
-    id: "stats", 
-    title: "Quick Stats", 
-    icon: TrendingUp, 
-    roles: ["owner", "clerk", "compliance"],
-    description: "Overview of properties, blocks, and inspections"
-  },
-  { 
-    id: "inspections", 
-    title: "Recent Inspections", 
-    icon: ClipboardCheck, 
-    roles: ["owner", "clerk"],
-    description: "Latest inspection activities"
-  },
-  { 
-    id: "compliance", 
-    title: "Compliance Documents", 
-    icon: FileText, 
-    roles: ["owner", "compliance"],
-    description: "Expiring compliance documents"
-  },
-  { 
-    id: "maintenance", 
-    title: "Maintenance Requests", 
-    icon: Wrench, 
-    roles: ["owner", "clerk"],
-    description: "Open maintenance requests"
-  },
-  { 
-    id: "assets", 
-    title: "Asset Inventory", 
-    icon: Package, 
-    roles: ["owner", "clerk"],
-    description: "Assets needing attention"
-  },
-  { 
-    id: "workOrders", 
-    title: "Work Orders", 
-    icon: Users, 
-    roles: ["owner", "contractor"],
-    description: "Active work orders"
-  },
-  { 
-    id: "inspectionTrend", 
-    title: "Inspection Trend", 
-    icon: TrendingUp, 
-    roles: ["owner", "clerk"],
-    description: "Inspection activity over time"
-  },
-  { 
-    id: "statusDistribution", 
-    title: "Status Distribution", 
-    icon: TrendingUp, 
-    roles: ["owner", "clerk", "compliance"],
-    description: "Distribution of inspection statuses"
-  },
-  { 
-    id: "credits", 
-    title: "AI Credits", 
-    icon: CreditCard, 
-    roles: ["owner"],
-    description: "Credit usage and balance"
-  },
-];
-
-const COLORS = ['hsl(199, 79%, 63%)', 'hsl(214, 100%, 50%)', 'hsl(142, 71%, 45%)', 'hsl(38, 92%, 50%)', 'hsl(0, 72%, 51%)'];
 
 export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
-  const [configDialogOpen, setConfigDialogOpen] = useState(false);
-  const [viewRole, setViewRole] = useState<string>("");
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -168,43 +148,21 @@ export default function Dashboard() {
       }, 500);
       return;
     }
-    if (user && !viewRole) {
-      setViewRole(user.role);
-    }
-  }, [isAuthenticated, isLoading, toast, user, viewRole]);
+  }, [isAuthenticated, isLoading, toast, user]);
+
+  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<DashboardStats>({
+    queryKey: ["/api/dashboard/stats"],
+    enabled: isAuthenticated,
+    refetchInterval: 60000, // Refresh every minute
+  });
 
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
     enabled: isAuthenticated,
   });
 
-  const { data: inspections = [] } = useQuery<InspectionWithDetails[]>({
-    queryKey: ["/api/inspections/my"],
-    enabled: isAuthenticated,
-  });
-
   const { data: blocks = [] } = useQuery<Block[]>({
     queryKey: ["/api/blocks"],
-    enabled: isAuthenticated,
-  });
-
-  const { data: compliance = [] } = useQuery<ComplianceDocument[]>({
-    queryKey: ["/api/compliance/expiring?days=90"],
-    enabled: isAuthenticated && (user?.role === "owner" || user?.role === "compliance"),
-  });
-
-  const { data: maintenance = [] } = useQuery<MaintenanceRequest[]>({
-    queryKey: ["/api/maintenance"],
-    enabled: isAuthenticated && (user?.role === "owner" || user?.role === "clerk"),
-  });
-
-  const { data: assets = [] } = useQuery<any[]>({
-    queryKey: ["/api/asset-inventory"],
-    enabled: isAuthenticated && (user?.role === "owner" || user?.role === "clerk"),
-  });
-
-  const { data: workOrders = [] } = useQuery<any[]>({
-    queryKey: ["/api/work-orders"],
     enabled: isAuthenticated,
   });
 
@@ -218,75 +176,26 @@ export default function Dashboard() {
     enabled: isAuthenticated && !!user?.organizationId && user?.role === "owner",
   });
 
-  const { data: preferences } = useQuery<{ enabledPanels: string[] }>({
-    queryKey: ["/api/dashboard/preferences"],
-    enabled: isAuthenticated,
-  });
+  // Create lookup maps for property/block names
+  const propertyMap = useMemo(() => {
+    const map = new Map<string, string>();
+    properties.forEach(p => map.set(p.id, p.name));
+    return map;
+  }, [properties]);
 
-  const updatePreferences = useMutation({
-    mutationFn: async (enabledPanels: string[]) => {
-      return await apiRequest("PUT", "/api/dashboard/preferences", { enabledPanels });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/preferences"] });
-      toast({
-        title: "Success",
-        description: "Dashboard preferences updated",
-      });
-    },
-  });
+  const blockMap = useMemo(() => {
+    const map = new Map<string, string>();
+    blocks.forEach(b => map.set(b.id, b.name));
+    return map;
+  }, [blocks]);
 
-  const enabledPanels = useMemo(() => {
-    if (preferences?.enabledPanels) {
-      if (typeof preferences.enabledPanels === "string") {
-        return JSON.parse(preferences.enabledPanels as any);
-      }
-      return preferences.enabledPanels;
-    }
-    return ["stats", "inspections", "compliance", "maintenance"];
-  }, [preferences]);
-
-  const availablePanelsForRole = useMemo(() => {
-    return AVAILABLE_PANELS.filter(panel => panel.roles.includes(viewRole));
-  }, [viewRole]);
-
-  const togglePanel = (panelId: PanelType) => {
-    const newPanels = enabledPanels.includes(panelId)
-      ? enabledPanels.filter((p: string) => p !== panelId)
-      : [...enabledPanels, panelId];
-    updatePreferences.mutate(newPanels);
-  };
-
-  const inspectionTrendData = useMemo(() => {
-    const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - i));
-      return date.toISOString().split('T')[0];
-    });
-
-    return last7Days.map(date => {
-      const count = inspections.filter(i => 
-        i.createdAt && new Date(i.createdAt).toISOString().split('T')[0] === date
-      ).length;
-      return {
-        date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        count
-      };
-    });
-  }, [inspections]);
-
-  const statusDistributionData = useMemo(() => {
-    const statusCounts: Record<string, number> = {};
-    inspections.forEach(i => {
-      statusCounts[i.status] = (statusCounts[i.status] || 0) + 1;
-    });
-    return Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
-  }, [inspections]);
-
-  if (isLoading) {
+  if (isLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <RefreshCw className="h-5 w-5 animate-spin" />
+          <span>Loading dashboard...</span>
+        </div>
       </div>
     );
   }
@@ -294,546 +203,540 @@ export default function Dashboard() {
   const creditsRemaining = organization?.creditsRemaining ?? 0;
   const creditsLow = creditsRemaining < 5;
 
-  const shouldShowPanel = (panelId: PanelType) => {
-    const panel = AVAILABLE_PANELS.find(p => p.id === panelId);
-    return panel && panel.roles.includes(viewRole) && enabledPanels.includes(panelId);
+  const totalAlerts = (stats?.alerts.overdueInspections || 0) + 
+                      (stats?.alerts.overdueCompliance || 0) + 
+                      (stats?.alerts.urgentMaintenance || 0);
+
+  const getKpiColor = (value: number, thresholds: { good: number; warning: number }) => {
+    if (value >= thresholds.good) return "text-green-600 dark:text-green-400";
+    if (value >= thresholds.warning) return "text-yellow-600 dark:text-yellow-400";
+    return "text-red-600 dark:text-red-400";
+  };
+
+  const getKpiIcon = (value: number, thresholds: { good: number; warning: number }) => {
+    if (value >= thresholds.good) return <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />;
+    if (value >= thresholds.warning) return <Activity className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />;
+    return <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />;
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 xl:p-12 space-y-6 md:space-y-8">
+    <div className="p-4 md:p-6 lg:p-8 space-y-6">
       {/* Header Section */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-foreground" data-testid="text-dashboard-title">
-            Dashboard
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight" data-testid="text-dashboard-title">
+            Operations Dashboard
           </h1>
-          <p className="text-sm md:text-base lg:text-lg text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-          {user?.role === "owner" && (
-            <Select value={viewRole} onValueChange={setViewRole}>
-              <SelectTrigger className="w-full sm:w-48" data-testid="select-view-role">
-                <SelectValue placeholder="View as..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="owner" data-testid="option-owner">Owner View</SelectItem>
-                <SelectItem value="clerk" data-testid="option-clerk">Clerk View</SelectItem>
-                <SelectItem value="compliance" data-testid="option-compliance">Compliance View</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          <div className="flex gap-2 sm:gap-3">
-            <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2 flex-1 sm:flex-initial" data-testid="button-configure-panels">
-                  <Settings className="h-4 w-4" />
-                  <span className="hidden sm:inline">Configure</span>
-                  <span className="sm:hidden">Config</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Configure Dashboard Panels</DialogTitle>
-                  <DialogDescription>
-                    Select which panels you want to see on your dashboard
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  {availablePanelsForRole.map((panel) => {
-                    const Icon = panel.icon;
-                    const isEnabled = enabledPanels.includes(panel.id);
-                    return (
-                      <div 
-                        key={panel.id} 
-                        className="flex items-start gap-4 p-4 border rounded-xl hover-elevate cursor-pointer"
-                        onClick={() => togglePanel(panel.id)}
-                        data-testid={`panel-config-${panel.id}`}
-                      >
-                        <Checkbox 
-                          checked={isEnabled} 
-                          onCheckedChange={() => togglePanel(panel.id)}
-                          data-testid={`checkbox-panel-${panel.id}`}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Icon className="h-4 w-4 text-primary" />
-                            <span className="font-semibold">{panel.title}</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground">{panel.description}</p>
-                        </div>
-                        {isEnabled ? (
-                          <Eye className="h-5 w-5 text-primary" />
-                        ) : (
-                          <EyeOff className="h-5 w-5 text-muted-foreground" />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </DialogContent>
-            </Dialog>
-            <Button 
-              onClick={() => setTagSearchOpen(true)} 
-              variant="outline"
-              className="gap-2 flex-1 sm:flex-initial"
-              data-testid="button-search-tags"
-            >
-              <Search className="h-4 w-4" />
-              <span className="hidden sm:inline">Search by Tags</span>
-              <span className="sm:hidden">Search</span>
-            </Button>
-          </div>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => refetchStats()}
+            data-testid="button-refresh-stats"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button 
+            onClick={() => setTagSearchOpen(true)} 
+            variant="outline"
+            size="sm"
+            data-testid="button-search-tags"
+          >
+            <Search className="h-4 w-4 mr-2" />
+            Search
+          </Button>
         </div>
       </div>
 
-      {/* Credits Low Alert */}
-      {creditsLow && user?.role === "owner" && (
-        <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex flex-col gap-4 p-4 md:p-6">
-            <div className="flex items-start gap-3 md:gap-4">
-              <div className="flex-shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full bg-destructive/10 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 md:w-6 md:h-6 text-destructive" />
+      {/* Critical Alerts Banner */}
+      {totalAlerts > 0 && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="panel-critical-alerts">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-base md:text-lg">Inspection credits low</p>
-                <p className="text-xs md:text-sm text-muted-foreground mt-1">
-                  You have {creditsRemaining} credits remaining. Purchase more to avoid blocking submissions.
+              <div className="flex-1">
+                <p className="font-semibold text-destructive">
+                  {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {stats?.alerts.overdueInspections || 0} overdue inspections, {stats?.alerts.overdueCompliance || 0} expired compliance, {stats?.alerts.urgentMaintenance || 0} urgent maintenance
                 </p>
               </div>
             </div>
-            <Link href="/credits" className="w-full sm:w-auto sm:self-end">
-              <Button variant="default" className="w-full sm:w-auto" data-testid="button-purchase-credits">
-                Purchase Credits
-              </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Credits Low Alert */}
+      {creditsLow && user?.role === "owner" && (
+        <Card className="border-yellow-500/50 bg-yellow-500/5">
+          <CardContent className="flex items-center justify-between gap-4 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
+                <CreditCard className="w-5 h-5 text-yellow-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-yellow-700 dark:text-yellow-400">AI Credits Running Low</p>
+                <p className="text-sm text-muted-foreground">{creditsRemaining} credits remaining</p>
+              </div>
+            </div>
+            <Link href="/billing?action=topup">
+              <Button size="sm" data-testid="button-purchase-credits">Purchase Credits</Button>
             </Link>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
-        {/* Quick Stats Panel */}
-        {shouldShowPanel("stats") && (
-          <Card className="xl:col-span-3" data-testid="panel-stats">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Quick Stats
+      {/* KPI Cards Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="panel-kpis">
+        <Card className="hover-elevate cursor-pointer" data-testid="kpi-occupancy">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Home className="h-4 w-4 text-muted-foreground" />
+              {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
+            </div>
+            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
+              {stats?.kpis?.occupancyRate ?? 0}%
+            </p>
+            <p className="text-xs text-muted-foreground">Occupancy Rate</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+              {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}
+            </div>
+            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}`}>
+              {stats?.kpis?.complianceRate ?? 0}%
+            </p>
+            <p className="text-xs text-muted-foreground">Compliance Rate</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" data-testid="kpi-inspection-completion">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              {getKpiIcon(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
+            </div>
+            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}`}>
+              {stats?.kpis?.inspectionCompletionRate ?? 0}%
+            </p>
+            <p className="text-xs text-muted-foreground">Inspection Rate (90d)</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" data-testid="kpi-resolution-time">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Timer className="h-4 w-4 text-muted-foreground" />
+              {getKpiIcon(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
+            </div>
+            <p className="text-2xl font-bold">
+              {stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d
+            </p>
+            <p className="text-xs text-muted-foreground">Avg Resolution Time</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" data-testid="kpi-open-maintenance">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Wrench className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <p className="text-2xl font-bold">
+              {stats?.kpis?.openMaintenanceCount ?? 0}
+            </p>
+            <p className="text-xs text-muted-foreground">Open Requests</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" data-testid="kpi-in-progress">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <p className="text-2xl font-bold">
+              {stats?.kpis?.inProgressMaintenanceCount ?? 0}
+            </p>
+            <p className="text-xs text-muted-foreground">In Progress</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Alerts */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Alerts Tabs */}
+          <Card data-testid="panel-alerts-detail">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                  Action Required
+                </CardTitle>
+                <Badge variant="destructive" className="text-xs">
+                  {totalAlerts} items
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="inspections" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="inspections" className="text-xs md:text-sm" data-testid="tab-overdue-inspections">
+                    Inspections ({stats?.alerts?.overdueInspections ?? 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="compliance" className="text-xs md:text-sm" data-testid="tab-overdue-compliance">
+                    Compliance ({stats?.alerts?.overdueCompliance ?? 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="maintenance" className="text-xs md:text-sm" data-testid="tab-urgent-maintenance">
+                    Maintenance ({stats?.alerts?.urgentMaintenance ?? 0})
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="inspections" className="mt-4">
+                  {(stats?.alerts?.overdueInspectionsList?.length ?? 0) === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                      <p>No overdue inspections</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(stats?.alerts?.overdueInspectionsList ?? []).map((item) => (
+                        <Link key={item.id} href={`/inspections/${item.id}`}>
+                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-inspection-${item.id}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                                <ClipboardCheck className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 
+                                   item.blockId ? blockMap.get(item.blockId) || 'Block' : 'Unknown'}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{item.type}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="destructive" className="text-xs">
+                                {item.daysOverdue}d overdue
+                              </Badge>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                      {(stats?.alerts?.overdueInspections ?? 0) > 10 && (
+                        <Link href="/inspections?status=overdue">
+                          <Button variant="ghost" className="w-full text-sm" data-testid="link-view-all-inspections">
+                            View all {stats?.alerts?.overdueInspections} overdue inspections
+                            <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="compliance" className="mt-4">
+                  {(stats?.alerts?.overdueComplianceList?.length ?? 0) === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                      <p>No expired compliance documents</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(stats?.alerts?.overdueComplianceList ?? []).map((item) => (
+                        <Link key={item.id} href={`/compliance`}>
+                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-compliance-${item.id}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                                <FileText className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 
+                                   item.blockId ? blockMap.get(item.blockId) || 'Block' : 'Unknown'}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{item.documentType}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="destructive" className="text-xs">
+                                {item.daysOverdue}d expired
+                              </Badge>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                      {(stats?.alerts?.overdueCompliance ?? 0) > 10 && (
+                        <Link href="/compliance?status=expired">
+                          <Button variant="ghost" className="w-full text-sm" data-testid="link-view-all-compliance">
+                            View all {stats?.alerts?.overdueCompliance} expired documents
+                            <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="maintenance" className="mt-4">
+                  {(stats?.alerts?.urgentMaintenanceList?.length ?? 0) === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                      <p>No urgent maintenance requests</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(stats?.alerts?.urgentMaintenanceList ?? []).map((item) => (
+                        <Link key={item.id} href={`/maintenance`}>
+                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-maintenance-${item.id}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+                                <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm truncate max-w-[200px]">{item.title}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 'Unknown'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">
+                                {item.priority}
+                              </Badge>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                      {(stats?.alerts?.urgentMaintenance ?? 0) > 10 && (
+                        <Link href="/maintenance?priority=urgent">
+                          <Button variant="ghost" className="w-full text-sm" data-testid="link-view-all-maintenance">
+                            View all {stats?.alerts?.urgentMaintenance} urgent requests
+                            <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          {/* Trend Charts */}
+          <Card data-testid="panel-trends">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                Activity Trends (12 Weeks)
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                <Link href="/properties">
-                  <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-properties">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                      </div>
-                    </div>
-                    <p className="text-2xl md:text-3xl font-bold">{properties.length}</p>
-                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Properties</p>
-                  </div>
-                </Link>
-                <Link href="/blocks">
-                  <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-blocks">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                      </div>
-                    </div>
-                    <p className="text-2xl md:text-3xl font-bold">{blocks.length}</p>
-                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Blocks</p>
-                  </div>
-                </Link>
-                <Link href="/inspections">
-                  <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-inspections">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <ClipboardCheck className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                      </div>
-                    </div>
-                    <p className="text-2xl md:text-3xl font-bold">{inspections.length}</p>
-                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Inspections</p>
-                  </div>
-                </Link>
-                {viewRole === "owner" && (
-                  <Link href="/billing?action=topup">
-                    <div className="p-4 md:p-6 bg-card/50 rounded-xl border hover-elevate cursor-pointer transition-all" data-testid="stat-credits">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <CreditCard className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                        </div>
-                      </div>
-                      <p className="text-2xl md:text-3xl font-bold">{creditsRemaining}</p>
-                      <p className="text-xs md:text-sm text-muted-foreground mt-1">AI Credits</p>
-                    </div>
-                  </Link>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Inspection Trend Chart */}
-        {shouldShowPanel("inspectionTrend") && (
-          <Card className="lg:col-span-2" data-testid="panel-inspection-trend">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold">Inspection Activity (Last 7 Days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[250px] md:h-[300px]" data-testid="chart-wrapper-line">
+              <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={inspectionTrendData}>
+                  <AreaChart data={stats?.trends?.inspections ?? []}>
+                    <defs>
+                      <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis 
-                      dataKey="date" 
+                      dataKey="week" 
                       stroke="hsl(var(--muted-foreground))" 
-                      tick={{ fontSize: 12 }}
+                      tick={{ fontSize: 10 }}
+                      interval="preserveStartEnd"
                     />
                     <YAxis 
                       stroke="hsl(var(--muted-foreground))" 
-                      tick={{ fontSize: 12 }}
+                      tick={{ fontSize: 10 }}
                     />
                     <Tooltip 
                       contentStyle={{ 
                         backgroundColor: 'hsl(var(--background))', 
                         border: '1px solid hsl(var(--border))',
-                        borderRadius: '0.75rem',
-                        fontSize: '0.875rem'
+                        borderRadius: '0.5rem',
+                        fontSize: '0.75rem'
                       }} 
                     />
-                    <Line 
+                    <Area 
                       type="monotone" 
-                      dataKey="count" 
-                      stroke="hsl(199, 79%, 63%)" 
+                      dataKey="completed" 
+                      name="Inspections Completed"
+                      stroke="hsl(var(--primary))" 
+                      fillOpacity={1}
+                      fill="url(#colorCompleted)"
                       strokeWidth={2}
-                      dot={{ fill: 'hsl(199, 79%, 63%)', r: 3 }}
                     />
-                  </LineChart>
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
 
-        {/* Status Distribution Chart */}
-        {shouldShowPanel("statusDistribution") && (
-          <Card data-testid="panel-status-distribution">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold">Inspection Status</CardTitle>
+        {/* Right Column - Upcoming & Risk */}
+        <div className="space-y-6">
+          {/* Upcoming Due */}
+          <Card data-testid="panel-upcoming">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <CalendarClock className="h-5 w-5 text-yellow-600" />
+                Upcoming Due
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="h-[250px] md:h-[300px]" data-testid="chart-wrapper-pie">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={statusDistributionData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {statusDistributionData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--background))', 
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '0.75rem',
-                        fontSize: '0.875rem'
-                      }} 
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+            <CardContent className="space-y-4">
+              <Link href="/inspections?due=7">
+                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-inspections-7d">
+                  <div className="flex items-center gap-3">
+                    <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Inspections (7 days)</span>
+                  </div>
+                  <Badge variant="secondary">{stats?.upcoming?.inspectionsDueNext7Days ?? 0}</Badge>
+                </div>
+              </Link>
+              
+              <Link href="/inspections?due=30">
+                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-inspections-30d">
+                  <div className="flex items-center gap-3">
+                    <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Inspections (30 days)</span>
+                  </div>
+                  <Badge variant="secondary">{stats?.upcoming?.inspectionsDueNext30Days ?? 0}</Badge>
+                </div>
+              </Link>
+
+              <Link href="/compliance?expiring=30">
+                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-compliance-30d">
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Compliance (30 days)</span>
+                  </div>
+                  <Badge variant="secondary">{stats?.upcoming?.complianceExpiringNext30Days ?? 0}</Badge>
+                </div>
+              </Link>
+
+              <Link href="/compliance?expiring=90">
+                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-compliance-90d">
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Compliance (90 days)</span>
+                  </div>
+                  <Badge variant="secondary">{stats?.upcoming?.complianceExpiringNext90Days ?? 0}</Badge>
+                </div>
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* Risk Summary */}
+          <Card data-testid="panel-risk">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-red-600" />
+                At Risk
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Properties or blocks with overdue items
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">Properties at Risk</span>
+                </div>
+                <Badge variant={stats?.risk?.propertiesAtRiskCount ? "destructive" : "secondary"}>
+                  {stats?.risk?.propertiesAtRiskCount ?? 0}
+                </Badge>
               </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Recent Inspections */}
-        {shouldShowPanel("inspections") && (
-          <Card className="lg:col-span-2" data-testid="panel-inspections">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
-                <ClipboardCheck className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Recent Inspections
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {inspections.length > 0 ? (
-                <div className="space-y-2 md:space-y-3">
-                  {inspections.slice(0, 5).map((inspection) => (
-                    <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
-                      <div
-                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                        data-testid={`card-inspection-${inspection.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-base md:text-lg truncate">
-                            {inspection.property?.name || inspection.block?.name || "Unknown Property"}
-                          </p>
-                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
-                            {inspection.type} • {inspection.scheduledDate ? new Date(inspection.scheduledDate).toLocaleDateString() : 'Not scheduled'}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            inspection.status === "completed"
-                              ? "default"
-                              : inspection.status === "in_progress"
-                              ? "secondary"
-                              : "outline"
-                          }
-                          className={`whitespace-nowrap text-xs ${inspection.status === "completed" ? "bg-primary text-primary-foreground" : ""}`}
-                          data-testid={`badge-status-${inspection.id}`}
-                        >
-                          {inspection.status}
-                        </Badge>
-                      </div>
-                    </Link>
-                  ))}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">Blocks at Risk</span>
                 </div>
-              ) : (
-                <div className="text-center py-8 md:py-12" data-testid="empty-inspections">
-                  <ClipboardCheck className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
-                  <p className="text-sm md:text-base text-muted-foreground">No inspections yet</p>
-                  <Link href="/inspections">
-                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
-                      Create Inspection
-                    </Button>
-                  </Link>
+                <Badge variant={stats?.risk?.blocksAtRiskCount ? "destructive" : "secondary"}>
+                  {stats?.risk?.blocksAtRiskCount ?? 0}
+                </Badge>
+              </div>
+
+              {(stats?.risk?.propertiesAtRiskCount ?? 0) > 0 && (
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground mb-2">Properties needing attention:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {(stats?.risk?.propertiesAtRiskIds ?? []).slice(0, 5).map((id) => (
+                      <Link key={id} href={`/properties/${id}`}>
+                        <Badge variant="outline" className="text-xs cursor-pointer hover-elevate" data-testid={`risk-property-${id}`}>
+                          {propertyMap.get(id) || 'Property'}
+                        </Badge>
+                      </Link>
+                    ))}
+                    {(stats?.risk?.propertiesAtRiskIds?.length ?? 0) > 5 && (
+                      <Badge variant="outline" className="text-xs">
+                        +{(stats?.risk?.propertiesAtRiskIds?.length ?? 0) - 5} more
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
-        )}
 
-        {/* Compliance Documents */}
-        {shouldShowPanel("compliance") && (
-          <Card data-testid="panel-compliance">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
-                <FileText className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Expiring Soon
+          {/* Quick Stats */}
+          <Card data-testid="panel-portfolio">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-primary" />
+                Portfolio Overview
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              {compliance.length > 0 ? (
-                <div className="space-y-2 md:space-y-3">
-                  {compliance.slice(0, 5).map((doc) => (
-                    <Link key={doc.id} href="/compliance">
-                      <div
-                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                        data-testid={`card-compliance-${doc.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-base md:text-lg truncate">{doc.documentType}</p>
-                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
-                            Expires: {doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString() : 'No expiry date'}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            doc.status === "current"
-                              ? "default"
-                              : doc.status === "expiring_soon"
-                              ? "secondary"
-                              : "destructive"
-                          }
-                          className="whitespace-nowrap text-xs"
-                          data-testid={`badge-status-${doc.id}`}
-                        >
-                          {doc.status}
-                        </Badge>
-                      </div>
-                    </Link>
-                  ))}
+            <CardContent className="space-y-3">
+              <Link href="/properties">
+                <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-properties">
+                  <span className="text-sm text-muted-foreground">Properties</span>
+                  <span className="font-semibold">{stats?.totals?.properties ?? 0}</span>
                 </div>
-              ) : (
-                <div className="text-center py-8 md:py-12" data-testid="empty-compliance">
-                  <FileText className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
-                  <p className="text-sm md:text-base text-muted-foreground">No compliance documents yet</p>
-                  <Link href="/compliance">
-                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
-                      Add Document
-                    </Button>
-                  </Link>
+              </Link>
+              <Link href="/blocks">
+                <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-blocks">
+                  <span className="text-sm text-muted-foreground">Blocks</span>
+                  <span className="font-semibold">{stats?.totals?.blocks ?? 0}</span>
                 </div>
-              )}
+              </Link>
+              <Link href="/inspections">
+                <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-inspections">
+                  <span className="text-sm text-muted-foreground">Total Inspections</span>
+                  <span className="font-semibold">{stats?.totals?.inspections ?? 0}</span>
+                </div>
+              </Link>
+              <Link href="/compliance">
+                <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-compliance">
+                  <span className="text-sm text-muted-foreground">Compliance Docs</span>
+                  <span className="font-semibold">{stats?.totals?.compliance ?? 0}</span>
+                </div>
+              </Link>
+              <Link href="/maintenance">
+                <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-maintenance">
+                  <span className="text-sm text-muted-foreground">Maintenance Requests</span>
+                  <span className="font-semibold">{stats?.totals?.maintenance ?? 0}</span>
+                </div>
+              </Link>
             </CardContent>
           </Card>
-        )}
-
-        {/* Maintenance Requests */}
-        {shouldShowPanel("maintenance") && (
-          <Card data-testid="panel-maintenance">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
-                <Wrench className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Maintenance Requests
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {maintenance.length > 0 ? (
-                <div className="space-y-2 md:space-y-3">
-                  {maintenance.slice(0, 5).map((request) => (
-                    <Link key={request.id} href="/maintenance">
-                      <div
-                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                        data-testid={`card-maintenance-${request.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-base md:text-lg truncate">{request.title}</p>
-                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
-                            Priority: <span className="font-medium">{request.priority}</span>
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            request.status === "completed"
-                              ? "default"
-                              : request.status === "in_progress"
-                              ? "secondary"
-                              : "outline"
-                          }
-                          className="whitespace-nowrap text-xs"
-                          data-testid={`badge-status-${request.id}`}
-                        >
-                          {request.status}
-                        </Badge>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 md:py-12" data-testid="empty-maintenance">
-                  <Wrench className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
-                  <p className="text-sm md:text-base text-muted-foreground">No maintenance requests</p>
-                  <Link href="/maintenance">
-                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
-                      Create Request
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Asset Inventory */}
-        {shouldShowPanel("assets") && (
-          <Card data-testid="panel-assets">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
-                <Package className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Assets Needing Attention
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {assets.length > 0 ? (
-                <div className="space-y-2 md:space-y-3">
-                  {assets.filter(a => a.condition === "poor" || a.condition === "needs_replacement").slice(0, 5).map((asset) => (
-                    <Link key={asset.id} href="/inventory">
-                      <div
-                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                        data-testid={`card-asset-${asset.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-base md:text-lg truncate">{asset.name}</p>
-                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
-                            {asset.category}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={asset.condition === "needs_replacement" ? "destructive" : "secondary"}
-                          className="whitespace-nowrap text-xs"
-                          data-testid={`badge-condition-${asset.id}`}
-                        >
-                          {asset.condition}
-                        </Badge>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 md:py-12" data-testid="empty-assets">
-                  <Package className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
-                  <p className="text-sm md:text-base text-muted-foreground">No assets tracked yet</p>
-                  <Link href="/inventory">
-                    <Button variant="outline" size="sm" className="mt-3 md:mt-4">
-                      Add Asset
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Work Orders */}
-        {shouldShowPanel("workOrders") && (
-          <Card data-testid="panel-work-orders">
-            <CardHeader className="pb-3 md:pb-6">
-              <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
-                <Users className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Active Work Orders
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {workOrders.length > 0 ? (
-                <div className="space-y-2 md:space-y-3">
-                  {workOrders.filter(wo => wo.status !== "completed").slice(0, 5).map((workOrder) => (
-                    <Link key={workOrder.id} href="/maintenance?tab=work-orders">
-                      <div
-                        className="flex items-center justify-between gap-3 md:gap-4 p-4 md:p-5 border rounded-xl hover-elevate cursor-pointer transition-all bg-card/50"
-                        data-testid={`card-work-order-${workOrder.id}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-base md:text-lg truncate">{workOrder.title}</p>
-                          <p className="text-xs md:text-sm text-muted-foreground truncate mt-1">
-                            {workOrder.description}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            workOrder.status === "completed"
-                              ? "default"
-                              : workOrder.status === "in_progress"
-                              ? "secondary"
-                              : "outline"
-                          }
-                          className="whitespace-nowrap text-xs"
-                          data-testid={`badge-status-${workOrder.id}`}
-                        >
-                          {workOrder.status}
-                        </Badge>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 md:py-12" data-testid="empty-work-orders">
-                  <Users className="h-10 w-10 md:h-12 md:w-12 text-muted-foreground/30 mx-auto mb-3 md:mb-4" />
-                  <p className="text-sm md:text-base text-muted-foreground">No active work orders</p>
-                  <Link href="/maintenance?tab=work-orders">
-                    <Button variant="outline" size="sm" className="mt-3 md:mt-4" data-testid="button-create-work-order">
-                      Create Work Order
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        </div>
       </div>
 
-      {/* Tag Search Dialog */}
       <TagSearch open={tagSearchOpen} onOpenChange={setTagSearchOpen} />
     </div>
   );
