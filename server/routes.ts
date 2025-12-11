@@ -9935,6 +9935,11 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       }
 
       const orgId = user.organizationId;
+      
+      // Get filter parameters
+      const filterBlockId = req.query.blockId as string | undefined;
+      const filterPropertyId = req.query.propertyId as string | undefined;
+      
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const days7Ago = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -9944,7 +9949,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const days30Future = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
 
       // Fetch all required data
-      const [properties, blocks, inspections, compliance, maintenance, tenantAssignments] = await Promise.all([
+      const [allProperties, allBlocks, allInspections, allCompliance, allMaintenance, allTenantAssignments] = await Promise.all([
         storage.getPropertiesByOrganization(orgId),
         storage.getBlocksByOrganization(orgId),
         storage.getInspectionsByOrganization(orgId),
@@ -9952,6 +9957,38 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         storage.getMaintenanceByOrganization(orgId),
         storage.getTenantAssignmentsByOrganization(orgId),
       ]);
+      
+      // Apply filters
+      let properties = allProperties;
+      let blocks = allBlocks;
+      let inspections = allInspections;
+      let compliance = allCompliance;
+      let maintenance = allMaintenance;
+      let tenantAssignments = allTenantAssignments;
+      
+      // Filter by specific property
+      if (filterPropertyId) {
+        properties = properties.filter((p: any) => p.id === filterPropertyId);
+        inspections = inspections.filter((i: any) => i.propertyId === filterPropertyId);
+        compliance = compliance.filter((c: any) => c.propertyId === filterPropertyId);
+        maintenance = maintenance.filter((m: any) => m.propertyId === filterPropertyId);
+        tenantAssignments = tenantAssignments.filter((t: any) => t.propertyId === filterPropertyId);
+        // Get block from property
+        const propertyBlock = allProperties.find((p: any) => p.id === filterPropertyId);
+        if (propertyBlock?.blockId) {
+          blocks = blocks.filter((b: any) => b.id === propertyBlock.blockId);
+        }
+      } 
+      // Filter by block (includes all properties in that block)
+      else if (filterBlockId) {
+        const blockPropertyIds = new Set(allProperties.filter((p: any) => p.blockId === filterBlockId).map((p: any) => p.id));
+        blocks = blocks.filter((b: any) => b.id === filterBlockId);
+        properties = properties.filter((p: any) => p.blockId === filterBlockId);
+        inspections = inspections.filter((i: any) => i.blockId === filterBlockId || (i.propertyId && blockPropertyIds.has(i.propertyId)));
+        compliance = compliance.filter((c: any) => c.blockId === filterBlockId || (c.propertyId && blockPropertyIds.has(c.propertyId)));
+        maintenance = maintenance.filter((m: any) => blockPropertyIds.has(m.propertyId));
+        tenantAssignments = tenantAssignments.filter((t: any) => blockPropertyIds.has(t.propertyId));
+      }
 
       // Calculate overdue inspections
       const overdueInspections = inspections.filter(i => {

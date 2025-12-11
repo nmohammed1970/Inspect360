@@ -131,10 +131,55 @@ interface DashboardStats {
   };
 }
 
+// Widget visibility configuration
+type WidgetKey = "kpis" | "alerts" | "trends" | "upcoming" | "risk" | "portfolio";
+
+const defaultWidgets: Record<WidgetKey, boolean> = {
+  kpis: true,
+  alerts: true,
+  trends: true,
+  upcoming: true,
+  risk: true,
+  portfolio: true,
+};
+
+const widgetLabels: Record<WidgetKey, string> = {
+  kpis: "KPI Cards",
+  alerts: "Action Required Alerts",
+  trends: "Activity Trends",
+  upcoming: "Upcoming Due Items",
+  risk: "Risk Summary",
+  portfolio: "Portfolio Overview",
+};
+
 export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
+  
+  // Filter state
+  const [filterBlockId, setFilterBlockId] = useState<string>("");
+  const [filterPropertyId, setFilterPropertyId] = useState<string>("");
+  
+  // Widget visibility state - loaded from localStorage
+  const [visibleWidgets, setVisibleWidgets] = useState<Record<WidgetKey, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem("dashboard_widgets");
+      return stored ? JSON.parse(stored) : defaultWidgets;
+    } catch {
+      return defaultWidgets;
+    }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Save widget preferences to localStorage
+  useEffect(() => {
+    localStorage.setItem("dashboard_widgets", JSON.stringify(visibleWidgets));
+  }, [visibleWidgets]);
+
+  const toggleWidget = (key: WidgetKey) => {
+    setVisibleWidgets(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -150,8 +195,24 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, isLoading, toast, user]);
 
+  // Build query parameters for filtered stats
+  const statsQueryParams = useMemo(() => {
+    const params = new URLSearchParams();
+    if (filterBlockId) params.set("blockId", filterBlockId);
+    if (filterPropertyId) params.set("propertyId", filterPropertyId);
+    return params.toString();
+  }, [filterBlockId, filterPropertyId]);
+
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+    queryKey: ["/api/dashboard/stats", statsQueryParams],
+    queryFn: async () => {
+      const url = statsQueryParams 
+        ? `/api/dashboard/stats?${statsQueryParams}` 
+        : "/api/dashboard/stats";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch stats");
+      return res.json();
+    },
     enabled: isAuthenticated,
     refetchInterval: 60000, // Refresh every minute
   });
@@ -189,6 +250,25 @@ export default function Dashboard() {
     return map;
   }, [blocks]);
 
+  // Filter properties based on selected block
+  const filteredProperties = useMemo(() => {
+    if (!filterBlockId) return properties;
+    return properties.filter((p: any) => p.blockId === filterBlockId);
+  }, [properties, filterBlockId]);
+
+  // Clear property filter when block changes and property is no longer valid
+  useEffect(() => {
+    if (filterBlockId && filterPropertyId) {
+      const property = properties.find((p: any) => p.id === filterPropertyId);
+      if (property && (property as any).blockId !== filterBlockId) {
+        setFilterPropertyId("");
+      }
+    }
+  }, [filterBlockId, filterPropertyId, properties]);
+
+  // Check if filters are active
+  const hasActiveFilters = filterBlockId || filterPropertyId;
+
   if (isLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -222,33 +302,124 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6">
       {/* Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight" data-testid="text-dashboard-title">
-            Operations Dashboard
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
-          </p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight" data-testid="text-dashboard-title">
+              Operations Dashboard
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => refetchStats()}
+              data-testid="button-refresh-stats"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button 
+              onClick={() => setTagSearchOpen(true)} 
+              variant="outline"
+              size="sm"
+              data-testid="button-search-tags"
+            >
+              <Search className="h-4 w-4 mr-2" />
+              Search
+            </Button>
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" data-testid="button-dashboard-settings">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Dashboard Settings</DialogTitle>
+                  <DialogDescription>
+                    Choose which sections to display on your dashboard
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  {(Object.keys(widgetLabels) as WidgetKey[]).map((key) => (
+                    <div key={key} className="flex items-center justify-between gap-4 p-2 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        {visibleWidgets[key] ? (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="text-sm font-medium">{widgetLabels[key]}</span>
+                      </div>
+                      <Checkbox 
+                        checked={visibleWidgets[key]}
+                        onCheckedChange={() => toggleWidget(key)}
+                        data-testid={`checkbox-widget-${key}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => refetchStats()}
-            data-testid="button-refresh-stats"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button 
-            onClick={() => setTagSearchOpen(true)} 
-            variant="outline"
-            size="sm"
-            data-testid="button-search-tags"
-          >
-            <Search className="h-4 w-4 mr-2" />
-            Search
-          </Button>
+
+        {/* Filter Row */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-muted-foreground" />
+            <Select value={filterBlockId} onValueChange={(val) => setFilterBlockId(val === "__all__" ? "" : val)}>
+              <SelectTrigger className="w-[180px]" data-testid="filter-block">
+                <SelectValue placeholder="All Blocks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All Blocks</SelectItem>
+                {blocks.map((block) => (
+                  <SelectItem key={block.id} value={block.id}>
+                    {block.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Home className="h-4 w-4 text-muted-foreground" />
+            <Select value={filterPropertyId} onValueChange={(val) => setFilterPropertyId(val === "__all__" ? "" : val)}>
+              <SelectTrigger className="w-[180px]" data-testid="filter-property">
+                <SelectValue placeholder="All Properties" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All Properties</SelectItem>
+                {filteredProperties.map((property) => (
+                  <SelectItem key={property.id} value={property.id}>
+                    {property.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {hasActiveFilters && (
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => {
+                setFilterBlockId("");
+                setFilterPropertyId("");
+              }}
+              data-testid="button-clear-filters"
+            >
+              <XCircle className="h-4 w-4 mr-1" />
+              Clear Filters
+            </Button>
+          )}
+          {hasActiveFilters && (
+            <Badge variant="secondary" className="text-xs">
+              Filtered View
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -294,6 +465,7 @@ export default function Dashboard() {
       )}
 
       {/* KPI Cards Row */}
+      {visibleWidgets.kpis && (
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="panel-kpis">
         <Card className="hover-elevate cursor-pointer" data-testid="kpi-occupancy">
           <CardContent className="p-4">
@@ -371,12 +543,14 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Alerts */}
         <div className="lg:col-span-2 space-y-6">
           {/* Alerts Tabs */}
+          {visibleWidgets.alerts && (
           <Card data-testid="panel-alerts-detail">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -533,8 +707,10 @@ export default function Dashboard() {
               </Tabs>
             </CardContent>
           </Card>
+          )}
 
           {/* Trend Charts */}
+          {visibleWidgets.trends && (
           <Card data-testid="panel-trends">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -585,11 +761,13 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
 
         {/* Right Column - Upcoming & Risk */}
         <div className="space-y-6">
           {/* Upcoming Due */}
+          {visibleWidgets.upcoming && (
           <Card data-testid="panel-upcoming">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -639,8 +817,10 @@ export default function Dashboard() {
               </Link>
             </CardContent>
           </Card>
+          )}
 
           {/* Risk Summary */}
+          {visibleWidgets.risk && (
           <Card data-testid="panel-risk">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -692,8 +872,10 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Quick Stats */}
+          {visibleWidgets.portfolio && (
           <Card data-testid="panel-portfolio">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -734,6 +916,7 @@ export default function Dashboard() {
               </Link>
             </CardContent>
           </Card>
+          )}
         </div>
       </div>
 
