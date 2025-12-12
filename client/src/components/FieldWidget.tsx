@@ -209,7 +209,8 @@ export function FieldWidget({
     const newPhotos = localPhotos.filter((p) => p !== photoUrl);
     setLocalPhotos(newPhotos);
     const composedValue = composeValue(localValue, localCondition, localCleanliness);
-    onChange(composedValue, localNote || undefined, newPhotos.length > 0 ? newPhotos : undefined);
+    // Always pass the photos array (even if empty) to ensure the removal is saved
+    onChange(composedValue, localNote || undefined, newPhotos);
     
     // Invalidate inspection entries to ensure report page gets updated photos
     if (inspectionId) {

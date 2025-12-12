@@ -535,12 +535,17 @@ export default function InspectionCapture() {
     if (!field) return;
 
     const entryKey = `${currentSection.id}-${fieldKey}`;
+    const existingEntry = entries[entryKey];
 
-    // Only save if there's a value or note/photos
+    // Check if this is a photo removal operation (photos array passed but possibly empty)
+    const isPhotoRemoval = photos !== undefined && existingEntry?.photos && existingEntry.photos.length > 0;
+
+    // Only save if there's a value or note/photos, OR if we're removing photos
     // But for progress calculation, only count as complete if value exists
     if (value === null || value === undefined) {
       // If only notes/photos without value, still save but don't count as complete
-      if (!note && (!photos || photos.length === 0)) {
+      // Also save if we're removing photos (to persist the removal)
+      if (!note && (!photos || photos.length === 0) && !isPhotoRemoval) {
         return; // Nothing to save
       }
     }
@@ -579,7 +584,6 @@ export default function InspectionCapture() {
       return;
     }
 
-    const existingEntry = entries[entryKey];
     const entry: InspectionEntry = {
       sectionRef: currentSection.id,
       fieldKey,
