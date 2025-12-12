@@ -267,8 +267,8 @@ function AppContent() {
         </div>
       </SidebarProvider>
       <NotificationSystem />
-      {(user?.role === "owner" || user?.role === "clerk") && <IvyChatbot />}
-      <AIChatbot />
+      {/* Show Ivy for operators (owners/clerks), AIChatbot for tenants */}
+      {(user?.role === "owner" || user?.role === "clerk") ? <IvyChatbot /> : user?.role === "tenant" ? <AIChatbot /> : null}
       <PWAInstallPrompt />
       <Toaster />
     </TooltipProvider>
