@@ -187,17 +187,25 @@ export function FieldWidget({
   };
 
   const handlePhotoAdd = (photoUrl: string) => {
-    // Always allow multiple photos - append to existing photos
-    const newPhotos = [...localPhotos, photoUrl];
-    setLocalPhotos(newPhotos);
-    const composedValue = composeValue(localValue, localCondition, localCleanliness);
-    onChange(composedValue, localNote || undefined, newPhotos);
-    
-    // Invalidate inspection entries to ensure report page gets updated photos
-    if (inspectionId) {
-      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-    }
+    // Use functional updater to handle concurrent uploads correctly
+    setLocalPhotos(prevPhotos => {
+      const newPhotos = [...prevPhotos, photoUrl];
+      
+      // Schedule the onChange call after state update with the new photos
+      // Using setTimeout to ensure we have the latest state
+      setTimeout(() => {
+        const composedValue = composeValue(localValue, localCondition, localCleanliness);
+        onChange(composedValue, localNote || undefined, newPhotos);
+        
+        // Invalidate inspection entries to ensure report page gets updated photos
+        if (inspectionId) {
+          queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+          queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+        }
+      }, 0);
+      
+      return newPhotos;
+    });
     
     toast({
       title: "Success",
