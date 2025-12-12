@@ -631,7 +631,7 @@ export default function PropertyDetail() {
           </TabsTrigger>
           <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule">
             <FileCheck className="h-4 w-4 mr-2" />
-            Compliance Schedule
+            Compliance Documents
           </TabsTrigger>
           <TabsTrigger value="maintenance" data-testid="tab-maintenance">
             <Wrench className="h-4 w-4 mr-2" />

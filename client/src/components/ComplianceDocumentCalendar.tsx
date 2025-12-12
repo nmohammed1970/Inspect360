@@ -95,38 +95,26 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth();
 
+  const DEFAULT_DOCUMENT_TYPES = [
+    "Fire Safety Certificate",
+    "Building Insurance",
+    "Electrical Safety Certificate",
+    "Gas Safety Certificate",
+    "EPC Certificate",
+    "HMO License",
+    "Planning Permission",
+  ];
+
   if (isLoading) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Annual Compliance Schedule</CardTitle>
+          <CardTitle>Annual Compliance Documents</CardTitle>
           <CardDescription>Loading compliance documents...</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-64 flex items-center justify-center">
             <div className="text-muted-foreground">Loading...</div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!documents || documents.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Annual Compliance Schedule</CardTitle>
-          <CardDescription>
-            Track compliance document expiry dates for {entityType === 'property' ? 'this property' : 'this block'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="py-12 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Compliance Documents</h3>
-            <p className="text-muted-foreground">
-              Upload compliance documents to track their expiry dates.
-            </p>
           </div>
         </CardContent>
       </Card>
@@ -141,7 +129,26 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
     return acc;
   }, {} as Record<string, ComplianceDocument[]>);
 
-  const documentTypeData: DocumentTypeData[] = Object.entries(documentsByType).map(([docType, docs]) => {
+  const allDocumentTypes = Array.from(new Set([...DEFAULT_DOCUMENT_TYPES, ...Object.keys(documentsByType)]));
+
+  const documentTypeData: DocumentTypeData[] = allDocumentTypes.map((docType) => {
+    const docs = documentsByType[docType];
+    
+    if (!docs || docs.length === 0) {
+      const monthData: MonthData[] = monthAbbreviations.map((month) => ({
+        month,
+        status: 'no_expiry' as DocumentStatus,
+        hasDocument: false,
+      }));
+      
+      return {
+        documentType: docType,
+        monthData,
+        status: 'no_expiry' as DocumentStatus,
+        expiryDate: null,
+      };
+    }
+    
     const latestDoc = docs.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )[0];
@@ -185,12 +192,14 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
     };
   });
 
-  const validCount = documentTypeData.filter(d => d.status === 'valid' || d.status === 'no_expiry').length;
-  const expiringCount = documentTypeData.filter(d => d.status === 'expiring_soon').length;
-  const expiredCount = documentTypeData.filter(d => d.status === 'expired').length;
+  const docTypesWithDocs = documentTypeData.filter(d => d.expiryDate !== null || documentsByType[d.documentType]?.length > 0);
+  const validCount = docTypesWithDocs.filter(d => d.status === 'valid' || d.status === 'no_expiry').length;
+  const expiringCount = docTypesWithDocs.filter(d => d.status === 'expiring_soon').length;
+  const expiredCount = docTypesWithDocs.filter(d => d.status === 'expired').length;
+  const missingCount = documentTypeData.filter(d => !documentsByType[d.documentType]?.length).length;
   const overallCompliance = documents.length > 0 
-    ? Math.round((validCount / documentTypeData.length) * 100) 
-    : 100;
+    ? Math.round((validCount / docTypesWithDocs.length) * 100) 
+    : 0;
 
   return (
     <Card>
@@ -198,13 +207,13 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
         <div className="flex items-center justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2">
-              Annual Compliance Schedule
+              Annual Compliance Documents
               <Badge variant="outline" className="ml-2" data-testid="badge-compliance-overall">
                 {overallCompliance}% Compliant
               </Badge>
             </CardTitle>
             <CardDescription className="mt-1">
-              {currentYear} · {documentTypeData.length} document type(s) tracked
+              {currentYear} · {documents.length} document(s) uploaded · {missingCount} type(s) missing
             </CardDescription>
           </div>
         </div>
@@ -225,7 +234,7 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
           </div>
           <div className="flex items-center gap-2">
             <Circle className="h-4 w-4 text-muted-foreground/30" />
-            <span className="text-muted-foreground">No Document</span>
+            <span className="text-muted-foreground">Missing ({missingCount})</span>
           </div>
         </div>
 
@@ -241,38 +250,42 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
               <div className="font-semibold text-sm text-center p-2">Status</div>
             </div>
 
-            {documentTypeData.map((docType) => (
-              <div 
-                key={docType.documentType} 
-                className="grid gap-2 mb-2 items-center"
-                style={{ gridTemplateColumns: '200px repeat(12, 1fr) 100px' }}
-              >
-                <div className="text-sm font-medium p-2 truncate" title={docType.documentType}>
-                  {docType.documentType}
-                </div>
+            {documentTypeData.map((docType) => {
+              const hasDocs = documentsByType[docType.documentType]?.length > 0;
+              return (
+                <div 
+                  key={docType.documentType} 
+                  className="grid gap-2 mb-2 items-center"
+                  style={{ gridTemplateColumns: '200px repeat(12, 1fr) 100px' }}
+                >
+                  <div className="text-sm font-medium p-2 truncate" title={docType.documentType}>
+                    {docType.documentType}
+                  </div>
 
-                {docType.monthData.map((monthData) => (
-                  <StatusCell key={monthData.month} data={monthData} />
-                ))}
+                  {docType.monthData.map((monthData) => (
+                    <StatusCell key={monthData.month} data={monthData} />
+                  ))}
 
-                <div className="text-center p-2">
-                  <Badge 
-                    variant={
-                      docType.status === 'valid' || docType.status === 'no_expiry' ? 'default' :
-                      docType.status === 'expiring_soon' ? 'secondary' :
-                      'destructive'
-                    }
-                    className={docType.status === 'valid' || docType.status === 'no_expiry' ? 'bg-green-600' : ''}
-                  >
-                    {docType.status === 'no_expiry' ? 'Valid' : docType.status.replace('_', ' ')}
-                  </Badge>
+                  <div className="text-center p-2">
+                    <Badge 
+                      variant={
+                        !hasDocs ? 'outline' :
+                        docType.status === 'valid' || docType.status === 'no_expiry' ? 'default' :
+                        docType.status === 'expiring_soon' ? 'secondary' :
+                        'destructive'
+                      }
+                      className={!hasDocs ? 'text-muted-foreground' : (docType.status === 'valid' || docType.status === 'no_expiry' ? 'bg-green-600' : '')}
+                    >
+                      {!hasDocs ? 'Missing' : (docType.status === 'no_expiry' ? 'Valid' : docType.status.replace('_', ' '))}
+                    </Badge>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 pt-6 border-t mt-6">
+        <div className="grid grid-cols-4 gap-4 pt-6 border-t mt-6">
           <div>
             <div className="text-sm text-muted-foreground">Total Documents</div>
             <div className="text-2xl font-bold">{documents.length}</div>
@@ -280,6 +293,10 @@ export default function ComplianceDocumentCalendar({ documents, isLoading, entit
           <div>
             <div className="text-sm text-muted-foreground">Valid</div>
             <div className="text-2xl font-bold text-green-600">{validCount}</div>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">Missing</div>
+            <div className="text-2xl font-bold text-muted-foreground">{missingCount}</div>
           </div>
           <div>
             <div className="text-sm text-muted-foreground">Attention Needed</div>
