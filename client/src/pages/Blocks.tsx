@@ -509,71 +509,71 @@ export default function Blocks() {
                 
                 {/* Quick Actions */}
                 <div className="h-px bg-border/30" />
-                <div className="grid grid-cols-6 gap-1">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   <Link href={`/properties?blockId=${block.id}`} className="w-full">
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="flex flex-col h-auto py-2 px-1 w-full"
+                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
                       data-testid={`button-properties-${block.id}`}
                     >
-                      <Home className="h-4 w-4 mb-1" />
-                      <span className="text-xs truncate">Properties</span>
+                      <Home className="h-4 w-4 mb-1 shrink-0" />
+                      <span className="text-[10px] leading-tight text-center w-full">Properties</span>
                     </Button>
                   </Link>
                   <Link href={`/asset-inventory?blockId=${block.id}`} className="w-full">
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="flex flex-col h-auto py-2 px-1 w-full"
+                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
                       data-testid={`button-inventory-${block.id}`}
                     >
-                      <Package className="h-4 w-4 mb-1" />
-                      <span className="text-xs truncate">Inventory</span>
+                      <Package className="h-4 w-4 mb-1 shrink-0" />
+                      <span className="text-[10px] leading-tight text-center w-full">Inventory</span>
                     </Button>
                   </Link>
                   <Link href={`/inspections?blockId=${block.id}&create=true`} className="w-full">
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="flex flex-col h-auto py-2 px-1 w-full"
+                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
                       data-testid={`button-inspect-${block.id}`}
                     >
-                      <ClipboardCheck className="h-4 w-4 mb-1" />
-                      <span className="text-xs truncate">Inspect</span>
+                      <ClipboardCheck className="h-4 w-4 mb-1 shrink-0" />
+                      <span className="text-[10px] leading-tight text-center w-full">Inspect</span>
                     </Button>
                   </Link>
                   <Link href={`/blocks/${block.id}/tenants`} className="w-full">
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="flex flex-col h-auto py-2 px-1 w-full"
+                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
                       data-testid={`button-tenants-${block.id}`}
                     >
-                      <Users className="h-4 w-4 mb-1" />
-                      <span className="text-xs truncate">Tenants</span>
+                      <Users className="h-4 w-4 mb-1 shrink-0" />
+                      <span className="text-[10px] leading-tight text-center w-full">Tenants</span>
                     </Button>
                   </Link>
                   <Link href={`/compliance?blockId=${block.id}`} className="w-full">
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="flex flex-col h-auto py-2 px-1 w-full"
+                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
                       data-testid={`button-compliance-${block.id}`}
                     >
-                      <FileText className="h-4 w-4 mb-1" />
-                      <span className="text-xs truncate">Compliance</span>
+                      <FileText className="h-4 w-4 mb-1 shrink-0" />
+                      <span className="text-[10px] leading-tight text-center w-full">Compliance</span>
                     </Button>
                   </Link>
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="flex flex-col h-auto py-2 px-1 w-full"
+                    className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
                     data-testid={`button-maintenance-${block.id}`}
                     onClick={() => setMaintenanceBlockId(block.id)}
                   >
-                    <Wrench className="h-4 w-4 mb-1" />
-                    <span className="text-xs truncate">Maintenance</span>
+                    <Wrench className="h-4 w-4 mb-1 shrink-0" />
+                    <span className="text-[10px] leading-tight text-center w-full">Maint.</span>
                   </Button>
                 </div>
               </CardContent>
