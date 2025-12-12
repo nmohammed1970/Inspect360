@@ -595,7 +595,7 @@ export default function Compliance() {
                   {/* Multi-select Properties */}
                   <div className="space-y-2">
                     <Label>Properties (Optional)</Label>
-                    <Popover>
+                    <Popover modal={false}>
                       <PopoverTrigger asChild>
                         <Button
                           variant="outline"
@@ -889,7 +889,7 @@ export default function Compliance() {
                         <CalendarIcon className="h-4 w-4" />
                         Expiry Date (Optional)
                       </FormLabel>
-                      <Popover>
+                      <Popover modal={false}>
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button
