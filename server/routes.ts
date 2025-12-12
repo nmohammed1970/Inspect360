@@ -14432,6 +14432,176 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   });
 
+  // ==================== IVY CHATBOT ROUTES ====================
+
+  // Ivy - BTR Operations AI Assistant
+  app.post("/api/ivy/chat", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { message, history = [] } = req.body;
+
+      if (!message || message.trim().length === 0) {
+        return res.status(400).json({ message: "Message is required" });
+      }
+
+      // Gather organization data for context
+      const [
+        properties,
+        inspections,
+        complianceDocuments,
+        maintenanceRequests,
+        workOrders,
+        tenantAssignments,
+        blocks,
+      ] = await Promise.all([
+        storage.getPropertiesByOrganization(user.organizationId),
+        storage.getInspectionsByOrganization(user.organizationId),
+        storage.getComplianceDocumentsByOrganization(user.organizationId),
+        storage.getMaintenanceRequestsByOrganization(user.organizationId),
+        storage.getWorkOrdersByOrganization(user.organizationId),
+        storage.getTenantAssignmentsByOrganization(user.organizationId),
+        storage.getBlocksByOrganization(user.organizationId),
+      ]);
+
+      const now = new Date();
+
+      // Calculate statistics
+      const overdueInspections = inspections.filter(i => 
+        i.status !== "completed" && i.scheduledDate && new Date(i.scheduledDate) < now
+      );
+      const upcomingInspections = inspections.filter(i => 
+        i.status !== "completed" && i.scheduledDate && new Date(i.scheduledDate) >= now
+      );
+      const draftInspections = inspections.filter(i => i.status === "draft");
+      const inProgressInspections = inspections.filter(i => i.status === "in_progress");
+      const completedInspections = inspections.filter(i => i.status === "completed");
+
+      const expiredCompliance = complianceDocuments.filter(d => 
+        d.expiryDate && new Date(d.expiryDate) < now
+      );
+      const expiringCompliance = complianceDocuments.filter(d => {
+        if (!d.expiryDate) return false;
+        const expiry = new Date(d.expiryDate);
+        const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        return expiry >= now && expiry <= thirtyDaysFromNow;
+      });
+
+      const openMaintenanceRequests = maintenanceRequests.filter(m => 
+        m.status === "pending" || m.status === "in_progress"
+      );
+      const urgentMaintenance = maintenanceRequests.filter(m => 
+        m.priority === "urgent" && m.status !== "resolved"
+      );
+
+      const openWorkOrders = workOrders.filter(w => 
+        w.status === "pending" || w.status === "in_progress"
+      );
+
+      const activeTenants = tenantAssignments.filter(t => t.assignment?.isActive);
+
+      // Build context for AI
+      const contextData = {
+        summary: {
+          totalProperties: properties.length,
+          totalBlocks: blocks.length,
+          totalInspections: inspections.length,
+          overdueInspections: overdueInspections.length,
+          upcomingInspections: upcomingInspections.length,
+          draftInspections: draftInspections.length,
+          inProgressInspections: inProgressInspections.length,
+          completedInspections: completedInspections.length,
+          totalComplianceDocuments: complianceDocuments.length,
+          expiredCompliance: expiredCompliance.length,
+          expiringCompliance: expiringCompliance.length,
+          totalMaintenanceRequests: maintenanceRequests.length,
+          openMaintenanceRequests: openMaintenanceRequests.length,
+          urgentMaintenance: urgentMaintenance.length,
+          totalWorkOrders: workOrders.length,
+          openWorkOrders: openWorkOrders.length,
+          activeTenants: activeTenants.length,
+        },
+        overdueInspectionsList: overdueInspections.slice(0, 10).map(i => ({
+          property: properties.find(p => p.id === i.propertyId)?.name || "Unknown",
+          type: i.type,
+          scheduledDate: i.scheduledDate,
+          status: i.status,
+        })),
+        expiredComplianceList: expiredCompliance.slice(0, 10).map(d => ({
+          property: properties.find(p => p.id === d.propertyId)?.name || "Unknown",
+          documentType: d.documentType,
+          expiryDate: d.expiryDate,
+        })),
+        expiringComplianceList: expiringCompliance.slice(0, 10).map(d => ({
+          property: properties.find(p => p.id === d.propertyId)?.name || "Unknown",
+          documentType: d.documentType,
+          expiryDate: d.expiryDate,
+        })),
+        urgentMaintenanceList: urgentMaintenance.slice(0, 10).map(m => ({
+          property: properties.find(p => p.id === m.propertyId)?.name || "Unknown",
+          title: m.title,
+          status: m.status,
+          createdAt: m.createdAt,
+        })),
+        propertiesList: properties.slice(0, 20).map(p => ({
+          name: p.name,
+          address: p.address,
+          status: p.status,
+        })),
+      };
+
+      const systemPrompt = `You are Ivy, a friendly and knowledgeable AI assistant for BTR (Build-to-Rent) property operations on the Inspect360 platform. You have access to real-time data about the organization's properties, inspections, compliance, maintenance, and tenants.
+
+CURRENT DATA SUMMARY:
+${JSON.stringify(contextData.summary, null, 2)}
+
+${overdueInspections.length > 0 ? `OVERDUE INSPECTIONS (${overdueInspections.length} total, showing up to 10):\n${JSON.stringify(contextData.overdueInspectionsList, null, 2)}` : ''}
+
+${expiredCompliance.length > 0 ? `EXPIRED COMPLIANCE DOCUMENTS (${expiredCompliance.length} total, showing up to 10):\n${JSON.stringify(contextData.expiredComplianceList, null, 2)}` : ''}
+
+${expiringCompliance.length > 0 ? `COMPLIANCE EXPIRING WITHIN 30 DAYS (${expiringCompliance.length} total, showing up to 10):\n${JSON.stringify(contextData.expiringComplianceList, null, 2)}` : ''}
+
+${urgentMaintenance.length > 0 ? `URGENT MAINTENANCE REQUESTS (${urgentMaintenance.length} total, showing up to 10):\n${JSON.stringify(contextData.urgentMaintenanceList, null, 2)}` : ''}
+
+PROPERTIES LIST (showing up to 20):
+${JSON.stringify(contextData.propertiesList, null, 2)}
+
+Your personality:
+- Friendly, professional, and helpful
+- Use clear, concise language
+- When providing lists, format them nicely with bullet points or numbered items
+- Proactively highlight urgent issues or concerns
+- Offer actionable suggestions when appropriate
+- If you don't have enough information to answer a question, say so politely
+
+Answer the user's question based on the data provided above. Focus on being helpful and actionable.`;
+
+      const openaiClient = getOpenAI();
+      const messages: any[] = [
+        { role: "system", content: systemPrompt },
+        ...history.slice(-8).map((m: any) => ({ role: m.role, content: m.content })),
+        { role: "user", content: message },
+      ];
+
+      const completion = await openaiClient.chat.completions.create({
+        model: "gpt-4o",
+        messages,
+        max_completion_tokens: 1000,
+        temperature: 0.7,
+      });
+
+      const response = completion.choices[0]?.message?.content || "I'm sorry, I couldn't generate a response. Please try again.";
+
+      res.json({ response });
+    } catch (error: any) {
+      console.error("[Ivy] Error processing chat:", error);
+      res.status(500).json({ message: "Failed to process chat message" });
+    }
+  });
+
   // ==================== CHATBOT ROUTES ====================
 
   // Get user's chat conversations

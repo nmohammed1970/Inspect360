@@ -61,6 +61,7 @@ import { Loader2 } from "lucide-react";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
+import { IvyChatbot } from "@/components/IvyChatbot";
 import { LocaleProvider } from "@/contexts/LocaleContext";
 import { Onboarding } from "@/components/Onboarding";
 import { useState, useEffect, useLayoutEffect } from "react";
@@ -266,6 +267,7 @@ function AppContent() {
         </div>
       </SidebarProvider>
       <NotificationSystem />
+      {(user?.role === "owner" || user?.role === "clerk") && <IvyChatbot />}
       <AIChatbot />
       <PWAInstallPrompt />
       <Toaster />
