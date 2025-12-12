@@ -223,7 +223,7 @@ export default function Dashboard() {
       const url = statsQueryParams 
         ? `/api/dashboard/stats?${statsQueryParams}` 
         : "/api/dashboard/stats";
-      const res = await fetch(url);
+      const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) throw new Error("Failed to fetch stats");
       return res.json();
     },
@@ -244,7 +244,7 @@ export default function Dashboard() {
   const { data: organization } = useQuery<{creditsRemaining: number | null}>({
     queryKey: ["/api/organizations", user?.organizationId],
     queryFn: async () => {
-      const res = await fetch(`/api/organizations/${user?.organizationId}`);
+      const res = await fetch(`/api/organizations/${user?.organizationId}`, { credentials: 'include' });
       if (!res.ok) throw new Error("Failed to fetch organization");
       return res.json();
     },
@@ -259,7 +259,7 @@ export default function Dashboard() {
     queryKey: ["/api/compliance-report", inspectionScheduleEntityType, inspectionScheduleEntityId],
     queryFn: async () => {
       if (!inspectionScheduleEntityType || !inspectionScheduleEntityId) return null;
-      const res = await fetch(`/api/compliance-report/${inspectionScheduleEntityType}/${inspectionScheduleEntityId}`);
+      const res = await fetch(`/api/compliance-report/${inspectionScheduleEntityType}/${inspectionScheduleEntityId}`, { credentials: 'include' });
       if (!res.ok) return null;
       return res.json();
     },
@@ -277,7 +277,7 @@ export default function Dashboard() {
       const endpoint = complianceScheduleEntityType === 'property' 
         ? `/api/properties/${complianceScheduleEntityId}/compliance-documents`
         : `/api/blocks/${complianceScheduleEntityId}/compliance-documents`;
-      const res = await fetch(endpoint);
+      const res = await fetch(endpoint, { credentials: 'include' });
       if (!res.ok) return [];
       return res.json();
     },
