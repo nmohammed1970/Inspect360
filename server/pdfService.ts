@@ -338,7 +338,7 @@ function generateInspectionHTML(
             </div>
           ` : ""}
 
-          ${condition ? `
+          ${field.includeCondition && condition ? `
             <div style="margin-top: 8px;">
               <span style="font-size: 13px; color: #666;">Condition:</span>
               <span style="display: inline-block; background: #f0fdf4; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 13px; margin-left: 8px;">
@@ -347,7 +347,7 @@ function generateInspectionHTML(
             </div>
           ` : ""}
 
-          ${cleanliness ? `
+          ${field.includeCleanliness && cleanliness ? `
             <div style="margin-top: 8px;">
               <span style="font-size: 13px; color: #666;">Cleanliness:</span>
               <span style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 2px 8px; border-radius: 4px; font-size: 13px; margin-left: 8px;">

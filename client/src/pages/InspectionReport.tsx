@@ -1179,6 +1179,15 @@ export default function InspectionReport() {
             ) : (
               <div className="space-y-8">
                 {sections.map((section, sectionIdx) => {
+                  // Check if any field in this section has condition/cleanliness enabled
+                  const sectionHasCondition = section.fields.some(f => f.includeCondition);
+                  const sectionHasCleanliness = section.fields.some(f => f.includeCleanliness);
+                  
+                  // Calculate column spans based on what's shown
+                  const conditionCols = sectionHasCondition ? 2 : 0;
+                  const cleanlinessCols = sectionHasCleanliness ? 2 : 0;
+                  const descriptionCols = 12 - 3 - 1 - conditionCols - cleanlinessCols; // Room(3) + Photos(1) + condition + cleanliness
+                  
                   return (
                     <div key={section.id} className="space-y-2" data-testid={`section-${section.id}`}>
                       {/* Section Header */}
@@ -1192,9 +1201,9 @@ export default function InspectionReport() {
                       {/* Table Header */}
                       <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground border-b pb-2 px-2">
                         <div className="col-span-3">Room/Space</div>
-                        <div className="col-span-4">Description</div>
-                        <div className="col-span-2 text-center">Condition</div>
-                        <div className="col-span-2 text-center">Cleanliness</div>
+                        <div className={`col-span-${descriptionCols}`}>Description</div>
+                        {sectionHasCondition && <div className="col-span-2 text-center">Condition</div>}
+                        {sectionHasCleanliness && <div className="col-span-2 text-center">Cleanliness</div>}
                         <div className="col-span-1 text-center">Photos</div>
                       </div>
 
@@ -1234,25 +1243,29 @@ export default function InspectionReport() {
                               <div className="col-span-3 font-medium text-primary hover:underline cursor-pointer" onClick={() => photoCount > 0 && togglePhotoExpansion(photoKey)}>
                                 {field.label}
                               </div>
-                              <div className="col-span-4 text-muted-foreground text-xs truncate">
+                              <div className={`col-span-${descriptionCols} text-muted-foreground text-xs truncate`}>
                                 {description || entry?.note || '-'}
                               </div>
-                              <div className="col-span-2 flex items-center justify-center gap-1">
-                                {condition ? (
-                                  <>
-                                    <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
-                                    <span className="text-xs">{condition}</span>
-                                  </>
-                                ) : <span className="text-muted-foreground text-xs">-</span>}
-                              </div>
-                              <div className="col-span-2 flex items-center justify-center gap-1">
-                                {cleanliness ? (
-                                  <>
-                                    <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
-                                    <span className="text-xs">{cleanliness}</span>
-                                  </>
-                                ) : <span className="text-muted-foreground text-xs">-</span>}
-                              </div>
+                              {sectionHasCondition && (
+                                <div className="col-span-2 flex items-center justify-center gap-1">
+                                  {field.includeCondition && condition ? (
+                                    <>
+                                      <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
+                                      <span className="text-xs">{condition}</span>
+                                    </>
+                                  ) : <span className="text-muted-foreground text-xs">-</span>}
+                                </div>
+                              )}
+                              {sectionHasCleanliness && (
+                                <div className="col-span-2 flex items-center justify-center gap-1">
+                                  {field.includeCleanliness && cleanliness ? (
+                                    <>
+                                      <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
+                                      <span className="text-xs">{cleanliness}</span>
+                                    </>
+                                  ) : <span className="text-muted-foreground text-xs">-</span>}
+                                </div>
+                              )}
                               <div className="col-span-1 text-center">
                                 {photoCount > 0 ? (
                                   <button
