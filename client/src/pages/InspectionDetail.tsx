@@ -12,9 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, AlertTriangle, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +27,7 @@ export default function InspectionDetail() {
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [newItem, setNewItem] = useState({
     category: "",
@@ -142,6 +147,68 @@ export default function InspectionDetail() {
     },
   });
 
+  const { data: clerks = [] } = useQuery<any[]>({
+    queryKey: ["/api/users/clerks"],
+  });
+
+  const editFormSchema = z.object({
+    type: z.enum(["check_in", "check_out", "routine", "maintenance"]),
+    scheduledDate: z.string().min(1, "Scheduled date is required"),
+    inspectorId: z.string().optional(),
+    notes: z.string().optional(),
+  });
+
+  type EditFormData = z.infer<typeof editFormSchema>;
+
+  const editForm = useForm<EditFormData>({
+    resolver: zodResolver(editFormSchema),
+    defaultValues: {
+      type: inspection?.type || "routine",
+      scheduledDate: inspection?.scheduledDate ? new Date(inspection.scheduledDate).toISOString().split("T")[0] : "",
+      inspectorId: inspection?.inspectorId || "",
+      notes: inspection?.notes || "",
+    },
+  });
+
+  const updateInspectionMutation = useMutation({
+    mutationFn: async (data: EditFormData) => {
+      return await apiRequest("PATCH", `/api/inspections/${id}`, {
+        ...data,
+        scheduledDate: data.scheduledDate ? new Date(data.scheduledDate).toISOString() : undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
+      setShowEditDialog(false);
+      toast({
+        title: "Success",
+        description: "Inspection updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update inspection",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleEditSubmit = (data: EditFormData) => {
+    updateInspectionMutation.mutate(data);
+  };
+
+  const openEditDialog = () => {
+    editForm.reset({
+      type: inspection?.type || "routine",
+      scheduledDate: inspection?.scheduledDate ? new Date(inspection.scheduledDate).toISOString().split("T")[0] : "",
+      inspectorId: inspection?.inspectorId || "",
+      notes: inspection?.notes || "",
+    });
+    setShowEditDialog(true);
+  };
+
   const handleDeleteInspection = () => {
     if (deleteConfirmText === "DELETE") {
       deleteInspectionMutation.mutate();
@@ -259,8 +326,11 @@ export default function InspectionDetail() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
             <CardTitle>Inspection Information</CardTitle>
+            <Button variant="ghost" size="icon" onClick={openEditDialog} data-testid="button-edit-inspection">
+              <Pencil className="w-4 h-4" />
+            </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
@@ -637,6 +707,124 @@ export default function InspectionDetail() {
               {deleteInspectionMutation.isPending ? "Deleting..." : "Delete Inspection"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Inspection Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Inspection</DialogTitle>
+            <DialogDescription>
+              Update the inspection details below
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4">
+              <FormField
+                control={editForm.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Inspection Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-type">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="check_in">Check In</SelectItem>
+                        <SelectItem value="check_out">Check Out</SelectItem>
+                        <SelectItem value="routine">Routine</SelectItem>
+                        <SelectItem value="maintenance">Maintenance</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="scheduledDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Scheduled Date</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} data-testid="input-edit-date" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="inspectorId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Assigned Clerk</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-edit-clerk">
+                          <SelectValue placeholder="Select clerk" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {clerks.map((clerk: any) => (
+                          <SelectItem key={clerk.id} value={clerk.id}>
+                            {clerk.firstName && clerk.lastName
+                              ? `${clerk.firstName} ${clerk.lastName}`
+                              : clerk.email || clerk.username}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="Add any notes about this inspection..."
+                        className="resize-none"
+                        rows={3}
+                        data-testid="input-edit-notes"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowEditDialog(false)}
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={updateInspectionMutation.isPending}
+                  data-testid="button-save-edit"
+                >
+                  {updateInspectionMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

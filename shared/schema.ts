@@ -1636,10 +1636,12 @@ export const updateTemplateCategorySchema = z.object({
 // Inspection update schema
 export const updateInspectionSchema = z.object({
   status: z.enum(["scheduled", "in_progress", "completed", "reviewed"]).optional(),
-  scheduledDate: z.string().datetime().optional(),
+  type: z.enum(["check_in", "check_out", "routine", "maintenance"]).optional(),
+  scheduledDate: z.string().optional(),
   startedAt: z.string().datetime().optional(),
   completedDate: z.string().datetime().optional(),
   submittedAt: z.string().datetime().optional(),
+  inspectorId: z.string().optional(),
   notes: z.string().optional(),
 });
 
