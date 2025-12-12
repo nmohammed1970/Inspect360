@@ -23,6 +23,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { insertComplianceDocumentSchema, type ComplianceDocument, type Tag, type Block, type Property } from "@shared/schema";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useAuth } from "@/hooks/useAuth";
+import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -1223,6 +1224,36 @@ export default function Compliance() {
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Annual Compliance Summary */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <ComplianceDocumentCalendar
+          documents={filteredAndSortedDocs
+            .filter(doc => doc.propertyId)
+            .map(doc => ({
+              id: String(doc.id),
+              documentType: doc.documentType,
+              expiryDate: doc.expiryDate,
+              documentUrl: doc.documentUrl || '',
+              createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : new Date().toISOString(),
+            }))}
+          isLoading={isLoading}
+          entityType="property"
+        />
+        <ComplianceDocumentCalendar
+          documents={filteredAndSortedDocs
+            .filter(doc => doc.blockId)
+            .map(doc => ({
+              id: String(doc.id),
+              documentType: doc.documentType,
+              expiryDate: doc.expiryDate,
+              documentUrl: doc.documentUrl || '',
+              createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : new Date().toISOString(),
+            }))}
+          isLoading={isLoading}
+          entityType="block"
+        />
+      </div>
 
       {expiredDocs.length > 0 && (
         <div className="space-y-4">
