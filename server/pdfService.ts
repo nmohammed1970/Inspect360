@@ -331,26 +331,22 @@ function generateInspectionHTML(
   // Generate sections HTML - Table format matching UI
   let sectionsHTML = "";
   sections.forEach((section, sectionIndex) => {
-    // Collect field data for this section
-    interface FieldData {
-      field: TemplateField;
-      entry: InspectionEntry | undefined;
-      value: any;
-      note: string | undefined;
-      photos: string[];
-      condition: string | undefined;
-      cleanliness: string | undefined;
-      hasCondition: boolean;
-      hasCleanliness: boolean;
-      hasData: boolean;
-      fieldRef: string;
-    }
-    
-    const fieldsData: FieldData[] = [];
+    // First pass: determine if section has condition/cleanliness columns
     let sectionHasCondition = false;
     let sectionHasCleanliness = false;
+    
+    section.fields.forEach((field) => {
+      if (field.includeCondition) sectionHasCondition = true;
+      if (field.includeCleanliness) sectionHasCleanliness = true;
+    });
+
+    // Build table rows for ALL fields (even empty ones)
+    let tableRowsHTML = '';
+    let photosGalleryHTML = '';
+    let fieldCounter = 0;
 
     section.fields.forEach((field) => {
+      fieldCounter++;
       const key = `${section.id}-${field.key || field.id}`;
       const entry = entriesMap.get(key);
 
@@ -359,85 +355,41 @@ function generateInspectionHTML(
       const photos = entry?.photos || [];
       const condition = entry?.condition;
       const cleanliness = entry?.cleanliness;
+      const fieldRef = `${sectionIndex + 1}.${fieldCounter}`;
 
-      // Check if field has condition/cleanliness configured
-      if (field.includeCondition) sectionHasCondition = true;
-      if (field.includeCleanliness) sectionHasCleanliness = true;
-
-      // Helper function to check if a value is truly empty
-      const isEmpty = (val: any): boolean => {
-        if (val === null || val === undefined) return true;
-        if (typeof val === 'string') return val.trim() === '';
-        if (Array.isArray(val)) return val.length === 0;
-        if (typeof val === 'object') return Object.keys(val).length === 0;
-        if (typeof val === 'boolean') return false;
-        return false;
-      };
-
-      const hasValue = !isEmpty(value);
-      const hasPhotos = photos.length > 0;
-      const hasNote = !isEmpty(note);
-      const hasCondition = !isEmpty(condition);
-      const hasCleanliness = !isEmpty(cleanliness);
-      const hasData = hasValue || hasPhotos || hasNote || hasCondition || hasCleanliness;
-
-      if (hasData) {
-        fieldsData.push({
-          field,
-          entry,
-          value,
-          note,
-          photos,
-          condition,
-          cleanliness,
-          hasCondition,
-          hasCleanliness,
-          hasData,
-          fieldRef: `${sectionIndex + 1}.${fieldsData.length + 1}`
-        });
-      }
-    });
-
-    // Skip sections with no data
-    if (fieldsData.length === 0) return;
-
-    // Build table rows
-    let tableRowsHTML = '';
-    let photosGalleryHTML = '';
-
-    fieldsData.forEach((fd, fieldIndex) => {
-      const conditionScore = getConditionScore(fd.condition);
-      const cleanlinessScore = getCleanlinessScore(fd.cleanliness);
-      const photoCount = fd.photos.length;
+      // Get scores for ratings
+      const conditionScore = getConditionScore(condition);
+      const cleanlinessScore = getCleanlinessScore(cleanliness);
+      const photoCount = photos.length;
 
       // Determine description value
       let descriptionValue = '-';
-      if (fd.value !== undefined && fd.value !== null && fd.value !== '') {
-        if (typeof fd.value === 'string') {
-          descriptionValue = fd.value.length > 50 ? fd.value.substring(0, 50) + '...' : fd.value;
-        } else if (typeof fd.value === 'boolean') {
-          descriptionValue = fd.value ? 'Yes' : 'No';
+      if (value !== undefined && value !== null && value !== '') {
+        if (typeof value === 'string') {
+          descriptionValue = value.length > 50 ? value.substring(0, 50) + '...' : value;
+        } else if (typeof value === 'boolean') {
+          descriptionValue = value ? 'Yes' : 'No';
         } else {
-          descriptionValue = String(fd.value);
+          descriptionValue = String(value);
         }
       }
 
       tableRowsHTML += `
         <tr>
           <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500;">
-            ${escapeHtml(fd.field.label)}
+            ${escapeHtml(field.label)}
           </td>
           <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;">
             ${escapeHtml(descriptionValue)}
           </td>
           ${sectionHasCondition ? `
             <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
-              ${fd.field.includeCondition ? formatRating(fd.condition, conditionScore) : '<span style="color: #999;">-</span>'}
+              ${field.includeCondition && condition ? formatRating(condition, conditionScore) : '<span style="color: #999;">-</span>'}
             </td>
           ` : ''}
           ${sectionHasCleanliness ? `
             <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
-              ${fd.field.includeCleanliness ? formatRating(fd.cleanliness, cleanlinessScore) : '<span style="color: #999;">-</span>'}
+              ${field.includeCleanliness && cleanliness ? formatRating(cleanliness, cleanlinessScore) : '<span style="color: #999;">-</span>'}
             </td>
           ` : ''}
           <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
@@ -447,52 +399,52 @@ function generateInspectionHTML(
       `;
 
       // Add note row if exists
-      if (fd.note) {
+      if (note) {
         const colspan = 2 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1;
         tableRowsHTML += `
           <tr>
             <td colspan="${colspan}" style="padding: 8px 16px; border-bottom: 1px solid #e5e7eb; background: #fef3c7;">
               <div style="display: flex; align-items: flex-start; gap: 8px;">
                 <span style="font-weight: 500; color: #92400e; font-size: 13px;">Note:</span>
-                <span style="color: #78350f; font-size: 13px;">${formatText(fd.note)}</span>
+                <span style="color: #78350f; font-size: 13px;">${formatText(note)}</span>
               </div>
             </td>
           </tr>
         `;
       }
 
-      // Build photo gallery for this field
+      // Build photo gallery for this field (matching UI layout)
       if (photoCount > 0) {
         photosGalleryHTML += `
-          <div style="margin-top: 16px; page-break-inside: avoid;">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-              <span style="color: #00D5CC;">&#128247;</span>
-              <span style="font-weight: 600; color: #333;">${escapeHtml(fd.field.label)} Photos</span>
+          <div style="margin-top: 20px; page-break-inside: avoid;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-left: 4px;">
+              <span style="font-size: 16px;">&#128247;</span>
+              <span style="font-weight: 600; color: #333; font-size: 15px;">${escapeHtml(field.label)} Photos</span>
             </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
-              ${fd.photos.map((photo, photoIndex) => `
-                <div style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white;">
-                  <div style="position: relative; height: 180px; background: #f9fafb;">
+            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+              ${photos.map((photo, photoIndex) => `
+                <div style="width: 300px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white;">
+                  <div style="height: 200px; background: #f9fafb; position: relative;">
                     <img src="${sanitizeUrl(photo, baseUrl)}" alt="Photo" style="width: 100%; height: 100%; object-fit: cover;" />
                   </div>
-                  <div style="padding: 12px; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                      <span>Provided by</span>
-                      <span style="font-weight: 500; color: #333;">Inspector</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                      <span>Captured (Certified by inspector)</span>
-                      <span style="font-weight: 500; color: #333;">${escapeHtml(formattedDate)}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                      <span>Added</span>
-                      <span style="font-weight: 500; color: #333;">${escapeHtml(formattedDate)}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between;">
-                      <span>Reference</span>
-                      <span style="font-weight: 500; color: #333;">${fd.fieldRef}.${photoIndex + 1}</span>
-                    </div>
-                  </div>
+                  <table style="width: 100%; border-collapse: collapse; font-size: 12px; border-top: 1px solid #e5e7eb;">
+                    <tr>
+                      <td style="padding: 8px 12px; color: #666; width: 60%;">Provided by</td>
+                      <td style="padding: 8px 12px; color: #333; font-weight: 500; text-align: right;">Inspector</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 8px 12px; color: #666;">Captured (Certified by inspector)</td>
+                      <td style="padding: 8px 12px; color: #333; font-weight: 500; text-align: right;">${escapeHtml(formattedDate)}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 8px 12px; color: #666;">Added</td>
+                      <td style="padding: 8px 12px; color: #333; font-weight: 500; text-align: right;">${escapeHtml(formattedDate)}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 8px 12px; color: #666;">Reference</td>
+                      <td style="padding: 8px 12px; color: #333; font-weight: 500; text-align: right;">${fieldRef}.${photoIndex + 1}</td>
+                    </tr>
+                  </table>
                 </div>
               `).join('')}
             </div>
@@ -501,7 +453,7 @@ function generateInspectionHTML(
       }
     });
 
-    // Build section HTML with table format
+    // Build section HTML with table format - always include all sections
     sectionsHTML += `
       <div style="margin-bottom: 32px; page-break-inside: avoid;">
         <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
