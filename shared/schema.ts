@@ -166,6 +166,7 @@ export const organizations = pgTable("organizations", {
   autoRenewThreshold: integer("auto_renew_threshold").default(10), // Trigger when credits drop below
   autoRenewLastRunAt: timestamp("auto_renew_last_run_at"), // Last auto-renewal execution
   autoRenewFailureCount: integer("auto_renew_failure_count").default(0), // Track consecutive failures
+  comparisonAlertThreshold: integer("comparison_alert_threshold").default(20), // Percentage threshold for condition/cleanliness alerts in comparison reports
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

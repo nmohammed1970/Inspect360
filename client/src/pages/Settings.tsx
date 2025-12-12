@@ -52,6 +52,7 @@ export default function Settings() {
   const [brandingAddress, setBrandingAddress] = useState("");
   const [brandingWebsite, setBrandingWebsite] = useState("");
   const [financeEmail, setFinanceEmail] = useState("");
+  const [comparisonAlertThreshold, setComparisonAlertThreshold] = useState(20);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -71,6 +72,7 @@ export default function Settings() {
       setBrandingAddress(organization.brandingAddress || "");
       setBrandingWebsite(organization.brandingWebsite || "");
       setFinanceEmail(organization.financeEmail || "");
+      setComparisonAlertThreshold(organization.comparisonAlertThreshold ?? 20);
     }
   }, [organization]);
 
@@ -85,6 +87,7 @@ export default function Settings() {
         brandingAddress: brandingAddress || null,
         brandingWebsite: brandingWebsite || null,
         financeEmail: financeEmail || null,
+        comparisonAlertThreshold,
       });
       return response.json();
     },
@@ -443,6 +446,28 @@ export default function Settings() {
                           />
                           <p className="text-xs text-muted-foreground mt-1">
                             Comparison reports with liability summaries can be sent to this email for deposit processing
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-6 space-y-4">
+                      <Label className="text-base font-medium">Comparison Report Settings</Label>
+                      <div className="grid gap-4">
+                        <div>
+                          <Label htmlFor="comparisonAlertThreshold" className="text-sm">Condition/Cleanliness Alert Threshold (%)</Label>
+                          <Input
+                            id="comparisonAlertThreshold"
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={comparisonAlertThreshold}
+                            onChange={(e) => setComparisonAlertThreshold(parseInt(e.target.value) || 20)}
+                            className="mt-1 w-32"
+                            data-testid="input-comparison-alert-threshold"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Display an alert in comparison reports when the condition or cleanliness score drops by more than this percentage between check-in and check-out inspections
                           </p>
                         </div>
                       </div>
