@@ -70,6 +70,30 @@ function formatText(text: string): string {
   return withBreaks;
 }
 
+// Get condition score (5 = best, 1 = worst)
+function getConditionScore(condition: string | null | undefined): number | null {
+  if (!condition) return null;
+  const lower = condition.toLowerCase();
+  if (lower === 'new' || lower === 'excellent') return 5;
+  if (lower === 'good') return 4;
+  if (lower === 'fair') return 3;
+  if (lower === 'poor') return 2;
+  if (lower === 'very poor') return 1;
+  return null;
+}
+
+// Get cleanliness score (5 = best, 1 = worst)
+function getCleanlinessScore(cleanliness: string | null | undefined): number | null {
+  if (!cleanliness) return null;
+  const lower = cleanliness.toLowerCase();
+  if (lower === 'excellent') return 5;
+  if (lower === 'good') return 4;
+  if (lower === 'fair') return 3;
+  if (lower === 'poor') return 2;
+  if (lower === 'very poor') return 1;
+  return null;
+}
+
 interface TemplateField {
   id: string;
   key?: string;
@@ -342,7 +366,7 @@ function generateInspectionHTML(
             <div style="margin-top: 8px;">
               <span style="font-size: 13px; color: #666;">Condition:</span>
               <span style="display: inline-block; background: #f0fdf4; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 13px; margin-left: 8px;">
-                ${escapeHtml(condition)}
+                ${escapeHtml(condition)} (${getConditionScore(condition)})
               </span>
             </div>
           ` : ""}
@@ -351,7 +375,7 @@ function generateInspectionHTML(
             <div style="margin-top: 8px;">
               <span style="font-size: 13px; color: #666;">Cleanliness:</span>
               <span style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 2px 8px; border-radius: 4px; font-size: 13px; margin-left: 8px;">
-                ${escapeHtml(cleanliness)}
+                ${escapeHtml(cleanliness)} (${getCleanlinessScore(cleanliness)})
               </span>
             </div>
           ` : ""}

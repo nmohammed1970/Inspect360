@@ -168,6 +168,28 @@ export default function InspectionReport() {
     return 'bg-gray-400';
   };
 
+  const getConditionScore = (condition: string | null | undefined): number | null => {
+    if (!condition) return null;
+    const lower = condition.toLowerCase();
+    if (lower === 'new' || lower === 'excellent') return 5;
+    if (lower === 'good') return 4;
+    if (lower === 'fair') return 3;
+    if (lower === 'poor') return 2;
+    if (lower === 'very poor') return 1;
+    return null;
+  };
+
+  const getCleanlinessScore = (cleanliness: string | null | undefined): number | null => {
+    if (!cleanliness) return null;
+    const lower = cleanliness.toLowerCase();
+    if (lower === 'excellent') return 5;
+    if (lower === 'good') return 4;
+    if (lower === 'fair') return 3;
+    if (lower === 'poor') return 2;
+    if (lower === 'very poor') return 1;
+    return null;
+  };
+
   // Fetch inspection data - refetch on mount to ensure fresh data
   const { data: inspection, isLoading: inspectionLoading, refetch: refetchInspection } = useQuery<Inspection>({
     queryKey: ["/api/inspections", id],
@@ -1252,6 +1274,7 @@ export default function InspectionReport() {
                                     <>
                                       <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
                                       <span className="text-xs">{condition}</span>
+                                      <span className="text-xs text-muted-foreground">({getConditionScore(condition)})</span>
                                     </>
                                   ) : <span className="text-muted-foreground text-xs">-</span>}
                                 </div>
@@ -1262,6 +1285,7 @@ export default function InspectionReport() {
                                     <>
                                       <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
                                       <span className="text-xs">{cleanliness}</span>
+                                      <span className="text-xs text-muted-foreground">({getCleanlinessScore(cleanliness)})</span>
                                     </>
                                   ) : <span className="text-muted-foreground text-xs">-</span>}
                                 </div>
