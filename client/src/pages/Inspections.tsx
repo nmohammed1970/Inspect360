@@ -157,6 +157,21 @@ export default function Inspections() {
     queryKey: ["/api/users/clerks"],
   });
 
+  const form = useForm<CreateInspectionData>({
+    resolver: zodResolver(createInspectionSchema),
+    defaultValues: {
+      targetType: "property",
+      propertyId: "",
+      blockId: "",
+      tenantId: "",
+      type: "routine",
+      scheduledDate: new Date().toISOString().split("T")[0],
+      templateId: "__none__",
+      clerkId: "",
+      notes: "",
+    },
+  });
+
   // Watch the target type to dynamically fetch templates
   const targetType = form.watch("targetType");
   
@@ -177,21 +192,6 @@ export default function Inspections() {
   const { data: tenants = [] } = useQuery<any[]>({
     queryKey: ["/api/properties", selectedPropertyId, "tenants"],
     enabled: !!selectedPropertyId,
-  });
-
-  const form = useForm<CreateInspectionData>({
-    resolver: zodResolver(createInspectionSchema),
-    defaultValues: {
-      targetType: "property",
-      propertyId: "",
-      blockId: "",
-      tenantId: "",
-      type: "routine",
-      scheduledDate: new Date().toISOString().split("T")[0],
-      templateId: "__none__",
-      clerkId: "",
-      notes: "",
-    },
   });
 
   // Pre-populate form and auto-open dialog if coming from property detail
