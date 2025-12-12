@@ -157,9 +157,20 @@ export default function Inspections() {
     queryKey: ["/api/users/clerks"],
   });
 
-  // Fetch active templates filtered by property scope
+  // Watch the target type to dynamically fetch templates
+  const targetType = form.watch("targetType");
+  
+  // Fetch active templates filtered by the current target scope
   const { data: templates = [] } = useQuery<any[]>({
-    queryKey: ["/api/inspection-templates?scope=property&active=true"],
+    queryKey: ["/api/inspection-templates", { scope: targetType, active: true }],
+    queryFn: async () => {
+      const scope = targetType === "block" ? "block" : "property";
+      const response = await fetch(`/api/inspection-templates?scope=${scope}&active=true`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to fetch templates");
+      return response.json();
+    },
   });
 
   // Fetch tenants for selected property
@@ -237,6 +248,11 @@ export default function Inspections() {
       }
     }
   }, [filterBlockId, filterPropertyId, properties]);
+
+  // Reset template selection when target type changes to avoid scope mismatch
+  useEffect(() => {
+    form.setValue("templateId", "__none__");
+  }, [targetType]);
 
   // Auto-select matching template when inspection type changes
   const watchedType = form.watch("type");
