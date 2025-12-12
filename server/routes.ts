@@ -7014,100 +7014,54 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         }
       }
 
-      // Make AI call
+      // Make AI call using Responses API (consistent with rest of codebase)
       let aiCallSucceeded = false;
 
-      // Try with image first if available
+      // Build the input content
+      const inputContent: any[] = [];
+      
+      // Add image if available
       if (imageUrlForAI) {
-        console.log("[Maintenance Analyze Image] Making AI call with image");
-        try {
-          const analysisCompletion = await openaiClient.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-              {
-                role: "system",
-                content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
-              },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: issueDescription || "Please analyze this maintenance issue" },
-                  { type: "image_url", image_url: { url: imageUrlForAI } },
-                ],
-              },
-            ],
-            max_completion_tokens: 2000,
-          });
-
-          console.log("[Maintenance Analyze Image] Full OpenAI response with image:", JSON.stringify(analysisCompletion, null, 2));
-
-          const responseContent = analysisCompletion.choices?.[0]?.message?.content;
-          const finishReason = analysisCompletion.choices?.[0]?.finish_reason;
-          const usage = analysisCompletion.usage;
-
-          console.log("[Maintenance Analyze Image] Extracted content:", {
-            hasChoices: !!analysisCompletion.choices,
-            choicesLength: analysisCompletion.choices?.length,
-            content: responseContent,
-            contentType: typeof responseContent,
-            contentLength: responseContent?.length,
-            finishReason: finishReason,
-          });
-
-          if (responseContent && responseContent.trim().length > 0) {
-            suggestedFixes = cleanMarkdownText(responseContent.trim());
-            aiCallSucceeded = true;
-            console.log("[Maintenance Analyze Image] Successfully got AI response with image, length:", suggestedFixes.length);
-          } else {
-            console.warn("[Maintenance Analyze Image] OpenAI returned empty or whitespace-only response with image, will try text-only");
-          }
-        } catch (imageError: any) {
-          console.error("[Maintenance Analyze Image] Error with image analysis, will try text-only:", imageError?.message);
-        }
+        console.log("[Maintenance Analyze Image] Adding image to AI request");
+        inputContent.push({
+          type: "input_image",
+          image_url: imageUrlForAI,
+        });
       }
 
-      // If image analysis failed or no image, try text-only
-      if (!aiCallSucceeded) {
-        console.log("[Maintenance Analyze Image] Processing text-only message:", issueDescription);
-        const completion = await openaiClient.chat.completions.create({
+      // Add text description
+      inputContent.push({
+        type: "input_text",
+        text: `You are a helpful maintenance assistant. Analyze this maintenance issue and provide simple, actionable suggestions on how to fix it. Be concise and practical.
+
+Issue description: ${issueDescription || "Please analyze this maintenance issue"}
+
+Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what the person can do themselves first, then mention when to call a professional.`,
+      });
+
+      console.log("[Maintenance Analyze Image] Making AI call with Responses API");
+      try {
+        const response = await openaiClient.responses.create({
           model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
-            },
-            { role: "user", content: issueDescription || "Please analyze this maintenance issue" },
-          ],
-          max_completion_tokens: 2000,
+          input: inputContent,
         });
 
-        console.log("[Maintenance Analyze Image] Full OpenAI response (text-only):", JSON.stringify(completion, null, 2));
+        console.log("[Maintenance Analyze Image] OpenAI Response:", JSON.stringify(response, null, 2));
 
-        const responseContent = completion.choices?.[0]?.message?.content;
-        const finishReason = completion.choices?.[0]?.finish_reason;
-        const usage = completion.usage;
+        // Extract content from response
+        const outputContent = normalizeResponseContent(response);
+        console.log("[Maintenance Analyze Image] Normalized output:", outputContent);
 
-        console.log("[Maintenance Analyze Image] Extracted content (text-only):", {
-          hasChoices: !!completion.choices,
-          choicesLength: completion.choices?.length,
-          content: responseContent,
-          contentType: typeof responseContent,
-          contentLength: responseContent?.length,
-          finishReason: finishReason,
-        });
-
-        if (responseContent && responseContent.trim().length > 0) {
-          suggestedFixes = cleanMarkdownText(responseContent.trim());
+        if (outputContent && outputContent.trim().length > 0) {
+          suggestedFixes = cleanMarkdownText(outputContent.trim());
           aiCallSucceeded = true;
           console.log("[Maintenance Analyze Image] Successfully got AI response, length:", suggestedFixes.length);
-        } else if (finishReason === "length" && usage?.completion_tokens_details?.reasoning_tokens) {
-          console.error("[Maintenance Analyze Image] Response hit token limit - all tokens used for reasoning");
-          suggestedFixes = "I'm analyzing your issue, but I need more information. Could you provide more details about the problem, such as what exactly is broken, when it started, and what you've already tried?";
-          aiCallSucceeded = true;
         } else {
-          console.error("[Maintenance Analyze Image] OpenAI returned empty or whitespace-only response");
-          throw new Error("OpenAI returned empty response");
+          console.warn("[Maintenance Analyze Image] OpenAI returned empty response");
         }
+      } catch (aiError: any) {
+        console.error("[Maintenance Analyze Image] Error with AI call:", aiError?.message);
+        throw aiError;
       }
 
       if (!aiCallSucceeded || !suggestedFixes) {
