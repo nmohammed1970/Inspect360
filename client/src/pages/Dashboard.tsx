@@ -1059,18 +1059,11 @@ export default function Dashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            {!inspectionScheduleEntityId ? (
-              <div className="py-12 text-center">
-                <ClipboardCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">Select a block or property to view inspection schedule</p>
-              </div>
-            ) : (
-              <ComplianceCalendar 
-                report={inspectionComplianceReport} 
-                isLoading={inspectionComplianceLoading}
-                entityType={inspectionScheduleEntityType as 'property' | 'block'}
-              />
-            )}
+            <ComplianceCalendar 
+              report={inspectionScheduleEntityId ? inspectionComplianceReport : undefined} 
+              isLoading={inspectionScheduleEntityId ? inspectionComplianceLoading : false}
+              entityType={inspectionScheduleEntityType as 'property' | 'block' || 'property'}
+            />
           </CardContent>
         </Card>
       )}
@@ -1120,18 +1113,11 @@ export default function Dashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            {!complianceScheduleEntityId ? (
-              <div className="py-12 text-center">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">Select a block or property to view compliance schedule</p>
-              </div>
-            ) : (
-              <ComplianceDocumentCalendar 
-                documents={complianceDocuments} 
-                isLoading={complianceDocumentsLoading}
-                entityType={complianceScheduleEntityType as 'property' | 'block'}
-              />
-            )}
+            <ComplianceDocumentCalendar 
+              documents={complianceScheduleEntityId ? complianceDocuments : []} 
+              isLoading={complianceScheduleEntityId ? complianceDocumentsLoading : false}
+              entityType={complianceScheduleEntityType as 'property' | 'block' || 'property'}
+            />
           </CardContent>
         </Card>
       )}
