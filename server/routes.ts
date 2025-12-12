@@ -7122,7 +7122,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         });
       }
 
-      const { propertyId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson, inspectionId, inspectionEntryId, source } = validation.data;
+      const { propertyId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson, inspectionId, inspectionEntryId, source, dueDate } = validation.data;
 
       // Verify property exists and belongs to the same organization
       const property = await storage.getProperty(propertyId);
@@ -7147,6 +7147,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         source: source || (user.role === "tenant" ? "tenant_portal" : "manual"),
         inspectionId: inspectionId || null,
         inspectionEntryId: inspectionEntryId || null,
+        dueDate: dueDate ? new Date(dueDate) : null,
       });
 
       res.json(request);
