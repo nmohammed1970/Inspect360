@@ -97,6 +97,24 @@ export default function InspectionCapture() {
     enabled: !!inspection?.propertyId,
   });
 
+  // Fetch block details if inspection has a blockId
+  const { data: block } = useQuery<any>({
+    queryKey: [`/api/blocks/${inspection?.blockId}`],
+    enabled: !!inspection?.blockId,
+  });
+
+  // Fetch inspector details - use /api/users/:userId endpoint
+  const { data: inspector } = useQuery<any>({
+    queryKey: [`/api/users/${inspection?.inspectorId}`],
+    enabled: !!inspection?.inspectorId,
+  });
+
+  // Fetch tenant information for property - use existing /api/properties/:id/tenants endpoint
+  const { data: tenants = [] } = useQuery<any[]>({
+    queryKey: [`/api/properties/${inspection?.propertyId}/tenants`],
+    enabled: !!inspection?.propertyId,
+  });
+
   // Fetch existing entries for this inspection
   const { data: existingEntries = [] } = useQuery<any[]>({
     queryKey: [`/api/inspections/${id}/entries`],
@@ -959,6 +977,38 @@ export default function InspectionCapture() {
             {currentSection.fields.map((field) => {
               const entryKey = `${currentSection.id}-${field.id}`;
               const entry = entries[entryKey];
+              
+              // Build auto-context for auto-populated fields
+              const getAddress = () => {
+                if (property) {
+                  return [property.address, property.city, property.state, property.postalCode]
+                    .filter(Boolean).join(", ");
+                }
+                if (block) {
+                  return [block.address, block.city, block.state, block.postalCode]
+                    .filter(Boolean).join(", ");
+                }
+                return "";
+              };
+              
+              const getTenantNames = () => {
+                if (tenants && tenants.length > 0) {
+                  const activeAssignments = tenants.filter((t: any) => t.status === "active");
+                  if (activeAssignments.length > 0) {
+                    return activeAssignments.map((t: any) => t.tenantName || t.name).filter(Boolean).join(", ");
+                  }
+                }
+                return "";
+              };
+              
+              const autoContext = {
+                inspectorName: inspector?.fullName || inspector?.username || "",
+                address: getAddress(),
+                tenantNames: getTenantNames(),
+                inspectionDate: inspection?.scheduledDate 
+                  ? new Date(inspection.scheduledDate).toISOString().split("T")[0] 
+                  : new Date().toISOString().split("T")[0],
+              };
 
               return (
                 <FieldWidget
@@ -972,6 +1022,7 @@ export default function InspectionCapture() {
                   isCheckOut={inspection?.type === "check_out"}
                   markedForReview={entry?.markedForReview || false}
                   sectionName={currentSection.title}
+                  autoContext={autoContext}
                   onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
                   onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
                   onLogMaintenance={(fieldLabel: string, photos: string[]) => {

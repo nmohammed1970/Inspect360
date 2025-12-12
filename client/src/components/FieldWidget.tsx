@@ -23,6 +23,7 @@ import SignatureCanvas from "react-signature-canvas";
 
 interface TemplateField {
   id: string;
+  key?: string;
   label: string;
   type: string;
   required?: boolean;
@@ -44,6 +45,12 @@ interface FieldWidgetProps {
   isCheckOut?: boolean;
   markedForReview?: boolean;
   sectionName?: string;
+  autoContext?: {
+    inspectorName?: string;
+    address?: string;
+    tenantNames?: string;
+    inspectionDate?: string;
+  };
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
@@ -59,6 +66,7 @@ export function FieldWidget({
   isCheckOut,
   markedForReview,
   sectionName,
+  autoContext,
   onChange,
   onMarkedForReviewChange,
   onLogMaintenance
@@ -154,6 +162,46 @@ export function FieldWidget({
       onMarkedForReviewChange?.(false);
     }
   }, [localPhotos, localMarkedForReview, isCheckOut, onMarkedForReviewChange]);
+
+  // Track if auto-save has been triggered for this field instance
+  const autoSaveTriggeredRef = useRef(false);
+
+  // Auto-save auto-populated field values ONCE when they first render with autoContext
+  useEffect(() => {
+    if (!autoContext) return;
+    if (autoSaveTriggeredRef.current) return; // Only trigger once per field instance
+    
+    const isAutoField = field.type.startsWith("auto_");
+    if (!isAutoField) return;
+    
+    // Get the auto-populated value
+    let autoValue = "";
+    switch (field.type) {
+      case "auto_inspector":
+        autoValue = autoContext.inspectorName || "";
+        break;
+      case "auto_address":
+        autoValue = autoContext.address || "";
+        break;
+      case "auto_tenant_names":
+        autoValue = autoContext.tenantNames || "";
+        break;
+      case "auto_inspection_date":
+        autoValue = autoContext.inspectionDate || "";
+        break;
+    }
+    
+    // Only auto-save if there's no existing saved value (not localValue, but original value prop)
+    // and we have an auto value to populate
+    if (!value && autoValue) {
+      autoSaveTriggeredRef.current = true;
+      setLocalValue(autoValue);
+      onChange(autoValue, undefined, undefined);
+    } else if (value) {
+      // If there's already a saved value, just mark as triggered to prevent overwrites
+      autoSaveTriggeredRef.current = true;
+    }
+  }, [field.type, autoContext, value, onChange]);
 
   const composeValue = (val: any, condition?: string, cleanliness?: string) => {
     if (field.includeCondition || field.includeCleanliness) {
@@ -1010,6 +1058,65 @@ export function FieldWidget({
                 </CardContent>
               </Card>
             )}
+          </div>
+        );
+
+      case "auto_inspector":
+        const inspectorValue = localValue || autoContext?.inspectorName || "";
+        return (
+          <div className="flex items-center gap-2">
+            <Input
+              value={inspectorValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              data-testid={`input-auto-inspector-${field.id}`}
+            />
+            <Badge variant="secondary" className="whitespace-nowrap">Auto</Badge>
+          </div>
+        );
+
+      case "auto_address":
+        const addressValue = localValue || autoContext?.address || "";
+        return (
+          <div className="flex items-center gap-2">
+            <Input
+              value={addressValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              data-testid={`input-auto-address-${field.id}`}
+            />
+            <Badge variant="secondary" className="whitespace-nowrap">Auto</Badge>
+          </div>
+        );
+
+      case "auto_tenant_names":
+        const tenantValue = localValue || autoContext?.tenantNames || "";
+        return (
+          <div className="flex items-center gap-2">
+            <Input
+              value={tenantValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              placeholder="No tenant assigned"
+              data-testid={`input-auto-tenant-${field.id}`}
+            />
+            <Badge variant="secondary" className="whitespace-nowrap">Auto</Badge>
+          </div>
+        );
+
+      case "auto_inspection_date":
+        const dateValue = localValue || autoContext?.inspectionDate || "";
+        return (
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={dateValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              data-testid={`input-auto-date-${field.id}`}
+            />
+            <Badge variant="secondary" className="whitespace-nowrap">Auto</Badge>
           </div>
         );
 

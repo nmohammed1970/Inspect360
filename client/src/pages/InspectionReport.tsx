@@ -618,7 +618,13 @@ export default function InspectionReport() {
         displayValue = Array.isArray(actualValue) ? actualValue.join(", ") : <span className="text-muted-foreground italic">None selected</span>;
         break;
       case "date":
+      case "auto_inspection_date":
         displayValue = actualValue ? format(new Date(actualValue), "MMM dd, yyyy") : <span className="text-muted-foreground italic">Not set</span>;
+        break;
+      case "auto_inspector":
+      case "auto_address":
+      case "auto_tenant_names":
+        displayValue = actualValue || <span className="text-muted-foreground italic">Not available</span>;
         break;
       case "signature":
         displayValue = actualValue ? (
