@@ -2794,13 +2794,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get inspection entries
       const entries = await storage.getInspectionEntries(id);
 
+      // Fetch outstanding maintenance requests for this property
+      let maintenanceRequests: any[] = [];
+      try {
+        if (inspection.propertyId) {
+          const allRequests = await storage.getMaintenanceRequestsByProperty(inspection.propertyId);
+          // Filter to only show open/pending/in_progress requests
+          maintenanceRequests = allRequests.filter((r: any) => 
+            ['open', 'pending', 'in_progress', 'assigned'].includes(r.status)
+          );
+        }
+      } catch (e) {
+        console.log("Could not fetch maintenance requests for PDF:", e);
+      }
+
       // Build base URL for converting relative image paths to absolute
       const protocol = req.protocol;
       const host = req.get('host');
       const baseUrl = `${protocol}://${host}`;
 
-      // Generate PDF with branding
-      const pdfBuffer = await generateInspectionPDF(fullInspection as any, entries, baseUrl, branding);
+      // Generate PDF with branding and maintenance requests
+      const pdfBuffer = await generateInspectionPDF(fullInspection as any, entries, baseUrl, branding, maintenanceRequests);
 
       // Set headers for PDF download
       const propertyName = property?.name || "inspection";

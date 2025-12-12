@@ -175,13 +175,24 @@ interface BrandingInfo {
   brandingWebsite?: string | null;
 }
 
+interface MaintenanceRequest {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority?: string;
+  category?: string;
+  createdAt: Date;
+}
+
 export async function generateInspectionPDF(
   inspection: Inspection,
   entries: InspectionEntry[],
   baseUrl: string,
-  branding?: BrandingInfo
+  branding?: BrandingInfo,
+  maintenanceRequests?: MaintenanceRequest[]
 ): Promise<Buffer> {
-  const html = generateInspectionHTML(inspection, entries, baseUrl, branding);
+  const html = generateInspectionHTML(inspection, entries, baseUrl, branding, maintenanceRequests);
 
   let browser;
   try {
@@ -268,7 +279,8 @@ function generateInspectionHTML(
   inspection: Inspection,
   entries: InspectionEntry[],
   baseUrl: string,
-  branding?: BrandingInfo
+  branding?: BrandingInfo,
+  maintenanceRequests?: MaintenanceRequest[]
 ): string {
   const templateStructure = inspection.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
@@ -347,15 +359,36 @@ function generateInspectionHTML(
 
     section.fields.forEach((field) => {
       fieldCounter++;
-      const key = `${section.id}-${field.key || field.id}`;
+      // Use field.id first (matching frontend logic), then fall back to field.key
+      const fieldKey = field.id || field.key || field.label;
+      const key = `${section.id}-${fieldKey}`;
       const entry = entriesMap.get(key);
 
-      const value = entry?.value;
+      // Extract data from entry - condition/cleanliness are stored inside valueJson
+      const valueJson = entry?.valueJson;
       const note = entry?.note;
       const photos = entry?.photos || [];
-      const condition = entry?.condition;
-      const cleanliness = entry?.cleanliness;
       const fieldRef = `${sectionIndex + 1}.${fieldCounter}`;
+
+      // Parse valueJson to extract condition, cleanliness, and value
+      let condition: string | null = null;
+      let cleanliness: string | null = null;
+      let description: string | null = null;
+
+      if (valueJson !== undefined && valueJson !== null) {
+        if (typeof valueJson === 'object' && !Array.isArray(valueJson)) {
+          // Extract from structured object (for fields with condition/cleanliness)
+          condition = valueJson.condition || null;
+          cleanliness = valueJson.cleanliness || null;
+          description = valueJson.value || null;
+        } else if (typeof valueJson === 'string') {
+          description = valueJson;
+        } else if (typeof valueJson === 'boolean') {
+          description = valueJson ? 'Yes' : 'No';
+        } else {
+          description = String(valueJson);
+        }
+      }
 
       // Get scores for ratings
       const conditionScore = getConditionScore(condition);
@@ -364,13 +397,11 @@ function generateInspectionHTML(
 
       // Determine description value
       let descriptionValue = '-';
-      if (value !== undefined && value !== null && value !== '') {
-        if (typeof value === 'string') {
-          descriptionValue = value.length > 50 ? value.substring(0, 50) + '...' : value;
-        } else if (typeof value === 'boolean') {
-          descriptionValue = value ? 'Yes' : 'No';
+      if (description !== null && description !== '') {
+        if (typeof description === 'string') {
+          descriptionValue = description.length > 50 ? description.substring(0, 50) + '...' : description;
         } else {
-          descriptionValue = String(value);
+          descriptionValue = String(description);
         }
       }
 
@@ -802,6 +833,57 @@ function generateInspectionHTML(
           </div>
         ` : ""}
       </div>
+
+      <!-- Outstanding Maintenance Requests -->
+      ${maintenanceRequests && maintenanceRequests.length > 0 ? `
+        <div style="margin-bottom: 32px; page-break-inside: avoid;">
+          <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+            Outstanding Maintenance Requests
+          </h2>
+          <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Title</th>
+                <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Category</th>
+                <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Priority</th>
+                <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Status</th>
+                <th style="padding: 12px 16px; text-align: right; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${maintenanceRequests.map(req => {
+                const priorityColor = req.priority === 'urgent' || req.priority === 'high' ? '#ef4444' : 
+                                      req.priority === 'medium' ? '#f59e0b' : '#22c55e';
+                const statusColor = req.status === 'open' || req.status === 'pending' ? '#f59e0b' :
+                                   req.status === 'in_progress' ? '#3b82f6' :
+                                   req.status === 'completed' ? '#22c55e' : '#666';
+                return `
+                  <tr>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #333; font-weight: 500;">
+                      ${escapeHtml(req.title)}
+                    </td>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;">
+                      ${escapeHtml(req.category || '-')}
+                    </td>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+                      <span style="display: inline-flex; align-items: center; gap: 6px;">
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${priorityColor};"></span>
+                        <span style="color: ${priorityColor}; text-transform: capitalize;">${escapeHtml(req.priority || 'Normal')}</span>
+                      </span>
+                    </td>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+                      <span style="color: ${statusColor}; text-transform: capitalize;">${escapeHtml(req.status.replace(/_/g, ' '))}</span>
+                    </td>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #666;">
+                      ${format(new Date(req.createdAt), "MMM d, yyyy")}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : ''}
 
       <!-- Inspection Sections -->
       ${sectionsHTML}
