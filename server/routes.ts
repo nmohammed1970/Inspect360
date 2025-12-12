@@ -4146,6 +4146,25 @@ Remember: Only analyze "${fieldLabel}" - nothing else in the photo matters for t
             let estimatedCost = 0;
             let depreciation = 0;
 
+            // Extract condition/cleanliness from valueJson for both entries (always, regardless of photos)
+            const parseConditionCleanliness = (entry: any) => {
+              if (!entry?.valueJson) return { condition: null, cleanliness: null };
+              try {
+                const valueJson = typeof entry.valueJson === 'string' 
+                  ? JSON.parse(entry.valueJson) 
+                  : entry.valueJson;
+                return {
+                  condition: valueJson?.condition || null,
+                  cleanliness: valueJson?.cleanliness || null,
+                };
+              } catch {
+                return { condition: null, cleanliness: null };
+              }
+            };
+
+            const checkInRatings = parseConditionCleanliness(checkInEntry);
+            const checkOutRatings = parseConditionCleanliness(checkOutEntry);
+
             if (checkOutEntry.photos && checkOutEntry.photos.length > 0) {
               try {
                 const checkInPhotos = checkInEntry?.photos || [];
@@ -4236,25 +4255,6 @@ LIABILITY: [tenant/landlord/shared]`;
 
                 estimatedCost = costMatch ? parseInt(costMatch[1]) : 0;
 
-                // Extract condition/cleanliness from valueJson for both entries
-                const parseConditionCleanliness = (entry: any) => {
-                  if (!entry?.valueJson) return { condition: null, cleanliness: null };
-                  try {
-                    const valueJson = typeof entry.valueJson === 'string' 
-                      ? JSON.parse(entry.valueJson) 
-                      : entry.valueJson;
-                    return {
-                      condition: valueJson?.condition || null,
-                      cleanliness: valueJson?.cleanliness || null,
-                    };
-                  } catch {
-                    return { condition: null, cleanliness: null };
-                  }
-                };
-
-                const checkInRatings = parseConditionCleanliness(checkInEntry);
-                const checkOutRatings = parseConditionCleanliness(checkOutEntry);
-
                 aiComparison = {
                   summary: summaryMatch ? summaryMatch[1].trim() : analysis.replace(/\*\*/g, ''),
                   differences: summaryMatch ? summaryMatch[1].trim() : analysis.replace(/\*\*/g, ''),
@@ -4267,10 +4267,6 @@ LIABILITY: [tenant/landlord/shared]`;
                   estimatedCost,
                   checkInNote: checkInNote,
                   checkOutNote: checkOutNote,
-                  checkInCondition: checkInRatings.condition,
-                  checkOutCondition: checkOutRatings.condition,
-                  checkInCleanliness: checkInRatings.cleanliness,
-                  checkOutCleanliness: checkOutRatings.cleanliness,
                 };
 
                 // Extract notes_comparison if present in response
@@ -4287,6 +4283,12 @@ LIABILITY: [tenant/landlord/shared]`;
                 aiComparison = { summary: "Error analyzing images", error: true };
               }
             }
+
+            // Always add condition/cleanliness data to aiComparison (regardless of photos)
+            aiComparison.checkInCondition = checkInRatings.condition;
+            aiComparison.checkOutCondition = checkOutRatings.condition;
+            aiComparison.checkInCleanliness = checkInRatings.cleanliness;
+            aiComparison.checkOutCleanliness = checkOutRatings.cleanliness;
 
             const finalCost = Math.max(0, estimatedCost - depreciation);
             totalCost += finalCost;
