@@ -216,6 +216,22 @@ export default function InspectionReport() {
     refetchIntervalInBackground: true, // Continue polling even when tab is in background
   });
 
+  // Fetch check-in reference data for Check-Out inspections
+  const { data: checkInData } = useQuery<{
+    inspection: Inspection;
+    entries: any[];
+  } | null>({
+    queryKey: [`/api/properties/${inspection?.propertyId}/most-recent-checkin`],
+    enabled: !!inspection?.propertyId && inspection?.type === "check_out" && isAuthenticated && !authLoading,
+    retry: false,
+  });
+
+  // Fetch tenant assignment for the property
+  const { data: tenantAssignment } = useQuery<any>({
+    queryKey: [`/api/properties/${inspection?.propertyId}/tenant-assignment`],
+    enabled: !!inspection?.propertyId && isAuthenticated && !authLoading,
+  });
+
   // Redirect to login if not authenticated - use hard redirect to prevent blank page
   // This must run FIRST before any other effects
   useEffect(() => {
@@ -579,6 +595,137 @@ export default function InspectionReport() {
     return entries.find(e => e.sectionRef === sectionId && e.fieldKey === fieldKey);
   };
 
+  // Get check-in entry for comparison
+  const getCheckInEntry = (sectionId: string, fieldKey: string) => {
+    if (!checkInData?.entries) return null;
+    return checkInData.entries.find((e: any) => e.sectionRef === sectionId && e.fieldKey === fieldKey);
+  };
+
+  // Calculate degradation and determine responsibility
+  interface DegradationItem {
+    sectionTitle: string;
+    fieldLabel: string;
+    sectionId: string;
+    fieldKey: string;
+    conditionDrop: number | null;
+    cleanlinessDrop: number | null;
+    checkInCondition: string | null;
+    checkOutCondition: string | null;
+    checkInCleanliness: string | null;
+    checkOutCleanliness: string | null;
+    responsibility: 'tenant' | 'landlord' | 'shared' | null;
+    actions: string[];
+  }
+
+  const calculateDegradations = (): DegradationItem[] => {
+    if (!checkInData?.entries || !entries.length || !sections.length) return [];
+    
+    const degradations: DegradationItem[] = [];
+    const THRESHOLD = 20; // 20% degradation threshold
+
+    sections.forEach(section => {
+      section.fields.forEach(field => {
+        const checkOutEntry = getEntryValue(section.id, field.id || field.key || field.label);
+        const checkInEntry = getCheckInEntry(section.id, field.id || field.key || field.label);
+
+        if (!checkOutEntry?.valueJson) return;
+
+        let checkInCondition: string | null = null;
+        let checkInCleanliness: string | null = null;
+        let checkOutCondition: string | null = null;
+        let checkOutCleanliness: string | null = null;
+
+        // Parse check-in values
+        if (checkInEntry?.valueJson && typeof checkInEntry.valueJson === 'object') {
+          checkInCondition = checkInEntry.valueJson.condition ?? null;
+          checkInCleanliness = checkInEntry.valueJson.cleanliness ?? null;
+        }
+
+        // Parse check-out values
+        if (typeof checkOutEntry.valueJson === 'object') {
+          checkOutCondition = checkOutEntry.valueJson.condition ?? null;
+          checkOutCleanliness = checkOutEntry.valueJson.cleanliness ?? null;
+        }
+
+        const checkInCondScore = getConditionScore(checkInCondition);
+        const checkOutCondScore = getConditionScore(checkOutCondition);
+        const checkInCleanScore = getCleanlinessScore(checkInCleanliness);
+        const checkOutCleanScore = getCleanlinessScore(checkOutCleanliness);
+
+        let conditionDrop: number | null = null;
+        let cleanlinessDrop: number | null = null;
+
+        // Calculate percentage drops - use explicit null checks
+        if (checkInCondScore !== null && checkOutCondScore !== null && checkInCondScore > 0) {
+          conditionDrop = Math.round(((checkInCondScore - checkOutCondScore) / checkInCondScore) * 100);
+        }
+        if (checkInCleanScore !== null && checkOutCleanScore !== null && checkInCleanScore > 0) {
+          cleanlinessDrop = Math.round(((checkInCleanScore - checkOutCleanScore) / checkInCleanScore) * 100);
+        }
+
+        // Only add if there's significant degradation (explicitly check for positive drops above threshold)
+        const hasConditionDegradation = conditionDrop !== null && conditionDrop >= THRESHOLD;
+        const hasCleanlinessDegradation = cleanlinessDrop !== null && cleanlinessDrop >= THRESHOLD;
+        
+        if (hasConditionDegradation || hasCleanlinessDegradation) {
+          // AI-enhanced responsibility detection considering both signals
+          let responsibility: 'tenant' | 'landlord' | 'shared' | null = null;
+          const actions: string[] = [];
+
+          // Analyze combined signals for responsibility
+          if (hasCleanlinessDegradation && hasConditionDegradation) {
+            // Both degraded - likely tenant responsibility unless severe structural
+            if (conditionDrop !== null && conditionDrop >= 60 && checkOutCondition?.toLowerCase() === 'very poor') {
+              responsibility = 'shared'; // Major structural + cleanliness = shared
+              actions.push('Repair', 'Clean');
+            } else {
+              responsibility = 'tenant';
+              actions.push('Repair', 'Clean');
+            }
+          } else if (hasCleanlinessDegradation) {
+            // Only cleanliness degraded - tenant responsibility
+            responsibility = 'tenant';
+            actions.push('Clean');
+          } else if (hasConditionDegradation) {
+            // Only condition degraded
+            if (conditionDrop !== null && conditionDrop >= 60 && checkOutCondition?.toLowerCase() === 'very poor') {
+              // Severe structural damage might be landlord issue (wear and tear)
+              responsibility = 'landlord';
+              actions.push('Repair');
+            } else if (conditionDrop !== null && conditionDrop >= 40) {
+              // Moderate damage - shared responsibility
+              responsibility = 'shared';
+              actions.push('Repair');
+            } else {
+              // Light damage - tenant
+              responsibility = 'tenant';
+              actions.push('Repair');
+            }
+          }
+
+          degradations.push({
+            sectionTitle: section.title,
+            fieldLabel: field.label,
+            sectionId: section.id,
+            fieldKey: field.id || field.key || field.label,
+            conditionDrop,
+            cleanlinessDrop,
+            checkInCondition,
+            checkOutCondition,
+            checkInCleanliness,
+            checkOutCleanliness,
+            responsibility,
+            actions: [...new Set(actions)],
+          });
+        }
+      });
+    });
+
+    return degradations;
+  };
+
+  const degradations = inspection?.type === 'check_out' ? calculateDegradations() : [];
+
   const renderFieldValue = (value: any, field: TemplateField) => {
     if (value === null || value === undefined) {
       return <span className="text-muted-foreground italic">Not recorded</span>;
@@ -827,16 +974,16 @@ export default function InspectionReport() {
             />
           </div>
 
-          {/* Report Title */}
+          {/* Report Title - Different for Check-Out */}
           <div className="space-y-4 mb-12">
             <h1 className="text-5xl font-bold text-gray-900" style={{ color: '#000' }}>
-              Inspection Report
+              {inspection.type === 'check_out' ? 'Check-out Inventory Report' : 'Inspection Report'}
             </h1>
             <div className="h-1 w-32 mx-auto" style={{ backgroundColor: '#00D5CC' }}></div>
           </div>
 
           {/* Inspection Type */}
-          {inspection.type && (
+          {inspection.type && inspection.type !== 'check_out' && (
             <div className="text-2xl font-semibold text-gray-700 mb-12" style={{ color: '#333' }}>
               {inspection.type.replace(/_/g, ' ').toUpperCase()}
             </div>
@@ -855,6 +1002,21 @@ export default function InspectionReport() {
                 </div>
               )}
             </div>
+
+            {/* Tenant Information - For Check-Out */}
+            {inspection.type === 'check_out' && (
+              <div className="space-y-2 pt-6">
+                <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Tenant</div>
+                <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
+                  {tenantAssignment?.tenant?.fullName || tenantAssignment?.tenants?.[0]?.fullName || 'Not Assigned'}
+                </div>
+                {(tenantAssignment?.tenant?.email || tenantAssignment?.tenants?.[0]?.email) && (
+                  <div className="text-base text-gray-600" style={{ color: '#666' }}>
+                    {tenantAssignment?.tenant?.email || tenantAssignment?.tenants?.[0]?.email}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Inspector Information */}
             <div className="space-y-2 pt-6">
@@ -1191,6 +1353,105 @@ export default function InspectionReport() {
           </CardContent>
         </Card>
 
+        {/* Maintenance Action Required - Only for Check-Out inspections with degradations */}
+        {inspection.type === 'check_out' && degradations.length > 0 && (
+          <Card className="print-break-inside-avoid border-2 border-orange-200 dark:border-orange-900/50" data-testid="maintenance-action-required">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                  <Wrench className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+                </div>
+                <CardTitle className="text-2xl font-bold">Maintenance Action Required</CardTitle>
+              </div>
+              <CardDescription>
+                Items that have degraded beyond acceptable threshold and require attention
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-3 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left py-2 px-3 font-medium text-muted-foreground">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Group by section */}
+                    {(() => {
+                      const groupedBySections: Record<string, typeof degradations> = {};
+                      degradations.forEach(d => {
+                        if (!groupedBySections[d.sectionTitle]) {
+                          groupedBySections[d.sectionTitle] = [];
+                        }
+                        groupedBySections[d.sectionTitle].push(d);
+                      });
+
+                      return Object.entries(groupedBySections).map(([sectionTitle, items]) => (
+                        <>
+                          {/* Section Header Row */}
+                          <tr key={`section-${sectionTitle}`} className="bg-muted/30">
+                            <td colSpan={2} className="py-2 px-3 font-bold text-base underline">
+                              {sectionTitle}
+                            </td>
+                          </tr>
+                          {/* Item Rows */}
+                          {items.map((item, idx) => (
+                            <tr key={`${item.sectionId}-${item.fieldKey}-${idx}`} className="border-b hover:bg-muted/20">
+                              <td className="py-2.5 px-3">
+                                <button
+                                  onClick={() => {
+                                    const photoKey = `photos-${item.sectionId}-${item.fieldKey}`;
+                                    togglePhotoExpansion(photoKey);
+                                    // Scroll to the element
+                                    const element = document.querySelector(`[data-testid="field-${item.fieldKey}"]`);
+                                    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  }}
+                                  className="text-primary hover:underline text-left"
+                                >
+                                  {item.fieldLabel}
+                                </button>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {/* Responsibility Badge */}
+                                  {item.responsibility === 'tenant' && (
+                                    <Badge variant="destructive" className="text-xs">
+                                      Tenant responsibility
+                                    </Badge>
+                                  )}
+                                  {item.responsibility === 'landlord' && (
+                                    <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                                      Landlord responsibility
+                                    </Badge>
+                                  )}
+                                  {item.responsibility === 'shared' && (
+                                    <Badge variant="outline" className="text-xs">
+                                      Shared responsibility
+                                    </Badge>
+                                  )}
+                                  {/* Action Badges */}
+                                  {item.actions.map((action, actionIdx) => (
+                                    <Badge key={actionIdx} variant="outline" className="text-xs gap-1">
+                                      {action === 'Repair' && <Wrench className="w-3 h-3" />}
+                                      {action === 'Clean' && <span className="w-3 h-3 flex items-center justify-center text-[10px]">C</span>}
+                                      {action}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Schedule of Cleanliness and Condition - Table Format */}
         <Card className="print-break-inside-avoid border-2" data-testid="schedule-of-condition">
           <CardHeader className="pb-4">
@@ -1424,6 +1685,278 @@ export default function InspectionReport() {
             )}
           </CardContent>
         </Card>
+
+        {/* Room Details - Comparison Section for Check-Out Inspections */}
+        {inspection.type === 'check_out' && checkInData && (
+          <Card className="print-break-inside-avoid border-2" data-testid="room-details-comparison">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Camera className="w-6 h-6 text-primary" />
+                </div>
+                <CardTitle className="text-2xl font-bold">Room Details</CardTitle>
+              </div>
+              <CardDescription>
+                The small thumbnail images in this section can be used as a reference point. <span className="font-semibold">Larger copies</span> of these images can be found in the 'Room Image Library' section towards the end of this report.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-8">
+                {sections.map((section, sectionIdx) => {
+                  // Check if any field has entries
+                  const sectionEntries = section.fields
+                    .map(field => ({
+                      field,
+                      checkOutEntry: getEntryValue(section.id, field.id || field.key || field.label),
+                      checkInEntry: getCheckInEntry(section.id, field.id || field.key || field.label),
+                    }))
+                    .filter(item => item.checkOutEntry || item.checkInEntry);
+
+                  if (sectionEntries.length === 0) return null;
+
+                  return (
+                    <div key={section.id} className="space-y-4">
+                      {/* Section Number and Title */}
+                      <div className="flex items-center gap-2 border-b pb-2">
+                        <span className="text-lg font-bold text-primary">{sectionIdx + 1}</span>
+                        <h3 className="text-lg font-bold">{section.title}</h3>
+                      </div>
+
+                      {/* Field Comparison Tables */}
+                      {sectionEntries.map(({ field, checkOutEntry, checkInEntry }, fieldIdx) => {
+                        // Parse check-in values
+                        let checkInCondition: string | null = null;
+                        let checkInCleanliness: string | null = null;
+                        let checkInDescription = '';
+                        if (checkInEntry?.valueJson && typeof checkInEntry.valueJson === 'object') {
+                          checkInCondition = checkInEntry.valueJson.condition || null;
+                          checkInCleanliness = checkInEntry.valueJson.cleanliness || null;
+                          checkInDescription = checkInEntry.valueJson.value || '';
+                        }
+
+                        // Parse check-out values
+                        let checkOutCondition: string | null = null;
+                        let checkOutCleanliness: string | null = null;
+                        let checkOutDescription = '';
+                        if (checkOutEntry?.valueJson && typeof checkOutEntry.valueJson === 'object') {
+                          checkOutCondition = checkOutEntry.valueJson.condition || null;
+                          checkOutCleanliness = checkOutEntry.valueJson.cleanliness || null;
+                          checkOutDescription = checkOutEntry.valueJson.value || '';
+                        }
+
+                        const checkInDate = checkInData.inspection?.completedDate || checkInData.inspection?.scheduledDate;
+                        const checkOutDate = inspection.completedDate || inspection.scheduledDate;
+                        
+                        const checkInPhotos = checkInEntry?.photos || [];
+                        const checkOutPhotos = checkOutEntry?.photos || [];
+                        
+                        // Find if this item has degradation
+                        const degradation = degradations.find(
+                          d => d.sectionId === section.id && d.fieldKey === (field.id || field.key || field.label)
+                        );
+
+                        const photoKey = `comparison-photos-${section.id}-${field.id || field.key || field.label}`;
+                        const isPhotoExpanded = expandedPhotos[photoKey];
+
+                        return (
+                          <div key={field.id || field.key || field.label} className="border rounded-lg overflow-hidden">
+                            {/* Item Header */}
+                            <div className="bg-muted/30 px-3 py-2 border-b">
+                              <span className="font-medium">{sectionIdx + 1}.{fieldIdx + 1}</span>
+                              <span className="ml-2 font-bold">{field.label}</span>
+                            </div>
+
+                            {/* Comparison Table */}
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b bg-muted/10">
+                                    <th className="text-left py-2 px-3 font-medium text-muted-foreground w-20">Item</th>
+                                    <th className="text-left py-2 px-3 font-medium text-muted-foreground w-28">Date</th>
+                                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Description</th>
+                                    <th className="text-center py-2 px-3 font-medium text-muted-foreground w-24">Condition</th>
+                                    <th className="text-center py-2 px-3 font-medium text-muted-foreground w-24">Cleanliness</th>
+                                    <th className="text-center py-2 px-3 font-medium text-muted-foreground w-20">Photos</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {/* Previous State Row (Check-In) */}
+                                  <tr className="border-b">
+                                    <td className="py-2 px-3 align-top" rowSpan={2}>
+                                      <div className="font-medium">{sectionIdx + 1}.{fieldIdx + 1}</div>
+                                      <div className="text-xs text-muted-foreground">{field.label}</div>
+                                    </td>
+                                    <td className="py-2 px-3 align-top">
+                                      <div className="text-xs text-muted-foreground">Previous State</div>
+                                      <div className="font-medium">
+                                        {checkInDate ? format(new Date(checkInDate), 'dd MMMM yyyy') : 'N/A'}
+                                      </div>
+                                    </td>
+                                    <td className="py-2 px-3 text-muted-foreground text-xs">
+                                      {checkInDescription || checkInEntry?.note || 'N/A'}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {checkInCondition ? (
+                                        <div className="flex items-center justify-center gap-1">
+                                          <span className={`w-2 h-2 rounded-full ${getConditionColor(checkInCondition)}`} />
+                                          <span className="text-xs">{checkInCondition}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">N/A</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {checkInCleanliness ? (
+                                        <div className="flex items-center justify-center gap-1">
+                                          <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(checkInCleanliness)}`} />
+                                          <span className="text-xs">{checkInCleanliness}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">N/A</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <span className="text-muted-foreground text-xs">N/A</span>
+                                    </td>
+                                  </tr>
+                                  {/* Current State Row (Check-Out) */}
+                                  <tr className={degradation ? 'bg-red-50 dark:bg-red-950/20' : ''}>
+                                    <td className="py-2 px-3 align-top">
+                                      <div className="text-xs text-muted-foreground">Current State</div>
+                                      <div className="font-medium">
+                                        {checkOutDate ? format(new Date(checkOutDate), 'dd MMMM yyyy') : 'N/A'}
+                                      </div>
+                                    </td>
+                                    <td className="py-2 px-3">
+                                      <div className="text-xs">
+                                        {checkOutDescription || checkOutEntry?.note || 'N/A'}
+                                      </div>
+                                      {/* Responsibility Badge */}
+                                      {degradation && (
+                                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                          {degradation.responsibility === 'tenant' && (
+                                            <Badge variant="destructive" className="text-xs">
+                                              Tenant responsibility
+                                            </Badge>
+                                          )}
+                                          {degradation.responsibility === 'landlord' && (
+                                            <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                                              Landlord responsibility
+                                            </Badge>
+                                          )}
+                                          {degradation.actions.map((action, i) => (
+                                            <Badge key={i} variant="outline" className="text-xs gap-1">
+                                              {action === 'Repair' && <Wrench className="w-2.5 h-2.5" />}
+                                              {action}
+                                            </Badge>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {checkOutCondition ? (
+                                        <div className="flex items-center justify-center gap-1">
+                                          <span className={`w-2 h-2 rounded-full ${getConditionColor(checkOutCondition)}`} />
+                                          <span className="text-xs">{checkOutCondition}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">N/A</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {checkOutCleanliness ? (
+                                        <div className="flex items-center justify-center gap-1">
+                                          <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(checkOutCleanliness)}`} />
+                                          <span className="text-xs">{checkOutCleanliness}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">N/A</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {checkOutPhotos.length > 0 ? (
+                                        <button
+                                          onClick={() => togglePhotoExpansion(photoKey)}
+                                          className="inline-flex items-center gap-0.5 text-primary hover:underline text-xs"
+                                        >
+                                          <Camera className="w-3 h-3" />
+                                          <span>{checkOutPhotos.length} {checkOutPhotos.length === 1 ? 'photo' : 'photos'}</span>
+                                        </button>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">N/A</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Photos Section - Below the table */}
+                            {isPhotoExpanded && checkOutPhotos.length > 0 && (
+                              <div className="p-4 bg-muted/20 border-t">
+                                <div className="mb-3">
+                                  <h5 className="font-bold text-sm flex items-center gap-2">
+                                    <Camera className="w-4 h-4 text-primary" />
+                                    {field.label} Photos
+                                  </h5>
+                                  <p className="text-xs text-muted-foreground">
+                                    {section.title}
+                                  </p>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                  {checkOutPhotos.map((photo: string, idx: number) => {
+                                    const photoUrl = photo.startsWith('/objects/') || photo.startsWith('http')
+                                      ? photo : `/objects/${photo}`;
+                                    const photoRef = `${sectionIdx + 1}.${fieldIdx + 1}.${idx + 1}`;
+                                    const capturedDate = checkOutDate 
+                                      ? format(new Date(checkOutDate), 'dd/MM/yyyy')
+                                      : format(new Date(), 'dd/MM/yyyy');
+
+                                    return (
+                                      <div key={`${field.id}-${idx}`} className="space-y-2">
+                                        <div className="relative rounded-lg overflow-hidden border bg-background">
+                                          <img
+                                            src={photoUrl}
+                                            alt={`${field.label} - Photo ${idx + 1}`}
+                                            className="w-full h-32 object-cover"
+                                          />
+                                          <button
+                                            className="absolute top-1 right-1 p-1 rounded-full bg-background/80 hover:bg-background shadow-sm"
+                                            onClick={() => window.open(photoUrl, '_blank')}
+                                          >
+                                            <Search className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                        <div className="text-xs space-y-0.5 text-muted-foreground">
+                                          <div className="flex justify-between">
+                                            <span>Provided by</span>
+                                            <span className="font-medium text-foreground">Inspector</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Captured</span>
+                                            <span className="font-medium text-foreground">{capturedDate}</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Reference</span>
+                                            <span className="font-medium text-foreground">{photoRef}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Maintenance Request Dialog */}
