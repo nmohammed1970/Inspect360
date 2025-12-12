@@ -29,7 +29,7 @@ The platform is built on a robust web architecture with a PWA-first approach, em
 - **Credit System**: Stripe-integrated, credit-based subscription model with multi-currency support and an Eco-Admin dashboard for plan and bundle management. New registrations receive 10 free inspection credits.
 - **AI Features**: Integration with OpenAI GPT-5 Vision for context-aware photo analysis, comparison reporting, maintenance triage, and an intelligent chatbot with knowledge base integration.
 - **PWA**: `manifest.json` and service worker for offline capabilities, caching, and install prompts.
-- **Inspection Templates System**: JSON-based templates with a flexible editor, versioning, and default BTR templates.
+- **Inspection Templates System**: JSON-based templates with a flexible editor, versioning, and default BTR templates. Supports auto-populated fields (Inspector, Address, Tenant Names, Inspection Date) that automatically draw information from the inspection context and save on first render without overwriting existing values.
 - **Inspection Capture Workflow**: Comprehensive field inspection workflow with optimistic updates, review pages, native camera capture, and quick actions.
 - **Offline Queue System**: LocalStorage-based offline sync for inspection entries, assets, and maintenance requests.
 - **AI-Powered Tenant Maintenance Requests**: Multi-step tenant portal with AI-powered fix suggestions and image upload.
