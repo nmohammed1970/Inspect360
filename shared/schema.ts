@@ -626,7 +626,8 @@ export type InsertComplianceDocumentType = z.infer<typeof insertComplianceDocume
 export const maintenanceRequests = pgTable("maintenance_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id").notNull(),
-  propertyId: varchar("property_id").notNull(),
+  propertyId: varchar("property_id"), // Optional - can be null for block-level requests
+  blockId: varchar("block_id"), // Optional - for block-level maintenance requests
   reportedBy: varchar("reported_by").notNull(),
   assignedTo: varchar("assigned_to"),
   title: varchar("title").notNull(),

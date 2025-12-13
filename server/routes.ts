@@ -7181,7 +7181,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Validate request body
+      // Validate request body - allow optional propertyId and blockId
       const validation = insertMaintenanceRequestSchema.omit({ organizationId: true, reportedBy: true }).safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({
@@ -7190,21 +7190,39 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         });
       }
 
-      const { propertyId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson, inspectionId, inspectionEntryId, source, dueDate } = validation.data;
+      const { propertyId, blockId, title, description, priority, photoUrls, aiSuggestedFixes, aiAnalysisJson, inspectionId, inspectionEntryId, source, dueDate } = validation.data;
 
-      // Verify property exists and belongs to the same organization
-      const property = await storage.getProperty(propertyId);
-      if (!property) {
-        return res.status(404).json({ message: "Property not found" });
+      // Must have either propertyId or blockId
+      if (!propertyId && !blockId) {
+        return res.status(400).json({ message: "Either property or block must be specified" });
       }
 
-      if (property.organizationId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
+      // Verify property exists and belongs to the same organization (if provided)
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+        if (property.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
+        }
+      }
+
+      // Verify block exists and belongs to the same organization (if provided)
+      if (blockId) {
+        const block = await storage.getBlock(blockId);
+        if (!block) {
+          return res.status(404).json({ message: "Block not found" });
+        }
+        if (block.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied: Block belongs to a different organization" });
+        }
       }
 
       const request = await storage.createMaintenanceRequest({
         organizationId: user.organizationId,
-        propertyId,
+        propertyId: propertyId || null,
+        blockId: blockId || null,
         reportedBy: userId,
         title,
         description: description || null,
