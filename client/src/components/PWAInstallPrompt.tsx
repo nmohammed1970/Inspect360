@@ -390,7 +390,7 @@ export function PWAInstallPrompt() {
   };
 
   return (
-    <div className="fixed bottom-4 left-0 z-50 w-[16rem] px-2" data-testid="pwa-install-prompt">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 md:left-2 md:translate-x-0 z-50 w-[calc(100%-1rem)] max-w-[16rem] md:w-[16rem] px-2" data-testid="pwa-install-prompt">
       <Card className="shadow-lg border-2 border-primary/30 bg-card w-full overflow-hidden">
         <CardHeader className="pb-2 px-2 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
           <div className="flex items-center justify-between gap-1.5">
