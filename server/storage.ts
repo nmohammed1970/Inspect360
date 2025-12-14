@@ -172,6 +172,9 @@ import {
   organizationTrademarks,
   type OrganizationTrademark,
   type InsertOrganizationTrademark,
+  userDocuments,
+  type UserDocument,
+  type InsertUserDocument,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
@@ -588,6 +591,13 @@ export interface IStorage {
   updateOrganizationTrademark(id: string, updates: Partial<InsertOrganizationTrademark>): Promise<OrganizationTrademark>;
   deleteOrganizationTrademark(id: string): Promise<void>;
   reorderOrganizationTrademarks(organizationId: string, orderedIds: string[]): Promise<void>;
+
+  // User Document operations
+  getUserDocuments(userId: string): Promise<UserDocument[]>;
+  getUserDocument(id: string): Promise<UserDocument | undefined>;
+  createUserDocument(document: InsertUserDocument): Promise<UserDocument>;
+  updateUserDocument(id: string, updates: Partial<InsertUserDocument>): Promise<UserDocument>;
+  deleteUserDocument(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3940,6 +3950,44 @@ export class DatabaseStorage implements IStorage {
           eq(organizationTrademarks.organizationId, organizationId)
         ));
     }
+  }
+
+  // User Document operations
+  async getUserDocuments(userId: string): Promise<UserDocument[]> {
+    return await db
+      .select()
+      .from(userDocuments)
+      .where(eq(userDocuments.userId, userId))
+      .orderBy(desc(userDocuments.createdAt));
+  }
+
+  async getUserDocument(id: string): Promise<UserDocument | undefined> {
+    const [document] = await db
+      .select()
+      .from(userDocuments)
+      .where(eq(userDocuments.id, id));
+    return document;
+  }
+
+  async createUserDocument(document: InsertUserDocument): Promise<UserDocument> {
+    const [newDocument] = await db
+      .insert(userDocuments)
+      .values(document)
+      .returning();
+    return newDocument;
+  }
+
+  async updateUserDocument(id: string, updates: Partial<InsertUserDocument>): Promise<UserDocument> {
+    const [updated] = await db
+      .update(userDocuments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(userDocuments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteUserDocument(id: string): Promise<void> {
+    await db.delete(userDocuments).where(eq(userDocuments.id, id));
   }
 }
 
