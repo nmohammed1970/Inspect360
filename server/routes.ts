@@ -7263,16 +7263,27 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         });
       }
 
-      const { propertyId, title, description, priority, photoUrls, inspectionId, inspectionEntryId, source } = validation.data;
+      const { propertyId, blockId, title, description, priority, photoUrls, inspectionId, inspectionEntryId, source } = validation.data;
 
-      // Verify property exists and belongs to the same organization
-      const property = await storage.getProperty(propertyId);
-      if (!property) {
-        return res.status(404).json({ message: "Property not found" });
+      // Verify property or block exists and belongs to the same organization
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+        if (property.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
+        }
       }
 
-      if (property.organizationId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied: Property belongs to a different organization" });
+      if (blockId) {
+        const block = await storage.getBlock(blockId);
+        if (!block) {
+          return res.status(404).json({ message: "Block not found" });
+        }
+        if (block.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied: Block belongs to a different organization" });
+        }
       }
 
       // If inspectionId provided, verify it exists and belongs to the same organization
@@ -7288,8 +7299,8 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           const inspectionProperty = await storage.getProperty(inspection.propertyId);
           ownerOrgId = inspectionProperty?.organizationId || null;
         } else if (inspection.blockId) {
-          const block = await storage.getBlock(inspection.blockId);
-          ownerOrgId = block?.organizationId || null;
+          const inspectionBlock = await storage.getBlock(inspection.blockId);
+          ownerOrgId = inspectionBlock?.organizationId || null;
         }
 
         if (ownerOrgId !== user.organizationId) {
@@ -7299,7 +7310,8 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
       const request = await storage.createMaintenanceRequest({
         organizationId: user.organizationId,
-        propertyId,
+        propertyId: propertyId || null,
+        blockId: blockId || null,
         reportedBy: userId,
         title,
         description: description || null,

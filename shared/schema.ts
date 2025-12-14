@@ -702,13 +702,17 @@ export type InsertTenantMaintenanceChatMessage = z.infer<typeof insertTenantMain
 export const quickAddMaintenanceSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
-  propertyId: z.string().min(1, "Property is required"),
+  propertyId: z.string().optional(), // Optional - can use blockId instead
+  blockId: z.string().optional(), // Optional - can use propertyId instead
   priority: z.enum(["low", "medium", "high", "urgent"]).default("medium"),
   photoUrls: z.array(z.string()).optional(),
   inspectionId: z.string().optional(), // Auto-populated from inspection context
   inspectionEntryId: z.string().optional(), // Optional specific entry link
   source: z.enum(["manual", "inspection", "tenant_portal", "routine"]).default("inspection"),
-});
+}).refine(
+  (data) => data.propertyId || data.blockId,
+  { message: "Either propertyId or blockId is required", path: ["propertyId"] }
+);
 export type QuickAddMaintenance = z.infer<typeof quickAddMaintenanceSchema>;
 
 // Comparison Reports (Check-in vs Check-out collaborative liability assessment)

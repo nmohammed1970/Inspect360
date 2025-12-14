@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
@@ -166,31 +166,13 @@ export function QuickAddMaintenanceSheet({
     setPhotoUrls(prev => prev.filter((_, i) => i !== index));
   };
 
-  // If we have a blockId but no propertyId, fetch properties for the block
-  const { data: properties = [] } = useQuery<any[]>({
-    queryKey: ["/api/properties"],
-    enabled: !!blockId && !propertyId,
-  });
-
-  // Filter properties to only those in the current block - memoized to avoid re-renders
-  const blockProperties = useMemo(() => {
-    if (blockId && !propertyId) {
-      return properties.filter(p => p.blockId === blockId);
-    }
-    return [];
-  }, [blockId, propertyId, properties]);
-
-  // Derive the default property ID for form reset
-  const defaultPropertyId = useMemo(() => {
-    return propertyId || (blockProperties.length === 1 ? blockProperties[0].id : "");
-  }, [propertyId, blockProperties]);
-
   const form = useForm<QuickAddMaintenance>({
     resolver: zodResolver(quickAddMaintenanceSchema),
     defaultValues: {
       title: "",
       description: "",
-      propertyId: defaultPropertyId,
+      propertyId: propertyId || undefined,
+      blockId: blockId || undefined,
       priority: "medium",
       photoUrls: [],
       inspectionId: inspectionId || undefined,
@@ -209,7 +191,8 @@ export function QuickAddMaintenanceSheet({
       form.reset({
         title: "",
         description: "",
-        propertyId: defaultPropertyId,
+        propertyId: propertyId || undefined,
+        blockId: blockId || undefined,
         priority: "medium",
         photoUrls: [],
         inspectionId: inspectionId || undefined,
@@ -220,15 +203,7 @@ export function QuickAddMaintenanceSheet({
     }
     wasOpenRef.current = open;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultPropertyId]);
-
-  // Update propertyId when blockProperties change (inside useEffect to prevent infinite loops)
-  useEffect(() => {
-    if (blockProperties.length === 1 && !form.getValues("propertyId")) {
-      form.setValue("propertyId", blockProperties[0].id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockProperties]);
+  }, [open, propertyId, blockId]);
 
   const createMaintenanceMutation = useMutation({
     mutationFn: async (data: QuickAddMaintenance) => {
@@ -311,33 +286,6 @@ export function QuickAddMaintenanceSheet({
               )}
             />
 
-            {/* Property selector for block-level inspections */}
-            {blockId && !propertyId && blockProperties.length > 0 && (
-              <FormField
-                control={form.control}
-                name="propertyId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Property *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-property">
-                          <SelectValue placeholder="Select property" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {blockProperties.map((property) => (
-                          <SelectItem key={property.id} value={property.id}>
-                            {property.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
 
             <FormField
               control={form.control}
