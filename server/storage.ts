@@ -1235,6 +1235,7 @@ export class DatabaseStorage implements IStorage {
         id: maintenanceRequests.id,
         organizationId: maintenanceRequests.organizationId,
         propertyId: maintenanceRequests.propertyId,
+        blockId: maintenanceRequests.blockId,
         reportedBy: maintenanceRequests.reportedBy,
         assignedTo: maintenanceRequests.assignedTo,
         title: maintenanceRequests.title,
@@ -1254,6 +1255,11 @@ export class DatabaseStorage implements IStorage {
           name: properties.name,
           address: properties.address,
         },
+        block: {
+          id: blocks.id,
+          name: blocks.name,
+          address: blocks.address,
+        },
         reportedByUser: {
           firstName: reporterAlias.firstName,
           lastName: reporterAlias.lastName,
@@ -1264,7 +1270,8 @@ export class DatabaseStorage implements IStorage {
         },
       })
       .from(maintenanceRequests)
-      .innerJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
       .leftJoin(reporterAlias, eq(maintenanceRequests.reportedBy, reporterAlias.id))
       .leftJoin(assigneeAlias, eq(maintenanceRequests.assignedTo, assigneeAlias.id))
       .where(eq(maintenanceRequests.organizationId, organizationId))
