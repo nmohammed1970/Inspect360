@@ -1328,6 +1328,134 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== USER DOCUMENTS ROUTES ====================
+
+  // Get all documents for current user
+  app.get("/api/user-documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const documents = await storage.getUserDocuments(userId);
+      res.json(documents);
+    } catch (error) {
+      console.error("Error fetching user documents:", error);
+      res.status(500).json({ message: "Failed to fetch documents" });
+    }
+  });
+
+  // Get documents for a specific user (admin/owner access)
+  app.get("/api/users/:userId/documents", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const requesterId = req.user.id;
+      const requester = await storage.getUser(requesterId);
+      const targetUserId = req.params.userId;
+
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Verify the target user belongs to the same organization
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser || targetUser.organizationId !== requester.organizationId) {
+        return res.status(403).json({ message: "User not found in your organization" });
+      }
+
+      const documents = await storage.getUserDocuments(targetUserId);
+      res.json(documents);
+    } catch (error) {
+      console.error("Error fetching user documents:", error);
+      res.status(500).json({ message: "Failed to fetch documents" });
+    }
+  });
+
+  // Create a new user document
+  app.post("/api/user-documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { documentName, documentType, fileUrl, expiryDate, notes } = req.body;
+
+      if (!documentName || !fileUrl) {
+        return res.status(400).json({ message: "Document name and file URL are required" });
+      }
+
+      const document = await storage.createUserDocument({
+        userId,
+        organizationId: user.organizationId,
+        documentName,
+        documentType: documentType || null,
+        fileUrl,
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        notes: notes || null,
+      });
+
+      res.status(201).json(document);
+    } catch (error) {
+      console.error("Error creating user document:", error);
+      res.status(500).json({ message: "Failed to create document" });
+    }
+  });
+
+  // Update a user document
+  app.patch("/api/user-documents/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const documentId = req.params.id;
+
+      const document = await storage.getUserDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+
+      // Only allow user to update their own documents
+      if (document.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { documentName, documentType, expiryDate, notes } = req.body;
+
+      const updated = await storage.updateUserDocument(documentId, {
+        ...(documentName && { documentName }),
+        ...(documentType !== undefined && { documentType }),
+        ...(expiryDate !== undefined && { expiryDate: expiryDate ? new Date(expiryDate) : null }),
+        ...(notes !== undefined && { notes }),
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating user document:", error);
+      res.status(500).json({ message: "Failed to update document" });
+    }
+  });
+
+  // Delete a user document
+  app.delete("/api/user-documents/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const documentId = req.params.id;
+
+      const document = await storage.getUserDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+
+      // Only allow user to delete their own documents
+      if (document.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteUserDocument(documentId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting user document:", error);
+      res.status(500).json({ message: "Failed to delete document" });
+    }
+  });
+
   // ==================== TEAM MANAGEMENT ROUTES ====================
 
   app.get("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {
