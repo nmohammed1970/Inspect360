@@ -104,7 +104,7 @@ export function AppSidebar() {
       roles: ["owner", "clerk", "tenant", "contractor"],
     },
     {
-      title: "Analytics",
+      title: "Work Orders",
       url: "/analytics",
       icon: BarChart3,
       roles: ["owner"],
