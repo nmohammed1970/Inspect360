@@ -7,25 +7,19 @@ import {
   Settings,
   Wrench,
   Users,
-  CreditCard,
   Boxes,
   Clipboard,
   Package,
-  List,
   Contact,
   GitCompare,
   BarChart3,
   FileBarChart,
-  MessageSquarePlus,
-  Upload,
 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -129,50 +123,7 @@ export function AppSidebar() {
     },
   ];
 
-  const settingsMenuItems = [
-    {
-      title: "Inspection Templates",
-      url: "/inspection-templates",
-      icon: List,
-      roles: ["owner", "compliance"],
-    },
-    {
-      title: "Team",
-      url: "/team",
-      icon: Users,
-      roles: ["owner"],
-    },
-    {
-      title: "Billing",
-      url: "/billing",
-      icon: CreditCard,
-      roles: ["owner"],
-    },
-    {
-      title: "Settings",
-      url: "/settings",
-      icon: Settings,
-      roles: ["owner"],
-    },
-    {
-      title: "Bulk Import",
-      url: "/bulk-import",
-      icon: Upload,
-      roles: ["owner", "clerk"],
-    },
-    {
-      title: "My Feedback",
-      url: "/my-feedback",
-      icon: MessageSquarePlus,
-      roles: ["owner", "clerk", "compliance", "contractor"],
-    },
-  ];
-
   const filteredMainMenu = mainMenuItems.filter((item) =>
-    item.roles.includes(user?.role || "")
-  );
-
-  const filteredSettingsMenu = settingsMenuItems.filter((item) =>
     item.roles.includes(user?.role || "")
   );
 
@@ -218,30 +169,25 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {filteredSettingsMenu.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Settings</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {filteredSettingsMenu.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      data-active={location === item.url}
-                      className="data-[active=true]:bg-sidebar-accent"
-                      data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  data-active={location.startsWith("/settings")}
+                  className="data-[active=true]:bg-sidebar-accent"
+                  data-testid="link-settings"
+                >
+                  <Link href="/settings">
+                    <Settings className="w-4 h-4" />
+                    <span>Settings</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   );
