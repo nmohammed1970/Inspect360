@@ -13,7 +13,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList } from "lucide-react";
+import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, type InspectionCategory, type ComplianceDocumentType, type Organization, type User } from "@shared/schema";
 import { z } from "zod";
 import Team from "./Team";
@@ -28,10 +29,11 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations';
+type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations';
 
-const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
+  { id: 'templates', label: 'Inspection Templates', icon: ClipboardList, href: '/inspection-templates' },
   { id: 'categories', label: 'Inspection Categories', icon: Tags },
   { id: 'document-types', label: 'Document Types', icon: FileText },
   { id: 'teams', label: 'Teams', icon: UsersIcon },
@@ -277,6 +279,21 @@ export default function Settings() {
                   {settingsMenuItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeSection === item.id;
+                    
+                    if (item.href) {
+                      return (
+                        <Link
+                          key={item.id}
+                          href={item.href}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left text-sm font-medium transition-colors text-muted-foreground hover-elevate"
+                          data-testid={`nav-${item.id}`}
+                        >
+                          <Icon className="w-4 h-4" />
+                          {item.label}
+                        </Link>
+                      );
+                    }
+                    
                     return (
                       <button
                         key={item.id}

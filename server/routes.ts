@@ -1192,6 +1192,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== ORGANIZATION TRADEMARKS ROUTES ====================
+
+  // Get all trademarks for an organization
+  app.get("/api/organizations/:id/trademarks", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const trademarks = await storage.getOrganizationTrademarks(organizationId);
+      res.json(trademarks);
+    } catch (error) {
+      console.error("Error fetching organization trademarks:", error);
+      res.status(500).json({ message: "Failed to fetch trademarks" });
+    }
+  });
+
+  // Create a new trademark
+  app.post("/api/organizations/:id/trademarks", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check maximum limit (10 trademarks)
+      const existingTrademarks = await storage.getOrganizationTrademarks(organizationId);
+      if (existingTrademarks.length >= 10) {
+        return res.status(400).json({ message: "Maximum of 10 trademarks allowed per organization" });
+      }
+
+      const { imageUrl, altText } = req.body;
+      if (!imageUrl) {
+        return res.status(400).json({ message: "Image URL is required" });
+      }
+
+      // Set display order to be at the end
+      const displayOrder = existingTrademarks.length;
+
+      const trademark = await storage.createOrganizationTrademark({
+        organizationId,
+        imageUrl,
+        altText: altText || null,
+        displayOrder,
+      });
+
+      res.status(201).json(trademark);
+    } catch (error) {
+      console.error("Error creating organization trademark:", error);
+      res.status(500).json({ message: "Failed to create trademark" });
+    }
+  });
+
+  // Update a trademark
+  app.patch("/api/organizations/:id/trademarks/:trademarkId", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+      const trademarkId = req.params.trademarkId;
+
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { imageUrl, altText, displayOrder } = req.body;
+
+      const trademark = await storage.updateOrganizationTrademark(trademarkId, {
+        imageUrl,
+        altText,
+        displayOrder,
+      });
+
+      if (!trademark) {
+        return res.status(404).json({ message: "Trademark not found" });
+      }
+
+      res.json(trademark);
+    } catch (error) {
+      console.error("Error updating organization trademark:", error);
+      res.status(500).json({ message: "Failed to update trademark" });
+    }
+  });
+
+  // Delete a trademark
+  app.delete("/api/organizations/:id/trademarks/:trademarkId", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+      const trademarkId = req.params.trademarkId;
+
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteOrganizationTrademark(trademarkId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting organization trademark:", error);
+      res.status(500).json({ message: "Failed to delete trademark" });
+    }
+  });
+
+  // Reorder trademarks
+  app.post("/api/organizations/:id/trademarks/reorder", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { orderedIds } = req.body;
+      if (!Array.isArray(orderedIds)) {
+        return res.status(400).json({ message: "orderedIds must be an array" });
+      }
+
+      await storage.reorderOrganizationTrademarks(organizationId, orderedIds);
+      const trademarks = await storage.getOrganizationTrademarks(organizationId);
+      res.json(trademarks);
+    } catch (error) {
+      console.error("Error reordering organization trademarks:", error);
+      res.status(500).json({ message: "Failed to reorder trademarks" });
+    }
+  });
+
   // ==================== TEAM MANAGEMENT ROUTES ====================
 
   app.get("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {
