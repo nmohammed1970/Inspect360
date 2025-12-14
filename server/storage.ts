@@ -169,6 +169,9 @@ import {
   notifications,
   type Notification,
   type InsertNotification,
+  organizationTrademarks,
+  type OrganizationTrademark,
+  type InsertOrganizationTrademark,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
@@ -578,6 +581,13 @@ export interface IStorage {
   markNotificationAsRead(id: string): Promise<Notification>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
   getUnreadNotificationCount(userId: string): Promise<number>;
+
+  // Organization Trademark operations
+  getOrganizationTrademarks(organizationId: string): Promise<OrganizationTrademark[]>;
+  createOrganizationTrademark(trademark: InsertOrganizationTrademark): Promise<OrganizationTrademark>;
+  updateOrganizationTrademark(id: string, updates: Partial<InsertOrganizationTrademark>): Promise<OrganizationTrademark>;
+  deleteOrganizationTrademark(id: string): Promise<void>;
+  reorderOrganizationTrademarks(organizationId: string, orderedIds: string[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3891,6 +3901,45 @@ export class DatabaseStorage implements IStorage {
       .from(notifications)
       .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
     return result[0]?.count || 0;
+  }
+
+  // Organization Trademark operations
+  async getOrganizationTrademarks(organizationId: string): Promise<OrganizationTrademark[]> {
+    return await db
+      .select()
+      .from(organizationTrademarks)
+      .where(eq(organizationTrademarks.organizationId, organizationId))
+      .orderBy(asc(organizationTrademarks.displayOrder));
+  }
+
+  async createOrganizationTrademark(trademark: InsertOrganizationTrademark): Promise<OrganizationTrademark> {
+    const [created] = await db.insert(organizationTrademarks).values(trademark).returning();
+    return created;
+  }
+
+  async updateOrganizationTrademark(id: string, updates: Partial<InsertOrganizationTrademark>): Promise<OrganizationTrademark> {
+    const [updated] = await db
+      .update(organizationTrademarks)
+      .set(updates)
+      .where(eq(organizationTrademarks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteOrganizationTrademark(id: string): Promise<void> {
+    await db.delete(organizationTrademarks).where(eq(organizationTrademarks.id, id));
+  }
+
+  async reorderOrganizationTrademarks(organizationId: string, orderedIds: string[]): Promise<void> {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db
+        .update(organizationTrademarks)
+        .set({ displayOrder: i })
+        .where(and(
+          eq(organizationTrademarks.id, orderedIds[i]),
+          eq(organizationTrademarks.organizationId, organizationId)
+        ));
+    }
   }
 }
 
