@@ -13,9 +13,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon } from "lucide-react";
 import { Link } from "wouter";
-import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, type InspectionCategory, type ComplianceDocumentType, type Organization, type User } from "@shared/schema";
+import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, type InspectionCategory, type ComplianceDocumentType, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import { z } from "zod";
 import Team from "./Team";
 import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
@@ -113,6 +113,107 @@ export default function Settings() {
       });
     },
   });
+
+  // Fetch organization trademarks
+  const { data: trademarks = [], isLoading: trademarksLoading } = useQuery<OrganizationTrademark[]>({
+    queryKey: ["/api/organizations", user?.organizationId, "trademarks"],
+    enabled: !!user?.organizationId,
+  });
+
+  // Create trademark mutation
+  const createTrademarkMutation = useMutation({
+    mutationFn: async (data: { imageUrl: string; altText?: string }) => {
+      if (!user?.organizationId) throw new Error("Organization not found");
+      const response = await apiRequest("POST", `/api/organizations/${user.organizationId}/trademarks`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId, "trademarks"] });
+      toast({
+        title: "Success",
+        description: "Trademark badge added successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to add trademark badge",
+      });
+    },
+  });
+
+  // Delete trademark mutation
+  const deleteTrademarkMutation = useMutation({
+    mutationFn: async (trademarkId: string) => {
+      if (!user?.organizationId) throw new Error("Organization not found");
+      const res = await apiRequest("DELETE", `/api/organizations/${user.organizationId}/trademarks/${trademarkId}`);
+      if (res.status === 204 || res.headers.get("content-length") === "0") {
+        return null;
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId, "trademarks"] });
+      toast({
+        title: "Success",
+        description: "Trademark badge removed successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to remove trademark badge",
+      });
+    },
+  });
+
+  // Reorder trademarks mutation
+  const reorderTrademarksMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      if (!user?.organizationId) throw new Error("Organization not found");
+      const response = await apiRequest("POST", `/api/organizations/${user.organizationId}/trademarks/reorder`, { orderedIds });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId, "trademarks"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to reorder trademarks",
+      });
+    },
+  });
+
+  // Move trademark up/down
+  const moveTrademarkUp = (index: number) => {
+    if (index === 0) return;
+    const sortedTrademarks = [...trademarks].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    const newOrder = [...sortedTrademarks];
+    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+    reorderTrademarksMutation.mutate(newOrder.map(t => t.id));
+  };
+
+  const moveTrademarkDown = (index: number) => {
+    const sortedTrademarks = [...trademarks].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    if (index === sortedTrademarks.length - 1) return;
+    const newOrder = [...sortedTrademarks];
+    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+    reorderTrademarksMutation.mutate(newOrder.map(t => t.id));
+  };
+
+  const handleTrademarkUpload = (result: any) => {
+    if (result.successful && result.successful.length > 0) {
+      const uploadedFile = result.successful[0];
+      const fileUrl = uploadedFile.uploadURL || uploadedFile.meta?.extractedFileUrl;
+      if (fileUrl) {
+        createTrademarkMutation.mutate({ imageUrl: fileUrl });
+      }
+    }
+  };
 
   // Fetch inspection categories
   const { data: categories, isLoading: categoriesLoading } = useQuery<InspectionCategory[]>({
@@ -380,63 +481,114 @@ export default function Settings() {
                     </div>
 
                     <div className="border-t border-border pt-6 space-y-4">
-                      <Label className="text-base font-medium">Trademark / Certification Badge</Label>
-                      <div className="flex items-start gap-6">
-                        {trademarkUrl ? (
-                          <div className="relative">
-                            <div className="w-32 h-32 rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
-                              <img 
-                                src={trademarkUrl} 
-                                alt="Trademark" 
-                                className="w-full h-full object-contain"
-                              />
-                            </div>
-                            <Button
-                              size="icon"
-                              variant="destructive"
-                              className="absolute -top-2 -right-2"
-                              onClick={() => setTrademarkUrl(null)}
-                              data-testid="button-remove-trademark"
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <ObjectUploader
-                            maxNumberOfFiles={1}
-                            maxFileSize={5242880}
-                            onGetUploadParameters={async () => {
-                              const response = await apiRequest("POST", "/api/upload/generate-upload-url", {
-                                folder: "branding",
-                                fileName: `trademark-${Date.now()}.png`,
-                                contentType: "image/*",
-                              });
-                              const data = await response.json();
-                              return { method: "PUT" as const, url: data.uploadUrl };
-                            }}
-                            onComplete={(result: any) => {
-                              if (result.successful && result.successful.length > 0) {
-                                const uploadedFile = result.successful[0];
-                                const fileUrl = uploadedFile.uploadURL || uploadedFile.meta?.extractedFileUrl;
-                                if (fileUrl) setTrademarkUrl(fileUrl);
-                              }
-                            }}
-                            buttonClassName="h-32 w-32 border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50"
-                          >
-                            <Upload className="w-8 h-8 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">Upload Trademark</span>
-                          </ObjectUploader>
-                        )}
-                        <div className="flex-1 text-sm text-muted-foreground">
-                          <p>Upload your trademark, certification badge, or accreditation logo.</p>
-                          <ul className="list-disc list-inside mt-2 space-y-1">
-                            <li>Appears on inspection report cover pages</li>
-                            <li>Adds professional credibility to your reports</li>
-                            <li>Supports industry certifications (ARLA, RICS, etc.)</li>
-                          </ul>
-                          <p className="mt-2 text-xs">Recommended size: 200x200 pixels. Max file size: 5MB.</p>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <Label className="text-base font-medium">Trademark / Certification Badges</Label>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Upload multiple trademarks, certification badges, or accreditation logos (max 10)
+                          </p>
                         </div>
+                        <Badge variant="outline" className="shrink-0">
+                          {trademarks.length}/10
+                        </Badge>
                       </div>
+                      
+                      {trademarksLoading ? (
+                        <div className="text-center py-8 text-muted-foreground">Loading trademarks...</div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                            {[...trademarks]
+                              .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                              .map((trademark, index) => (
+                                <div 
+                                  key={trademark.id} 
+                                  className="relative group"
+                                  data-testid={`trademark-card-${trademark.id}`}
+                                >
+                                  <div className="w-full aspect-square rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
+                                    <img 
+                                      src={trademark.imageUrl} 
+                                      alt={trademark.altText || "Certification badge"} 
+                                      className="w-full h-full object-contain p-2"
+                                    />
+                                  </div>
+                                  <div className="absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Button
+                                      size="icon"
+                                      variant="secondary"
+                                      className="h-6 w-6"
+                                      onClick={() => moveTrademarkUp(index)}
+                                      disabled={index === 0 || reorderTrademarksMutation.isPending}
+                                      data-testid={`button-move-up-${trademark.id}`}
+                                    >
+                                      <ChevronUp className="w-3 h-3" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="secondary"
+                                      className="h-6 w-6"
+                                      onClick={() => moveTrademarkDown(index)}
+                                      disabled={index === trademarks.length - 1 || reorderTrademarksMutation.isPending}
+                                      data-testid={`button-move-down-${trademark.id}`}
+                                    >
+                                      <ChevronDown className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                  <Button
+                                    size="icon"
+                                    variant="destructive"
+                                    className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => {
+                                      if (confirm("Are you sure you want to remove this badge?")) {
+                                        deleteTrademarkMutation.mutate(trademark.id);
+                                      }
+                                    }}
+                                    disabled={deleteTrademarkMutation.isPending}
+                                    data-testid={`button-remove-trademark-${trademark.id}`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                            
+                            {trademarks.length < 10 && (
+                              <ObjectUploader
+                                maxNumberOfFiles={1}
+                                maxFileSize={5242880}
+                                onGetUploadParameters={async () => {
+                                  const response = await apiRequest("POST", "/api/upload/generate-upload-url", {
+                                    folder: "branding",
+                                    fileName: `trademark-${Date.now()}.png`,
+                                    contentType: "image/*",
+                                  });
+                                  const data = await response.json();
+                                  return { method: "PUT" as const, url: data.uploadUrl };
+                                }}
+                                onComplete={handleTrademarkUpload}
+                                buttonClassName="w-full aspect-square border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50"
+                              >
+                                <Upload className="w-6 h-6 text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground text-center">Add Badge</span>
+                              </ObjectUploader>
+                            )}
+                          </div>
+                          
+                          <div className="text-sm text-muted-foreground bg-muted/50 rounded-md p-3">
+                            <div className="flex items-start gap-2">
+                              <Award className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+                              <div>
+                                <p className="font-medium text-foreground">Displayed on inspection reports</p>
+                                <p className="mt-1">
+                                  These badges appear as a row on your PDF inspection reports. Use the arrows to reorder how they display.
+                                  Common certifications include ARLA, RICS, AIIC, TDS, and other property industry accreditations.
+                                </p>
+                                <p className="mt-1 text-xs">Recommended size: 200x200 pixels. Max file size: 5MB each.</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="border-t border-border pt-6 space-y-4">
