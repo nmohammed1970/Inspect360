@@ -2630,6 +2630,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk schedule multiple inspections at once from calendar
+  app.post("/api/inspections/bulk-schedule", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const currentUser = await storage.getUser(userId);
+      
+      if (!currentUser?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { entityType, entityId, year, selections } = req.body;
+
+      if (!entityType || !entityId || !selections || !Array.isArray(selections)) {
+        return res.status(400).json({ message: "Missing required fields: entityType, entityId, selections" });
+      }
+
+      if (selections.length === 0) {
+        return res.status(400).json({ message: "No inspections to schedule" });
+      }
+
+      // Validate entity exists and belongs to organization
+      if (entityType === 'property') {
+        const property = await storage.getProperty(entityId);
+        if (!property || property.organizationId !== currentUser.organizationId) {
+          return res.status(404).json({ message: "Property not found or access denied" });
+        }
+      } else if (entityType === 'block') {
+        const block = await storage.getBlock(entityId);
+        if (!block || block.organizationId !== currentUser.organizationId) {
+          return res.status(404).json({ message: "Block not found or access denied" });
+        }
+      } else {
+        return res.status(400).json({ message: "Invalid entity type" });
+      }
+
+      const targetYear = year || new Date().getFullYear();
+      const createdInspections = [];
+
+      for (const selection of selections) {
+        const { templateId, monthIndex } = selection;
+        
+        if (templateId === undefined || monthIndex === undefined) {
+          continue;
+        }
+
+        // Validate template exists and belongs to organization
+        const template = await storage.getInspectionTemplate(templateId);
+        if (!template || template.organizationId !== currentUser.organizationId) {
+          continue;
+        }
+
+        // Validate template scope matches entity type
+        if (entityType === 'property' && template.scope === 'block') {
+          continue;
+        }
+        if (entityType === 'block' && template.scope === 'property') {
+          continue;
+        }
+
+        // Schedule for the 15th of the month at 9:00 AM
+        const scheduledDate = new Date(targetYear, monthIndex, 15, 9, 0, 0);
+
+        try {
+          const inspection = await storage.createInspection({
+            organizationId: currentUser.organizationId,
+            propertyId: entityType === 'property' ? entityId : null,
+            blockId: entityType === 'block' ? entityId : null,
+            inspectorId: userId,
+            type: 'routine',
+            scheduledDate,
+            notes: `Scheduled via bulk calendar scheduling`,
+            templateId,
+            templateVersion: template.version,
+            templateSnapshotJson: template.structureJson as any,
+          });
+          createdInspections.push(inspection);
+        } catch (error) {
+          console.error(`Failed to create inspection for template ${templateId}, month ${monthIndex}:`, error);
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        count: createdInspections.length,
+        inspections: createdInspections 
+      });
+    } catch (error) {
+      console.error("Error bulk scheduling inspections:", error);
+      res.status(500).json({
+        message: "Failed to schedule inspections",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   app.get("/api/inspections/my", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;

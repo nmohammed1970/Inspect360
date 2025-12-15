@@ -1081,6 +1081,7 @@ export default function Dashboard() {
               report={inspectionScheduleEntityId ? inspectionComplianceReport : undefined} 
               isLoading={inspectionScheduleEntityId ? inspectionComplianceLoading : false}
               entityType={inspectionScheduleEntityType as 'property' | 'block' || 'property'}
+              entityId={inspectionScheduleEntityId || undefined}
             />
           </CardContent>
         </Card>

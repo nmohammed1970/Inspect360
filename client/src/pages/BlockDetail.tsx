@@ -356,6 +356,7 @@ export default function BlockDetail() {
             report={complianceReport} 
             isLoading={complianceReportLoading}
             entityType="block"
+            entityId={blockId}
           />
         </TabsContent>
 

@@ -809,6 +809,7 @@ export default function PropertyDetail() {
             report={complianceReport} 
             isLoading={complianceReportLoading}
             entityType="property"
+            entityId={propertyId}
           />
         </TabsContent>
 
