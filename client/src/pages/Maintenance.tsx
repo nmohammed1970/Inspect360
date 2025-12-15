@@ -575,7 +575,8 @@ export default function Maintenance() {
     form.reset({
       title: request.title,
       description: request.description || "",
-      propertyId: request.propertyId,
+      propertyId: request.propertyId || undefined,
+      blockId: request.blockId || undefined,
       priority: request.priority as "low" | "medium" | "high",
       reportedBy: request.reportedBy || "",
       dueDate: request.dueDate ? (typeof request.dueDate === 'string' ? request.dueDate : new Date(request.dueDate).toISOString()) : undefined,
