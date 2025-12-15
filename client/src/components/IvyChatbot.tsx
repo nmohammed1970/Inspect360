@@ -101,13 +101,14 @@ export function IvyChatbot() {
 
   return (
     <>
-      <Button
+      <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-28 right-4 md:bottom-6 md:right-6 h-14 w-14 rounded-full shadow-xl z-[9999] bg-gradient-to-br from-primary via-teal-500 to-emerald-500 hover:from-primary/90 hover:via-teal-500/90 hover:to-emerald-500/90 border-2 border-white/20"
+        className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[99999] bg-gradient-to-br from-primary via-teal-500 to-emerald-500 hover:from-primary/90 hover:via-teal-500/90 hover:to-emerald-500/90 border-2 border-white/30 flex items-center justify-center cursor-pointer transition-transform hover:scale-105"
         data-testid="button-ivy-open"
+        style={{ minWidth: '56px', minHeight: '56px' }}
       >
         <Sparkles className="h-6 w-6 text-white" />
-      </Button>
+      </button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-2xl h-[600px] p-0 flex flex-col">
