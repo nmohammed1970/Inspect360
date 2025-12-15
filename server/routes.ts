@@ -609,16 +609,24 @@ async function processInspectionAIAnalysis(
       }
 
       // Build the field label from sectionRef and fieldKey
-      const fieldLabel = `${entry.sectionRef}${entry.itemRef ? ` - ${entry.itemRef}` : ''} - ${entry.fieldKey}`;
+      // sectionRef = Category (e.g., "Kitchen", "Bathroom", "Living Room")
+      // fieldKey = Inspection Point Title (e.g., "Oven Condition", "Sink and Taps")
+      const category = entry.sectionRef || "General";
+      const inspectionPointTitle = entry.fieldKey || "Item";
+      const fieldLabel = `${category}${entry.itemRef ? ` - ${entry.itemRef}` : ''} - ${inspectionPointTitle}`;
 
-      // Build prompt
+      // Build prompt with explicit Category and Inspection Point context
       let promptText: string;
       if (aiInstruction) {
         promptText = `${aiInstruction}
 
-Focus SPECIFICALLY on: "${fieldLabel}"
+INSPECTION CONTEXT:
+- Category: "${category}"
+- Inspection Point: "${inspectionPointTitle}"
 
-I have ${photoUrls.length} image(s) to analyze. Provide your assessment for "${fieldLabel}".
+I have ${photoUrls.length} image(s) uploaded for this specific inspection point. Analyze ALL images in the context of "${inspectionPointTitle}" within the "${category}" category.
+
+CRITICAL: Focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". The photo may show the entire ${category} area, but you must ONLY analyze and report on "${inspectionPointTitle}".
 
 IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
@@ -627,16 +635,19 @@ IMPORTANT FORMATTING RULES:
 - Do NOT include emojis
 - Write in professional, flowing paragraphs`;
       } else {
-        promptText = `You are analyzing a property inspection photo. Focus SPECIFICALLY on: "${fieldLabel}"
+        promptText = `You are a property inspector analyzing photos for a specific inspection point.
 
-IMPORTANT: The photo may show an entire room or area, but you must focus your analysis ONLY on "${fieldLabel}". Ignore other elements in the photo that are not directly related to this inspection point.
+INSPECTION CONTEXT:
+- Category: "${category}"
+- Inspection Point: "${inspectionPointTitle}"
 
-I have ${photoUrls.length} image(s). Provide a concise inspection report for "${fieldLabel}" covering:
-- Overall condition assessment
-- Any visible damage, defects, or wear
-- Cleanliness and maintenance issues
-- Notable features or observations
-- Recommendations (if any)
+CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspectionPointTitle}" in the "${category}". The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
+
+Provide a focused assessment for "${inspectionPointTitle}" covering:
+- Overall condition assessment of "${inspectionPointTitle}" specifically
+- Any visible damage, defects, or wear on "${inspectionPointTitle}"
+- Cleanliness and maintenance issues related to "${inspectionPointTitle}"
+- Brief recommendation (only if action is needed for "${inspectionPointTitle}")
 
 IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
@@ -645,7 +656,7 @@ IMPORTANT FORMATTING RULES:
 - Do NOT include emojis
 - Write in professional, flowing paragraphs
 
-Be thorough but concise, specific, and objective about the ${fieldLabel}. Do not comment on items outside the scope of "${fieldLabel}". This will be used in a professional property inspection report.`;
+Be thorough but concise, specific, and objective about "${inspectionPointTitle}" in the "${category}". This will be used in a professional property inspection report.`;
       }
 
       // Build content array
@@ -3855,22 +3866,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // aiInstruction: template > organization > empty (use default prompt)
       aiInstruction = templateAiInstruction ?? organization.defaultAiInstruction ?? "";
 
-      // Build the prompt with field context - using custom instruction if provided
+      // Build the prompt with explicit Category and Inspection Point context
+      // sectionName = Category (e.g., "Kitchen", "Bathroom", "Living Room")
+      // fieldLabel = Inspection Point Title (e.g., "Oven Condition", "Sink and Taps")
       let promptText: string;
-
-      // Build section context string
-      const sectionContext = sectionName ? `Section: "${sectionName}", ` : "";
-      const fullContext = `${sectionContext}Inspection Point: "${fieldLabel}"`;
+      const category = sectionName || "General";
+      const inspectionPointTitle = fieldLabel || "Item";
 
       if (aiInstruction) {
         // Use custom AI instruction from template or organization
         promptText = `${aiInstruction}
 
-${fullContext}`;
+INSPECTION CONTEXT:
+- Category: "${category}"
+- Inspection Point: "${inspectionPointTitle}"`;
         if (fieldDescription) {
-          promptText += `\nContext: ${fieldDescription}`;
+          promptText += `\n- Description: ${fieldDescription}`;
         }
-        promptText += `\n\nI have ${photoUrls.length} image(s) to analyze. Focus ONLY on "${fieldLabel}" - ignore all other elements in the photo.
+        promptText += `
+
+I have ${photoUrls.length} image(s) uploaded for this specific inspection point. Analyze ALL images in the context of "${inspectionPointTitle}" within the "${category}" category.
+
+CRITICAL: The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
 
 IMPORTANT RULES:
 - Keep your response under ${aiMaxWords} words
@@ -3879,21 +3896,23 @@ IMPORTANT RULES:
 - Recommendations must be brief and actionable`;
       } else {
         // Default prompt - highly focused on the specific inspection point
-        promptText = `You are a property inspector analyzing a photo for a specific inspection point.
+        promptText = `You are a property inspector analyzing photos for a specific inspection point.
 
-${fullContext}`;
+INSPECTION CONTEXT:
+- Category: "${category}"
+- Inspection Point: "${inspectionPointTitle}"`;
         if (fieldDescription) {
-          promptText += `\nDescription: ${fieldDescription}`;
+          promptText += `\n- Description: ${fieldDescription}`;
         }
         promptText += `
 
-CRITICAL: The photo may show an entire room or area. You MUST focus your analysis EXCLUSIVELY on "${fieldLabel}" within the ${sectionName || "inspection area"}. Do NOT describe or analyze any other elements visible in the photo.
+CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspectionPointTitle}" in the "${category}". The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
 
-Provide a focused assessment covering:
-1. Condition of "${fieldLabel}" only
+Provide a focused assessment for "${inspectionPointTitle}" covering:
+1. Condition of "${inspectionPointTitle}" only
 2. Any damage, defects, or wear specific to this item
 3. Cleanliness issues (if applicable)
-4. Brief recommendation (only if action needed)
+4. Brief recommendation (only if action needed for "${inspectionPointTitle}")
 
 FORMATTING RULES:
 - Maximum ${aiMaxWords} words
@@ -3902,7 +3921,7 @@ FORMATTING RULES:
 - Write professionally in flowing sentences
 - Recommendations should be actionable and brief (e.g., "Recommend repainting" not "It would be advisable to consider having the area repainted at some point")
 
-Remember: Only analyze "${fieldLabel}" - nothing else in the photo matters for this inspection point.`;
+Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing else in the photo matters for this inspection point.`;
       }
 
       // Build content array with text and all images
