@@ -1611,12 +1611,16 @@ function WorkOrderForm({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">None</SelectItem>
-              {teamMembers.map((member: any) => (
-                <SelectItem key={member.id} value={member.id} data-testid={`option-member-${member.id}`}>
-                  {member.firstName} {member.lastName}
-                  {member.email && ` (${member.email})`}
-                </SelectItem>
-              ))}
+              {teamMembers.map((member: any) => {
+                const person = member.user || member.contact;
+                if (!person) return null;
+                return (
+                  <SelectItem key={member.id} value={member.userId || member.contactId} data-testid={`option-member-${member.id}`}>
+                    {person.firstName} {person.lastName}
+                    {person.email && ` (${person.email})`}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
