@@ -2,12 +2,31 @@
 // These templates are automatically created when a new organization is set up
 // Comprehensive BTR (Build-to-Rent) templates covering all operational inspection needs
 
+// Default report configuration for all templates
+export const DEFAULT_REPORT_CONFIG = {
+  showCover: true,
+  showContentsPage: true,
+  showTradeMarks: true,
+  showGlossary: true,
+  showMaintenanceLog: true,
+  showInspection: true,
+  showInventory: true,
+  showTermsConditions: true,
+  showClosingSection: true,
+  coverPageTitle: "",
+  coverPageSubtitle: "",
+  termsConditionsText: "",
+  closingSectionTitle: "",
+  closingSectionText: "",
+};
+
 export const DEFAULT_TEMPLATES = [
   {
     name: "Check In",
     description: "To document the condition of a property at the start of a tenancy, recording evidence (photos, notes, etc.) of the property's state as handed over to the tenant.\n\nThis report establishes a baseline for future Check-Out and Maintenance inspections.",
     scope: "property" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -201,6 +220,7 @@ export const DEFAULT_TEMPLATES = [
     description: "A Check-Out Inspection is carried out at the end of a tenancy to assess the property's condition compared to the initial Check-In report. This inspection helps determine if the tenant is liable for any damage or excessive wear beyond normal use.",
     scope: "property" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -404,6 +424,7 @@ export const DEFAULT_TEMPLATES = [
     description: "A routine inspection conducted quarterly or annually to assess the overall condition of the property, ensure tenant compliance with lease terms, and identify any maintenance issues requiring attention.\n\nThis inspection helps maintain property standards and prevents minor issues from becoming major problems.",
     scope: "property" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -474,6 +495,7 @@ export const DEFAULT_TEMPLATES = [
     description: "A dedicated fire safety inspection to ensure all fire prevention equipment and procedures are compliant with regulations. Essential for BTR operations to maintain tenant safety and legal compliance.\n\nCovers fire alarms, extinguishers, emergency exits, signage, and evacuation routes.",
     scope: "block" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -550,6 +572,7 @@ export const DEFAULT_TEMPLATES = [
     description: "Comprehensive health and safety inspection covering building safety, potential hazards, accessibility, and compliance with health regulations.\n\nEssential for maintaining BTR property standards and ensuring tenant wellbeing.",
     scope: "block" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -630,6 +653,7 @@ export const DEFAULT_TEMPLATES = [
     description: "Inspection of shared communal spaces including lobbies, hallways, stairs, lifts, gardens, and amenity areas.\n\nMaintains BTR property standards and ensures shared facilities are well-maintained for all residents.",
     scope: "block" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -719,6 +743,7 @@ export const DEFAULT_TEMPLATES = [
     description: "Comprehensive inspection of vacant properties between tenancies. Documents the full condition to prepare for new tenants and identifies all required works.\n\nEssential for BTR turnover management and ensuring properties meet letting standards.",
     scope: "property" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
@@ -802,6 +827,7 @@ export const DEFAULT_TEMPLATES = [
     description: "Comprehensive block/building-level inspection covering external structure, building systems, grounds, and overall property condition.\n\nMaintains BTR asset value and ensures building-wide compliance and maintenance standards.",
     scope: "block" as const,
     categoryId: null,
+    reportConfig: DEFAULT_REPORT_CONFIG,
     structureJson: {
       sections: [
         {
