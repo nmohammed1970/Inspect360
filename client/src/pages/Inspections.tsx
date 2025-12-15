@@ -33,7 +33,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, ClipboardList, Calendar, MapPin, User, Play, FileText, Filter, Sparkles, Users } from "lucide-react";
+import { Plus, ClipboardList, Calendar, MapPin, User, Play, FileText, Filter, Sparkles, Users, Copy } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Link, useLocation, useSearch } from "wouter";
@@ -127,6 +128,15 @@ const createInspectionSchema = z.object({
 
 type CreateInspectionData = z.infer<typeof createInspectionSchema>;
 
+const copyInspectionSchema = z.object({
+  type: z.enum(["check_in", "check_out"]),
+  scheduledDate: z.string().min(1, "Scheduled date is required"),
+  copyImages: z.boolean().default(true),
+  copyText: z.boolean().default(true),
+});
+
+type CopyInspectionData = z.infer<typeof copyInspectionSchema>;
+
 export default function Inspections() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -135,6 +145,10 @@ export default function Inspections() {
   const shouldCreate = new URLSearchParams(searchParams).get("create");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
+  
+  // Copy inspection dialog state
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [inspectionToCopy, setInspectionToCopy] = useState<any>(null);
   
   // Filter state
   const [filterBlockId, setFilterBlockId] = useState<string>("");
@@ -193,6 +207,65 @@ export default function Inspections() {
     queryKey: ["/api/properties", selectedPropertyId, "tenants"],
     enabled: !!selectedPropertyId,
   });
+
+  // Copy inspection form
+  const copyForm = useForm<CopyInspectionData>({
+    resolver: zodResolver(copyInspectionSchema),
+    defaultValues: {
+      type: "check_out",
+      scheduledDate: new Date().toISOString().split("T")[0],
+      copyImages: true,
+      copyText: true,
+    },
+  });
+
+  // Copy inspection mutation
+  const copyInspection = useMutation({
+    mutationFn: async (data: CopyInspectionData & { inspectionId: string }) => {
+      return await apiRequest("POST", `/api/inspections/${data.inspectionId}/copy`, {
+        type: data.type,
+        scheduledDate: data.scheduledDate,
+        copyImages: data.copyImages,
+        copyText: data.copyText,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
+      toast({
+        title: "Success",
+        description: "Inspection copied successfully",
+      });
+      setCopyDialogOpen(false);
+      setInspectionToCopy(null);
+      copyForm.reset();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to copy inspection",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onCopySubmit = (data: CopyInspectionData) => {
+    if (!inspectionToCopy) return;
+    copyInspection.mutate({
+      ...data,
+      inspectionId: inspectionToCopy.id,
+    });
+  };
+
+  const handleCopyClick = (inspection: any) => {
+    setInspectionToCopy(inspection);
+    // Pre-select the opposite type
+    const newType = inspection.type === "check_in" ? "check_out" : "check_in";
+    copyForm.setValue("type", newType as "check_in" | "check_out");
+    copyForm.setValue("scheduledDate", new Date().toISOString().split("T")[0]);
+    copyForm.setValue("copyImages", true);
+    copyForm.setValue("copyText", true);
+    setCopyDialogOpen(true);
+  };
 
   // Pre-populate form and auto-open dialog if coming from property detail
   useEffect(() => {
@@ -856,12 +929,134 @@ export default function Inspections() {
                   >
                     View Details
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handleCopyClick(inspection)}
+                    data-testid={`button-copy-inspection-${inspection.id}`}
+                    title="Copy Inspection"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {/* Copy Inspection Dialog */}
+      <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Copy Inspection</DialogTitle>
+            <DialogDescription>
+              Create a new inspection based on {inspectionToCopy?.property?.name || inspectionToCopy?.block?.name || "this inspection"}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...copyForm}>
+            <form onSubmit={copyForm.handleSubmit(onCopySubmit)} className="space-y-4">
+              <FormField
+                control={copyForm.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New Inspection Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-copy-type">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="check_in">Check-In</SelectItem>
+                        <SelectItem value="check_out">Check-Out</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={copyForm.control}
+                name="scheduledDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Scheduled Date</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="date" 
+                        {...field} 
+                        data-testid="input-copy-scheduled-date"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="space-y-3">
+                <FormLabel>Copy Options</FormLabel>
+                <FormField
+                  control={copyForm.control}
+                  name="copyImages"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="checkbox-copy-images"
+                        />
+                      </FormControl>
+                      <FormLabel className="font-normal cursor-pointer">
+                        Copy images from original inspection
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={copyForm.control}
+                  name="copyText"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="checkbox-copy-text"
+                        />
+                      </FormControl>
+                      <FormLabel className="font-normal cursor-pointer">
+                        Copy notes and conditions from original inspection
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCopyDialogOpen(false)}
+                  data-testid="button-copy-cancel"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={copyInspection.isPending}
+                  data-testid="button-copy-submit"
+                >
+                  {copyInspection.isPending ? "Copying..." : "Copy Inspection"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
