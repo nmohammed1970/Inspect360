@@ -192,14 +192,27 @@ interface MaintenanceRequest {
   createdAt: Date;
 }
 
+interface ReportConfig {
+  showCover?: boolean;
+  showContentsPage?: boolean;
+  showTradeMarks?: boolean;
+  showGlossary?: boolean;
+  showMaintenanceLog?: boolean;
+  showInspection?: boolean;
+  showInventory?: boolean;
+  showTermsConditions?: boolean;
+  showClosingSection?: boolean;
+}
+
 export async function generateInspectionPDF(
   inspection: Inspection,
   entries: InspectionEntry[],
   baseUrl: string,
   branding?: BrandingInfo,
-  maintenanceRequests?: MaintenanceRequest[]
+  maintenanceRequests?: MaintenanceRequest[],
+  reportConfig?: ReportConfig
 ): Promise<Buffer> {
-  const html = generateInspectionHTML(inspection, entries, baseUrl, branding, maintenanceRequests);
+  const html = generateInspectionHTML(inspection, entries, baseUrl, branding, maintenanceRequests, reportConfig);
 
   let browser;
   try {
@@ -287,8 +300,21 @@ function generateInspectionHTML(
   entries: InspectionEntry[],
   baseUrl: string,
   branding?: BrandingInfo,
-  maintenanceRequests?: MaintenanceRequest[]
+  maintenanceRequests?: MaintenanceRequest[],
+  reportConfig?: ReportConfig
 ): string {
+  // Default all report sections to true if not specified
+  const config: Required<ReportConfig> = {
+    showCover: reportConfig?.showCover ?? true,
+    showContentsPage: reportConfig?.showContentsPage ?? true,
+    showTradeMarks: reportConfig?.showTradeMarks ?? true,
+    showGlossary: reportConfig?.showGlossary ?? true,
+    showMaintenanceLog: reportConfig?.showMaintenanceLog ?? true,
+    showInspection: reportConfig?.showInspection ?? true,
+    showInventory: reportConfig?.showInventory ?? true,
+    showTermsConditions: reportConfig?.showTermsConditions ?? true,
+    showClosingSection: reportConfig?.showClosingSection ?? true,
+  };
   const templateStructure = inspection.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
 
@@ -535,6 +561,227 @@ function generateInspectionHTML(
       </div>
     `;
   });
+
+  // Build cover page HTML conditionally
+  const coverPageHTML = config.showCover ? `
+    <!-- Cover Page -->
+    <div class="cover-page">
+      ${config.showTradeMarks ? trademarkHtml : ''}
+      <div class="cover-content">
+        <div class="cover-logo-container">
+          ${logoHtml}
+          ${companyNameHtml}
+        </div>
+        <div class="cover-divider"></div>
+        <div class="cover-title">Inspection Report</div>
+        <div class="cover-property">${escapeHtml(propertyName)}</div>
+        <div class="cover-details">
+          <div class="cover-detail-item">
+            <span>${escapeHtml(formattedDate)}</span>
+          </div>
+          <div class="cover-detail-item">
+            <span>${escapeHtml(inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "))}</span>
+          </div>
+        </div>
+      </div>
+      ${contactInfoHtml}
+    </div>
+  ` : '';
+
+  // Build glossary HTML conditionally
+  const glossaryHTML = config.showGlossary ? `
+    <!-- Glossary of Terms - Landscape optimized 2-column layout -->
+    <div style="margin-bottom: 32px; page-break-inside: avoid;">
+      <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+        Glossary of Terms
+      </h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <!-- Condition Ratings -->
+        <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #3B7A8C; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+            Condition Ratings
+          </h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tbody>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; width: 40%;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #16a34a;"></span>
+                    <strong style="color: #16a34a;">Excellent (5)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  New or like-new condition, no visible wear or damage
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #22c55e;"></span>
+                    <strong style="color: #22c55e;">Good (4)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Minor wear consistent with normal use, fully functional
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b;"></span>
+                    <strong style="color: #f59e0b;">Fair (3)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Moderate wear or minor damage, may need attention soon
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></span>
+                    <strong style="color: #ef4444;">Poor (2)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Significant wear or damage, requires repair or replacement
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #dc2626;"></span>
+                    <strong style="color: #dc2626;">Very Poor (1)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; color: #666; font-size: 13px;">
+                  Severe damage or unusable, immediate action required
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <!-- Cleanliness Ratings -->
+        <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #3B7A8C; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+            Cleanliness Ratings
+          </h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tbody>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; width: 40%;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #16a34a;"></span>
+                    <strong style="color: #16a34a;">Excellent (5)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Professionally cleaned, spotless condition
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #22c55e;"></span>
+                    <strong style="color: #22c55e;">Good (4)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Clean with minor dust or marks, easily tidied
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b;"></span>
+                    <strong style="color: #f59e0b;">Fair (3)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Needs cleaning, visible dirt or stains present
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></span>
+                    <strong style="color: #ef4444;">Poor (2)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
+                  Significant cleaning required, heavy soiling
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0;">
+                  <span style="display: inline-flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #dc2626;"></span>
+                    <strong style="color: #dc2626;">Very Poor (1)</strong>
+                  </span>
+                </td>
+                <td style="padding: 8px 0; color: #666; font-size: 13px;">
+                  Unsanitary conditions, professional cleaning needed
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  ` : '';
+
+  // Build maintenance log HTML conditionally
+  const maintenanceLogHTML = config.showMaintenanceLog && maintenanceRequests && maintenanceRequests.length > 0 ? `
+    <!-- Outstanding Maintenance Requests -->
+    <div style="margin-bottom: 32px; page-break-inside: avoid;">
+      <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+        Outstanding Maintenance Requests
+      </h2>
+      <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+        <thead>
+          <tr style="background: #f9fafb;">
+            <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Title</th>
+            <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Category</th>
+            <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Priority</th>
+            <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Status</th>
+            <th style="padding: 12px 16px; text-align: right; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${maintenanceRequests.map(req => {
+            const priorityColor = req.priority === 'urgent' || req.priority === 'high' ? '#ef4444' : 
+                                  req.priority === 'medium' ? '#f59e0b' : '#22c55e';
+            const statusColor = req.status === 'open' || req.status === 'pending' ? '#f59e0b' :
+                               req.status === 'in_progress' ? '#3b82f6' :
+                               req.status === 'completed' ? '#22c55e' : '#666';
+            return `
+              <tr>
+                <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #333; font-weight: 500;">
+                  ${escapeHtml(req.title)}
+                </td>
+                <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;">
+                  ${escapeHtml(req.category || '-')}
+                </td>
+                <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+                  <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${priorityColor};"></span>
+                    <span style="color: ${priorityColor}; text-transform: capitalize;">${escapeHtml(req.priority || 'Normal')}</span>
+                  </span>
+                </td>
+                <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+                  <span style="color: ${statusColor}; text-transform: capitalize;">${escapeHtml(req.status.replace(/_/g, ' '))}</span>
+                </td>
+                <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #666;">
+                  ${format(new Date(req.createdAt), "MMM d, yyyy")}
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  ` : '';
 
   return `
 <!DOCTYPE html>
@@ -815,28 +1062,7 @@ function generateInspectionHTML(
 </head>
 <body>
   <div class="container">
-    <!-- Cover Page -->
-    <div class="cover-page">
-      ${trademarkHtml}
-      <div class="cover-content">
-        <div class="cover-logo-container">
-          ${logoHtml}
-          ${companyNameHtml}
-        </div>
-        <div class="cover-divider"></div>
-        <div class="cover-title">Inspection Report</div>
-        <div class="cover-property">${escapeHtml(propertyName)}</div>
-        <div class="cover-details">
-          <div class="cover-detail-item">
-            <span>${escapeHtml(formattedDate)}</span>
-          </div>
-          <div class="cover-detail-item">
-            <span>${escapeHtml(inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "))}</span>
-          </div>
-        </div>
-      </div>
-      ${contactInfoHtml}
-    </div>
+    ${coverPageHTML}
 
     <!-- Main Content -->
     <div style="padding: 0;">
@@ -886,199 +1112,12 @@ function generateInspectionHTML(
         ` : ""}
       </div>
 
-      <!-- Glossary of Terms - Landscape optimized 2-column layout -->
-      <div style="margin-bottom: 32px; page-break-inside: avoid;">
-        <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
-          Glossary of Terms
-        </h2>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-          <!-- Condition Ratings -->
-          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
-            <h3 style="font-size: 14px; font-weight: 600; color: #3B7A8C; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-              Condition Ratings
-            </h3>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tbody>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; width: 40%;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #16a34a;"></span>
-                      <strong style="color: #16a34a;">Excellent (5)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    New or like-new condition, no visible wear or damage
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #22c55e;"></span>
-                      <strong style="color: #22c55e;">Good (4)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Minor wear consistent with normal use, fully functional
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b;"></span>
-                      <strong style="color: #f59e0b;">Fair (3)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Moderate wear or minor damage, may need attention soon
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></span>
-                      <strong style="color: #ef4444;">Poor (2)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Significant wear or damage, requires repair or replacement
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #dc2626;"></span>
-                      <strong style="color: #dc2626;">Very Poor (1)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; color: #666; font-size: 13px;">
-                    Severe damage or unusable, immediate action required
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          
-          <!-- Cleanliness Ratings -->
-          <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
-            <h3 style="font-size: 14px; font-weight: 600; color: #3B7A8C; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-              Cleanliness Ratings
-            </h3>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tbody>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; width: 40%;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #16a34a;"></span>
-                      <strong style="color: #16a34a;">Excellent (5)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Professionally cleaned, spotless condition
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #22c55e;"></span>
-                      <strong style="color: #22c55e;">Good (4)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Clean with minor dust or marks, easily tidied
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b;"></span>
-                      <strong style="color: #f59e0b;">Fair (3)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Needs cleaning, visible dirt or stains present
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444;"></span>
-                      <strong style="color: #ef4444;">Poor (2)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; color: #666; font-size: 13px;">
-                    Significant cleaning required, heavy soiling
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0;">
-                    <span style="display: inline-flex; align-items: center; gap: 8px;">
-                      <span style="width: 10px; height: 10px; border-radius: 50%; background: #dc2626;"></span>
-                      <strong style="color: #dc2626;">Very Poor (1)</strong>
-                    </span>
-                  </td>
-                  <td style="padding: 8px 0; color: #666; font-size: 13px;">
-                    Unsanitary conditions, professional cleaning needed
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      ${glossaryHTML}
 
-      <!-- Outstanding Maintenance Requests -->
-      ${maintenanceRequests && maintenanceRequests.length > 0 ? `
-        <div style="margin-bottom: 32px; page-break-inside: avoid;">
-          <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
-            Outstanding Maintenance Requests
-          </h2>
-          <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-            <thead>
-              <tr style="background: #f9fafb;">
-                <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Title</th>
-                <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Category</th>
-                <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Priority</th>
-                <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Status</th>
-                <th style="padding: 12px 16px; text-align: right; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${maintenanceRequests.map(req => {
-                const priorityColor = req.priority === 'urgent' || req.priority === 'high' ? '#ef4444' : 
-                                      req.priority === 'medium' ? '#f59e0b' : '#22c55e';
-                const statusColor = req.status === 'open' || req.status === 'pending' ? '#f59e0b' :
-                                   req.status === 'in_progress' ? '#3b82f6' :
-                                   req.status === 'completed' ? '#22c55e' : '#666';
-                return `
-                  <tr>
-                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #333; font-weight: 500;">
-                      ${escapeHtml(req.title)}
-                    </td>
-                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;">
-                      ${escapeHtml(req.category || '-')}
-                    </td>
-                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
-                      <span style="display: inline-flex; align-items: center; gap: 6px;">
-                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${priorityColor};"></span>
-                        <span style="color: ${priorityColor}; text-transform: capitalize;">${escapeHtml(req.priority || 'Normal')}</span>
-                      </span>
-                    </td>
-                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
-                      <span style="color: ${statusColor}; text-transform: capitalize;">${escapeHtml(req.status.replace(/_/g, ' '))}</span>
-                    </td>
-                    <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #666;">
-                      ${format(new Date(req.createdAt), "MMM d, yyyy")}
-                    </td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      ` : ''}
+      ${maintenanceLogHTML}
 
       <!-- Inspection Sections -->
-      ${sectionsHTML}
+      ${config.showInspection ? sectionsHTML : ''}
     </div>
   </div>
 </body>

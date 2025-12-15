@@ -21,6 +21,32 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 // Default AI instruction for inspection analysis
 const DEFAULT_AI_INSTRUCTION = `You are analyzing a property inspection photo. Provide a professional, objective assessment focused on condition, cleanliness, and any maintenance issues. Be specific and concise. Format your response as plain text without bullet points, numbered lists, or special formatting.`;
 
+// Default report config - all sections enabled by default
+const DEFAULT_REPORT_CONFIG = {
+  showCover: true,
+  showContentsPage: true,
+  showTradeMarks: true,
+  showGlossary: true,
+  showMaintenanceLog: true,
+  showInspection: true,
+  showInventory: true,
+  showTermsConditions: true,
+  showClosingSection: true,
+};
+
+// Report config schema
+const reportConfigSchema = z.object({
+  showCover: z.boolean().default(true),
+  showContentsPage: z.boolean().default(true),
+  showTradeMarks: z.boolean().default(true),
+  showGlossary: z.boolean().default(true),
+  showMaintenanceLog: z.boolean().default(true),
+  showInspection: z.boolean().default(true),
+  showInventory: z.boolean().default(true),
+  showTermsConditions: z.boolean().default(true),
+  showClosingSection: z.boolean().default(true),
+});
+
 // UI-specific schema - only includes fields user can edit
 // Backend will populate organizationId, createdBy, createdAt, updatedAt
 const templateMetaSchema = z.object({
@@ -33,6 +59,7 @@ const templateMetaSchema = z.object({
   structureJson: z.any(),
   aiMaxWords: z.number().min(50).max(500).default(150),
   aiInstruction: z.string().optional(),
+  reportConfig: reportConfigSchema.optional(),
 });
 
 type TemplateMetaForm = z.infer<typeof templateMetaSchema>;
@@ -128,6 +155,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       structureJson: initialStructure,
       aiMaxWords: template?.aiMaxWords ?? 150,
       aiInstruction: template?.aiInstruction || "",
+      reportConfig: template?.reportConfig ?? DEFAULT_REPORT_CONFIG,
     },
   });
 
@@ -589,6 +617,165 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                           </FormItem>
                         )}
                       />
+                    </Form>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Report Configuration</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Configure which sections appear in generated PDF reports and report views.
+                    </p>
+                    <Form {...form}>
+                      <div className="space-y-3">
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showCover"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Cover Page</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-cover"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showContentsPage"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Contents Page</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-contents"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showTradeMarks"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Trade Marks</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-trademarks"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showGlossary"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Glossary of Terms</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-glossary"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showMaintenanceLog"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Maintenance Log</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-maintenance"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showInspection"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Inspection</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-inspection"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showInventory"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Inventory</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-inventory"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showTermsConditions"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Terms and Conditions</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-terms"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="reportConfig.showClosingSection"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
+                              <FormLabel className="font-normal">Closing Section</FormLabel>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? true}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-report-closing"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
                     </Form>
                   </CardContent>
                 </Card>

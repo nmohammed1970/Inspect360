@@ -3094,13 +3094,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("Could not fetch maintenance requests for PDF:", e);
       }
 
+      // Fetch template's report configuration if templateId exists
+      let reportConfig: any = undefined;
+      if (inspection.templateId) {
+        try {
+          const template = await storage.getInspectionTemplate(inspection.templateId);
+          if (template?.reportConfig) {
+            reportConfig = template.reportConfig;
+          }
+        } catch (e) {
+          console.log("Could not fetch template report config:", e);
+        }
+      }
+
       // Build base URL for converting relative image paths to absolute
       const protocol = req.protocol;
       const host = req.get('host');
       const baseUrl = `${protocol}://${host}`;
 
-      // Generate PDF with branding and maintenance requests
-      const pdfBuffer = await generateInspectionPDF(fullInspection as any, entries, baseUrl, branding, maintenanceRequests);
+      // Generate PDF with branding, maintenance requests, and report configuration
+      const pdfBuffer = await generateInspectionPDF(fullInspection as any, entries, baseUrl, branding, maintenanceRequests, reportConfig);
 
       // Set headers for PDF download
       const propertyName = property?.name || "inspection";
