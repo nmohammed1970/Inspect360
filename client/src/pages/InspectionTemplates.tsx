@@ -32,7 +32,11 @@ const categoryFormSchema = insertTemplateCategorySchema.extend({
 type TemplateFormValues = z.infer<typeof templateFormSchema>;
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-export default function InspectionTemplates() {
+interface InspectionTemplatesProps {
+  embedded?: boolean;
+}
+
+export default function InspectionTemplates({ embedded = false }: InspectionTemplatesProps) {
   const { toast } = useToast();
   const [selectedTemplate, setSelectedTemplate] = useState<InspectionTemplate | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
@@ -242,15 +246,27 @@ export default function InspectionTemplates() {
 
   const hasActiveFilters = searchQuery.trim() || filterCategory !== "all" || filterScope !== "all" || filterActive !== "all" || sortBy !== "name-asc";
 
-  return (
-    <div className="container mx-auto p-8 space-y-8">
+  const content = (
+    <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-semibold tracking-tight">Inspection Templates</h1>
-          <p className="text-muted-foreground mt-2">
-            Create reusable inspection templates with flexible JSON-based structures
-          </p>
+          {!embedded && (
+            <>
+              <h1 className="text-4xl font-semibold tracking-tight">Inspection Templates</h1>
+              <p className="text-muted-foreground mt-2">
+                Create reusable inspection templates with flexible JSON-based structures
+              </p>
+            </>
+          )}
+          {embedded && (
+            <>
+              <h2 className="text-2xl font-semibold">Inspection Templates</h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                Create and manage your inspection templates
+              </p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <Button
@@ -647,6 +663,16 @@ export default function InspectionTemplates() {
           )}
         </DialogContent>
       </Dialog>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-6">{content}</div>;
+  }
+
+  return (
+    <div className="container mx-auto p-8 space-y-8">
+      {content}
     </div>
   );
 }

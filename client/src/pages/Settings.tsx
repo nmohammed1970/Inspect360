@@ -16,6 +16,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, type InspectionCategory, type ComplianceDocumentType, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
+import InspectionTemplatesContent from "./InspectionTemplates";
 import { z } from "zod";
 import Team from "./Team";
 import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
@@ -33,7 +34,7 @@ type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
-  { id: 'templates', label: 'Inspection Templates', icon: ClipboardList, href: '/inspection-templates' },
+  { id: 'templates', label: 'Inspection Templates', icon: ClipboardList },
   { id: 'categories', label: 'Inspection Categories', icon: Tags },
   { id: 'document-types', label: 'Document Types', icon: FileText },
   { id: 'teams', label: 'Teams', icon: UsersIcon },
@@ -718,6 +719,12 @@ export default function Settings() {
                 )}
               </CardContent>
             </Card>
+              </div>
+            )}
+
+            {activeSection === 'templates' && (
+              <div className="space-y-6">
+                <InspectionTemplatesContent embedded />
               </div>
             )}
 
