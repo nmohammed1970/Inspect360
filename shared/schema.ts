@@ -963,8 +963,11 @@ export const workOrders = pgTable("work_orders", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({
+export const insertWorkOrderSchema = createInsertSchema(workOrders, {
+  slaDue: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : undefined)]).optional(),
+}).omit({
   id: true,
+  organizationId: true,
   createdAt: true,
   updatedAt: true,
 });
