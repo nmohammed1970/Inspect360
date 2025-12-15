@@ -2727,6 +2727,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Copy an inspection as a new type (check_in or check_out)
+  app.post("/api/inspections/:id/copy", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { type, scheduledDate, copyImages, copyText } = req.body;
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      // Validate required fields
+      if (!type || !['check_in', 'check_out'].includes(type)) {
+        return res.status(400).json({ message: "Type must be 'check_in' or 'check_out'" });
+      }
+
+      if (!scheduledDate) {
+        return res.status(400).json({ message: "Scheduled date is required" });
+      }
+
+      // Get source inspection
+      const sourceInspection = await storage.getInspection(id);
+      if (!sourceInspection) {
+        return res.status(404).json({ message: "Source inspection not found" });
+      }
+
+      // Verify access
+      if (sourceInspection.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Get appropriate template for the new type
+      let templateId = null;
+      let templateSnapshotJson = null;
+      let templateVersion = null;
+
+      const orgTemplates = await storage.getInspectionTemplatesByOrganization(user.organizationId);
+      
+      if (type === 'check_in') {
+        const checkInTemplate = orgTemplates.find(t =>
+          t.name.toLowerCase().includes('check in') && t.isActive
+        );
+        if (checkInTemplate) {
+          templateId = checkInTemplate.id;
+          templateVersion = checkInTemplate.version;
+          templateSnapshotJson = checkInTemplate.structureJson;
+        }
+      } else if (type === 'check_out') {
+        const checkOutTemplate = orgTemplates.find(t =>
+          t.name.toLowerCase().includes('check out') && t.isActive
+        );
+        if (checkOutTemplate) {
+          templateId = checkOutTemplate.id;
+          templateVersion = checkOutTemplate.version;
+          templateSnapshotJson = checkOutTemplate.structureJson;
+        }
+      }
+
+      // Fall back to source template if no matching template found
+      if (!templateId && sourceInspection.templateId) {
+        templateId = sourceInspection.templateId;
+        templateSnapshotJson = sourceInspection.templateSnapshotJson;
+        templateVersion = sourceInspection.templateVersion;
+      }
+
+      // Create new inspection
+      const newInspection = await storage.createInspection({
+        organizationId: user.organizationId,
+        propertyId: sourceInspection.propertyId,
+        blockId: sourceInspection.blockId,
+        inspectorId: userId,
+        type,
+        scheduledDate: new Date(scheduledDate),
+        notes: `Copied from inspection ${sourceInspection.id}`,
+        templateId,
+        templateVersion,
+        templateSnapshotJson: templateSnapshotJson as any,
+      });
+
+      // Copy entries if requested
+      if (copyImages || copyText) {
+        const sourceEntries = await storage.getInspectionEntries(id);
+        
+        for (const entry of sourceEntries) {
+          const newEntry: any = {
+            inspectionId: newInspection.id,
+            sectionRef: entry.sectionRef,
+            fieldKey: entry.fieldKey,
+            fieldType: entry.fieldType,
+          };
+
+          // Copy photos if requested
+          if (copyImages && entry.photos && entry.photos.length > 0) {
+            newEntry.photos = entry.photos;
+          }
+
+          // Copy text/note if requested
+          if (copyText) {
+            if (entry.note) newEntry.note = entry.note;
+            if (entry.condition) newEntry.condition = entry.condition;
+            if (entry.value) newEntry.value = entry.value;
+          }
+
+          // Only create entry if there's something to copy
+          if (newEntry.photos || newEntry.note || newEntry.condition || newEntry.value) {
+            await storage.createInspectionEntry(newEntry);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        inspection: newInspection,
+        message: `Inspection copied successfully as ${type === 'check_in' ? 'Check-In' : 'Check-Out'}`
+      });
+    } catch (error) {
+      console.error("Error copying inspection:", error);
+      res.status(500).json({
+        message: "Failed to copy inspection",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   app.get("/api/inspections/my", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
