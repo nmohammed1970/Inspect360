@@ -840,7 +840,19 @@ export async function sendTenantCredentialsEmail(
       html,
     });
 
-    console.log('Tenant credentials email sent:', response);
+    console.log('Tenant credentials email response:', response);
+    
+    // Check for Resend API error in response
+    if (response.error) {
+      console.error('Resend API error:', response.error);
+      throw new Error(response.error.message || 'Failed to send email via Resend');
+    }
+    
+    if (!response.data?.id) {
+      throw new Error('Email send failed - no confirmation ID received');
+    }
+    
+    console.log('Tenant credentials email sent successfully, ID:', response.data.id);
     return response;
   } catch (error) {
     console.error('Failed to send tenant credentials email:', error);
