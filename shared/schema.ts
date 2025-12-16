@@ -435,6 +435,14 @@ export const inspectionTemplates = pgTable("inspection_templates", {
     termsConditionsText?: string;
     closingSectionTitle?: string;
     closingSectionText?: string;
+    // Custom formatted text sections
+    customSections?: Array<{
+      id: string;
+      title: string;
+      content: string;
+      sortOrder: number;
+      placement: "before_inspection" | "after_inspection" | "before_closing";
+    }>;
   }>(), // Report section visibility and custom content configuration
   createdBy: varchar("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),

@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +23,17 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 // Default AI instruction for inspection analysis
 const DEFAULT_AI_INSTRUCTION = `You are analyzing a property inspection photo. Provide a professional, objective assessment focused on condition, cleanliness, and any maintenance issues. Be specific and concise. Format your response as plain text without bullet points, numbered lists, or special formatting.`;
 
+// Custom section schema (defined before DEFAULT_REPORT_CONFIG to allow type reference)
+const customSectionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  content: z.string(),
+  sortOrder: z.number().default(0),
+  placement: z.enum(["before_inspection", "after_inspection", "before_closing"]).default("after_inspection"),
+});
+
+type CustomSection = z.infer<typeof customSectionSchema>;
+
 // Default report config - all sections enabled by default
 const DEFAULT_REPORT_CONFIG = {
   showCover: true,
@@ -34,6 +45,7 @@ const DEFAULT_REPORT_CONFIG = {
   showInventory: true,
   showTermsConditions: true,
   showClosingSection: true,
+  customSections: [] as CustomSection[],
 };
 
 // Report config schema
@@ -53,6 +65,8 @@ const reportConfigSchema = z.object({
   termsConditionsText: z.string().optional(),
   closingSectionTitle: z.string().optional(),
   closingSectionText: z.string().optional(),
+  // Custom formatted text sections
+  customSections: z.array(customSectionSchema).optional(),
 });
 
 // UI-specific schema - only includes fields user can edit
@@ -281,6 +295,23 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       newExpanded.add(sectionId);
     }
     setExpandedSections(newExpanded);
+  };
+
+  // Custom section management using useFieldArray for proper react-hook-form integration
+  const { fields: customSectionFields, append: appendCustomSection, remove: removeCustomSection } = useFieldArray({
+    control: form.control,
+    name: "reportConfig.customSections" as any,
+  });
+
+  const addCustomSection = () => {
+    const newSection: CustomSection = {
+      id: `section_${Date.now()}`,
+      title: `Custom Section ${customSectionFields.length + 1}`,
+      content: "",
+      sortOrder: customSectionFields.length,
+      placement: "after_inspection",
+    };
+    appendCustomSection(newSection as any);
   };
 
   const renderPreviewField = (field: TemplateField) => {
@@ -1166,6 +1197,130 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                 </FormItem>
                               )}
                             />
+                          </CardContent>
+                        </Card>
+
+                        {/* Custom Sections */}
+                        <Card className="shadow-sm">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <CardTitle className="text-base">Custom Sections</CardTitle>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  Add additional formatted text sections to your report
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={addCustomSection}
+                                data-testid="button-add-custom-section"
+                              >
+                                <Plus className="w-4 h-4 mr-2" />
+                                Add Section
+                              </Button>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            {customSectionFields.length === 0 ? (
+                              <div className="text-center py-8 border border-dashed rounded-lg">
+                                <FileText className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                                <p className="text-sm text-muted-foreground">
+                                  No custom sections added yet. Click "Add Section" to create one.
+                                </p>
+                              </div>
+                            ) : (
+                              customSectionFields.map((fieldItem, index) => (
+                                <Card key={fieldItem.id} className="border shadow-none">
+                                  <Collapsible defaultOpen={true}>
+                                    <CardHeader className="p-3 pb-0">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <CollapsibleTrigger className="flex items-center gap-2 flex-1 hover-elevate rounded p-1 -m-1">
+                                          <GripVertical className="w-4 h-4 text-muted-foreground" />
+                                          <span className="font-medium text-sm">
+                                            {form.watch(`reportConfig.customSections.${index}.title` as any) || `Section ${index + 1}`}
+                                          </span>
+                                          <ChevronDown className="w-4 h-4 text-muted-foreground ml-auto" />
+                                        </CollapsibleTrigger>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => removeCustomSection(index)}
+                                          data-testid={`button-delete-custom-section-${index}`}
+                                        >
+                                          <Trash2 className="w-4 h-4 text-destructive" />
+                                        </Button>
+                                      </div>
+                                    </CardHeader>
+                                    <CollapsibleContent>
+                                      <CardContent className="p-3 space-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          <FormField
+                                            control={form.control}
+                                            name={`reportConfig.customSections.${index}.title` as any}
+                                            render={({ field }) => (
+                                              <FormItem>
+                                                <FormLabel>Section Title</FormLabel>
+                                                <FormControl>
+                                                  <Input
+                                                    {...field}
+                                                    value={field.value || ""}
+                                                    placeholder="Enter section title"
+                                                    data-testid={`input-custom-section-title-${index}`}
+                                                  />
+                                                </FormControl>
+                                              </FormItem>
+                                            )}
+                                          />
+                                          <FormField
+                                            control={form.control}
+                                            name={`reportConfig.customSections.${index}.placement` as any}
+                                            render={({ field }) => (
+                                              <FormItem>
+                                                <FormLabel>Placement in Report</FormLabel>
+                                                <Select
+                                                  value={field.value || "after_inspection"}
+                                                  onValueChange={field.onChange}
+                                                >
+                                                  <FormControl>
+                                                    <SelectTrigger data-testid={`select-custom-section-placement-${index}`}>
+                                                      <SelectValue />
+                                                    </SelectTrigger>
+                                                  </FormControl>
+                                                  <SelectContent>
+                                                    <SelectItem value="before_inspection">Before Inspection Details</SelectItem>
+                                                    <SelectItem value="after_inspection">After Inspection Details</SelectItem>
+                                                    <SelectItem value="before_closing">Before Closing Section</SelectItem>
+                                                  </SelectContent>
+                                                </Select>
+                                              </FormItem>
+                                            )}
+                                          />
+                                        </div>
+                                        <FormField
+                                          control={form.control}
+                                          name={`reportConfig.customSections.${index}.content` as any}
+                                          render={({ field }) => (
+                                            <FormItem>
+                                              <FormLabel>Content</FormLabel>
+                                              <FormControl>
+                                                <RichTextEditor
+                                                  value={field.value || ""}
+                                                  onChange={field.onChange}
+                                                  placeholder="Enter the formatted text content for this section..."
+                                                  minHeight="150px"
+                                                  data-testid={`editor-custom-section-content-${index}`}
+                                                />
+                                              </FormControl>
+                                            </FormItem>
+                                          )}
+                                        />
+                                      </CardContent>
+                                    </CollapsibleContent>
+                                  </Collapsible>
+                                </Card>
+                              ))
+                            )}
                           </CardContent>
                         </Card>
                       </div>
