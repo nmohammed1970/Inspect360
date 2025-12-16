@@ -1017,12 +1017,6 @@ export default function Billing() {
               className="w-full"
               data-testid="slider-inspections"
             />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>10</span>
-              <span>50</span>
-              <span>250</span>
-              <span>500+</span>
-            </div>
           </div>
 
           {/* Recommended Plan with Pricing */}
