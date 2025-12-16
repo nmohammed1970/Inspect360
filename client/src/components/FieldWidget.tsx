@@ -95,6 +95,13 @@ export function FieldWidget({
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
   const [analyzingField, setAnalyzingField] = useState(false);
+  const [analyzingCondition, setAnalyzingCondition] = useState(false);
+  const [aiConditionSuggestion, setAiConditionSuggestion] = useState<{
+    condition?: string;
+    cleanliness?: string;
+    confidence?: string;
+    notes?: string;
+  } | null>(null);
   const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -238,6 +245,82 @@ export function FieldWidget({
     onChange(composedValue, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
   };
 
+  // AI-powered condition/cleanliness suggestion for Check-Out inspections
+  const triggerAiConditionSuggestion = async (photoUrl: string, currentPhotos: string[]) => {
+    // Only trigger for Check-Out inspections with condition/cleanliness fields
+    if (!isCheckOut || (!field.includeCondition && !field.includeCleanliness)) {
+      return;
+    }
+
+    setAnalyzingCondition(true);
+    setAiConditionSuggestion(null);
+
+    try {
+      // apiRequest throws on non-2xx, returns Response on success
+      const response = await apiRequest("POST", "/api/ai/suggest-condition", {
+        photoUrl,
+        fieldLabel: field.label,
+        sectionName: sectionName,
+      });
+
+      const suggestion = await response.json();
+      setAiConditionSuggestion(suggestion);
+
+      // Auto-apply the AI suggestions if confidence is high or medium
+      if (suggestion.confidence !== "low") {
+        const newCondition = field.includeCondition ? suggestion.condition : localCondition;
+        const newCleanliness = field.includeCleanliness ? suggestion.cleanliness : localCleanliness;
+
+        // Update local state immediately
+        if (field.includeCondition && suggestion.condition) {
+          setLocalCondition(suggestion.condition);
+        }
+        if (field.includeCleanliness && suggestion.cleanliness) {
+          setLocalCleanliness(suggestion.cleanliness);
+        }
+
+        // Trigger onChange with AI-suggested values (use suggestion values directly, not stale state)
+        const composedValue = composeValue(localValue, newCondition, newCleanliness);
+        onChange(composedValue, localNote || undefined, currentPhotos);
+
+        toast({
+          title: "AI Suggestion Applied",
+          description: `Condition: ${suggestion.condition || "N/A"}, Cleanliness: ${suggestion.cleanliness || "N/A"}`,
+        });
+      } else {
+        toast({
+          title: "AI Suggestion Available",
+          description: "Low confidence rating - please review and select manually",
+        });
+      }
+
+      // Invalidate organization query to update credit balance
+      if (user?.organizationId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
+      }
+    } catch (error: any) {
+      console.error("Error getting AI condition suggestion:", error);
+      // Check for insufficient credits error
+      const errorMessage = error?.message?.toLowerCase() || "";
+      if (errorMessage.includes("insufficient") || errorMessage.includes("credit")) {
+        toast({
+          title: "AI Suggestion Unavailable",
+          description: "Insufficient credits. Please set condition/cleanliness manually.",
+          variant: "default",
+        });
+      } else {
+        // Show generic error for other failures
+        toast({
+          title: "AI Analysis Failed",
+          description: "Could not analyze photo. Please set condition/cleanliness manually.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setAnalyzingCondition(false);
+    }
+  };
+
   const handlePhotoAdd = (photoUrl: string) => {
     // Use functional updater to handle concurrent uploads correctly
     setLocalPhotos(prevPhotos => {
@@ -253,6 +336,11 @@ export function FieldWidget({
         if (inspectionId) {
           queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
           queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+        }
+
+        // Trigger AI condition suggestion for Check-Out inspections (after first photo)
+        if (newPhotos.length === 1 && isCheckOut && (field.includeCondition || field.includeCleanliness)) {
+          triggerAiConditionSuggestion(photoUrl, newPhotos);
         }
       }, 0);
       
@@ -1141,13 +1229,39 @@ export function FieldWidget({
 
       {renderField()}
 
+      {/* AI Analyzing Indicator */}
+      {analyzingCondition && (field.includeCondition || field.includeCleanliness) && (
+        <Alert className="border-primary/50 bg-primary/5">
+          <Sparkles className="h-4 w-4 text-primary animate-pulse" />
+          <AlertDescription className="text-sm">
+            AI is analyzing the photo to suggest condition and cleanliness ratings...
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* AI Suggestion Badge */}
+      {aiConditionSuggestion && !analyzingCondition && (field.includeCondition || field.includeCleanliness) && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Sparkles className="h-3 w-3 text-primary" />
+          <span>AI suggested: {aiConditionSuggestion.condition && `Condition: ${aiConditionSuggestion.condition}`}{aiConditionSuggestion.condition && aiConditionSuggestion.cleanliness && ", "}{aiConditionSuggestion.cleanliness && `Cleanliness: ${aiConditionSuggestion.cleanliness}`}</span>
+          {aiConditionSuggestion.confidence && (
+            <Badge variant={aiConditionSuggestion.confidence === "high" ? "default" : aiConditionSuggestion.confidence === "medium" ? "secondary" : "outline"} className="text-xs">
+              {aiConditionSuggestion.confidence} confidence
+            </Badge>
+          )}
+        </div>
+      )}
+
       {/* Condition Rating */}
       {field.includeCondition && (
         <div className="pt-2">
-          <Label className="text-sm font-bold">Condition</Label>
-          <Select value={localCondition || ""} onValueChange={handleConditionChange}>
+          <Label className="text-sm font-bold flex items-center gap-2">
+            Condition
+            {analyzingCondition && <Sparkles className="h-3 w-3 text-primary animate-pulse" />}
+          </Label>
+          <Select value={localCondition || ""} onValueChange={handleConditionChange} disabled={analyzingCondition}>
             <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1">
-              <SelectValue placeholder="Select condition" />
+              <SelectValue placeholder={analyzingCondition ? "Analyzing..." : "Select condition"} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="New">New</SelectItem>
@@ -1164,10 +1278,13 @@ export function FieldWidget({
       {/* Cleanliness Rating */}
       {field.includeCleanliness && (
         <div className="pt-2">
-          <Label className="text-sm font-bold">Cleanliness</Label>
-          <Select value={localCleanliness || ""} onValueChange={handleCleanlinessChange}>
+          <Label className="text-sm font-bold flex items-center gap-2">
+            Cleanliness
+            {analyzingCondition && <Sparkles className="h-3 w-3 text-primary animate-pulse" />}
+          </Label>
+          <Select value={localCleanliness || ""} onValueChange={handleCleanlinessChange} disabled={analyzingCondition}>
             <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1">
-              <SelectValue placeholder="Select cleanliness" />
+              <SelectValue placeholder={analyzingCondition ? "Analyzing..." : "Select cleanliness"} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="Excellent">Excellent</SelectItem>

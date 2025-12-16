@@ -4455,6 +4455,151 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
     }
   });
 
+  // AI-powered condition and cleanliness suggestion for Check-Out inspections
+  app.post("/api/ai/suggest-condition", isAuthenticated, async (req: any, res) => {
+    try {
+      const { photoUrl, fieldLabel, sectionName } = req.body;
+
+      if (!photoUrl) {
+        return res.status(400).json({ message: "Photo URL is required" });
+      }
+
+      // Get user and verify organization membership
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      // Check credits
+      const organization = await storage.getOrganization(user.organizationId);
+      if (!organization || (organization.creditsRemaining ?? 0) < 1) {
+        return res.status(402).json({ message: "Insufficient credits" });
+      }
+
+      // Convert photo to base64 if it's from object storage
+      let imageUrl: string;
+      if (photoUrl.startsWith("http") || photoUrl.startsWith("data:")) {
+        imageUrl = photoUrl;
+      } else {
+        try {
+          const objectStorageService = new ObjectStorageService();
+          const photoPath = photoUrl.startsWith('/objects/') ? photoUrl : `/objects/${photoUrl}`;
+          const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+          const photoBuffer = await fs.readFile(objectFile.name);
+          let mimeType = detectImageMimeType(photoBuffer);
+          if (!mimeType || !mimeType.startsWith('image/')) {
+            mimeType = 'image/jpeg';
+          }
+          const base64Image = photoBuffer.toString('base64');
+          imageUrl = `data:${mimeType};base64,${base64Image}`;
+        } catch (error: any) {
+          console.error("[AI Suggest Condition] Error loading photo:", error.message);
+          return res.status(400).json({ message: "Failed to load photo for analysis" });
+        }
+      }
+
+      // Call OpenAI Vision API for condition/cleanliness analysis
+      const response = await getOpenAI().responses.create({
+        model: "gpt-5",
+        input: [
+          {
+            role: "user",
+            content: normalizeApiContent([
+              {
+                type: "text",
+                text: `You are a property inspection assistant. Analyze this photo of "${fieldLabel || 'an item'}" in the "${sectionName || 'property'}" area.
+
+Based on the visible condition and cleanliness of the item/area in this photo, provide your assessment.
+
+You MUST respond with ONLY a valid JSON object in this exact format, with no additional text:
+{
+  "condition": "Excellent" | "Good" | "Fair" | "Poor",
+  "cleanliness": "Excellent" | "Good" | "Fair" | "Poor" | "Very Poor",
+  "confidence": "high" | "medium" | "low",
+  "notes": "Brief explanation of your assessment"
+}
+
+Condition guidelines:
+- Excellent: Like new, no visible wear, damage, or defects
+- Good: Minor wear consistent with age, no significant damage
+- Fair: Noticeable wear, minor damage or repairs needed
+- Poor: Significant damage, major repairs or replacement needed
+
+Cleanliness guidelines:
+- Excellent: Spotless, no visible dirt, dust, or stains
+- Good: Very clean with minimal dust or marks
+- Fair: Some dust, minor marks, or light soiling visible
+- Poor: Noticeable soiling, stains, or buildup needing cleaning
+- Very Poor: Heavy soiling, significant stains, or buildup requiring deep cleaning`
+              },
+              {
+                type: "image_url",
+                image_url: imageUrl
+              }
+            ])
+          }
+        ],
+        max_output_tokens: 200,
+      });
+
+      let responseText = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "";
+      
+      // Parse the JSON response
+      let suggestion: { condition?: string; cleanliness?: string; confidence?: string; notes?: string } = {};
+      try {
+        // Extract JSON from response (handle markdown code blocks)
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          suggestion = JSON.parse(jsonMatch[0]);
+        }
+      } catch (parseError) {
+        console.error("[AI Suggest Condition] Failed to parse AI response:", responseText);
+        suggestion = {
+          condition: "Good",
+          cleanliness: "Clean",
+          confidence: "low",
+          notes: "AI analysis inconclusive, please review manually"
+        };
+      }
+
+      // Validate the response values
+      const validConditions = ["Excellent", "Good", "Fair", "Poor"];
+      const validCleanliness = ["Excellent", "Good", "Fair", "Poor", "Very Poor"];
+      
+      if (!validConditions.includes(suggestion.condition || "")) {
+        suggestion.condition = "Good";
+      }
+      if (!validCleanliness.includes(suggestion.cleanliness || "")) {
+        suggestion.cleanliness = "Good";
+      }
+
+      // Deduct credit (0.5 credit for quick analysis, but charge 1 minimum)
+      await storage.updateOrganizationCredits(
+        organization.id,
+        (organization.creditsRemaining ?? 0) - 1
+      );
+
+      await storage.createCreditTransaction({
+        organizationId: organization.id,
+        amount: -1,
+        type: "inspection",
+        description: `AI condition suggestion: ${fieldLabel || 'Field analysis'}`,
+      });
+
+      console.log("[AI Suggest Condition] Analysis complete:", {
+        fieldLabel,
+        condition: suggestion.condition,
+        cleanliness: suggestion.cleanliness,
+        confidence: suggestion.confidence,
+      });
+
+      res.json(suggestion);
+    } catch (error: any) {
+      console.error("[AI Suggest Condition] Error:", error.message);
+      res.status(500).json({ message: "Failed to analyze photo" });
+    }
+  });
+
   // Get matching Check-In inspection for reference during Check-Out
   app.get("/api/inspections/:id/check-in-reference", isAuthenticated, async (req: any, res) => {
     try {
