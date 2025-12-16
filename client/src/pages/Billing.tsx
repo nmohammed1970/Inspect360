@@ -988,7 +988,7 @@ export default function Billing() {
         </Card>
       )}
 
-      {/* Plan Finder - Inspection Slider */}
+      {/* Plan Finder - Inspection Slider with Pricing */}
       <Card data-testid="card-plan-finder">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -996,51 +996,124 @@ export default function Billing() {
             Find Your Perfect Plan
           </CardTitle>
           <CardDescription>
-            Drag the slider to estimate your monthly inspection needs
+            Use the slider to estimate your annual inspection volume and see real-time pricing
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-8">
+          {/* Slider Section */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Inspections per month</Label>
-              <span className="text-2xl font-bold text-primary" data-testid="text-inspections-needed">{inspectionsNeeded}</span>
+              <Label className="text-sm font-medium">Annual Inspections Needed</Label>
+              <span className="text-3xl font-bold text-primary" data-testid="text-inspections-needed">
+                {inspectionsNeeded * 12}
+              </span>
             </div>
             <Slider
               value={[inspectionsNeeded]}
               onValueChange={(value) => setInspectionsNeeded(value[0])}
               min={10}
-              max={2000}
+              max={2100}
               step={10}
               className="w-full"
               data-testid="slider-inspections"
             />
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>10</span>
-              <span>100</span>
-              <span>500</span>
-              <span>1000</span>
-              <span>2000</span>
+              <span>120</span>
+              <span>600</span>
+              <span>3,000</span>
+              <span>10,000</span>
+              <span>25,000+</span>
             </div>
           </div>
 
-          {/* Recommended Plan Highlight */}
-          <div className="bg-muted p-4 rounded-md">
-            <p className="text-sm">
-              Based on <strong>{inspectionsNeeded} inspections/month</strong>, we recommend:
-            </p>
-            <p className="text-lg font-bold text-primary mt-1">
-              {inspectionsNeeded <= 10 && "Freelancer Plan"}
-              {inspectionsNeeded > 10 && inspectionsNeeded <= 100 && "BTR/Lettings Plan"}
-              {inspectionsNeeded > 100 && inspectionsNeeded <= 500 && "PBSA Plan"}
-              {inspectionsNeeded > 500 && inspectionsNeeded <= 1000 && "Housing Association Plan"}
-              {inspectionsNeeded > 1000 && "Council/Enterprise Plan"}
-            </p>
-            {inspectionsNeeded > 1000 && (
-              <p className="text-xs text-muted-foreground mt-2">
-                For more than 1000 inspections, please contact our sales team for custom pricing.
-              </p>
-            )}
-          </div>
+          {/* Recommended Plan with Pricing */}
+          {(() => {
+            // Define plan tiers with annual inspections
+            const planTiers = [
+              { code: 'freelancer', name: 'Freelancer', annualInspections: 120, monthlyInspections: 10 },
+              { code: 'btr', name: 'BTR / Lettings', annualInspections: 600, monthlyInspections: 50 },
+              { code: 'pbsa', name: 'PBSA', annualInspections: 3000, monthlyInspections: 250 },
+              { code: 'housing_association', name: 'Housing Association', annualInspections: 10000, monthlyInspections: 833 },
+              { code: 'council', name: 'Council / Enterprise', annualInspections: 25000, monthlyInspections: 2083 },
+            ];
+
+            const annualNeeded = inspectionsNeeded * 12;
+            let recommendedTier = planTiers[0];
+            if (annualNeeded > 120) recommendedTier = planTiers[1];
+            if (annualNeeded > 600) recommendedTier = planTiers[2];
+            if (annualNeeded > 3000) recommendedTier = planTiers[3];
+            if (annualNeeded > 10000) recommendedTier = planTiers[4];
+
+            const matchingPlan = plans?.find(p => p.code === recommendedTier.code);
+            const monthlyPrice = matchingPlan ? getPlanPrice(matchingPlan, "monthly") : 0;
+            const annualPrice = matchingPlan ? getPlanPrice(matchingPlan, "annual") : monthlyPrice ? monthlyPrice * 12 * 0.9 : 0;
+
+            return (
+              <div className="bg-gradient-to-br from-primary/5 to-primary/10 p-6 rounded-lg border border-primary/20">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                  <div className="flex-1">
+                    <p className="text-sm text-muted-foreground mb-1">
+                      Based on <strong>{annualNeeded.toLocaleString()} inspections/year</strong>, we recommend:
+                    </p>
+                    <h3 className="text-2xl font-bold text-primary">{recommendedTier.name}</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Includes {recommendedTier.annualInspections.toLocaleString()} inspections per year ({recommendedTier.monthlyInspections}/month)
+                    </p>
+                  </div>
+                  
+                  {recommendedTier.code !== 'council' && matchingPlan && (
+                    <div className="flex gap-4">
+                      {/* Monthly Price */}
+                      <div className={`p-4 rounded-lg border-2 transition-all cursor-pointer ${billingPeriod === 'monthly' ? 'border-primary bg-background' : 'border-muted bg-muted/30'}`}
+                           onClick={() => setBillingPeriod('monthly')}>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Monthly</p>
+                        <p className="text-xl font-bold">{formatPrice(monthlyPrice)}</p>
+                        <p className="text-xs text-muted-foreground">/month</p>
+                      </div>
+                      
+                      {/* Annual Price */}
+                      <div className={`p-4 rounded-lg border-2 transition-all cursor-pointer relative ${billingPeriod === 'annual' ? 'border-primary bg-background' : 'border-muted bg-muted/30'}`}
+                           onClick={() => setBillingPeriod('annual')}>
+                        <Badge className="absolute -top-2 -right-2 text-xs">Save 10%</Badge>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Annual</p>
+                        <p className="text-xl font-bold">{formatPrice(annualPrice)}</p>
+                        <p className="text-xs text-muted-foreground">/year</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {recommendedTier.code === 'council' && (
+                    <div className="p-4 rounded-lg border-2 border-muted bg-muted/30">
+                      <p className="text-xl font-bold">Custom Pricing</p>
+                      <p className="text-xs text-muted-foreground">Contact our sales team</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Select Plan Button */}
+                <div className="mt-6">
+                  <Button
+                    className="w-full lg:w-auto"
+                    onClick={() => {
+                      if (recommendedTier.code === "council") {
+                        window.location.href = "mailto:sales@inspect360.com?subject=Council/Enterprise Inquiry";
+                      } else if (matchingPlan) {
+                        checkoutMutation.mutate(matchingPlan.code);
+                      }
+                    }}
+                    disabled={checkoutMutation.isPending || (subscription?.planSnapshotJson.planName === recommendedTier.name)}
+                    data-testid="button-select-recommended-plan"
+                  >
+                    {subscription?.planSnapshotJson.planName === recommendedTier.name 
+                      ? "Current Plan" 
+                      : recommendedTier.code === "council" 
+                        ? "Contact Sales" 
+                        : `Subscribe to ${recommendedTier.name}`}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Currency Selector */}
           <div className="flex items-center gap-4">
@@ -1059,185 +1132,131 @@ export default function Billing() {
         </CardContent>
       </Card>
 
-      {/* Available Plans */}
-      <div id="plans">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <h2 className="text-2xl font-bold">Available Plans</h2>
-          
-          <div className="flex items-center gap-6">
-            {/* Billing Period Toggle */}
-            <div className="flex items-center gap-3">
-              <Label htmlFor="billing-period" className={billingPeriod === "monthly" ? "font-semibold" : "text-muted-foreground"}>
-                Monthly
-              </Label>
-              <Switch
-                id="billing-period"
-                checked={billingPeriod === "annual"}
-                onCheckedChange={(checked) => setBillingPeriod(checked ? "annual" : "monthly")}
-                data-testid="switch-billing-period"
-              />
-              <Label htmlFor="billing-period" className={billingPeriod === "annual" ? "font-semibold" : "text-muted-foreground"}>
-                Annual <Badge variant="secondary" className="ml-1">Save up to 10%</Badge>
-              </Label>
+      {/* Platform Features - All-in-One */}
+      <Card data-testid="card-platform-features">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-primary" />
+            All-in-One Inspection Platform
+          </CardTitle>
+          <CardDescription>
+            Every subscription includes full access to all platform modules and features
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {/* Inspections Module */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <FileText className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="font-semibold">Inspections</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> AI-powered photo analysis</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Check-in/Check-out inspections</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Routine & maintenance inspections</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Comparison reports with AI</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Customizable templates</li>
+              </ul>
+            </div>
+
+            {/* Property Management Module */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Package className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="font-semibold">Property Management</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Block & property organization</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Tenant management</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Asset tracking & depreciation</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Room-by-room inventories</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Bulk data import (Excel)</li>
+              </ul>
+            </div>
+
+            {/* Compliance Module */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="font-semibold">Compliance Tracking</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Document expiry tracking</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Annual compliance calendar</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Automatic expiry alerts</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Certificate management</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Inspection scheduling</li>
+              </ul>
+            </div>
+
+            {/* Work Orders Module */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="font-semibold">Work Orders</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Team assignment & tracking</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Contractor notifications</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Cost tracking</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Activity logs & updates</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Priority management</li>
+              </ul>
+            </div>
+
+            {/* Reporting Module */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Download className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="font-semibold">Reports & Analytics</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Professional PDF reports</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Custom branding (white-label)</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Analytics dashboard</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Activity trends</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Export to Excel</li>
+              </ul>
+            </div>
+
+            {/* AI & Portals Module */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Zap className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="font-semibold">AI & Tenant Portal</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> AI chatbot assistance</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Tenant maintenance requests</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> AI fix suggestions</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Dispute cost calculator</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary" /> Mobile PWA access</li>
+              </ul>
             </div>
           </div>
-        </div>
-        
-        {plansLoading ? (
-          <div className="text-center py-8">
-            <p className="text-muted-foreground">Loading plans...</p>
-          </div>
-        ) : plans && plans.length > 0 ? (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {plans
-            .sort((a, b) => {
-              const order = ['freelancer', 'btr', 'pbsa', 'housing_association', 'council'];
-              return order.indexOf(a.code) - order.indexOf(b.code);
-            })
-            .map((plan) => {
-            const planDescriptions: Record<string, { idealFor: string; features: string[]; popular?: boolean }> = {
-              freelancer: {
-                idealFor: "Independent Inspectors & Small Landlords",
-                features: [
-                  "10 Inspections per month",
-                  "AI-powered analysis",
-                  "Basic reporting",
-                  "Email support"
-                ]
-              },
-              btr: {
-                idealFor: "Build-to-Rent Operators & Lettings Agents",
-                features: [
-                  "100 Inspections per month",
-                  "AI-powered analysis",
-                  "Full reporting suite",
-                  "Priority support"
-                ],
-                popular: true
-              },
-              pbsa: {
-                idealFor: "Student Accommodation Providers",
-                features: [
-                  "500 Inspections per month",
-                  "AI-powered analysis",
-                  "Bulk scheduling",
-                  "Dedicated support"
-                ]
-              },
-              housing_association: {
-                idealFor: "Housing Associations & Social Housing",
-                features: [
-                  "1000 Inspections per month",
-                  "AI-powered analysis",
-                  "Compliance tracking",
-                  "Account manager"
-                ]
-              },
-              council: {
-                idealFor: "Councils & Enterprise Organizations",
-                features: [
-                  "2000+ Inspections per month",
-                  "Full AI suite",
-                  "White-label options",
-                  "Custom integrations"
-                ]
-              }
-            };
 
-            const description = planDescriptions[plan.code] || {
-              idealFor: "Custom plan for your organization",
-              features: [`${plan.includedCreditsPerMonth} credits/month`, "AI-powered inspections"]
-            };
-
-            const isPopular = description.popular;
-            const isCurrentPlan = subscription?.planSnapshotJson.planName === plan.name;
-            
-            return (
-              <Card key={plan.id} data-testid={`card-plan-${plan.code}`} className={`relative ${isCurrentPlan ? "border-primary" : ""} ${isPopular ? "border-primary shadow-md" : ""}`}>
-                {isPopular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge className="bg-primary text-primary-foreground">Most Popular</Badge>
-                  </div>
-                )}
-                <CardHeader className={isPopular ? "pt-6" : ""}>
-                  <CardTitle className="flex items-center justify-between gap-2">
-                    {plan.name}
-                  </CardTitle>
-                  {plan.code === "council" ? (
-                    <CardDescription>
-                      <span className="text-2xl font-bold">Custom Pricing</span>
-                    </CardDescription>
-                  ) : (
-                    <CardDescription>
-                      {billingPeriod === "annual" && getPlanPrice(plan, "annual") ? (
-                        <>
-                          <span className="text-2xl font-bold">{formatPrice(getPlanPrice(plan, "annual"))}</span>
-                          <span className="text-sm text-muted-foreground">/year</span>
-                          <div className="text-xs text-muted-foreground mt-1">
-                            ({formatPrice(Math.floor((getPlanPrice(plan, "annual") ?? 0) / 12))}/mo)
-                          </div>
-                        </>
-                      ) : billingPeriod === "annual" && !getPlanPrice(plan, "annual") ? (
-                        <div className="space-y-1">
-                          <span className="text-2xl font-bold">{formatPrice(getPlanPrice(plan, "monthly"))}</span>
-                          <span className="text-sm text-muted-foreground">/month</span>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="text-2xl font-bold">{formatPrice(getPlanPrice(plan, "monthly"))}</span>
-                          <span className="text-sm text-muted-foreground">/month</span>
-                        </>
-                      )}
-                    </CardDescription>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-xs text-muted-foreground italic">{description.idealFor}</p>
-                  <Separator />
-                  <div className="space-y-2">
-                    {description.features.map((feature, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0" />
-                        <span className="text-xs">{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <Button
-                    className="w-full"
-                    variant={isCurrentPlan ? "outline" : isPopular ? "default" : "secondary"}
-                    onClick={() => {
-                      if (plan.code === "council") {
-                        console.log(`[Billing] Contact Sales clicked for Council/Enterprise`);
-                        window.location.href = "mailto:sales@inspect360.com?subject=Council/Enterprise Inquiry";
-                      } else {
-                        console.log(`[Billing] SELECT PLAN CLICKED for plan: ${plan.code} (${plan.name})`);
-                        console.log(`[Billing] Billing period: ${billingPeriod}`);
-                        checkoutMutation.mutate(plan.code);
-                      }
-                    }}
-                    disabled={checkoutMutation.isPending || topupMutation.isPending || isCurrentPlan}
-                    data-testid={`button-select-plan-${plan.code}`}
-                  >
-                    {isCurrentPlan 
-                      ? "Current Plan" 
-                      : plan.code === "council" 
-                        ? "Contact Sales" 
-                        : "Select Plan"}
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <p className="text-muted-foreground">
-              {plansError ? `Error loading plans: ${(plansError as any)?.message || 'Unknown error'}` : 'No plans available. Please contact support.'}
+          {/* Bottom Note */}
+          <div className="mt-8 p-4 bg-muted/50 rounded-lg text-center">
+            <p className="text-sm text-muted-foreground">
+              All plans include <strong>unlimited users</strong>, <strong>unlimited properties</strong>, and <strong>full platform access</strong>. 
+              The only difference is the number of AI-powered inspections included per year.
             </p>
           </div>
-        )}
-      </div>
+        </CardContent>
+      </Card>
 
       {/* FAQ Section */}
       <Card data-testid="card-credits-faq">
