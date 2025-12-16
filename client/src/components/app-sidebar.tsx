@@ -14,6 +14,7 @@ import {
   GitCompare,
   BarChart3,
   FileBarChart,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -120,6 +121,12 @@ export function AppSidebar() {
       url: "/asset-inventory",
       icon: Package,
       roles: ["owner", "clerk", "compliance"],
+    },
+    {
+      title: "Billing & Credits",
+      url: "/billing",
+      icon: CreditCard,
+      roles: ["owner"],
     },
   ];
 
