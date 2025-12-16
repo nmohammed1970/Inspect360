@@ -14524,7 +14524,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(400).json({ message: "User must belong to an organization" });
       }
 
-      const { bundleId, currency = "GBP" } = req.body;
+      const { bundleId, currency = "GBP", recurring = false } = req.body;
       if (!bundleId) {
         return res.status(400).json({ message: "Bundle ID is required" });
       }
@@ -14583,31 +14583,75 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       // Create checkout session
       const baseUrl = getBaseUrl(req);
       const stripe = await getUncachableStripeClient();
-      const session = await stripe.checkout.sessions.create({
-        customer: stripeCustomerId,
-        mode: "payment",
-        line_items: [{
-          price_data: {
-            currency: currency.toLowerCase(),
-            product_data: {
-              name: bundle.name,
-              description: `${bundle.credits} inspection credits`,
+      
+      // For recurring top-ups, create a subscription
+      if (recurring) {
+        const session = await stripe.checkout.sessions.create({
+          customer: stripeCustomerId,
+          mode: "subscription",
+          line_items: [{
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: `${bundle.name} (Monthly)`,
+                description: `${bundle.credits} inspection credits delivered monthly`,
+              },
+              recurring: {
+                interval: "month",
+              },
+              unit_amount: price,
             },
-            unit_amount: price,
+            quantity: 1,
+          }],
+          success_url: `${baseUrl}/billing?topup=success&recurring=true&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${baseUrl}/billing?topup=canceled`,
+          metadata: {
+            organizationId: org.id,
+            topupOrderId: topupOrder.id,
+            packSize: bundle.credits.toString(),
+            bundleId: bundle.id,
+            recurring: "true",
           },
-          quantity: 1,
-        }],
-        success_url: `${baseUrl}/billing?topup=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${baseUrl}/billing?topup=canceled`,
-        metadata: {
-          organizationId: org.id,
-          topupOrderId: topupOrder.id,
-          packSize: bundle.credits.toString(),
-          bundleId: bundle.id,
-        },
-      });
+        });
 
-      res.json({ url: session.url, orderId: topupOrder.id });
+        // Save auto-renew preference
+        await db.update(organizations)
+          .set({
+            autoRenewEnabled: true,
+            autoRenewBundleId: bundleId,
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, org.id));
+
+        res.json({ url: session.url, orderId: topupOrder.id });
+      } else {
+        // One-time payment
+        const session = await stripe.checkout.sessions.create({
+          customer: stripeCustomerId,
+          mode: "payment",
+          line_items: [{
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: bundle.name,
+                description: `${bundle.credits} inspection credits`,
+              },
+              unit_amount: price,
+            },
+            quantity: 1,
+          }],
+          success_url: `${baseUrl}/billing?topup=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${baseUrl}/billing?topup=canceled`,
+          metadata: {
+            organizationId: org.id,
+            topupOrderId: topupOrder.id,
+            packSize: bundle.credits.toString(),
+            bundleId: bundle.id,
+          },
+        });
+
+        res.json({ url: session.url, orderId: topupOrder.id });
+      }
     } catch (error: any) {
       console.error("Error creating top-up checkout:", error);
       res.status(500).json({ message: "Failed to create top-up checkout", error: error.message });

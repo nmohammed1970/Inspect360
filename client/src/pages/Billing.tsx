@@ -20,6 +20,7 @@ import { getCurrencyForCountry, formatCurrency as formatCurrencyUtil } from "@sh
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Plan {
   id: string;
@@ -102,8 +103,9 @@ export default function Billing() {
   const { user } = useAuth();
   const { toast } = useToast();
   const locale = useLocale();
-  const [selectedTopup, setSelectedTopup] = useState<number | null>(null);
+  const [selectedTopupId, setSelectedTopupId] = useState<string | null>(null);
   const [topupDialogOpen, setTopupDialogOpen] = useState(false);
+  const [recurringTopup, setRecurringTopup] = useState(false);
   const [location, setLocation] = useLocation();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
   
@@ -432,6 +434,39 @@ export default function Billing() {
     enabled: !!user,
   });
 
+  // Fetch credit bundles for top-up
+  interface CreditBundle {
+    id: string;
+    credits: number;
+    priceGbp: number;
+    priceUsd: number;
+    priceAed: number;
+    isActive: boolean;
+    effectivePrice?: number;
+    tierPricing?: any[];
+  }
+  const { data: bundlesData = [] } = useQuery<CreditBundle[]>({
+    queryKey: ["/api/billing/bundles", selectedCurrency],
+    queryFn: async () => {
+      const response = await fetch(`/api/billing/bundles?currency=${selectedCurrency}`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!user,
+  });
+  
+  // Filter to active bundles and calculate per-credit price
+  const creditBundles = bundlesData.filter(b => b.isActive).map(bundle => {
+    const price = selectedCurrency === "USD" ? bundle.priceUsd :
+                  selectedCurrency === "AED" ? bundle.priceAed :
+                  bundle.priceGbp;
+    return {
+      ...bundle,
+      effectivePrice: price,
+      perCreditPrice: Math.round(price / bundle.credits),
+    };
+  });
+
   // Fetch inspection balance
   const { data: inspectionBalance } = useQuery<{
     includedInspectionsPerMonth: number;
@@ -516,13 +551,14 @@ export default function Billing() {
 
   // Top-up checkout mutation
   const topupMutation = useMutation({
-    mutationFn: async (packSize: number) => {
-      console.log(`[Billing] TOP-UP CHECKOUT initiated for pack size: ${packSize}`);
+    mutationFn: async ({ bundleId, recurring }: { bundleId: string; recurring: boolean }) => {
+      console.log(`[Billing] TOP-UP CHECKOUT initiated for bundle: ${bundleId}, recurring: ${recurring}`);
       console.log(`[Billing] Currency: ${selectedCurrency}`);
       console.log(`[Billing] Calling POST /api/billing/topup-checkout`);
       const response = await apiRequest("POST", "/api/billing/topup-checkout", { 
-        bundleSize: packSize, 
-        currency: selectedCurrency 
+        bundleId, 
+        currency: selectedCurrency,
+        recurring,
       });
       const data = await response.json() as { url: string };
       console.log(`[Billing] TOP-UP checkout URL received:`, data.url);
@@ -788,7 +824,13 @@ export default function Billing() {
               </div>
             </div>
 
-            <Dialog open={topupDialogOpen} onOpenChange={setTopupDialogOpen}>
+            <Dialog open={topupDialogOpen} onOpenChange={(open) => {
+              setTopupDialogOpen(open);
+              if (!open) {
+                setSelectedTopupId(null);
+                setRecurringTopup(false);
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button variant="default" className="w-full" data-testid="button-top-up-credits">
                   <Package className="mr-2 h-4 w-4" />
@@ -802,43 +844,63 @@ export default function Billing() {
                     Purchase additional credits when your subscription allowance is depleted
                   </DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  {[
-                    { size: 100, price: 40000, perCredit: 400, popular: false },
-                    { size: 250, price: 75000, perCredit: 300, popular: false },
-                    { size: 500, price: 100000, perCredit: 200, popular: true },
-                    { size: 1000, price: 150000, perCredit: 150, popular: false },
-                  ].map((pack) => (
+                <div className="grid gap-3 py-4">
+                  {creditBundles.length > 0 ? creditBundles.map((bundle, index) => (
                     <Card
-                      key={pack.size}
+                      key={bundle.id}
                       className={`cursor-pointer hover-elevate active-elevate-2 ${
-                        selectedTopup === pack.size ? "border-primary" : ""
+                        selectedTopupId === bundle.id ? "border-primary" : ""
                       }`}
-                      onClick={() => setSelectedTopup(pack.size)}
-                      data-testid={`card-topup-${pack.size}`}
+                      onClick={() => setSelectedTopupId(bundle.id)}
+                      data-testid={`card-topup-${bundle.credits}`}
                     >
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="font-semibold text-lg">{pack.size} AI Credits</p>
+                            <p className="font-semibold text-lg">{bundle.credits} AI Credits</p>
                             <p className="text-sm text-muted-foreground">
-                              {formatCurrency(pack.price)} • {formatCurrency(pack.perCredit)} per credit
+                              {formatCurrency(bundle.effectivePrice)} • {formatCurrency(bundle.perCreditPrice)} per credit
                             </p>
                           </div>
-                          {pack.popular && (
+                          {index === 2 && (
                             <Badge variant="default">Best Value</Badge>
                           )}
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                  )) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">Loading bundles...</p>
+                  )}
                 </div>
+                
+                {/* Recurring Monthly Top-Up Option */}
+                <div className="flex items-center space-x-3 p-3 bg-muted/30 rounded-lg">
+                  <Checkbox
+                    id="recurring-topup"
+                    checked={recurringTopup}
+                    onCheckedChange={(checked) => setRecurringTopup(checked === true)}
+                    data-testid="checkbox-recurring-topup"
+                  />
+                  <div className="flex-1">
+                    <Label htmlFor="recurring-topup" className="cursor-pointer font-medium">
+                      Set as recurring monthly top-up
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Automatically purchase this bundle each month
+                    </p>
+                  </div>
+                </div>
+                
                 <Button
-                  onClick={() => selectedTopup && topupMutation.mutate(selectedTopup)}
-                  disabled={!selectedTopup || topupMutation.isPending}
+                  onClick={() => {
+                    if (selectedTopupId) {
+                      topupMutation.mutate({ bundleId: selectedTopupId, recurring: recurringTopup });
+                    }
+                  }}
+                  disabled={!selectedTopupId || topupMutation.isPending}
                   data-testid="button-confirm-topup"
                 >
-                  Purchase {selectedTopup} Credits
+                  {topupMutation.isPending ? "Processing..." : `Purchase ${creditBundles.find(b => b.id === selectedTopupId)?.credits || ''} Credits`}
                 </Button>
               </DialogContent>
             </Dialog>
