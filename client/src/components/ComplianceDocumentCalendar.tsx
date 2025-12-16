@@ -49,52 +49,61 @@ function getDocumentStatus(expiryDate: string | null): DocumentStatus {
 }
 
 function StatusCell({ data }: { data: MonthData }) {
-  // If no document exists, render an empty cell (blank)
-  if (!data.hasDocument) {
-    return (
-      <div 
-        className="flex items-center justify-center p-2 rounded-md border border-transparent"
-        title={`${data.month}: No document`}
-      />
-    );
-  }
-
-  const getStatusIcon = () => {
+  const getStatusStyles = () => {
+    if (!data.hasDocument) {
+      // Missing - show empty dashed circle
+      return {
+        containerClass: 'border-dashed border-muted-foreground/30',
+        bgClass: 'bg-transparent',
+        icon: null,
+      };
+    }
+    
     switch (data.status) {
       case 'valid':
-        return <CheckCircle2 className="h-4 w-4 text-green-600" />;
+        return {
+          containerClass: 'border-green-400 dark:border-green-600',
+          bgClass: 'bg-green-500',
+          icon: null, // Filled circle, no icon needed
+        };
       case 'expired':
-        return <AlertCircle className="h-4 w-4 text-destructive" />;
+        return {
+          containerClass: 'border-destructive',
+          bgClass: 'bg-destructive',
+          icon: null,
+        };
       case 'expiring_soon':
-        return <Clock className="h-4 w-4 text-yellow-600" />;
+        return {
+          containerClass: 'border-yellow-500 dark:border-yellow-400',
+          bgClass: 'bg-yellow-500',
+          icon: null,
+        };
       case 'no_expiry':
-        return <CheckCircle2 className="h-4 w-4 text-blue-600" />;
+        return {
+          containerClass: 'border-blue-400 dark:border-blue-600',
+          bgClass: 'bg-blue-500',
+          icon: null,
+        };
       default:
-        return null;
+        return {
+          containerClass: 'border-muted-foreground/20',
+          bgClass: 'bg-transparent',
+          icon: null,
+        };
     }
   };
 
-  const getStatusColor = () => {
-    switch (data.status) {
-      case 'valid':
-        return 'bg-green-100 dark:bg-green-950 border-green-300 dark:border-green-800';
-      case 'expired':
-        return 'bg-destructive/10 border-destructive/30';
-      case 'expiring_soon':
-        return 'bg-yellow-100 dark:bg-yellow-950 border-yellow-300 dark:border-yellow-800';
-      case 'no_expiry':
-        return 'bg-blue-100 dark:bg-blue-950 border-blue-300 dark:border-blue-800';
-      default:
-        return 'border-transparent';
-    }
-  };
+  const styles = getStatusStyles();
+  const statusText = !data.hasDocument ? 'Missing' : data.status.replace('_', ' ');
 
   return (
     <div 
-      className={`flex items-center justify-center p-2 rounded-md border ${getStatusColor()} transition-all`}
-      title={`${data.month}: ${data.status.replace('_', ' ')}`}
+      className="flex items-center justify-center p-2"
+      title={`${data.month}: ${statusText}`}
     >
-      {getStatusIcon()}
+      <div 
+        className={`w-4 h-4 rounded-full border-2 ${styles.containerClass} ${data.hasDocument ? styles.bgClass : ''} transition-all`}
+      />
     </div>
   );
 }
