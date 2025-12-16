@@ -33,7 +33,9 @@ interface WorkOrder {
   costEstimate?: number | null;
   costActual?: number | null;
   createdAt: string;
+  updatedAt?: string;
   notes?: string | null;
+  teamId?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
@@ -51,6 +53,15 @@ interface WorkOrder {
     name?: string;
     email?: string;
   } | null;
+}
+
+interface WorkLog {
+  id: string;
+  workOrderId: string;
+  note: string;
+  photos?: string[] | null;
+  timeSpentMinutes?: number | null;
+  createdAt: string;
 }
 
 interface Team {
@@ -98,6 +109,7 @@ export default function Analytics() {
     costEstimate: "",
     slaDue: "",
     notes: "",
+    teamId: "",
   });
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery<WorkOrderAnalytics>({
@@ -179,6 +191,7 @@ export default function Analytics() {
       costEstimate: workOrder.costEstimate?.toString() || "",
       slaDue: workOrder.slaDue ? format(new Date(workOrder.slaDue), "yyyy-MM-dd") : "",
       notes: workOrder.notes || "",
+      teamId: workOrder.teamId || workOrder.team?.id || "",
     });
     setEditDialogOpen(true);
   };
@@ -193,9 +206,16 @@ export default function Analytics() {
         costEstimate: editFormData.costEstimate ? parseFloat(editFormData.costEstimate) : null,
         slaDue: editFormData.slaDue || null,
         notes: editFormData.notes || null,
+        teamId: editFormData.teamId || null,
       },
     });
   };
+
+  // Query for work logs when a work order is selected
+  const { data: workLogs = [], isError: workLogsError } = useQuery<WorkLog[]>({
+    queryKey: [`/api/work-orders/${selectedWorkOrder?.id}/logs`],
+    enabled: !!selectedWorkOrder?.id && editDialogOpen,
+  });
 
   const filteredWorkOrders = selectedTeamId === "all"
     ? workOrders
@@ -550,7 +570,7 @@ export default function Analytics() {
 
       {/* Edit Work Order Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Work Order</DialogTitle>
             <DialogDescription>
@@ -558,6 +578,35 @@ export default function Analytics() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Assigned To Section */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Assigned To
+              </Label>
+              <Select
+                value={editFormData.teamId}
+                onValueChange={(value) => setEditFormData({ ...editFormData, teamId: value })}
+              >
+                <SelectTrigger data-testid="select-edit-team">
+                  <SelectValue placeholder="Select a team..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Unassigned</SelectItem>
+                  {teams.filter(t => t.isActive).map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedWorkOrder?.contractor && (
+                <p className="text-xs text-muted-foreground">
+                  Contractor: {selectedWorkOrder.contractor.firstName} {selectedWorkOrder.contractor.lastName} ({selectedWorkOrder.contractor.email})
+                </p>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label>Status</Label>
               <Select
@@ -579,25 +628,27 @@ export default function Analytics() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Cost Estimate ({locale.currencySymbol})</Label>
-              <Input
-                type="number"
-                placeholder="Enter estimated cost"
-                value={editFormData.costEstimate}
-                onChange={(e) => setEditFormData({ ...editFormData, costEstimate: e.target.value })}
-                data-testid="input-edit-cost"
-              />
-            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Cost Estimate ({locale.currencySymbol})</Label>
+                <Input
+                  type="number"
+                  placeholder="Enter cost"
+                  value={editFormData.costEstimate}
+                  onChange={(e) => setEditFormData({ ...editFormData, costEstimate: e.target.value })}
+                  data-testid="input-edit-cost"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label>SLA Due Date</Label>
-              <Input
-                type="date"
-                value={editFormData.slaDue}
-                onChange={(e) => setEditFormData({ ...editFormData, slaDue: e.target.value })}
-                data-testid="input-edit-sla"
-              />
+              <div className="space-y-2">
+                <Label>SLA Due Date</Label>
+                <Input
+                  type="date"
+                  value={editFormData.slaDue}
+                  onChange={(e) => setEditFormData({ ...editFormData, slaDue: e.target.value })}
+                  data-testid="input-edit-sla"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -606,9 +657,69 @@ export default function Analytics() {
                 placeholder="Add notes about this work order..."
                 value={editFormData.notes}
                 onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
-                className="min-h-20"
+                className="min-h-16"
                 data-testid="textarea-edit-notes"
               />
+            </div>
+
+            {/* Activity / Updates Section */}
+            <div className="space-y-2 border-t pt-4">
+              <Label className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Activity Updates
+              </Label>
+              <div className="bg-muted/30 rounded-lg p-3 max-h-40 overflow-y-auto space-y-3">
+                {/* Created timestamp */}
+                {selectedWorkOrder?.createdAt && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <div className="h-2 w-2 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium">Work order created</p>
+                      <p className="text-muted-foreground">
+                        {format(new Date(selectedWorkOrder.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Work logs */}
+                {workLogsError ? (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    Unable to load activity
+                  </p>
+                ) : workLogs.length > 0 ? (
+                  workLogs.map((log) => (
+                    <div key={log.id} className="flex items-start gap-2 text-xs">
+                      <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium">{log.note}</p>
+                        <p className="text-muted-foreground">
+                          {format(new Date(log.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                          {log.timeSpentMinutes && ` - ${log.timeSpentMinutes} min`}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    No activity updates yet
+                  </p>
+                )}
+
+                {/* Updated timestamp (if different from created) */}
+                {selectedWorkOrder?.updatedAt && 
+                  selectedWorkOrder.updatedAt !== selectedWorkOrder.createdAt && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <div className="h-2 w-2 rounded-full bg-yellow-500 mt-1.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium">Last updated</p>
+                      <p className="text-muted-foreground">
+                        {format(new Date(selectedWorkOrder.updatedAt), "MMM d, yyyy 'at' h:mm a")}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <DialogFooter>
