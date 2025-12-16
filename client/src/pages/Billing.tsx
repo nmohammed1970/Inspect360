@@ -437,15 +437,15 @@ export default function Billing() {
   // Fetch credit bundles for top-up
   interface CreditBundle {
     id: string;
+    name: string;
     credits: number;
-    priceGbp: number;
-    priceUsd: number;
-    priceAed: number;
-    isActive: boolean;
-    effectivePrice?: number;
+    price: number;
+    currency: string;
+    isPopular?: boolean;
+    discountLabel?: string;
     tierPricing?: any[];
   }
-  const { data: bundlesData = [] } = useQuery<CreditBundle[]>({
+  const { data: bundlesData = [], isLoading: bundlesLoading } = useQuery<CreditBundle[]>({
     queryKey: ["/api/billing/bundles", selectedCurrency],
     queryFn: async () => {
       const response = await fetch(`/api/billing/bundles?currency=${selectedCurrency}`);
@@ -455,17 +455,12 @@ export default function Billing() {
     enabled: !!user,
   });
   
-  // Filter to active bundles and calculate per-credit price
-  const creditBundles = bundlesData.filter(b => b.isActive).map(bundle => {
-    const price = selectedCurrency === "USD" ? bundle.priceUsd :
-                  selectedCurrency === "AED" ? bundle.priceAed :
-                  bundle.priceGbp;
-    return {
-      ...bundle,
-      effectivePrice: price,
-      perCreditPrice: Math.round(price / bundle.credits),
-    };
-  });
+  // Calculate per-credit price (bundles are already filtered to active on server)
+  const creditBundles = bundlesData.map(bundle => ({
+    ...bundle,
+    effectivePrice: bundle.price,
+    perCreditPrice: Math.round(bundle.price / bundle.credits),
+  }));
 
   // Fetch inspection balance
   const { data: inspectionBalance } = useQuery<{
@@ -845,7 +840,9 @@ export default function Billing() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-3 py-4">
-                  {creditBundles.length > 0 ? creditBundles.map((bundle, index) => (
+                  {bundlesLoading ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Loading bundles...</p>
+                  ) : creditBundles.length > 0 ? creditBundles.map((bundle, index) => (
                     <Card
                       key={bundle.id}
                       className={`cursor-pointer hover-elevate active-elevate-2 ${
@@ -855,21 +852,21 @@ export default function Billing() {
                       data-testid={`card-topup-${bundle.credits}`}
                     >
                       <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <div>
                             <p className="font-semibold text-lg">{bundle.credits} AI Credits</p>
                             <p className="text-sm text-muted-foreground">
-                              {formatCurrency(bundle.effectivePrice)} • {formatCurrency(bundle.perCreditPrice)} per credit
+                              {formatCurrency(bundle.effectivePrice)} ({formatCurrency(bundle.perCreditPrice)}/credit)
                             </p>
                           </div>
-                          {index === 2 && (
+                          {bundle.isPopular && (
                             <Badge variant="default">Best Value</Badge>
                           )}
                         </div>
                       </CardContent>
                     </Card>
                   )) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">Loading bundles...</p>
+                    <p className="text-sm text-muted-foreground text-center py-4">No bundles available</p>
                   )}
                 </div>
                 
