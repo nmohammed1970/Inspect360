@@ -39,6 +39,7 @@ interface CommunityGroup {
   id: string;
   name: string;
   description: string | null;
+  coverImageUrl: string | null;
   blockId: string;
   blockName: string;
   createdBy: string;
@@ -965,11 +966,22 @@ export default function CommunityModeration() {
                     {approvedGroups.map((group) => (
                       <Card 
                         key={group.id} 
-                        className="cursor-pointer hover-elevate"
+                        className="cursor-pointer hover-elevate overflow-hidden"
                         onClick={() => handleViewGroup(group.id)}
                         data-testid={`card-approved-group-${group.id}`}
                       >
-                        <CardHeader className="pb-2">
+                        {group.coverImageUrl && (
+                          <div className="relative h-32 w-full">
+                            <img
+                              src={group.coverImageUrl}
+                              alt={group.name}
+                              className="w-full h-full object-cover"
+                              data-testid={`img-group-banner-${group.id}`}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+                          </div>
+                        )}
+                        <CardHeader className={group.coverImageUrl ? "pt-3 pb-2" : "pb-2"}>
                           <CardTitle className="text-base">{group.name}</CardTitle>
                           <CardDescription>{group.blockName}</CardDescription>
                         </CardHeader>

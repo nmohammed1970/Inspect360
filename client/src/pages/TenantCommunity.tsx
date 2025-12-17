@@ -631,11 +631,22 @@ export default function TenantCommunity() {
           {groups.map((group) => (
             <Card
               key={group.id}
-              className="hover-elevate cursor-pointer"
+              className="hover-elevate cursor-pointer overflow-hidden"
               onClick={() => setSelectedGroup(group)}
               data-testid={`card-group-${group.id}`}
             >
-              <CardHeader>
+              {group.coverImageUrl && (
+                <div className="relative h-32 w-full">
+                  <img
+                    src={group.coverImageUrl}
+                    alt={group.name}
+                    className="w-full h-full object-cover"
+                    data-testid={`img-group-banner-${group.id}`}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+                </div>
+              )}
+              <CardHeader className={group.coverImageUrl ? "pt-3" : ""}>
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-primary/10 rounded-lg">
                     <Users className="h-5 w-5 text-primary" />

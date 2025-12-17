@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import { randomUUID, createHash } from "crypto";
 import { promises as fs } from "fs";
 import { storage } from "./storage";
+import sharp from "sharp";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -536,6 +537,178 @@ function getOpenAI(): OpenAI {
     });
   }
   return openai;
+}
+
+/**
+ * Generate an AI banner for a community discussion group.
+ * Uses DALL-E to create a relevant banner image and composites the organization logo.
+ */
+async function generateGroupBanner(
+  groupName: string,
+  groupDescription: string | null,
+  organizationLogoUrl: string | null,
+  objectStorageService: ObjectStorageService
+): Promise<string | null> {
+  try {
+    console.log(`[BannerGen] Generating banner for group: "${groupName}"`);
+
+    const client = getOpenAI();
+
+    // Create a prompt for DALL-E that generates a relevant abstract banner
+    const prompt = `Create a professional, abstract banner image for a community discussion group called "${groupName}". ${groupDescription ? `The group is about: ${groupDescription}.` : ''} 
+Style: Modern, clean, gradient colors using teal (#3B7A8C) and cyan (#00D5CC) accents. Abstract geometric patterns or soft gradients. Professional and welcoming. No text, no people, no logos. Suitable as a wide banner header image. Aspect ratio 16:9.`;
+
+    console.log(`[BannerGen] Calling DALL-E with prompt`);
+
+    // Generate image using DALL-E 3
+    const response = await client.images.generate({
+      model: "dall-e-3",
+      prompt: prompt,
+      n: 1,
+      size: "1792x1024",
+      quality: "standard",
+      style: "vivid",
+    });
+
+    const generatedImageUrl = response.data[0]?.url;
+    if (!generatedImageUrl) {
+      console.error("[BannerGen] No image URL in DALL-E response");
+      return null;
+    }
+
+    console.log(`[BannerGen] DALL-E image generated, fetching...`);
+
+    // Fetch the generated image
+    const imageResponse = await fetch(generatedImageUrl);
+    if (!imageResponse.ok) {
+      console.error("[BannerGen] Failed to fetch generated image");
+      return null;
+    }
+
+    let bannerBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+    // Validate the buffer is a valid image
+    if (!bannerBuffer || bannerBuffer.length < 100) {
+      console.error("[BannerGen] Invalid or empty image buffer from DALL-E");
+      return null;
+    }
+
+    // Verify it's a valid image by checking with sharp
+    try {
+      const metadata = await sharp(bannerBuffer).metadata();
+      if (!metadata.width || !metadata.height) {
+        console.error("[BannerGen] Generated image has no dimensions");
+        return null;
+      }
+      console.log(`[BannerGen] Generated image: ${metadata.width}x${metadata.height} ${metadata.format}`);
+    } catch (validationError: any) {
+      console.error(`[BannerGen] Invalid image data: ${validationError.message}`);
+      return null;
+    }
+
+    // If organization has a logo, composite it onto the banner
+    if (organizationLogoUrl) {
+      try {
+        console.log(`[BannerGen] Compositing organization logo`);
+
+        // Fetch the organization logo
+        let logoBuffer: Buffer;
+
+        if (organizationLogoUrl.startsWith('/objects/')) {
+          // Local object storage
+          const logoFile = await objectStorageService.getObjectEntityFile(organizationLogoUrl);
+          logoBuffer = await fs.readFile(logoFile.name);
+        } else if (organizationLogoUrl.startsWith('http')) {
+          // Remote URL
+          const logoResponse = await fetch(organizationLogoUrl);
+          if (!logoResponse.ok) {
+            throw new Error("Failed to fetch logo");
+          }
+          logoBuffer = Buffer.from(await logoResponse.arrayBuffer());
+        } else {
+          throw new Error("Unsupported logo URL format");
+        }
+
+        // Get banner dimensions
+        const bannerMetadata = await sharp(bannerBuffer).metadata();
+        const bannerWidth = bannerMetadata.width || 1792;
+        const bannerHeight = bannerMetadata.height || 1024;
+
+        // Resize logo to appropriate size (max 120px height, maintain aspect ratio)
+        const maxLogoHeight = 120;
+        const maxLogoWidth = 200;
+        const resizedLogo = await sharp(logoBuffer)
+          .resize({
+            width: maxLogoWidth,
+            height: maxLogoHeight,
+            fit: 'inside',
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          })
+          .png()
+          .toBuffer();
+
+        const logoMetadata = await sharp(resizedLogo).metadata();
+        const logoWidth = logoMetadata.width || maxLogoWidth;
+        const logoHeight = logoMetadata.height || maxLogoHeight;
+
+        // Position logo in top-right corner with padding
+        const padding = 20;
+        const logoX = bannerWidth - logoWidth - padding;
+        const logoY = padding;
+
+        // Create a semi-transparent white background for the logo for better visibility
+        const logoBgSize = Math.max(logoWidth, logoHeight) + 20;
+        const logoBg = await sharp({
+          create: {
+            width: logoWidth + 20,
+            height: logoHeight + 20,
+            channels: 4,
+            background: { r: 255, g: 255, b: 255, alpha: 0.85 },
+          },
+        })
+          .png()
+          .toBuffer();
+
+        // Composite the background and logo onto the banner
+        bannerBuffer = await sharp(bannerBuffer)
+          .composite([
+            {
+              input: logoBg,
+              left: logoX - 10,
+              top: logoY - 10,
+              blend: 'over',
+            },
+            {
+              input: resizedLogo,
+              left: logoX,
+              top: logoY,
+              blend: 'over',
+            },
+          ])
+          .png()
+          .toBuffer();
+
+        console.log(`[BannerGen] Logo composited successfully`);
+      } catch (logoError: any) {
+        console.warn(`[BannerGen] Failed to composite logo: ${logoError.message}`);
+        // Continue without logo
+      }
+    }
+
+    // Save the banner to object storage
+    const bannerId = randomUUID();
+    const bannerPath = await objectStorageService.saveUploadedFile(
+      `community-banners/${bannerId}.png`,
+      bannerBuffer,
+      'image/png'
+    );
+
+    console.log(`[BannerGen] Banner saved to: ${bannerPath}`);
+    return bannerPath;
+  } catch (error: any) {
+    console.error(`[BannerGen] Error generating banner: ${error.message}`);
+    return null;
+  }
 }
 
 /**
@@ -20203,12 +20376,15 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
       const ruleVersion = await storage.getActiveRuleVersion(tenancy.organizationId);
 
+      // Get organization for logo
+      const organization = await storage.getOrganization(tenancy.organizationId);
+
       const group = await storage.createCommunityGroup({
         organizationId: tenancy.organizationId,
         blockId: tenancy.blockId,
         name: req.body.name,
         description: req.body.description || null,
-        coverImageUrl: req.body.coverImageUrl || null,
+        coverImageUrl: null, // Will be updated with AI-generated banner
         createdBy: user.id,
         ruleVersionAgreedAt: ruleVersion || undefined,
         status: "pending", // Requires operator approval
@@ -20216,6 +20392,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
       // Auto-join creator to the group
       await storage.joinGroup({ groupId: group.id, tenantId: user.id });
+
+      // Generate AI banner in the background (don't block the response)
+      const objectStorageService = new ObjectStorageService();
+      generateGroupBanner(
+        req.body.name,
+        req.body.description || null,
+        organization?.logoUrl || null,
+        objectStorageService
+      ).then(async (bannerUrl) => {
+        if (bannerUrl) {
+          await storage.updateCommunityGroup(group.id, { coverImageUrl: bannerUrl });
+          console.log(`[BannerGen] Updated group ${group.id} with banner: ${bannerUrl}`);
+        }
+      }).catch((error) => {
+        console.error(`[BannerGen] Failed to generate banner for group ${group.id}:`, error);
+      });
 
       res.status(201).json(group);
     } catch (error: any) {
@@ -20840,6 +21032,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         return res.status(404).json({ message: "Block not found" });
       }
 
+      // Get organization for logo
+      const organization = await storage.getOrganization(user.organizationId!);
+
       const group = await storage.createCommunityGroup({
         organizationId: user.organizationId!,
         blockId,
@@ -20851,6 +21046,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       
       // Update with approved status since operator created it
       await storage.updateCommunityGroup(group.id, { approvedBy: user.id });
+
+      // Generate AI banner in the background (don't block the response)
+      const objectStorageService = new ObjectStorageService();
+      generateGroupBanner(
+        name,
+        description || null,
+        organization?.logoUrl || null,
+        objectStorageService
+      ).then(async (bannerUrl) => {
+        if (bannerUrl) {
+          await storage.updateCommunityGroup(group.id, { coverImageUrl: bannerUrl });
+          console.log(`[BannerGen] Updated group ${group.id} with banner: ${bannerUrl}`);
+        }
+      }).catch((error) => {
+        console.error(`[BannerGen] Failed to generate banner for group ${group.id}:`, error);
+      });
 
       res.json(group);
     } catch (error: any) {
