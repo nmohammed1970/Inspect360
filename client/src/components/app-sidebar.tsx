@@ -15,6 +15,7 @@ import {
   BarChart3,
   FileBarChart,
   CreditCard,
+  Shield,
 } from "lucide-react";
 import {
   Sidebar,
@@ -103,6 +104,12 @@ export function AppSidebar() {
       url: "/maintenance",
       icon: Wrench,
       roles: ["owner", "clerk", "tenant", "contractor"],
+    },
+    {
+      title: "Community",
+      url: "/community-moderation",
+      icon: Shield,
+      roles: ["owner", "clerk"],
     },
     {
       title: "Work Orders",

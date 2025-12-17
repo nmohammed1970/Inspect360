@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Home, FileText, MessageSquare, Calendar, MapPin, FileCheck, LogOut } from "lucide-react";
+import { Building2, Home, FileText, MessageSquare, Calendar, MapPin, FileCheck, LogOut, Users } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 import { useAuth } from "@/hooks/useAuth";
@@ -147,6 +147,18 @@ export default function TenantHome() {
             <div>
               <CardTitle className="text-lg">Comparison Reports</CardTitle>
               <CardDescription>Review and sign move-out reports</CardDescription>
+            </div>
+          </CardHeader>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" onClick={() => navigate("/tenant/community")} data-testid="card-community">
+          <CardHeader className="flex flex-row items-center gap-4 space-y-0">
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <Users className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Community</CardTitle>
+              <CardDescription>Connect with your neighbors</CardDescription>
             </div>
           </CardHeader>
         </Card>

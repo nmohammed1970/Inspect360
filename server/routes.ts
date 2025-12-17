@@ -19989,6 +19989,774 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
+  // ==================== COMMUNITY DISCUSSION ROUTES ====================
+
+  // Get community rules for tenant
+  app.get("/api/tenant-portal/community/rules", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy) {
+        return res.status(404).json({ message: "Tenant assignment not found" });
+      }
+
+      const rules = await storage.getCommunityRules(tenancy.organizationId);
+      const hasAccepted = await storage.hasAcceptedLatestRules(user.id, tenancy.organizationId);
+      
+      res.json({
+        rules: rules?.rulesText || null,
+        version: rules?.version || 0,
+        hasAccepted,
+      });
+    } catch (error: any) {
+      console.error("Error fetching community rules:", error);
+      res.status(500).json({ message: "Failed to fetch community rules" });
+    }
+  });
+
+  // Accept community rules
+  app.post("/api/tenant-portal/community/rules/accept", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy) {
+        return res.status(404).json({ message: "Tenant assignment not found" });
+      }
+
+      const currentVersion = await storage.getActiveRuleVersion(tenancy.organizationId);
+      if (currentVersion === 0) {
+        return res.status(400).json({ message: "No community rules configured" });
+      }
+
+      await storage.acceptCommunityRules({
+        tenantId: user.id,
+        organizationId: tenancy.organizationId,
+        ruleVersion: currentVersion,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error accepting community rules:", error);
+      res.status(500).json({ message: "Failed to accept community rules" });
+    }
+  });
+
+  // Get community groups for tenant's block
+  app.get("/api/tenant-portal/community/groups", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || !tenancy.blockId) {
+        return res.status(404).json({ message: "Block assignment not found" });
+      }
+
+      // Only show approved groups to tenants
+      const groups = await storage.getCommunityGroups(tenancy.blockId, "approved");
+      
+      // Add membership status for each group
+      const groupsWithMembership = await Promise.all(groups.map(async (group) => ({
+        ...group,
+        isMember: await storage.isGroupMember(group.id, user.id),
+      })));
+
+      res.json(groupsWithMembership);
+    } catch (error: any) {
+      console.error("Error fetching community groups:", error);
+      res.status(500).json({ message: "Failed to fetch community groups" });
+    }
+  });
+
+  // Get a single community group
+  app.get("/api/tenant-portal/community/groups/:id", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const group = await storage.getCommunityGroup(req.params.id);
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      // Verify tenant has access to this block
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || tenancy.blockId !== group.blockId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const isMember = await storage.isGroupMember(group.id, user.id);
+      res.json({ ...group, isMember });
+    } catch (error: any) {
+      console.error("Error fetching community group:", error);
+      res.status(500).json({ message: "Failed to fetch community group" });
+    }
+  });
+
+  // Create a new community group (requires rule acceptance)
+  app.post("/api/tenant-portal/community/groups", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || !tenancy.blockId) {
+        return res.status(404).json({ message: "Block assignment not found" });
+      }
+
+      // Check if user has accepted latest rules
+      const hasAccepted = await storage.hasAcceptedLatestRules(user.id, tenancy.organizationId);
+      if (!hasAccepted) {
+        return res.status(403).json({ message: "You must accept community rules before creating a group" });
+      }
+
+      const ruleVersion = await storage.getActiveRuleVersion(tenancy.organizationId);
+
+      const group = await storage.createCommunityGroup({
+        organizationId: tenancy.organizationId,
+        blockId: tenancy.blockId,
+        name: req.body.name,
+        description: req.body.description || null,
+        coverImageUrl: req.body.coverImageUrl || null,
+        createdBy: user.id,
+        ruleVersionAgreedAt: ruleVersion || undefined,
+        status: "pending", // Requires operator approval
+      });
+
+      // Auto-join creator to the group
+      await storage.joinGroup({ groupId: group.id, tenantId: user.id });
+
+      res.status(201).json(group);
+    } catch (error: any) {
+      console.error("Error creating community group:", error);
+      res.status(500).json({ message: "Failed to create community group" });
+    }
+  });
+
+  // Join a community group
+  app.post("/api/tenant-portal/community/groups/:id/join", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const group = await storage.getCommunityGroup(req.params.id);
+      if (!group || group.status !== "approved") {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || tenancy.blockId !== group.blockId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const hasAccepted = await storage.hasAcceptedLatestRules(user.id, tenancy.organizationId);
+      if (!hasAccepted) {
+        return res.status(403).json({ message: "You must accept community rules first" });
+      }
+
+      const isAlreadyMember = await storage.isGroupMember(group.id, user.id);
+      if (isAlreadyMember) {
+        return res.status(400).json({ message: "Already a member" });
+      }
+
+      await storage.joinGroup({ groupId: group.id, tenantId: user.id });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error joining group:", error);
+      res.status(500).json({ message: "Failed to join group" });
+    }
+  });
+
+  // Leave a community group
+  app.post("/api/tenant-portal/community/groups/:id/leave", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      await storage.leaveGroup(req.params.id, user.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error leaving group:", error);
+      res.status(500).json({ message: "Failed to leave group" });
+    }
+  });
+
+  // Get threads in a group
+  app.get("/api/tenant-portal/community/groups/:id/threads", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const group = await storage.getCommunityGroup(req.params.id);
+      if (!group || group.status !== "approved") {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || tenancy.blockId !== group.blockId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const threads = await storage.getCommunityThreads(group.id);
+      
+      // Filter out hidden/removed threads for regular tenants, get creator info
+      const visibleThreads = threads.filter(t => t.status === "visible" || t.createdBy === user.id);
+      
+      // Get user info for each thread creator
+      const threadsWithCreators = await Promise.all(visibleThreads.map(async (thread) => {
+        const creator = await storage.getUser(thread.createdBy);
+        return {
+          ...thread,
+          creatorName: creator ? `${creator.firstName || ''} ${creator.lastName || ''}`.trim() || creator.username : 'Unknown',
+        };
+      }));
+
+      res.json(threadsWithCreators);
+    } catch (error: any) {
+      console.error("Error fetching threads:", error);
+      res.status(500).json({ message: "Failed to fetch threads" });
+    }
+  });
+
+  // Get a single thread with its posts
+  app.get("/api/tenant-portal/community/threads/:id", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const thread = await storage.getCommunityThread(req.params.id);
+      if (!thread) {
+        return res.status(404).json({ message: "Thread not found" });
+      }
+
+      const group = await storage.getCommunityGroup(thread.groupId);
+      if (!group || group.status !== "approved") {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || tenancy.blockId !== group.blockId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Increment view count
+      await storage.incrementThreadViewCount(thread.id);
+
+      // Get posts
+      const posts = await storage.getCommunityPosts(thread.id);
+      const visiblePosts = posts.filter(p => p.status === "visible" || p.createdBy === user.id);
+      
+      // Get attachments
+      const threadAttachments = await storage.getThreadAttachments(thread.id);
+      
+      // Get user info for thread creator
+      const creator = await storage.getUser(thread.createdBy);
+
+      // Get user info and attachments for each post
+      const postsWithDetails = await Promise.all(visiblePosts.map(async (post) => {
+        const postCreator = await storage.getUser(post.createdBy);
+        const postAttachments = await storage.getPostAttachments(post.id);
+        return {
+          ...post,
+          creatorName: postCreator ? `${postCreator.firstName || ''} ${postCreator.lastName || ''}`.trim() || postCreator.username : 'Unknown',
+          attachments: postAttachments,
+        };
+      }));
+
+      res.json({
+        ...thread,
+        creatorName: creator ? `${creator.firstName || ''} ${creator.lastName || ''}`.trim() || creator.username : 'Unknown',
+        attachments: threadAttachments,
+        posts: postsWithDetails,
+        group,
+      });
+    } catch (error: any) {
+      console.error("Error fetching thread:", error);
+      res.status(500).json({ message: "Failed to fetch thread" });
+    }
+  });
+
+  // Create a new thread
+  app.post("/api/tenant-portal/community/groups/:id/threads", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const group = await storage.getCommunityGroup(req.params.id);
+      if (!group || group.status !== "approved") {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || tenancy.blockId !== group.blockId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const hasAccepted = await storage.hasAcceptedLatestRules(user.id, tenancy.organizationId);
+      if (!hasAccepted) {
+        return res.status(403).json({ message: "You must accept community rules first" });
+      }
+
+      // Must be a member to post
+      const isMember = await storage.isGroupMember(group.id, user.id);
+      if (!isMember) {
+        return res.status(403).json({ message: "You must join the group to post" });
+      }
+
+      const thread = await storage.createCommunityThread({
+        groupId: group.id,
+        title: req.body.title,
+        content: req.body.content,
+        createdBy: user.id,
+      });
+
+      // Handle attachments
+      if (req.body.attachments && Array.isArray(req.body.attachments)) {
+        for (const attachment of req.body.attachments) {
+          await storage.createCommunityAttachment({
+            threadId: thread.id,
+            fileUrl: attachment.fileUrl,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            fileSize: attachment.fileSize,
+          });
+        }
+      }
+
+      res.status(201).json(thread);
+    } catch (error: any) {
+      console.error("Error creating thread:", error);
+      res.status(500).json({ message: "Failed to create thread" });
+    }
+  });
+
+  // Create a post (reply) in a thread
+  app.post("/api/tenant-portal/community/threads/:id/posts", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const thread = await storage.getCommunityThread(req.params.id);
+      if (!thread || thread.isLocked) {
+        return res.status(404).json({ message: "Thread not found or locked" });
+      }
+
+      const group = await storage.getCommunityGroup(thread.groupId);
+      if (!group || group.status !== "approved") {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      const tenancy = await storage.getTenancyByTenantId(user.id);
+      if (!tenancy || tenancy.blockId !== group.blockId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const hasAccepted = await storage.hasAcceptedLatestRules(user.id, tenancy.organizationId);
+      if (!hasAccepted) {
+        return res.status(403).json({ message: "You must accept community rules first" });
+      }
+
+      const isMember = await storage.isGroupMember(group.id, user.id);
+      if (!isMember) {
+        return res.status(403).json({ message: "You must join the group to post" });
+      }
+
+      const post = await storage.createCommunityPost({
+        threadId: thread.id,
+        content: req.body.content,
+        createdBy: user.id,
+      });
+
+      // Handle attachments
+      if (req.body.attachments && Array.isArray(req.body.attachments)) {
+        for (const attachment of req.body.attachments) {
+          await storage.createCommunityAttachment({
+            postId: post.id,
+            fileUrl: attachment.fileUrl,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            fileSize: attachment.fileSize,
+          });
+        }
+      }
+
+      res.status(201).json(post);
+    } catch (error: any) {
+      console.error("Error creating post:", error);
+      res.status(500).json({ message: "Failed to create post" });
+    }
+  });
+
+  // Flag content
+  app.post("/api/tenant-portal/community/flag", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "tenant") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const { threadId, postId, reason, details } = req.body;
+
+      if (!threadId && !postId) {
+        return res.status(400).json({ message: "Must specify threadId or postId" });
+      }
+
+      await storage.createCommunityFlag({
+        threadId: threadId || undefined,
+        postId: postId || undefined,
+        flaggedBy: user.id,
+        reason,
+        details: details || undefined,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error flagging content:", error);
+      res.status(500).json({ message: "Failed to flag content" });
+    }
+  });
+
+  // ==================== OPERATOR COMMUNITY MODERATION ROUTES ====================
+
+  // Get/update community rules (operator)
+  app.get("/api/community/rules", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const rules = await storage.getCommunityRules(user.organizationId!);
+      res.json(rules || null);
+    } catch (error: any) {
+      console.error("Error fetching community rules:", error);
+      res.status(500).json({ message: "Failed to fetch community rules" });
+    }
+  });
+
+  app.post("/api/community/rules", async (req, res) => {
+    if (!req.isAuthenticated() || req.user?.role !== "owner") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const rules = await storage.createCommunityRules({
+        organizationId: user.organizationId!,
+        rulesText: req.body.rulesText,
+        createdBy: user.id,
+      });
+      res.status(201).json(rules);
+    } catch (error: any) {
+      console.error("Error creating community rules:", error);
+      res.status(500).json({ message: "Failed to create community rules" });
+    }
+  });
+
+  // Get pending groups count for operator dashboard
+  app.get("/api/community/pending-count", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const count = await storage.getPendingGroupsCount(user.organizationId!);
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Error fetching pending count:", error);
+      res.status(500).json({ message: "Failed to fetch pending count" });
+    }
+  });
+
+  // Get all groups for moderation (operator)
+  app.get("/api/community/groups", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const status = req.query.status as string | undefined;
+      const groups = await storage.getCommunityGroupsByOrganization(user.organizationId!, status);
+      
+      // Get block names and creator info
+      const groupsWithDetails = await Promise.all(groups.map(async (group) => {
+        const block = await storage.getBlock(group.blockId);
+        const creator = await storage.getUser(group.createdBy);
+        return {
+          ...group,
+          blockName: block?.name || 'Unknown',
+          creatorName: creator ? `${creator.firstName || ''} ${creator.lastName || ''}`.trim() || creator.username : 'Unknown',
+        };
+      }));
+
+      res.json(groupsWithDetails);
+    } catch (error: any) {
+      console.error("Error fetching groups:", error);
+      res.status(500).json({ message: "Failed to fetch groups" });
+    }
+  });
+
+  // Approve/reject a group (operator)
+  app.patch("/api/community/groups/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const group = await storage.getCommunityGroup(req.params.id);
+      if (!group || group.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      const updates: any = {};
+      if (req.body.status) {
+        updates.status = req.body.status;
+        if (req.body.status === 'approved') {
+          updates.approvedBy = user.id;
+        }
+        if (req.body.status === 'rejected' && req.body.rejectionReason) {
+          updates.rejectionReason = req.body.rejectionReason;
+        }
+      }
+
+      const updated = await storage.updateCommunityGroup(req.params.id, updates);
+
+      // Log moderation action
+      await storage.createCommunityModerationLog({
+        organizationId: user.organizationId!,
+        moderatorId: user.id,
+        action: req.body.status === 'approved' ? 'approved' : 'rejected',
+        targetType: 'group',
+        targetId: group.id,
+        reason: req.body.rejectionReason || null,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating group:", error);
+      res.status(500).json({ message: "Failed to update group" });
+    }
+  });
+
+  // Get flagged content (operator)
+  app.get("/api/community/flags", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const unresolvedOnly = req.query.unresolved !== 'false';
+      const flags = await storage.getCommunityFlags(user.organizationId!, unresolvedOnly);
+      
+      // Get content details for each flag
+      const flagsWithDetails = await Promise.all(flags.map(async (flag) => {
+        let content = null;
+        if (flag.threadId) {
+          const thread = await storage.getCommunityThread(flag.threadId);
+          content = { type: 'thread', title: thread?.title, content: thread?.content };
+        } else if (flag.postId) {
+          const post = await storage.getCommunityPost(flag.postId);
+          content = { type: 'post', content: post?.content };
+        }
+        
+        const reporter = await storage.getUser(flag.flaggedBy);
+        return {
+          ...flag,
+          content,
+          reporterName: reporter ? `${reporter.firstName || ''} ${reporter.lastName || ''}`.trim() || reporter.username : 'Unknown',
+        };
+      }));
+
+      res.json(flagsWithDetails);
+    } catch (error: any) {
+      console.error("Error fetching flags:", error);
+      res.status(500).json({ message: "Failed to fetch flags" });
+    }
+  });
+
+  // Resolve a flag (operator)
+  app.post("/api/community/flags/:id/resolve", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const { action, notes } = req.body;
+
+      const flag = await storage.resolveCommunityFlag(req.params.id, user.id, notes || '');
+
+      // If action is to hide/remove content, update the content status
+      if (action === 'hide' || action === 'remove') {
+        if (flag.threadId) {
+          await storage.updateCommunityThread(flag.threadId, { status: action === 'hide' ? 'hidden' : 'removed' });
+        } else if (flag.postId) {
+          await storage.updateCommunityPost(flag.postId, { status: action === 'hide' ? 'hidden' : 'removed' });
+        }
+
+        // Log moderation action
+        await storage.createCommunityModerationLog({
+          organizationId: user.organizationId!,
+          moderatorId: user.id,
+          action: action === 'hide' ? 'hidden' : 'removed',
+          targetType: flag.threadId ? 'thread' : 'post',
+          targetId: (flag.threadId || flag.postId)!,
+          reason: notes || null,
+        });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error resolving flag:", error);
+      res.status(500).json({ message: "Failed to resolve flag" });
+    }
+  });
+
+  // Moderate thread/post directly (operator)
+  app.patch("/api/community/threads/:id/moderate", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const { status, isPinned, isLocked, reason } = req.body;
+
+      const thread = await storage.getCommunityThread(req.params.id);
+      if (!thread) {
+        return res.status(404).json({ message: "Thread not found" });
+      }
+
+      const group = await storage.getCommunityGroup(thread.groupId);
+      if (!group || group.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updates: any = {};
+      if (status) updates.status = status;
+      if (isPinned !== undefined) updates.isPinned = isPinned;
+      if (isLocked !== undefined) updates.isLocked = isLocked;
+
+      const updated = await storage.updateCommunityThread(req.params.id, updates);
+
+      // Log moderation action
+      if (status) {
+        await storage.createCommunityModerationLog({
+          organizationId: user.organizationId!,
+          moderatorId: user.id,
+          action: status === 'hidden' ? 'hidden' : status === 'removed' ? 'removed' : 'restored',
+          targetType: 'thread',
+          targetId: thread.id,
+          reason: reason || null,
+        });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error moderating thread:", error);
+      res.status(500).json({ message: "Failed to moderate thread" });
+    }
+  });
+
+  app.patch("/api/community/posts/:id/moderate", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const { status, reason } = req.body;
+
+      const post = await storage.getCommunityPost(req.params.id);
+      if (!post) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+
+      const thread = await storage.getCommunityThread(post.threadId);
+      if (!thread) {
+        return res.status(404).json({ message: "Thread not found" });
+      }
+
+      const group = await storage.getCommunityGroup(thread.groupId);
+      if (!group || group.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updateCommunityPost(req.params.id, { status });
+
+      // Log moderation action
+      await storage.createCommunityModerationLog({
+        organizationId: user.organizationId!,
+        moderatorId: user.id,
+        action: status === 'hidden' ? 'hidden' : status === 'removed' ? 'removed' : 'restored',
+        targetType: 'post',
+        targetId: post.id,
+        reason: reason || null,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error moderating post:", error);
+      res.status(500).json({ message: "Failed to moderate post" });
+    }
+  });
+
+  // Get moderation log (operator)
+  app.get("/api/community/moderation-log", async (req, res) => {
+    if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = req.user as User;
+      const logs = await storage.getCommunityModerationLog(user.organizationId!);
+      
+      // Get moderator names
+      const logsWithDetails = await Promise.all(logs.map(async (log) => {
+        const moderator = await storage.getUser(log.moderatorId);
+        return {
+          ...log,
+          moderatorName: moderator ? `${moderator.firstName || ''} ${moderator.lastName || ''}`.trim() || moderator.username : 'Unknown',
+        };
+      }));
+
+      res.json(logsWithDetails);
+    } catch (error: any) {
+      console.error("Error fetching moderation log:", error);
+      res.status(500).json({ message: "Failed to fetch moderation log" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // Set up WebSocket server for real-time notifications

@@ -2219,3 +2219,274 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+// ==================== COMMUNITY DISCUSSIONS ====================
+
+// Community enums
+export const communityGroupStatusEnum = pgEnum("community_group_status", ["pending", "approved", "rejected", "archived"]);
+export const communityPostStatusEnum = pgEnum("community_post_status", ["visible", "hidden", "flagged", "removed"]);
+export const communityFlagReasonEnum = pgEnum("community_flag_reason", ["spam", "offensive", "harassment", "misinformation", "other"]);
+export const communityModerationActionEnum = pgEnum("community_moderation_action", ["approved", "rejected", "hidden", "restored", "removed", "warned"]);
+
+// Community Rules - versioned rules that tenants must agree to
+export const communityRules = pgTable("community_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  version: integer("version").notNull().default(1),
+  rulesText: text("rules_text").notNull(), // Markdown/HTML content of rules
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").notNull(), // User ID of operator who created
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_community_rules_org").on(table.organizationId),
+  index("idx_community_rules_active").on(table.organizationId, table.isActive),
+]);
+
+export const insertCommunityRulesSchema = createInsertSchema(communityRules).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CommunityRules = typeof communityRules.$inferSelect;
+export type InsertCommunityRules = z.infer<typeof insertCommunityRulesSchema>;
+
+// Community Rule Acceptances - track which tenants accepted which version
+export const communityRuleAcceptances = pgTable("community_rule_acceptances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull(), // User ID of tenant
+  organizationId: varchar("organization_id").notNull(),
+  ruleVersion: integer("rule_version").notNull(),
+  acceptedAt: timestamp("accepted_at").defaultNow(),
+}, (table) => [
+  index("idx_rule_acceptances_tenant").on(table.tenantId),
+  index("idx_rule_acceptances_org").on(table.organizationId),
+]);
+
+export const insertCommunityRuleAcceptanceSchema = createInsertSchema(communityRuleAcceptances).omit({
+  id: true,
+  acceptedAt: true,
+});
+
+export type CommunityRuleAcceptance = typeof communityRuleAcceptances.$inferSelect;
+export type InsertCommunityRuleAcceptance = z.infer<typeof insertCommunityRuleAcceptanceSchema>;
+
+// Community Groups - discussion groups created by tenants (scoped to block)
+export const communityGroups = pgTable("community_groups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  blockId: varchar("block_id").notNull(), // Scoped to a block
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  coverImageUrl: varchar("cover_image_url"),
+  status: communityGroupStatusEnum("status").notNull().default("pending"),
+  createdBy: varchar("created_by").notNull(), // Tenant who created the group
+  ruleVersionAgreedAt: integer("rule_version_agreed_at"), // Version of rules agreed when creating
+  approvedBy: varchar("approved_by"), // Operator who approved
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  memberCount: integer("member_count").default(0),
+  postCount: integer("post_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_community_groups_org").on(table.organizationId),
+  index("idx_community_groups_block").on(table.blockId),
+  index("idx_community_groups_status").on(table.status),
+  index("idx_community_groups_creator").on(table.createdBy),
+]);
+
+export const insertCommunityGroupSchema = createInsertSchema(communityGroups).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  approvedBy: true,
+  approvedAt: true,
+  memberCount: true,
+  postCount: true,
+});
+
+export const updateCommunityGroupSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().optional(),
+  coverImageUrl: z.string().optional().nullable(),
+  status: z.enum(["pending", "approved", "rejected", "archived"]).optional(),
+  rejectionReason: z.string().optional().nullable(),
+});
+
+export type CommunityGroup = typeof communityGroups.$inferSelect;
+export type InsertCommunityGroup = z.infer<typeof insertCommunityGroupSchema>;
+export type UpdateCommunityGroup = z.infer<typeof updateCommunityGroupSchema>;
+
+// Community Group Members - tenants who joined a group
+export const communityGroupMembers = pgTable("community_group_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => [
+  index("idx_group_members_group").on(table.groupId),
+  index("idx_group_members_tenant").on(table.tenantId),
+]);
+
+export const insertCommunityGroupMemberSchema = createInsertSchema(communityGroupMembers).omit({
+  id: true,
+  joinedAt: true,
+});
+
+export type CommunityGroupMember = typeof communityGroupMembers.$inferSelect;
+export type InsertCommunityGroupMember = z.infer<typeof insertCommunityGroupMemberSchema>;
+
+// Community Threads - discussion threads within a group
+export const communityThreads = pgTable("community_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content").notNull(), // First post content
+  createdBy: varchar("created_by").notNull(), // Tenant who created
+  status: communityPostStatusEnum("status").notNull().default("visible"),
+  isPinned: boolean("is_pinned").default(false),
+  isLocked: boolean("is_locked").default(false), // Prevents new replies
+  viewCount: integer("view_count").default(0),
+  replyCount: integer("reply_count").default(0),
+  lastActivityAt: timestamp("last_activity_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_community_threads_group").on(table.groupId),
+  index("idx_community_threads_creator").on(table.createdBy),
+  index("idx_community_threads_status").on(table.status),
+  index("idx_community_threads_activity").on(table.lastActivityAt),
+]);
+
+export const insertCommunityThreadSchema = createInsertSchema(communityThreads).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  viewCount: true,
+  replyCount: true,
+  lastActivityAt: true,
+});
+
+export const updateCommunityThreadSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  content: z.string().min(1).optional(),
+  status: z.enum(["visible", "hidden", "flagged", "removed"]).optional(),
+  isPinned: z.boolean().optional(),
+  isLocked: z.boolean().optional(),
+});
+
+export type CommunityThread = typeof communityThreads.$inferSelect;
+export type InsertCommunityThread = z.infer<typeof insertCommunityThreadSchema>;
+export type UpdateCommunityThread = z.infer<typeof updateCommunityThreadSchema>;
+
+// Community Posts - replies to threads
+export const communityPosts = pgTable("community_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull(),
+  content: text("content").notNull(),
+  createdBy: varchar("created_by").notNull(), // Tenant who posted
+  status: communityPostStatusEnum("status").notNull().default("visible"),
+  isEdited: boolean("is_edited").default(false),
+  editedAt: timestamp("edited_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_community_posts_thread").on(table.threadId),
+  index("idx_community_posts_creator").on(table.createdBy),
+  index("idx_community_posts_status").on(table.status),
+]);
+
+export const insertCommunityPostSchema = createInsertSchema(communityPosts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  isEdited: true,
+  editedAt: true,
+});
+
+export const updateCommunityPostSchema = z.object({
+  content: z.string().min(1).optional(),
+  status: z.enum(["visible", "hidden", "flagged", "removed"]).optional(),
+});
+
+export type CommunityPost = typeof communityPosts.$inferSelect;
+export type InsertCommunityPost = z.infer<typeof insertCommunityPostSchema>;
+export type UpdateCommunityPost = z.infer<typeof updateCommunityPostSchema>;
+
+// Community Attachments - images attached to threads or posts
+export const communityAttachments = pgTable("community_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id"), // If attached to original thread post
+  postId: varchar("post_id"), // If attached to a reply
+  fileUrl: varchar("file_url").notNull(),
+  fileName: varchar("file_name"),
+  mimeType: varchar("mime_type"),
+  fileSize: integer("file_size"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_community_attachments_thread").on(table.threadId),
+  index("idx_community_attachments_post").on(table.postId),
+]);
+
+export const insertCommunityAttachmentSchema = createInsertSchema(communityAttachments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CommunityAttachment = typeof communityAttachments.$inferSelect;
+export type InsertCommunityAttachment = z.infer<typeof insertCommunityAttachmentSchema>;
+
+// Community Post Flags - user-reported content
+export const communityPostFlags = pgTable("community_post_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id"), // If flagging original thread
+  postId: varchar("post_id"), // If flagging a reply
+  flaggedBy: varchar("flagged_by").notNull(), // User who flagged
+  reason: communityFlagReasonEnum("reason").notNull(),
+  details: text("details"), // Additional explanation
+  isResolved: boolean("is_resolved").default(false),
+  resolvedBy: varchar("resolved_by"),
+  resolutionNotes: text("resolution_notes"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_community_flags_thread").on(table.threadId),
+  index("idx_community_flags_post").on(table.postId),
+  index("idx_community_flags_resolved").on(table.isResolved),
+]);
+
+export const insertCommunityPostFlagSchema = createInsertSchema(communityPostFlags).omit({
+  id: true,
+  createdAt: true,
+  isResolved: true,
+  resolvedBy: true,
+  resolutionNotes: true,
+  resolvedAt: true,
+});
+
+export type CommunityPostFlag = typeof communityPostFlags.$inferSelect;
+export type InsertCommunityPostFlag = z.infer<typeof insertCommunityPostFlagSchema>;
+
+// Community Moderation Log - audit trail of moderation actions
+export const communityModerationLog = pgTable("community_moderation_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  moderatorId: varchar("moderator_id").notNull(), // Operator who took action
+  action: communityModerationActionEnum("action").notNull(),
+  targetType: varchar("target_type").notNull(), // "group", "thread", "post"
+  targetId: varchar("target_id").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_moderation_log_org").on(table.organizationId),
+  index("idx_moderation_log_moderator").on(table.moderatorId),
+  index("idx_moderation_log_target").on(table.targetType, table.targetId),
+])
+
+export const insertCommunityModerationLogSchema = createInsertSchema(communityModerationLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CommunityModerationLog = typeof communityModerationLog.$inferSelect;
+export type InsertCommunityModerationLog = z.infer<typeof insertCommunityModerationLogSchema>;

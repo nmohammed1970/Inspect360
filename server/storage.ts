@@ -177,6 +177,36 @@ import {
   userDocuments,
   type UserDocument,
   type InsertUserDocument,
+  communityRules,
+  type CommunityRules,
+  type InsertCommunityRules,
+  communityRuleAcceptances,
+  type CommunityRuleAcceptance,
+  type InsertCommunityRuleAcceptance,
+  communityGroups,
+  type CommunityGroup,
+  type InsertCommunityGroup,
+  type UpdateCommunityGroup,
+  communityGroupMembers,
+  type CommunityGroupMember,
+  type InsertCommunityGroupMember,
+  communityThreads,
+  type CommunityThread,
+  type InsertCommunityThread,
+  type UpdateCommunityThread,
+  communityPosts,
+  type CommunityPost,
+  type InsertCommunityPost,
+  type UpdateCommunityPost,
+  communityAttachments,
+  type CommunityAttachment,
+  type InsertCommunityAttachment,
+  communityPostFlags,
+  type CommunityPostFlag,
+  type InsertCommunityPostFlag,
+  communityModerationLog,
+  type CommunityModerationLog,
+  type InsertCommunityModerationLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
@@ -605,6 +635,61 @@ export interface IStorage {
   createUserDocument(document: InsertUserDocument): Promise<UserDocument>;
   updateUserDocument(id: string, updates: Partial<InsertUserDocument>): Promise<UserDocument>;
   deleteUserDocument(id: string): Promise<void>;
+
+  // Community Discussion operations
+  // Rules
+  getCommunityRules(organizationId: string): Promise<CommunityRules | undefined>;
+  createCommunityRules(rules: InsertCommunityRules): Promise<CommunityRules>;
+  getActiveRuleVersion(organizationId: string): Promise<number>;
+  
+  // Rule Acceptances
+  hasAcceptedLatestRules(tenantId: string, organizationId: string): Promise<boolean>;
+  acceptCommunityRules(acceptance: InsertCommunityRuleAcceptance): Promise<CommunityRuleAcceptance>;
+  
+  // Groups
+  getCommunityGroups(blockId: string, status?: string): Promise<CommunityGroup[]>;
+  getCommunityGroupsByOrganization(organizationId: string, status?: string): Promise<CommunityGroup[]>;
+  getCommunityGroup(id: string): Promise<CommunityGroup | undefined>;
+  createCommunityGroup(group: InsertCommunityGroup): Promise<CommunityGroup>;
+  updateCommunityGroup(id: string, updates: UpdateCommunityGroup): Promise<CommunityGroup>;
+  deleteCommunityGroup(id: string): Promise<void>;
+  getPendingGroupsCount(organizationId: string): Promise<number>;
+  
+  // Group Members
+  getGroupMembers(groupId: string): Promise<CommunityGroupMember[]>;
+  isGroupMember(groupId: string, tenantId: string): Promise<boolean>;
+  joinGroup(membership: InsertCommunityGroupMember): Promise<CommunityGroupMember>;
+  leaveGroup(groupId: string, tenantId: string): Promise<void>;
+  
+  // Threads
+  getCommunityThreads(groupId: string): Promise<CommunityThread[]>;
+  getCommunityThread(id: string): Promise<CommunityThread | undefined>;
+  createCommunityThread(thread: InsertCommunityThread): Promise<CommunityThread>;
+  updateCommunityThread(id: string, updates: UpdateCommunityThread): Promise<CommunityThread>;
+  deleteCommunityThread(id: string): Promise<void>;
+  incrementThreadViewCount(id: string): Promise<void>;
+  
+  // Posts
+  getCommunityPosts(threadId: string): Promise<CommunityPost[]>;
+  getCommunityPost(id: string): Promise<CommunityPost | undefined>;
+  createCommunityPost(post: InsertCommunityPost): Promise<CommunityPost>;
+  updateCommunityPost(id: string, updates: UpdateCommunityPost): Promise<CommunityPost>;
+  deleteCommunityPost(id: string): Promise<void>;
+  
+  // Attachments
+  getThreadAttachments(threadId: string): Promise<CommunityAttachment[]>;
+  getPostAttachments(postId: string): Promise<CommunityAttachment[]>;
+  createCommunityAttachment(attachment: InsertCommunityAttachment): Promise<CommunityAttachment>;
+  deleteCommunityAttachment(id: string): Promise<void>;
+  
+  // Flags
+  getCommunityFlags(organizationId: string, unresolvedOnly?: boolean): Promise<CommunityPostFlag[]>;
+  createCommunityFlag(flag: InsertCommunityPostFlag): Promise<CommunityPostFlag>;
+  resolveCommunityFlag(id: string, resolvedBy: string, notes: string): Promise<CommunityPostFlag>;
+  
+  // Moderation Log
+  getCommunityModerationLog(organizationId: string): Promise<CommunityModerationLog[]>;
+  createCommunityModerationLog(log: InsertCommunityModerationLog): Promise<CommunityModerationLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -4027,6 +4112,395 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUserDocument(id: string): Promise<void> {
     await db.delete(userDocuments).where(eq(userDocuments.id, id));
+  }
+
+  // ==================== COMMUNITY DISCUSSION OPERATIONS ====================
+
+  // Community Rules
+  async getCommunityRules(organizationId: string): Promise<CommunityRules | undefined> {
+    const [rules] = await db
+      .select()
+      .from(communityRules)
+      .where(and(eq(communityRules.organizationId, organizationId), eq(communityRules.isActive, true)))
+      .orderBy(desc(communityRules.version))
+      .limit(1);
+    return rules;
+  }
+
+  async createCommunityRules(rules: InsertCommunityRules): Promise<CommunityRules> {
+    // Deactivate previous rules
+    await db
+      .update(communityRules)
+      .set({ isActive: false })
+      .where(eq(communityRules.organizationId, rules.organizationId));
+    
+    // Get next version number
+    const existing = await db
+      .select({ maxVersion: sql<number>`COALESCE(MAX(${communityRules.version}), 0)` })
+      .from(communityRules)
+      .where(eq(communityRules.organizationId, rules.organizationId));
+    
+    const nextVersion = (existing[0]?.maxVersion || 0) + 1;
+    
+    const [created] = await db
+      .insert(communityRules)
+      .values({ ...rules, version: nextVersion, isActive: true })
+      .returning();
+    return created;
+  }
+
+  async getActiveRuleVersion(organizationId: string): Promise<number> {
+    const rules = await this.getCommunityRules(organizationId);
+    return rules?.version || 0;
+  }
+
+  // Rule Acceptances
+  async hasAcceptedLatestRules(tenantId: string, organizationId: string): Promise<boolean> {
+    const latestVersion = await this.getActiveRuleVersion(organizationId);
+    if (latestVersion === 0) return true; // No rules set up yet
+    
+    const [acceptance] = await db
+      .select()
+      .from(communityRuleAcceptances)
+      .where(and(
+        eq(communityRuleAcceptances.tenantId, tenantId),
+        eq(communityRuleAcceptances.organizationId, organizationId),
+        eq(communityRuleAcceptances.ruleVersion, latestVersion)
+      ))
+      .limit(1);
+    return !!acceptance;
+  }
+
+  async acceptCommunityRules(acceptance: InsertCommunityRuleAcceptance): Promise<CommunityRuleAcceptance> {
+    const [created] = await db
+      .insert(communityRuleAcceptances)
+      .values(acceptance)
+      .returning();
+    return created;
+  }
+
+  // Community Groups
+  async getCommunityGroups(blockId: string, status?: string): Promise<CommunityGroup[]> {
+    if (status) {
+      return await db
+        .select()
+        .from(communityGroups)
+        .where(and(eq(communityGroups.blockId, blockId), eq(communityGroups.status, status as any)))
+        .orderBy(desc(communityGroups.createdAt));
+    }
+    return await db
+      .select()
+      .from(communityGroups)
+      .where(eq(communityGroups.blockId, blockId))
+      .orderBy(desc(communityGroups.createdAt));
+  }
+
+  async getCommunityGroupsByOrganization(organizationId: string, status?: string): Promise<CommunityGroup[]> {
+    if (status) {
+      return await db
+        .select()
+        .from(communityGroups)
+        .where(and(eq(communityGroups.organizationId, organizationId), eq(communityGroups.status, status as any)))
+        .orderBy(desc(communityGroups.createdAt));
+    }
+    return await db
+      .select()
+      .from(communityGroups)
+      .where(eq(communityGroups.organizationId, organizationId))
+      .orderBy(desc(communityGroups.createdAt));
+  }
+
+  async getCommunityGroup(id: string): Promise<CommunityGroup | undefined> {
+    const [group] = await db
+      .select()
+      .from(communityGroups)
+      .where(eq(communityGroups.id, id));
+    return group;
+  }
+
+  async createCommunityGroup(group: InsertCommunityGroup): Promise<CommunityGroup> {
+    const [created] = await db
+      .insert(communityGroups)
+      .values(group)
+      .returning();
+    return created;
+  }
+
+  async updateCommunityGroup(id: string, updates: UpdateCommunityGroup): Promise<CommunityGroup> {
+    const updateData: any = { ...updates, updatedAt: new Date() };
+    if (updates.status === 'approved') {
+      updateData.approvedAt = new Date();
+    }
+    const [updated] = await db
+      .update(communityGroups)
+      .set(updateData)
+      .where(eq(communityGroups.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCommunityGroup(id: string): Promise<void> {
+    await db.delete(communityGroups).where(eq(communityGroups.id, id));
+  }
+
+  async getPendingGroupsCount(organizationId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(communityGroups)
+      .where(and(eq(communityGroups.organizationId, organizationId), eq(communityGroups.status, 'pending')));
+    return result[0]?.count || 0;
+  }
+
+  // Group Members
+  async getGroupMembers(groupId: string): Promise<CommunityGroupMember[]> {
+    return await db
+      .select()
+      .from(communityGroupMembers)
+      .where(eq(communityGroupMembers.groupId, groupId))
+      .orderBy(desc(communityGroupMembers.joinedAt));
+  }
+
+  async isGroupMember(groupId: string, tenantId: string): Promise<boolean> {
+    const [member] = await db
+      .select()
+      .from(communityGroupMembers)
+      .where(and(eq(communityGroupMembers.groupId, groupId), eq(communityGroupMembers.tenantId, tenantId)))
+      .limit(1);
+    return !!member;
+  }
+
+  async joinGroup(membership: InsertCommunityGroupMember): Promise<CommunityGroupMember> {
+    const [member] = await db
+      .insert(communityGroupMembers)
+      .values(membership)
+      .returning();
+    
+    // Update member count
+    await db
+      .update(communityGroups)
+      .set({ memberCount: sql`${communityGroups.memberCount} + 1` })
+      .where(eq(communityGroups.id, membership.groupId));
+    
+    return member;
+  }
+
+  async leaveGroup(groupId: string, tenantId: string): Promise<void> {
+    await db
+      .delete(communityGroupMembers)
+      .where(and(eq(communityGroupMembers.groupId, groupId), eq(communityGroupMembers.tenantId, tenantId)));
+    
+    // Update member count
+    await db
+      .update(communityGroups)
+      .set({ memberCount: sql`GREATEST(${communityGroups.memberCount} - 1, 0)` })
+      .where(eq(communityGroups.id, groupId));
+  }
+
+  // Community Threads
+  async getCommunityThreads(groupId: string): Promise<CommunityThread[]> {
+    return await db
+      .select()
+      .from(communityThreads)
+      .where(eq(communityThreads.groupId, groupId))
+      .orderBy(desc(communityThreads.isPinned), desc(communityThreads.lastActivityAt));
+  }
+
+  async getCommunityThread(id: string): Promise<CommunityThread | undefined> {
+    const [thread] = await db
+      .select()
+      .from(communityThreads)
+      .where(eq(communityThreads.id, id));
+    return thread;
+  }
+
+  async createCommunityThread(thread: InsertCommunityThread): Promise<CommunityThread> {
+    const [created] = await db
+      .insert(communityThreads)
+      .values(thread)
+      .returning();
+    
+    // Update group post count
+    await db
+      .update(communityGroups)
+      .set({ postCount: sql`${communityGroups.postCount} + 1` })
+      .where(eq(communityGroups.id, thread.groupId));
+    
+    return created;
+  }
+
+  async updateCommunityThread(id: string, updates: UpdateCommunityThread): Promise<CommunityThread> {
+    const [updated] = await db
+      .update(communityThreads)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(communityThreads.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCommunityThread(id: string): Promise<void> {
+    // Get the thread to update group count
+    const thread = await this.getCommunityThread(id);
+    if (thread) {
+      await db
+        .update(communityGroups)
+        .set({ postCount: sql`GREATEST(${communityGroups.postCount} - 1, 0)` })
+        .where(eq(communityGroups.id, thread.groupId));
+    }
+    await db.delete(communityThreads).where(eq(communityThreads.id, id));
+  }
+
+  async incrementThreadViewCount(id: string): Promise<void> {
+    await db
+      .update(communityThreads)
+      .set({ viewCount: sql`${communityThreads.viewCount} + 1` })
+      .where(eq(communityThreads.id, id));
+  }
+
+  // Community Posts
+  async getCommunityPosts(threadId: string): Promise<CommunityPost[]> {
+    return await db
+      .select()
+      .from(communityPosts)
+      .where(eq(communityPosts.threadId, threadId))
+      .orderBy(asc(communityPosts.createdAt));
+  }
+
+  async getCommunityPost(id: string): Promise<CommunityPost | undefined> {
+    const [post] = await db
+      .select()
+      .from(communityPosts)
+      .where(eq(communityPosts.id, id));
+    return post;
+  }
+
+  async createCommunityPost(post: InsertCommunityPost): Promise<CommunityPost> {
+    const [created] = await db
+      .insert(communityPosts)
+      .values(post)
+      .returning();
+    
+    // Update thread reply count and last activity
+    await db
+      .update(communityThreads)
+      .set({ 
+        replyCount: sql`${communityThreads.replyCount} + 1`,
+        lastActivityAt: new Date()
+      })
+      .where(eq(communityThreads.id, post.threadId));
+    
+    return created;
+  }
+
+  async updateCommunityPost(id: string, updates: UpdateCommunityPost): Promise<CommunityPost> {
+    const [updated] = await db
+      .update(communityPosts)
+      .set({ ...updates, isEdited: true, editedAt: new Date(), updatedAt: new Date() })
+      .where(eq(communityPosts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCommunityPost(id: string): Promise<void> {
+    // Get the post to update thread count
+    const post = await this.getCommunityPost(id);
+    if (post) {
+      await db
+        .update(communityThreads)
+        .set({ replyCount: sql`GREATEST(${communityThreads.replyCount} - 1, 0)` })
+        .where(eq(communityThreads.id, post.threadId));
+    }
+    await db.delete(communityPosts).where(eq(communityPosts.id, id));
+  }
+
+  // Community Attachments
+  async getThreadAttachments(threadId: string): Promise<CommunityAttachment[]> {
+    return await db
+      .select()
+      .from(communityAttachments)
+      .where(eq(communityAttachments.threadId, threadId))
+      .orderBy(asc(communityAttachments.createdAt));
+  }
+
+  async getPostAttachments(postId: string): Promise<CommunityAttachment[]> {
+    return await db
+      .select()
+      .from(communityAttachments)
+      .where(eq(communityAttachments.postId, postId))
+      .orderBy(asc(communityAttachments.createdAt));
+  }
+
+  async createCommunityAttachment(attachment: InsertCommunityAttachment): Promise<CommunityAttachment> {
+    const [created] = await db
+      .insert(communityAttachments)
+      .values(attachment)
+      .returning();
+    return created;
+  }
+
+  async deleteCommunityAttachment(id: string): Promise<void> {
+    await db.delete(communityAttachments).where(eq(communityAttachments.id, id));
+  }
+
+  // Community Flags
+  async getCommunityFlags(organizationId: string, unresolvedOnly?: boolean): Promise<CommunityPostFlag[]> {
+    // Get flags by joining through threads -> groups -> organization
+    const flaggedThreads = await db
+      .select({ flag: communityPostFlags })
+      .from(communityPostFlags)
+      .innerJoin(communityThreads, eq(communityPostFlags.threadId, communityThreads.id))
+      .innerJoin(communityGroups, eq(communityThreads.groupId, communityGroups.id))
+      .where(and(
+        eq(communityGroups.organizationId, organizationId),
+        unresolvedOnly ? eq(communityPostFlags.isResolved, false) : undefined
+      ));
+    
+    const flaggedPosts = await db
+      .select({ flag: communityPostFlags })
+      .from(communityPostFlags)
+      .innerJoin(communityPosts, eq(communityPostFlags.postId, communityPosts.id))
+      .innerJoin(communityThreads, eq(communityPosts.threadId, communityThreads.id))
+      .innerJoin(communityGroups, eq(communityThreads.groupId, communityGroups.id))
+      .where(and(
+        eq(communityGroups.organizationId, organizationId),
+        unresolvedOnly ? eq(communityPostFlags.isResolved, false) : undefined
+      ));
+    
+    const allFlags = [...flaggedThreads.map(f => f.flag), ...flaggedPosts.map(f => f.flag)];
+    return allFlags.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+  }
+
+  async createCommunityFlag(flag: InsertCommunityPostFlag): Promise<CommunityPostFlag> {
+    const [created] = await db
+      .insert(communityPostFlags)
+      .values(flag)
+      .returning();
+    return created;
+  }
+
+  async resolveCommunityFlag(id: string, resolvedBy: string, notes: string): Promise<CommunityPostFlag> {
+    const [updated] = await db
+      .update(communityPostFlags)
+      .set({ isResolved: true, resolvedBy, resolutionNotes: notes, resolvedAt: new Date() })
+      .where(eq(communityPostFlags.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Community Moderation Log
+  async getCommunityModerationLog(organizationId: string): Promise<CommunityModerationLog[]> {
+    return await db
+      .select()
+      .from(communityModerationLog)
+      .where(eq(communityModerationLog.organizationId, organizationId))
+      .orderBy(desc(communityModerationLog.createdAt));
+  }
+
+  async createCommunityModerationLog(log: InsertCommunityModerationLog): Promise<CommunityModerationLog> {
+    const [created] = await db
+      .insert(communityModerationLog)
+      .values(log)
+      .returning();
+    return created;
   }
 }
 

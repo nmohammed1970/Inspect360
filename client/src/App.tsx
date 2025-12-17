@@ -56,6 +56,8 @@ import TenantMaintenance from "@/pages/TenantMaintenance";
 import TenantRequests from "@/pages/TenantRequests";
 import TenantComparisonReports from "@/pages/TenantComparisonReports";
 import TenantComparisonReportDetail from "@/pages/TenantComparisonReportDetail";
+import TenantCommunity from "@/pages/TenantCommunity";
+import CommunityModeration from "@/pages/CommunityModeration";
 import MyFeedback from "@/pages/MyFeedback";
 import BulkImport from "@/pages/BulkImport";
 import { Loader2 } from "lucide-react";
@@ -178,6 +180,7 @@ function AppContent() {
               <Route path="/tenant/requests" component={TenantRequests} />
               <Route path="/tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />
               <Route path="/tenant/comparison-reports" component={TenantComparisonReports} />
+              <Route path="/tenant/community" component={TenantCommunity} />
               <Route path="/dashboard" component={TenantHome} />
               <Route component={NotFound} />
             </Switch>
@@ -263,6 +266,7 @@ function AppContent() {
                 <Route path="/billing" component={Billing} />
                 <Route path="/settings" component={Settings} />
                 <Route path="/bulk-import" component={BulkImport} />
+                <Route path="/community-moderation" component={CommunityModeration} />
                 <Route path="/my-feedback" component={MyFeedback} />
                 <Route component={NotFound} />
               </Switch>
