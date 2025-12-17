@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Users, MessageSquare, Check, X, Flag, Clock, Eye, Shield, 
-  AlertTriangle, CheckCircle, FileText, Settings, Plus, ArrowLeft, Send
+  AlertTriangle, CheckCircle, FileText, Settings, Plus, ArrowLeft, Send, Ban, UserX
 } from "lucide-react";
 import {
   Breadcrumb,
@@ -113,6 +113,18 @@ interface CommunityRules {
   createdAt: string;
 }
 
+interface BlockedTenant {
+  id: string;
+  organizationId: string;
+  tenantUserId: string;
+  tenantName: string;
+  tenantEmail: string;
+  blockedByUserId: string;
+  blockedByName: string;
+  reason: string | null;
+  createdAt: string;
+}
+
 type ViewMode = 'list' | 'group' | 'thread';
 
 export default function CommunityModeration() {
@@ -135,6 +147,9 @@ export default function CommunityModeration() {
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [newThreadContent, setNewThreadContent] = useState("");
   const [replyContent, setReplyContent] = useState("");
+  const [showBlockTenantDialog, setShowBlockTenantDialog] = useState(false);
+  const [blockTenantUserId, setBlockTenantUserId] = useState("");
+  const [blockReason, setBlockReason] = useState("");
 
   const { data: pendingCount = { count: 0 } } = useQuery<{ count: number }>({
     queryKey: ["/api/community/pending-count"],
@@ -168,6 +183,39 @@ export default function CommunityModeration() {
 
   const { data: currentRules } = useQuery<CommunityRules | null>({
     queryKey: ["/api/community/rules"],
+  });
+
+  const { data: blockedTenants = [], isLoading: blockedLoading } = useQuery<BlockedTenant[]>({
+    queryKey: ["/api/community/blocked-tenants"],
+  });
+
+  const blockTenantMutation = useMutation({
+    mutationFn: (data: { tenantUserId: string; reason?: string }) => 
+      apiRequest("POST", "/api/community/blocked-tenants", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/community/blocked-tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/community/moderation-log"] });
+      setShowBlockTenantDialog(false);
+      setBlockTenantUserId("");
+      setBlockReason("");
+      toast({ title: "Tenant blocked from community" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to block tenant", variant: "destructive" });
+    },
+  });
+
+  const unblockTenantMutation = useMutation({
+    mutationFn: (tenantUserId: string) => 
+      apiRequest("DELETE", `/api/community/blocked-tenants/${tenantUserId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/community/blocked-tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/community/moderation-log"] });
+      toast({ title: "Tenant unblocked" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to unblock tenant", variant: "destructive" });
+    },
   });
 
   const createGroupMutation = useMutation({
@@ -827,6 +875,13 @@ export default function CommunityModeration() {
             <FileText className="h-4 w-4 mr-2" />
             Moderation Log
           </TabsTrigger>
+          <TabsTrigger value="blocked" data-testid="tab-blocked">
+            <Ban className="h-4 w-4 mr-2" />
+            Blocked Tenants
+            {blockedTenants.length > 0 && (
+              <Badge variant="secondary" className="ml-2">{blockedTenants.length}</Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="groups" className="mt-6">
@@ -1093,7 +1148,117 @@ export default function CommunityModeration() {
             </Card>
           )}
         </TabsContent>
+
+        <TabsContent value="blocked" className="mt-6">
+          <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+            <div>
+              <h3 className="text-lg font-semibold">Blocked Tenants</h3>
+              <p className="text-sm text-muted-foreground">Tenants who are blocked cannot post or reply in the community</p>
+            </div>
+            <Button onClick={() => setShowBlockTenantDialog(true)} data-testid="button-block-tenant">
+              <Ban className="h-4 w-4 mr-2" />
+              Block Tenant
+            </Button>
+          </div>
+          
+          {blockedLoading ? (
+            <Skeleton className="h-48" />
+          ) : blockedTenants.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-center text-muted-foreground">
+                <UserX className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No tenants are currently blocked from the community.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {blockedTenants.map((block) => (
+                <Card key={block.id} data-testid={`blocked-tenant-${block.tenantUserId}`}>
+                  <CardHeader className="py-4">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          <AvatarFallback>
+                            {block.tenantName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <CardTitle className="text-base">{block.tenantName}</CardTitle>
+                          <CardDescription>
+                            {block.tenantEmail} | Blocked by {block.blockedByName} on {format(new Date(block.createdAt), "PP")}
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => unblockTenantMutation.mutate(block.tenantUserId)}
+                        disabled={unblockTenantMutation.isPending}
+                        data-testid={`button-unblock-${block.tenantUserId}`}
+                      >
+                        Unblock
+                      </Button>
+                    </div>
+                    {block.reason && (
+                      <p className="text-sm text-muted-foreground mt-2 ml-12">
+                        Reason: {block.reason}
+                      </p>
+                    )}
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
+
+      {/* Block Tenant Dialog */}
+      <Dialog open={showBlockTenantDialog} onOpenChange={setShowBlockTenantDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Block Tenant from Community</DialogTitle>
+            <DialogDescription>
+              Enter the tenant's user ID to block them from posting in the community. They will not be able to create threads or replies.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="tenant-user-id">Tenant User ID</Label>
+              <Input
+                id="tenant-user-id"
+                placeholder="Enter tenant user ID..."
+                value={blockTenantUserId}
+                onChange={(e) => setBlockTenantUserId(e.target.value)}
+                data-testid="input-block-tenant-id"
+              />
+            </div>
+            <div>
+              <Label htmlFor="block-reason">Reason (optional)</Label>
+              <Textarea
+                id="block-reason"
+                placeholder="Why is this tenant being blocked?"
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                rows={3}
+                data-testid="input-block-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBlockTenantDialog(false)} data-testid="button-cancel-block">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => blockTenantMutation.mutate({ tenantUserId: blockTenantUserId, reason: blockReason || undefined })}
+              disabled={!blockTenantUserId.trim() || blockTenantMutation.isPending}
+              data-testid="button-confirm-block"
+            >
+              {blockTenantMutation.isPending ? "Blocking..." : "Block Tenant"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reject Group Dialog */}
       <Dialog open={!!selectedGroupForReject} onOpenChange={(open) => !open && setSelectedGroupForReject(null)}>
