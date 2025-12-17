@@ -207,6 +207,9 @@ import {
   communityModerationLog,
   type CommunityModerationLog,
   type InsertCommunityModerationLog,
+  communityTenantBlocks,
+  type CommunityTenantBlock,
+  type InsertCommunityTenantBlock,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
@@ -690,6 +693,13 @@ export interface IStorage {
   // Moderation Log
   getCommunityModerationLog(organizationId: string): Promise<CommunityModerationLog[]>;
   createCommunityModerationLog(log: InsertCommunityModerationLog): Promise<CommunityModerationLog>;
+  
+  // Tenant Blocks
+  getCommunityTenantBlocks(organizationId: string): Promise<CommunityTenantBlock[]>;
+  getCommunityTenantBlock(organizationId: string, tenantUserId: string): Promise<CommunityTenantBlock | undefined>;
+  createCommunityTenantBlock(block: InsertCommunityTenantBlock): Promise<CommunityTenantBlock>;
+  deleteCommunityTenantBlock(organizationId: string, tenantUserId: string): Promise<void>;
+  isTenantBlocked(organizationId: string, tenantUserId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -4501,6 +4511,48 @@ export class DatabaseStorage implements IStorage {
       .values(log)
       .returning();
     return created;
+  }
+
+  // Community Tenant Blocks
+  async getCommunityTenantBlocks(organizationId: string): Promise<CommunityTenantBlock[]> {
+    return await db
+      .select()
+      .from(communityTenantBlocks)
+      .where(eq(communityTenantBlocks.organizationId, organizationId))
+      .orderBy(desc(communityTenantBlocks.createdAt));
+  }
+
+  async getCommunityTenantBlock(organizationId: string, tenantUserId: string): Promise<CommunityTenantBlock | undefined> {
+    const [block] = await db
+      .select()
+      .from(communityTenantBlocks)
+      .where(and(
+        eq(communityTenantBlocks.organizationId, organizationId),
+        eq(communityTenantBlocks.tenantUserId, tenantUserId)
+      ));
+    return block;
+  }
+
+  async createCommunityTenantBlock(block: InsertCommunityTenantBlock): Promise<CommunityTenantBlock> {
+    const [created] = await db
+      .insert(communityTenantBlocks)
+      .values(block)
+      .returning();
+    return created;
+  }
+
+  async deleteCommunityTenantBlock(organizationId: string, tenantUserId: string): Promise<void> {
+    await db
+      .delete(communityTenantBlocks)
+      .where(and(
+        eq(communityTenantBlocks.organizationId, organizationId),
+        eq(communityTenantBlocks.tenantUserId, tenantUserId)
+      ));
+  }
+
+  async isTenantBlocked(organizationId: string, tenantUserId: string): Promise<boolean> {
+    const block = await this.getCommunityTenantBlock(organizationId, tenantUserId);
+    return !!block;
   }
 }
 

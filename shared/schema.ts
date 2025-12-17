@@ -2270,6 +2270,27 @@ export const insertCommunityRuleAcceptanceSchema = createInsertSchema(communityR
 export type CommunityRuleAcceptance = typeof communityRuleAcceptances.$inferSelect;
 export type InsertCommunityRuleAcceptance = z.infer<typeof insertCommunityRuleAcceptanceSchema>;
 
+// Community Tenant Blocks - track blocked tenants who cannot post in community
+export const communityTenantBlocks = pgTable("community_tenant_blocks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  tenantUserId: varchar("tenant_user_id").notNull(), // User ID of blocked tenant
+  blockedByUserId: varchar("blocked_by_user_id").notNull(), // User ID of operator who blocked
+  reason: text("reason"), // Optional reason for blocking
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_tenant_blocks_org").on(table.organizationId),
+  index("idx_tenant_blocks_tenant").on(table.tenantUserId),
+]);
+
+export const insertCommunityTenantBlockSchema = createInsertSchema(communityTenantBlocks).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CommunityTenantBlock = typeof communityTenantBlocks.$inferSelect;
+export type InsertCommunityTenantBlock = z.infer<typeof insertCommunityTenantBlockSchema>;
+
 // Community Groups - discussion groups created by tenants (scoped to block)
 export const communityGroups = pgTable("community_groups", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
