@@ -114,6 +114,11 @@ export function useNotifications() {
       const host = window.location.host;
       const wsUrl = `${protocol}//${host}/ws`;
 
+      // Don't attempt connection if already connected
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        return;
+      }
+
       try {
         const ws = new WebSocket(wsUrl);
 
@@ -166,21 +171,33 @@ export function useNotifications() {
           }
         };
 
-        ws.onerror = () => {
-          // WebSocket error
+        ws.onerror = (error) => {
+          // WebSocket error - log for debugging but don't show to user
+          // The onclose handler will handle reconnection
+          console.warn("[WebSocket] Connection error:", error);
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
           wsRef.current = null;
+
+          // Don't reconnect if it was a normal closure (code 1000) or authentication failure (1008)
+          if (event.code === 1000 || event.code === 1008) {
+            console.log("[WebSocket] Connection closed normally or authentication failed");
+            return;
+          }
 
           // Attempt to reconnect if we haven't exceeded max attempts
           if (reconnectAttempts.current < maxReconnectAttempts && isAuthenticated && user) {
             reconnectAttempts.current++;
             const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000); // Exponential backoff, max 30s
             
+            console.log(`[WebSocket] Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`);
+            
             reconnectTimeoutRef.current = setTimeout(() => {
               connectWebSocket();
             }, delay);
+          } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+            console.warn("[WebSocket] Max reconnection attempts reached");
           }
         };
       } catch (error) {

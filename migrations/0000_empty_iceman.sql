@@ -1128,4 +1128,10 @@ CREATE INDEX IF NOT EXISTS "idx_topup_orders_org" ON "topup_orders" USING btree 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS skills text[];
 ALTER TABLE users ADD COLUMN IF NOT EXISTS qualifications text[];
 ALTER TABLE users ADD COLUMN IF NOT EXISTS education text;
+-- Add missing columns to comparison_report_items table
+ALTER TABLE comparison_report_items ADD COLUMN IF NOT EXISTS dispute_reason text;
+ALTER TABLE comparison_report_items ADD COLUMN IF NOT EXISTS disputed_at timestamp;
+ALTER TABLE comparison_report_items ADD COLUMN IF NOT EXISTS ai_cost_calculation_notes text;
+ALTER TABLE comparison_report_items ADD COLUMN IF NOT EXISTS cost_calculation_method varchar;
+ALTER TABLE comparison_report_items ADD COLUMN IF NOT EXISTS asset_inventory_id varchar;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS certificate_urls text[];

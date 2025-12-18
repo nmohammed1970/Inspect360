@@ -24,7 +24,9 @@ const connections = new Map<string, Set<WebSocket>>();
 export function setupWebSocketServer(server: Server, storage: DatabaseStorage) {
   const wss = new WebSocketServer({ 
     server,
-    path: "/ws"
+    path: "/ws",
+    perMessageDeflate: false, // Disable compression to avoid issues
+    clientTracking: true
   });
 
   wss.on("connection", async (ws: WebSocket, req) => {
@@ -38,12 +40,21 @@ export function setupWebSocketServer(server: Server, storage: DatabaseStorage) {
       }
     } catch (error) {
       console.error("[WebSocket] Error getting session:", error);
-      ws.close(1008, "Authentication failed");
+      try {
+        ws.close(1008, "Authentication failed");
+      } catch (closeError) {
+        // Connection might already be closed
+      }
       return;
     }
 
     if (!userId) {
-      ws.close(1008, "Authentication required");
+      console.warn("[WebSocket] Connection attempt without authentication");
+      try {
+        ws.close(1008, "Authentication required");
+      } catch (closeError) {
+        // Connection might already be closed
+      }
       return;
     }
 
@@ -81,6 +92,20 @@ export function setupWebSocketServer(server: Server, storage: DatabaseStorage) {
 
     ws.on("error", (error) => {
       console.error(`[WebSocket] Error for user ${userId}:`, error);
+      // Try to clean up on error
+      try {
+        if (userId) {
+          const userConnections = connections.get(userId);
+          if (userConnections) {
+            userConnections.delete(ws);
+            if (userConnections.size === 0) {
+              connections.delete(userId);
+            }
+          }
+        }
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
     });
 
     ws.on("message", async (message) => {
@@ -95,6 +120,14 @@ export function setupWebSocketServer(server: Server, storage: DatabaseStorage) {
         console.error("[WebSocket] Error parsing message:", error);
       }
     });
+  });
+
+  wss.on("error", (error) => {
+    console.error("[WebSocket] Server error:", error);
+  });
+
+  wss.on("listening", () => {
+    console.log("[WebSocket] Server listening on /ws");
   });
 
   console.log("[WebSocket] Server initialized on /ws");
