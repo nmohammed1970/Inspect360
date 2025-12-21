@@ -8306,6 +8306,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         }
       }
 
+      // Preprocess dueDate - convert string to Date if needed
+      if (normalizedBody.dueDate && typeof normalizedBody.dueDate === 'string') {
+        normalizedBody.dueDate = new Date(normalizedBody.dueDate);
+      }
+
       // Validate request body
       const validation = updateMaintenanceRequestSchema.safeParse(normalizedBody);
       if (!validation.success) {
@@ -9066,6 +9071,23 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     } catch (error) {
       console.error("Error fetching active tenants:", error);
       res.status(500).json({ error: "Failed to fetch active tenants" });
+    }
+  });
+
+  // Get all tenant assignments for organization
+  app.get("/api/tenant-assignments", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const assignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
+      res.json(assignments);
+    } catch (error) {
+      console.error("Error fetching tenant assignments:", error);
+      res.status(500).json({ error: "Failed to fetch tenant assignments" });
     }
   });
 
@@ -11296,9 +11318,32 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return expiry >= today && expiry <= new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
       });
 
-      // Maintenance stats
-      const openMaintenance = maintenance.filter(m => m.status === 'open' || m.status === 'pending');
-      const urgentMaintenance = openMaintenance.filter(m => m.priority === 'urgent' || m.priority === 'high');
+      // Maintenance stats - include all non-completed/closed items for overdue check
+      const activeMaintenance = maintenance.filter(m => m.status !== 'completed' && m.status !== 'closed');
+      // Urgent maintenance includes: high/urgent priority OR overdue due dates (regardless of priority)
+      const urgentMaintenance = activeMaintenance.filter(m => {
+        // Check priority first
+        if (m.priority === 'urgent' || m.priority === 'high') {
+          return true;
+        }
+        // Check if due date has passed (for any priority level)
+        if (m.dueDate) {
+          try {
+            const dueDate = new Date(m.dueDate);
+            // Normalize to midnight for date-only comparison
+            const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+            // Return true if due date is before today (overdue)
+            return dueDateOnly < today;
+          } catch (error) {
+            // If date parsing fails, skip this check
+            console.error('Error parsing dueDate for maintenance', m.id, error);
+            return false;
+          }
+        }
+        return false;
+      });
+      // For openMaintenance count (used in KPIs), only count open/in_progress
+      const openMaintenance = maintenance.filter(m => m.status === 'open' || m.status === 'in_progress');
       const inProgressMaintenance = maintenance.filter(m => m.status === 'in_progress');
 
       // Calculate average resolution time for completed maintenance (last 90 days)
@@ -11467,13 +11512,30 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             daysOverdue: Math.ceil((today.getTime() - new Date(c.expiryDate!).getTime()) / (1000 * 60 * 60 * 24))
           })),
           urgentMaintenance: urgentMaintenance.length,
-          urgentMaintenanceList: urgentMaintenance.slice(0, 10).map(m => ({
-            id: m.id,
-            title: m.title,
-            propertyId: m.propertyId,
-            priority: m.priority,
-            createdAt: m.createdAt
-          })),
+          urgentMaintenanceList: urgentMaintenance.slice(0, 10).map(m => {
+            let daysOverdue = 0;
+            if (m.dueDate) {
+              try {
+                const dueDate = new Date(m.dueDate);
+                const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+                if (dueDateOnly < today) {
+                  daysOverdue = Math.ceil((today.getTime() - dueDateOnly.getTime()) / (1000 * 60 * 60 * 24));
+                }
+              } catch (error) {
+                // Ignore date parsing errors
+              }
+            }
+            
+            return {
+              id: m.id,
+              title: m.title,
+              propertyId: m.propertyId,
+              priority: m.priority,
+              dueDate: m.dueDate,
+              daysOverdue: daysOverdue,
+              createdAt: m.createdAt
+            };
+          }),
         },
 
         // Due soon

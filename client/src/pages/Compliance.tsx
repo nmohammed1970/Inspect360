@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useSearch } from "wouter";
+import { useSearch, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -85,9 +85,11 @@ export default function Compliance() {
   
   // Get URL parameters for property or block context
   const searchParams = useSearch();
+  const [, setLocation] = useLocation();
   const urlParams = new URLSearchParams(searchParams);
   const propertyIdFromUrl = urlParams.get("propertyId");
   const blockIdFromUrl = urlParams.get("blockId");
+  const shouldCreate = urlParams.get("create");
 
   const { data: documents = [], isLoading } = useQuery<ComplianceDocument[]>({
     queryKey: ['/api/compliance'],
@@ -142,6 +144,18 @@ export default function Compliance() {
     },
   });
   
+  // Auto-open dialog when navigating with propertyId/blockId and create=true
+  useEffect(() => {
+    if ((propertyIdFromUrl || blockIdFromUrl) && shouldCreate === "true" && !open) {
+      setOpen(true);
+      // Clean up URL parameters after opening
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("create");
+      const newSearch = newParams.toString();
+      setLocation(`/compliance${newSearch ? `?${newSearch}` : ""}`, { replace: true });
+    }
+  }, [propertyIdFromUrl, blockIdFromUrl, shouldCreate, open, searchParams, setLocation]);
+
   // Pre-populate property or block when dialog opens based on URL context
   useEffect(() => {
     if (open) {

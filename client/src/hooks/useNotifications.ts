@@ -29,6 +29,7 @@ export function useNotifications() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [popupNotification, setPopupNotification] = useState<Notification | null>(null);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set());
   const [unreadCount, setUnreadCount] = useState(0);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
@@ -75,8 +76,10 @@ export function useNotifications() {
       return;
     }
 
-    // Find the most recent unread notification
-    const unreadNotifications = notifications.filter(n => !n.isRead);
+    // Find the most recent unread notification (excluding dismissed ones)
+    const unreadNotifications = notifications.filter(n => 
+      !n.isRead && !dismissedNotificationIds.has(n.id)
+    );
     
     if (unreadNotifications.length > 0 && !popupNotification) {
       // Sort by createdAt (newest first) and show the most recent one
@@ -219,8 +222,16 @@ export function useNotifications() {
   }, [isAuthenticated, user, queryClient, toast]);
 
   const handleClosePopup = useCallback(() => {
+    // Mark notification as read when dismissed and track it as dismissed
+    if (popupNotification) {
+      if (!popupNotification.isRead) {
+        markAsReadMutation.mutate(popupNotification.id);
+      }
+      // Track this notification as dismissed to prevent it from showing again
+      setDismissedNotificationIds(prev => new Set(prev).add(popupNotification.id));
+    }
     setPopupNotification(null);
-  }, []);
+  }, [popupNotification, markAsReadMutation]);
 
   const handleViewNotification = useCallback((notification: Notification) => {
     // Mark as read

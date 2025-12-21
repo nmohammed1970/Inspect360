@@ -535,7 +535,18 @@ export default function Maintenance() {
           blockId: request.blockId || undefined,
           priority: request.priority as "low" | "medium" | "high",
           reportedBy: request.reportedBy || "",
-          dueDate: request.dueDate ? (typeof request.dueDate === 'string' ? request.dueDate : new Date(request.dueDate).toISOString()) : undefined,
+          dueDate: request.dueDate ? (() => {
+        try {
+          // Parse the date and convert to ISO string format
+          const date = typeof request.dueDate === 'string' ? new Date(request.dueDate) : request.dueDate;
+          if (isNaN(date.getTime())) return undefined;
+          // Extract just the date part (YYYY-MM-DD) and add time to make it a valid ISO string for the form
+          const datePart = date.toISOString().split('T')[0];
+          return datePart ? `${datePart}T00:00:00.000Z` : undefined;
+        } catch {
+          return undefined;
+        }
+      })() : undefined,
         });
         setUploadedImages(request.photoUrls || []);
         setAiSuggestions(request.aiSuggestedFixes || "");
@@ -630,7 +641,13 @@ export default function Maintenance() {
       blockId: request.blockId || undefined,
       priority: request.priority as "low" | "medium" | "high",
       reportedBy: request.reportedBy || "",
-      dueDate: request.dueDate ? (typeof request.dueDate === 'string' ? request.dueDate : new Date(request.dueDate).toISOString()) : undefined,
+      dueDate: request.dueDate ? (() => {
+        // Convert dueDate to ISO string format for the form
+        const dateStr = typeof request.dueDate === 'string' ? request.dueDate : new Date(request.dueDate).toISOString();
+        // Extract just the date part (YYYY-MM-DD) and add time to make it a valid ISO string
+        const datePart = dateStr.split('T')[0];
+        return datePart ? `${datePart}T00:00:00.000Z` : undefined;
+      })() : undefined,
     });
     setUploadedImages(request.photoUrls || []);
     setAiSuggestions(request.aiSuggestedFixes || "");
@@ -1293,7 +1310,11 @@ export default function Maintenance() {
                       {request.property?.address && (
                         <span>• {request.property.address}</span>
                       )}
-                      <span>• Created {format(new Date(request.createdAt?.toString() || Date.now()), 'PPP')}</span>
+                      {request.dueDate ? (
+                        <span>• Due {format(new Date(request.dueDate), 'PPP')}</span>
+                      ) : (
+                        <span>• Created {format(new Date(request.createdAt?.toString() || Date.now()), 'PPP')}</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">

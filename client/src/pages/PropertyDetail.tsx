@@ -111,29 +111,10 @@ interface MaintenanceRequest {
   assignedToName?: string;
 }
 
-// Default document types (fallback if no custom types exist)
-const DEFAULT_DOCUMENT_TYPES = [
-  "Fire Safety Certificate",
-  "Building Insurance",
-  "Electrical Safety Certificate",
-  "Gas Safety Certificate",
-  "EPC Certificate",
-  "HMO License",
-  "Planning Permission",
-  "Other",
-];
-
-const uploadFormSchema = insertComplianceDocumentSchema.extend({
-  documentUrl: z.string().min(1, "Please upload a document"),
-  expiryDate: z.string().optional(),
-});
-
-type UploadFormValues = z.infer<typeof uploadFormSchema>;
 
 export default function PropertyDetail() {
   const [, params] = useRoute("/properties/:id");
   const propertyId = params?.id;
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editAddress, setEditAddress] = useState("");
@@ -186,16 +167,6 @@ export default function PropertyDetail() {
     staleTime: Infinity,
   });
 
-  // Fetch custom document types
-  const { data: customDocumentTypes = [] } = useQuery<any[]>({
-    queryKey: ['/api/compliance/document-types'],
-  });
-
-  // Combine default and custom document types
-  const allDocumentTypes = [
-    ...DEFAULT_DOCUMENT_TYPES,
-    ...customDocumentTypes.map(t => t.name).filter(name => !DEFAULT_DOCUMENT_TYPES.includes(name))
-  ].sort();
 
   const { data: stats } = useQuery<PropertyStats>({
     queryKey: ["/api/properties", propertyId, "stats"],
@@ -277,41 +248,6 @@ export default function PropertyDetail() {
     enabled: !!propertyId,
   });
 
-  const form = useForm<UploadFormValues>({
-    resolver: zodResolver(uploadFormSchema),
-    defaultValues: {
-      documentType: "",
-      documentUrl: "",
-      expiryDate: undefined,
-      propertyId: propertyId,
-      blockId: undefined,
-      status: "current",
-    },
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: (data: UploadFormValues) => apiRequest('POST', '/api/compliance', {
-      ...data,
-      expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/properties', propertyId, 'compliance'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/compliance'] });
-      setUploadDialogOpen(false);
-      form.reset({
-        documentType: "",
-        documentUrl: "",
-        expiryDate: undefined,
-        propertyId: propertyId,
-        blockId: undefined,
-        status: "current",
-      });
-    },
-  });
-
-  const onSubmit = (data: UploadFormValues) => {
-    uploadMutation.mutate(data);
-  };
 
   const updatePropertyMutation = useMutation({
     mutationFn: async (data: { name: string; address: string; notes?: string }) => {
@@ -833,156 +769,12 @@ export default function PropertyDetail() {
           {/* Compliance Documents Section */}
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">Compliance Documents</h2>
-            <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="button-new-compliance">
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload Document
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Upload Compliance Document</DialogTitle>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="documentType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Document Type</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger data-testid="select-document-type">
-                                <SelectValue placeholder="Select document type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {allDocumentTypes.map((type) => (
-                                <SelectItem key={type} value={type}>
-                                  {type}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="documentUrl"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Document File</FormLabel>
-                          <FormControl>
-                            <ObjectUploader
-                              buttonClassName="w-full"
-                              onGetUploadParameters={async () => {
-                                const response = await fetch('/api/objects/upload', {
-                                  method: 'POST',
-                                  credentials: 'include',
-                                });
-                                const { uploadURL } = await response.json();
-                                return {
-                                  method: 'PUT',
-                                  url: uploadURL,
-                                };
-                              }}
-                              onComplete={async (result) => {
-                                if (result.successful && result.successful[0]) {
-                                  let uploadURL = result.successful[0].uploadURL;
-                                  
-                                  // Normalize URL: if absolute, extract pathname; if relative, use as is
-                                  if (uploadURL && (uploadURL.startsWith('http://') || uploadURL.startsWith('https://'))) {
-                                    try {
-                                      const urlObj = new URL(uploadURL);
-                                      uploadURL = urlObj.pathname;
-                                    } catch (e) {
-                                      console.error('[PropertyDetail] Invalid upload URL:', uploadURL);
-                                    }
-                                  }
-                                  
-                                  // Ensure it's a relative path starting with /objects/
-                                  if (!uploadURL || !uploadURL.startsWith('/objects/')) {
-                                    toast({
-                                      title: "Upload Error",
-                                      description: "Invalid file URL format. Please try again.",
-                                      variant: "destructive",
-                                    });
-                                    return;
-                                  }
-                                  
-                                  // Convert to absolute URL for ACL call
-                                  const absoluteUrl = `${window.location.origin}${uploadURL}`;
-                                  const response = await fetch('/api/objects/set-acl', {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    credentials: 'include',
-                                    body: JSON.stringify({ photoUrl: absoluteUrl }),
-                                  });
-                                  const { objectPath } = await response.json();
-                                  field.onChange(objectPath);
-                                }
-                              }}
-                            >
-                              <Upload className="w-4 h-4 mr-2" />
-                              Select Document
-                            </ObjectUploader>
-                          </FormControl>
-                          {field.value && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              ✓ Document selected
-                            </p>
-                          )}
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="expiryDate"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Expiry Date (Optional)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="date"
-                              {...field}
-                              data-testid="input-expiry-date"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setUploadDialogOpen(false)}
-                        data-testid="button-cancel"
-                        className="w-full sm:w-auto"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        className="bg-primary w-full sm:w-auto"
-                        disabled={uploadMutation.isPending}
-                        data-testid="button-submit-document"
-                      >
-                        {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
-                      </Button>
-                    </div>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
+            <Link href={`/compliance?propertyId=${propertyId}&create=true`}>
+              <Button data-testid="button-new-compliance">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Document
+              </Button>
+            </Link>
           </div>
           
           {compliance.length === 0 ? (
@@ -1055,7 +847,7 @@ export default function PropertyDetail() {
         <TabsContent value="maintenance" className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">Maintenance Requests</h2>
-            <Link href={`/maintenance/new?propertyId=${propertyId}`}>
+            <Link href={`/maintenance?propertyId=${propertyId}&create=true`}>
               <Button data-testid="button-new-maintenance">
                 <Wrench className="mr-2 h-4 w-4" />
                 New Request
@@ -1073,40 +865,42 @@ export default function PropertyDetail() {
           ) : (
             <div className="space-y-3">
               {maintenance.map((request) => (
-                <Card key={request.id} data-testid={`card-maintenance-${request.id}`}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-2 flex-1">
-                        <CardTitle className="text-base">{request.title}</CardTitle>
-                        {request.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2">{request.description}</p>
-                        )}
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>{new Date(request.createdAt).toLocaleDateString()}</span>
+                <Link key={request.id} href={`/maintenance/${request.id}`}>
+                  <Card className="hover-elevate cursor-pointer" data-testid={`card-maintenance-${request.id}`}>
+                    <CardHeader>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-2 flex-1">
+                          <CardTitle className="text-base">{request.title}</CardTitle>
+                          {request.description && (
+                            <p className="text-sm text-muted-foreground line-clamp-2">{request.description}</p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              <span>{new Date(request.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            {request.reportedByName && (
+                              <span>Reported by: {request.reportedByName}</span>
+                            )}
+                            {request.assignedToName && (
+                              <span>Assigned to: {request.assignedToName}</span>
+                            )}
                           </div>
-                          {request.reportedByName && (
-                            <span>Reported by: {request.reportedByName}</span>
-                          )}
-                          {request.assignedToName && (
-                            <span>Assigned to: {request.assignedToName}</span>
-                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge variant={
+                            request.priority === 'urgent' ? 'destructive' :
+                            request.priority === 'high' ? 'default' :
+                            'secondary'
+                          }>
+                            {request.priority}
+                          </Badge>
+                          <Badge variant="outline">{request.status.replace('_', ' ')}</Badge>
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <Badge variant={
-                          request.priority === 'urgent' ? 'destructive' :
-                          request.priority === 'high' ? 'default' :
-                          'secondary'
-                        }>
-                          {request.priority}
-                        </Badge>
-                        <Badge variant="outline">{request.status.replace('_', ' ')}</Badge>
-                      </div>
-                    </div>
-                  </CardHeader>
-                </Card>
+                    </CardHeader>
+                  </Card>
+                </Link>
               ))}
             </div>
           )}

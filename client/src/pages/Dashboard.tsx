@@ -104,6 +104,8 @@ interface DashboardStats {
       title: string;
       propertyId: string;
       priority: string;
+      dueDate?: string | null;
+      daysOverdue?: number;
       createdAt: string;
     }>;
   };
@@ -561,9 +563,9 @@ export default function Dashboard() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}
+                {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
               </div>
-              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 95, warning: 80 })}`}>
+              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}`}>
                 {stats?.kpis?.complianceRate ?? 0}%
               </p>
               <p className="text-xs text-muted-foreground">Compliance Rate</p>
@@ -771,7 +773,12 @@ export default function Dashboard() {
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right">
+                            <div className="text-right flex items-center gap-2">
+                              {item.daysOverdue && item.daysOverdue > 0 && (
+                                <Badge variant="destructive" className="text-xs">
+                                  {item.daysOverdue}d overdue
+                                </Badge>
+                              )}
                               <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">
                                 {item.priority}
                               </Badge>

@@ -1350,6 +1350,7 @@ export class DatabaseStorage implements IStorage {
         source: maintenanceRequests.source,
         inspectionId: maintenanceRequests.inspectionId,
         inspectionEntryId: maintenanceRequests.inspectionEntryId,
+        dueDate: maintenanceRequests.dueDate,
         createdAt: maintenanceRequests.createdAt,
         updatedAt: maintenanceRequests.updatedAt,
         property: {
@@ -1871,11 +1872,43 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTenantAssignmentsByOrganization(organizationId: string): Promise<any[]> {
+    // Get all tenant assignments with user and property info
     const assignments = await db
-      .select()
+      .select({
+        // Assignment info
+        id: tenantAssignments.id,
+        organizationId: tenantAssignments.organizationId,
+        tenantId: tenantAssignments.tenantId,
+        propertyId: tenantAssignments.propertyId,
+        leaseStartDate: tenantAssignments.leaseStartDate,
+        leaseEndDate: tenantAssignments.leaseEndDate,
+        monthlyRent: tenantAssignments.monthlyRent,
+        depositAmount: tenantAssignments.depositAmount,
+        notes: tenantAssignments.notes,
+        isActive: tenantAssignments.isActive,
+        nextOfKinName: tenantAssignments.nextOfKinName,
+        nextOfKinPhone: tenantAssignments.nextOfKinPhone,
+        nextOfKinEmail: tenantAssignments.nextOfKinEmail,
+        nextOfKinRelationship: tenantAssignments.nextOfKinRelationship,
+        hasPortalAccess: tenantAssignments.hasPortalAccess,
+        createdAt: tenantAssignments.createdAt,
+        updatedAt: tenantAssignments.updatedAt,
+        // User (tenant) info
+        tenantFirstName: users.firstName,
+        tenantLastName: users.lastName,
+        tenantEmail: users.email,
+        tenantPhone: users.phone,
+        tenantProfileImageUrl: users.profileImageUrl,
+      })
       .from(tenantAssignments)
+      .innerJoin(users, eq(tenantAssignments.tenantId, users.id))
       .where(eq(tenantAssignments.organizationId, organizationId));
-    return assignments;
+    
+    // Map to include status field based on isActive
+    return assignments.map(a => ({
+      ...a,
+      status: a.isActive ? 'active' : 'inactive',
+    }));
   }
 
   async getTenantAssignmentTags(tenantAssignmentId: string, organizationId: string): Promise<any[]> {

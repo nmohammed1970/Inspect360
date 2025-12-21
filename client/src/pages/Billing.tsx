@@ -206,7 +206,9 @@ export default function Billing() {
     };
 
     
-    if (params.get('topup_success') === 'true') {
+    // Check for top-up success - handle both old format (topup_success=true) and new format (topup=success)
+    const topupSuccess = params.get('topup_success') === 'true' || params.get('topup') === 'success';
+    if (topupSuccess) {
       // Process the session immediately if we have a session_id
       const processAndCleanup = async () => {
         if (sessionId) {
@@ -257,7 +259,13 @@ export default function Billing() {
       
       // Clean up URL after polling completes (12 seconds = 2s initial + 10s polling)
       const urlCleanupTimer = setTimeout(() => {
-        setLocation('/billing', { replace: true });
+        // Remove both old and new format parameters
+        const cleanupParams = new URLSearchParams(window.location.search);
+        cleanupParams.delete('topup_success');
+        cleanupParams.delete('topup');
+        cleanupParams.delete('session_id');
+        const newSearch = cleanupParams.toString();
+        setLocation(`/billing${newSearch ? `?${newSearch}` : ''}`, { replace: true });
       }, 12000);
       
       // Return cleanup function for useEffect
@@ -265,7 +273,7 @@ export default function Billing() {
         cleanupPolling();
         clearTimeout(urlCleanupTimer);
       };
-    } else if (params.get('topup_canceled') === 'true') {
+    } else if (params.get('topup_canceled') === 'true' || params.get('topup') === 'canceled') {
       toast({
         title: "Payment Canceled",
         description: "Your payment was not completed.",
