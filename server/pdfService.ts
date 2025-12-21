@@ -9,7 +9,7 @@ const isServerless = process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL 
 const useChromium = isReplit || isServerless;
 
 // Convert image URL to base64 data URL for embedding in PDF
-async function imageUrlToBase64(url: string): Promise<string | null> {
+async function imageUrlToBase64(url: string, baseUrl?: string): Promise<string | null> {
   if (!url || url.trim() === '') {
     console.log('[PDF] imageUrlToBase64: Empty URL provided');
     return null;
@@ -21,17 +21,24 @@ async function imageUrlToBase64(url: string): Promise<string | null> {
     return url;
   }
   
-  console.log('[PDF] imageUrlToBase64: Converting URL:', url.substring(0, 100) + '...');
+  // Convert relative URLs to absolute URLs
+  let absoluteUrl = url;
+  if (url.startsWith('/') && baseUrl) {
+    absoluteUrl = `${baseUrl}${url}`;
+    console.log('[PDF] imageUrlToBase64: Converted relative URL to absolute:', absoluteUrl.substring(0, 100) + '...');
+  }
+  
+  console.log('[PDF] imageUrlToBase64: Converting URL:', absoluteUrl.substring(0, 100) + '...');
   
   try {
-    const response = await fetch(url, {
+    const response = await fetch(absoluteUrl, {
       headers: {
         'Accept': 'image/*',
       },
     });
     
     if (!response.ok) {
-      console.warn(`[PDF] Failed to fetch image: ${url} - Status: ${response.status}`);
+      console.warn(`[PDF] Failed to fetch image: ${absoluteUrl} - Status: ${response.status}`);
       return null;
     }
     
@@ -43,7 +50,7 @@ async function imageUrlToBase64(url: string): Promise<string | null> {
     
     return `data:${contentType};base64,${base64}`;
   } catch (error) {
-    console.warn(`[PDF] Error converting image to base64: ${url}`, error);
+    console.warn(`[PDF] Error converting image to base64: ${absoluteUrl}`, error);
     return null;
   }
 }
@@ -319,7 +326,7 @@ export async function generateInspectionPDF(
     
     // Convert logo to base64
     if (branding.logoUrl) {
-      const logoBase64 = await imageUrlToBase64(branding.logoUrl);
+      const logoBase64 = await imageUrlToBase64(branding.logoUrl, baseUrl);
       if (logoBase64) {
         processedBranding.logoUrl = logoBase64;
         console.log('[PDF] Logo converted to base64 successfully');
@@ -330,7 +337,7 @@ export async function generateInspectionPDF(
     
     // Convert legacy trademark to base64
     if (branding.trademarkUrl) {
-      const trademarkBase64 = await imageUrlToBase64(branding.trademarkUrl);
+      const trademarkBase64 = await imageUrlToBase64(branding.trademarkUrl, baseUrl);
       if (trademarkBase64) {
         processedBranding.trademarkUrl = trademarkBase64;
         console.log('[PDF] Legacy trademark converted to base64 successfully');
@@ -344,7 +351,7 @@ export async function generateInspectionPDF(
       console.log('[PDF] Converting', branding.trademarks.length, 'trademark images...');
       const processedTrademarks = await Promise.all(
         branding.trademarks.map(async (tm, idx) => {
-          const imageBase64 = await imageUrlToBase64(tm.imageUrl);
+          const imageBase64 = await imageUrlToBase64(tm.imageUrl, baseUrl);
           console.log(`[PDF] Trademark ${idx + 1} conversion:`, imageBase64 ? 'success' : 'failed');
           return {
             ...tm,
@@ -750,6 +757,7 @@ function generateInspectionHTML(
   const coverPageHTML = config.showCover ? `
     <!-- Cover Page -->
     <div class="cover-page">
+      ${trademarkHtml}
       <div class="cover-content">
         <div class="cover-logo-container">
           ${logoHtml}
