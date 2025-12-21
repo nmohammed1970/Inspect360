@@ -555,14 +555,16 @@ export async function sendContractorWorkOrderNotification(
 }
 
 export async function broadcastMessageToTenants(
-  recipients: { email: string; firstName?: string; lastName?: string }[],
+  recipients: { email: string; firstName?: string; lastName?: string; propertyName?: string }[],
   templateData: {
     subject: string;
     body: string;
   },
   variables: {
     blockName?: string;
+    blockAddress?: string;
     organizationName?: string;
+    senderName?: string;
     [key: string]: any;
   }
 ) {
@@ -585,10 +587,14 @@ export async function broadcastMessageToTenants(
           tenant_name: recipientName,
           tenant_first_name: recipient.firstName || 'Tenant',
           tenant_last_name: recipient.lastName || '',
+          tenant_email: recipient.email,
+          property_name: recipient.propertyName || '',
           block_name: variables.blockName || '',
+          block_address: variables.blockAddress || '',
           organization_name: variables.organizationName || '',
+          sender_name: variables.senderName || '',
           ...Object.keys(variables).reduce((acc, key) => {
-            if (key !== 'blockName' && key !== 'organizationName') {
+            if (!['blockName', 'blockAddress', 'organizationName', 'senderName'].includes(key)) {
               acc[key] = String(variables[key]);
             }
             return acc;

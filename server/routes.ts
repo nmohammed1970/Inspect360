@@ -8929,12 +8929,22 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
       // Send broadcast
       const { broadcastMessageToTenants } = await import('./resend');
+      const senderName = user.firstName 
+        ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+        : user.email;
       const result = await broadcastMessageToTenants(
-        recipients,
+        recipients.map(r => ({
+          email: r.email,
+          firstName: r.firstName,
+          lastName: r.lastName,
+          propertyName: r.propertyName,
+        })),
         templateData,
         {
           blockName: block.name,
+          blockAddress: block.address || '',
           organizationName: organization?.name || 'Your Property Management',
+          senderName: senderName,
         }
       );
 

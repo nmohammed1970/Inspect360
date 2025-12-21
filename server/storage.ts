@@ -3267,12 +3267,13 @@ export class DatabaseStorage implements IStorage {
     await db.delete(messageTemplates).where(eq(messageTemplates.id, id));
   }
 
-  async getBlockTenantsEmails(blockId: string, organizationId: string): Promise<{ email: string; firstName?: string; lastName?: string; }[]> {
+  async getBlockTenantsEmails(blockId: string, organizationId: string): Promise<{ email: string; firstName?: string; lastName?: string; propertyName?: string; }[]> {
     const tenantsData = await db
       .select({
         email: users.email,
         firstName: users.firstName,
         lastName: users.lastName,
+        propertyName: properties.name,
       })
       .from(tenantAssignments)
       .innerJoin(users, eq(tenantAssignments.tenantId, users.id))
@@ -3289,6 +3290,7 @@ export class DatabaseStorage implements IStorage {
       email: t.email,
       firstName: t.firstName ?? undefined,
       lastName: t.lastName ?? undefined,
+      propertyName: t.propertyName || undefined,
     }));
   }
 
