@@ -31,7 +31,9 @@ import {
   Timer,
   Activity,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  Download,
+  Loader2
 } from "lucide-react";
 import { Link } from "wouter";
 import { TagSearch } from "@/components/TagSearch";
@@ -164,6 +166,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   
   // Filter state
   const [filterBlockId, setFilterBlockId] = useState<string>("");
@@ -347,6 +350,53 @@ export default function Dashboard() {
   // Check if filters are active
   const hasActiveFilters = filterBlockId || filterPropertyId;
 
+  // Handle export report
+  const handleExportReport = async () => {
+    setIsExporting(true);
+    try {
+      // Use fetch directly for binary data instead of apiRequest
+      const response = await fetch("/api/reports/comprehensive/excel", {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to generate Excel report" }));
+        throw new Error(errorData.message || "Failed to generate Excel report");
+      }
+
+      const blob = await response.blob();
+      
+      // Verify blob is not empty and has correct type
+      if (blob.size === 0) {
+        throw new Error("Generated Excel file is empty");
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `comprehensive-report-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Report Exported",
+        description: "Your comprehensive Excel report has been downloaded successfully.",
+      });
+    } catch (error: any) {
+      console.error("Export error:", error);
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to generate Excel report. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (isLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -479,6 +529,23 @@ export default function Dashboard() {
               </SelectContent>
             </Select>
           </div>
+          <Button
+            onClick={handleExportReport}
+            disabled={isExporting}
+            variant="outline"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </>
+            )}
+          </Button>
           {hasActiveFilters && (
             <Button 
               variant="ghost" 

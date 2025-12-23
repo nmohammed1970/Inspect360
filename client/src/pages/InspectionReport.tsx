@@ -90,6 +90,10 @@ interface Inspection {
   completedDate?: string;
   submittedAt?: string;
   notes?: string;
+  tenantApprovalStatus?: string | null;
+  tenantApprovalDeadline?: string | null;
+  tenantApprovedAt?: string | null;
+  tenantComments?: string | null;
   property?: {
     id: string;
     name: string;
@@ -1067,6 +1071,40 @@ export default function InspectionReport() {
                   }}>
                   {inspection.status.replace(/_/g, ' ')}
                 </div>
+              </div>
+            )}
+
+            {/* Tenant Approval Status - For Check-In Inspections */}
+            {inspection.type === 'check_in' && inspection.tenantApprovalStatus && (
+              <div className="space-y-2 pt-6">
+                <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Tenant Approval</div>
+                <div className="flex items-center gap-2">
+                  {inspection.tenantApprovalStatus === 'approved' && (
+                    <Badge className="bg-green-500">Approved</Badge>
+                  )}
+                  {inspection.tenantApprovalStatus === 'disputed' && (
+                    <Badge className="bg-orange-500">Disputed</Badge>
+                  )}
+                  {inspection.tenantApprovalStatus === 'pending' && (
+                    <Badge variant="outline">Pending Review</Badge>
+                  )}
+                  {inspection.tenantApprovedAt && (
+                    <span className="text-sm text-gray-600">
+                      {format(new Date(inspection.tenantApprovedAt), "MMM dd, yyyy 'at' h:mm a")}
+                    </span>
+                  )}
+                </div>
+                {inspection.tenantComments && (
+                  <div className="text-sm text-gray-600 mt-2 p-3 bg-gray-50 rounded">
+                    <div className="font-medium mb-1">Tenant Comments:</div>
+                    <div className="whitespace-pre-wrap">{inspection.tenantComments}</div>
+                  </div>
+                )}
+                {inspection.tenantApprovalDeadline && inspection.tenantApprovalStatus === 'pending' && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Deadline: {format(new Date(inspection.tenantApprovalDeadline), "MMM dd, yyyy 'at' h:mm a")}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -1,6 +1,11 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { format } from "date-fns";
 import { 
   FileText, 
   Building2, 
@@ -10,10 +15,45 @@ import {
   ClipboardCheck,
   BarChart3,
   FileBarChart,
-  ShieldCheck
+  ShieldCheck,
+  Download,
+  Loader2
 } from "lucide-react";
 
 export default function Reports() {
+  const { toast } = useToast();
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleProduceReport = async () => {
+    setIsGenerating(true);
+    try {
+      const response = await apiRequest("GET", "/api/reports/comprehensive/excel");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `comprehensive-report-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Report Generated",
+        description: "Your comprehensive Excel report has been downloaded successfully.",
+      });
+    } catch (error: any) {
+      console.error("Export error:", error);
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to generate Excel report. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const reportCards = [
     {
       title: "Inspections Report",
@@ -91,18 +131,38 @@ export default function Reports() {
       {/* Info Banner */}
       <Card className="glass-card border-primary/20">
         <CardContent className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <BarChart3 className="h-5 w-5 text-primary" />
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4 flex-1">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <BarChart3 className="h-5 w-5 text-primary" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-semibold">Professional BTR Reporting</h3>
+                <p className="text-sm text-muted-foreground">
+                  Each report includes advanced filtering options and PDF export functionality. 
+                  Apply filters to focus on specific date ranges, properties, or criteria, then export 
+                  professional reports for stakeholders, audits, or record-keeping.
+                </p>
+              </div>
             </div>
-            <div className="space-y-1">
-              <h3 className="font-semibold">Professional BTR Reporting</h3>
-              <p className="text-sm text-muted-foreground">
-                Each report includes advanced filtering options and PDF export functionality. 
-                Apply filters to focus on specific date ranges, properties, or criteria, then export 
-                professional reports for stakeholders, audits, or record-keeping.
-              </p>
-            </div>
+            <Button
+              onClick={handleProduceReport}
+              disabled={isGenerating}
+              className="flex-shrink-0"
+              size="lg"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Produce Report
+                </>
+              )}
+            </Button>
           </div>
         </CardContent>
       </Card>

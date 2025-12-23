@@ -284,23 +284,19 @@ export default function TenantCheckInReview() {
         </div>
       </div>
 
-      {/* Timer Banner */}
-      {isPending && (
-        <Card className={timeRemaining && !timeRemaining.expired ? "border-orange-500 bg-orange-50" : "border-red-500 bg-red-50"}>
+      {/* Timer Banner - Only show if deadline hasn't passed */}
+      {isPending && timeRemaining && !timeRemaining.expired && (
+        <Card className="border-orange-500 bg-orange-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <Clock className={`w-5 h-5 ${timeRemaining && !timeRemaining.expired ? "text-orange-600" : "text-red-600"}`} />
+              <Clock className="w-5 h-5 text-orange-600" />
               <div className="flex-1">
-                <h3 className={`font-bold ${timeRemaining && !timeRemaining.expired ? "text-orange-600" : "text-red-600"}`}>
-                  {timeRemaining && !timeRemaining.expired ? "Approval Period" : "Approval Period Expired"}
-                </h3>
-                <p className={`text-sm ${timeRemaining && !timeRemaining.expired ? "text-orange-600" : "text-red-600"}`}>
-                  {timeRemaining && !timeRemaining.expired 
-                    ? `You have ${timeRemaining.text} to review and approve this check-in inspection.`
-                    : "The approval deadline has passed. This inspection will be automatically approved if you submit now."}
+                <h3 className="font-bold text-orange-600">Approval Period</h3>
+                <p className="text-sm text-orange-600">
+                  You have {timeRemaining.text} to review and approve this check-in inspection.
                 </p>
                 {inspection.tenantApprovalDeadline && (
-                  <p className={`text-xs mt-1 ${timeRemaining && !timeRemaining.expired ? "text-muted-foreground" : "text-red-600"}`}>
+                  <p className="text-xs text-muted-foreground mt-1">
                     Deadline: {format(new Date(inspection.tenantApprovalDeadline), "PPpp")}
                   </p>
                 )}

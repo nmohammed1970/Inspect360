@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Home, Calendar, MapPin, FileText } from "lucide-react";
+import { Building2, Home, Calendar, MapPin, FileText, Clock } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -28,9 +28,11 @@ export default function TenantHome() {
     queryKey: ["/api/tenant/comparison-reports"],
   });
 
-  // Fetch pending check-in inspections
+  // Fetch pending check-in inspections with auto-refresh
   const { data: pendingCheckIns = [] } = useQuery<any[]>({
     queryKey: ["/api/tenant/check-ins"],
+    refetchInterval: 60000, // Refetch every minute to catch expired check-ins
+    refetchOnWindowFocus: true,
   });
 
   // Check for reports that need signature (reports that are under review or awaiting signatures)
@@ -96,42 +98,79 @@ export default function TenantHome() {
       {/* Action Required Banners - Check-in inspections and comparison reports */}
       {(reportsNeedingSignature.length > 0 || pendingCheckIns.length > 0) && (
         <div className="space-y-3">
-          {/* Pending Check-In Inspections */}
-          {pendingCheckIns.map((inspection) => {
-            const deadline = inspection.tenantApprovalDeadline 
-              ? new Date(inspection.tenantApprovalDeadline)
-              : null;
-            const now = new Date();
-            const daysRemaining = deadline 
-              ? Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-              : null;
-            
-            const isExpiringSoon = daysRemaining !== null && daysRemaining <= 2 && daysRemaining > 0;
-            const message = isExpiringSoon
-              ? `Check-in inspection review expires in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}. Please review and approve.`
-              : "A check-in inspection requires your review and approval. Please review the details.";
-
-            return (
-              <Link key={inspection.id} href={`/tenant/check-in-review/${inspection.id}`}>
-                <div className="w-full rounded-lg border border-orange-500 bg-[#FFF8E7] p-4 cursor-pointer hover:bg-[#FFF5D6] transition-colors">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 mt-0.5">
-                      <FileText className="h-5 w-5 text-orange-600" />
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <h3 className="font-bold text-orange-600 text-base leading-tight">Action Required</h3>
-                      <p className="text-sm text-orange-600 leading-relaxed">{message}</p>
-                      {deadline && daysRemaining !== null && daysRemaining > 0 && (
-                        <p className="text-xs text-orange-500 mt-1">
-                          Deadline: {format(deadline, "PPpp")}
+          {/* Pending Check-In Inspections - Only show non-expired ones */}
+          {pendingCheckIns
+            .filter((inspection) => {
+              // Filter out expired check-ins on client side as well
+              if (inspection.tenantApprovalDeadline) {
+                const deadline = new Date(inspection.tenantApprovalDeadline);
+                const now = new Date();
+                if (deadline < now) {
+                  // Expired - should be auto-approved by API, but filter out just in case
+                  return false;
+                }
+              }
+              // Only show pending or null status (not approved/disputed)
+              return !inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending";
+            })
+            .map((inspection) => {
+              const deadline = inspection.tenantApprovalDeadline 
+                ? new Date(inspection.tenantApprovalDeadline)
+                : null;
+              const now = new Date();
+              
+              // Calculate time remaining
+              let timeRemaining: { expired: boolean; text: string } | null = null;
+              if (deadline) {
+                const diffMs = deadline.getTime() - now.getTime();
+                if (diffMs <= 0) {
+                  timeRemaining = { expired: true, text: "Expired" };
+                } else {
+                  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                  
+                  if (days > 0) {
+                    timeRemaining = { expired: false, text: `${days} day${days !== 1 ? 's' : ''} remaining` };
+                  } else if (hours > 0) {
+                    timeRemaining = { expired: false, text: `${hours} hour${hours !== 1 ? 's' : ''} remaining` };
+                  } else {
+                    timeRemaining = { expired: false, text: `${minutes} minute${minutes !== 1 ? 's' : ''} remaining` };
+                  }
+                }
+              }
+              
+              return (
+                <Link key={inspection.id} href={`/tenant/check-in-review/${inspection.id}`}>
+                  <div className="w-full rounded-lg border border-orange-500 bg-[#FFF8E7] p-4 cursor-pointer hover:bg-[#FFF5D6] transition-colors">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <FileText className="h-5 w-5 text-orange-600" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-bold text-orange-600 text-base leading-tight">Action Required</h3>
+                          {timeRemaining && !timeRemaining.expired && (
+                            <div className="flex items-center gap-1 text-orange-600">
+                              <Clock className="h-4 w-4" />
+                              <span className="text-sm font-medium">{timeRemaining.text}</span>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm text-orange-600 leading-relaxed">
+                          A check-in inspection requires your review and approval. Please review the details.
                         </p>
-                      )}
+                        {deadline && timeRemaining && !timeRemaining.expired && (
+                          <p className="text-xs text-orange-500 mt-1">
+                            Deadline: {format(deadline, "PPpp")}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Link>
-            );
-          })}
+                </Link>
+              );
+            })}
           
           {/* Comparison Reports Needing Signature */}
           {reportsNeedingSignature.map((report) => (

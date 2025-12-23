@@ -972,22 +972,56 @@ export default function Inspections() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredInspections.map((inspection: any) => (
-            <Card key={inspection.id} className="hover-elevate" data-testid={`card-inspection-${inspection.id}`}>
+            <Card key={inspection.id} className="hover-elevate flex flex-col" data-testid={`card-inspection-${inspection.id}`}>
               <CardHeader>
                 <div className="flex justify-between items-start gap-2">
                   <CardTitle className="text-lg">
                     {inspection.property?.name || inspection.block?.name || "Unknown Property"}
                   </CardTitle>
-                  {getStatusBadge(inspection.status)}
+                  <div className="flex flex-col items-end gap-1">
+                    {getStatusBadge(inspection.status)}
+                    {/* Tenant Approval Status - For Check-In Inspections */}
+                    {inspection.type === "check_in" && (
+                      (() => {
+                        // Check if deadline has passed and status is still pending/null - should show as approved
+                        const deadline = inspection.tenantApprovalDeadline 
+                          ? new Date(inspection.tenantApprovalDeadline)
+                          : null;
+                        const now = new Date();
+                        const isExpired = deadline && deadline < now;
+                        const effectiveStatus = isExpired && 
+                          (!inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending")
+                          ? "approved" 
+                          : inspection.tenantApprovalStatus || "pending";
+                        
+                        return (
+                          <Badge 
+                            variant="outline" 
+                            className={
+                              effectiveStatus === "approved" 
+                                ? "border-green-500 text-green-600 text-xs"
+                                : effectiveStatus === "disputed"
+                                ? "border-orange-500 text-orange-600 text-xs"
+                                : "border-orange-500 text-orange-600 text-xs"
+                            }
+                          >
+                            {effectiveStatus === "approved" && "Tenant Approved"}
+                            {effectiveStatus === "disputed" && "Tenant Disputed"}
+                            {effectiveStatus === "pending" && "Tenant Review Pending"}
+                          </Badge>
+                        );
+                      })()
+                    )}
+                  </div>
                 </div>
                 <CardDescription className="flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
                   {inspection.property?.address || inspection.block?.address || "No location"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 flex-1 flex flex-col">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Type:</span>
@@ -1011,10 +1045,18 @@ export default function Inspections() {
                   )}
                 </div>
                 
+                {/* Tenant Comments - For Check-In Inspections */}
+                {inspection.type === "check_in" && inspection.tenantComments && (
+                  <div className="mt-2 p-3 bg-muted rounded-lg border">
+                    <div className="text-xs font-medium text-muted-foreground mb-1">Tenant Comments:</div>
+                    <div className="text-sm whitespace-pre-wrap line-clamp-3">{inspection.tenantComments}</div>
+                  </div>
+                )}
+                
                 {/* AI Analysis Progress */}
                 <InspectionAIAnalysisProgress inspectionId={inspection.id} />
                 
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-2 flex-wrap mt-auto">
                   {inspection.templateSnapshotJson && inspection.status !== "completed" && (
                     <Button
                       size="sm"

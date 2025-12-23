@@ -194,8 +194,6 @@ export default function InspectionCapture() {
           markedForReview: entry.markedForReview,
         };
       });
-      console.log('[InspectionCapture] Updating entries state:', Object.keys(entriesMap).length, 'entries');
-      console.log('[InspectionCapture] Sample entry keys:', Object.keys(entriesMap).slice(0, 5));
       // Merge with existing entries to preserve any local changes, but prioritize server data
       setEntries(prev => ({ ...prev, ...entriesMap }));
     }

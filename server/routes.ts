@@ -5,6 +5,7 @@ import { randomUUID, createHash } from "crypto";
 import { promises as fs } from "fs";
 import { storage } from "./storage";
 import sharp from "sharp";
+import ExcelJS from "exceljs";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -3136,6 +3137,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         inspections = await storage.getInspectionsByInspector(userId);
       }
 
+      // Auto-approve expired check-in inspections
+      const now = new Date();
+      for (const inspection of inspections) {
+        if (inspection.type === "check_in" && 
+            inspection.status === "completed" &&
+            inspection.tenantApprovalDeadline &&
+            new Date(inspection.tenantApprovalDeadline) < now &&
+            (!inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending")) {
+          try {
+            await storage.updateInspection(inspection.id, {
+              tenantApprovalStatus: "approved",
+              tenantApprovedAt: now,
+            } as any);
+            // Update the inspection object in the response
+            inspection.tenantApprovalStatus = "approved";
+            inspection.tenantApprovedAt = now.toISOString();
+          } catch (error) {
+            console.error(`Failed to auto-approve inspection ${inspection.id}:`, error);
+          }
+        }
+      }
+
       res.json(inspections);
     } catch (error) {
       console.error("Error fetching inspections:", error);
@@ -3808,6 +3831,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status,
         status === "completed" ? new Date() : undefined
       );
+
+      // For check-in inspections, set tenant approval status and deadline when completed
+      if (status === "completed" && inspection.type === "check_in" && inspection.propertyId) {
+        try {
+          // Get organization to get approval period
+          let organizationId: string | undefined;
+          if (inspection.propertyId) {
+            const property = await storage.getProperty(inspection.propertyId);
+            organizationId = property?.organizationId;
+          } else if (inspection.blockId) {
+            const block = await storage.getBlock(inspection.blockId);
+            organizationId = block?.organizationId;
+          }
+
+          if (organizationId) {
+            const organization = await storage.getOrganization(organizationId);
+            const approvalPeriodDays = organization?.checkInApprovalPeriodDays ?? 5;
+            const deadline = new Date();
+            deadline.setDate(deadline.getDate() + approvalPeriodDays);
+
+            await storage.updateInspection(id, {
+              tenantApprovalStatus: "pending",
+              tenantApprovalDeadline: deadline,
+            } as any);
+          }
+        } catch (approvalError) {
+          console.error('Failed to set tenant approval status:', approvalError);
+        }
+      }
 
       // Send email notification to owner when inspection is completed
       if (status === "completed") {
@@ -17667,7 +17719,7 @@ You can help the tenant with:
           i.propertyId === tenancy.propertyId &&
           i.type === "check_in" &&
           i.status === "completed" &&
-          (i.tenantApprovalStatus === "pending" || i.tenantApprovalStatus === null)
+          (i.tenantApprovalStatus === "pending" || i.tenantApprovalStatus === null || !i.tenantApprovalStatus)
       );
 
       // Auto-approve expired pending inspections
@@ -17675,24 +17727,43 @@ You can help the tenant with:
       const autoApprovedInspections: string[] = [];
       
       for (const inspection of propertyInspections) {
-        if (inspection.tenantApprovalDeadline && new Date(inspection.tenantApprovalDeadline) < now) {
-          // Auto-approve expired pending inspections
-          try {
-            await storage.updateInspection(inspection.id, {
-              tenantApprovalStatus: "approved",
-              tenantApprovedAt: now,
-              tenantApprovedBy: userId, // Set to tenant who would have approved
-            } as any);
-            autoApprovedInspections.push(inspection.id);
-          } catch (error) {
-            console.error(`Failed to auto-approve inspection ${inspection.id}:`, error);
+        // Check if deadline exists and has passed
+        if (inspection.tenantApprovalDeadline) {
+          const deadline = new Date(inspection.tenantApprovalDeadline);
+          if (deadline < now && (!inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending")) {
+            // Auto-approve expired pending inspections
+            try {
+              await storage.updateInspection(inspection.id, {
+                tenantApprovalStatus: "approved",
+                tenantApprovedAt: now,
+                tenantApprovedBy: userId, // Set to tenant who would have approved
+              } as any);
+              autoApprovedInspections.push(inspection.id);
+            } catch (error) {
+              console.error(`Failed to auto-approve inspection ${inspection.id}:`, error);
+            }
           }
         }
       }
 
-      // Filter to only pending (not auto-approved)
+      // Filter to only pending (not auto-approved, not already approved/disputed)
       const pendingInspections = propertyInspections.filter(
-        (i: any) => !autoApprovedInspections.includes(i.id) && (i.tenantApprovalStatus === "pending" || i.tenantApprovalStatus === null)
+        (i: any) => {
+          // Exclude auto-approved ones
+          if (autoApprovedInspections.includes(i.id)) return false;
+          
+          // Exclude already approved or disputed
+          if (i.tenantApprovalStatus === "approved" || i.tenantApprovalStatus === "disputed") return false;
+          
+          // Check if deadline has passed (should have been auto-approved above, but double-check)
+          if (i.tenantApprovalDeadline) {
+            const deadline = new Date(i.tenantApprovalDeadline);
+            if (deadline < now) return false; // Expired, should be auto-approved
+          }
+          
+          // Only include pending or null status
+          return !i.tenantApprovalStatus || i.tenantApprovalStatus === "pending";
+        }
       );
 
       res.json(pendingInspections);
@@ -20214,6 +20285,777 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     } catch (error) {
       console.error("Error generating compliance report PDF:", error);
       res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // ==================== COMPREHENSIVE EXCEL REPORT ====================
+
+  // Generate comprehensive Excel report
+  app.get("/api/reports/comprehensive/excel", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Fetch all data
+      const blocks = await storage.getBlocksByOrganization(user.organizationId);
+      const properties = await storage.getPropertiesByOrganization(user.organizationId);
+      const inspections = await storage.getInspectionsByOrganization(user.organizationId);
+      const maintenanceRequests = await storage.getMaintenanceByOrganization(user.organizationId);
+      const complianceDocuments = await storage.getComplianceDocuments(user.organizationId);
+      const assetInventory = await storage.getAssetInventoryByOrganization(user.organizationId);
+      const tenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
+      const organization = await storage.getOrganization(user.organizationId);
+
+      // Create workbook
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = organization?.name || "Inspect360";
+      workbook.created = new Date();
+      workbook.modified = new Date();
+
+      // Define styles
+      const headerStyle = {
+        font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00D5CC' } },
+        alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+      };
+
+      const subHeaderStyle = {
+        font: { bold: true, color: { argb: 'FF000000' }, size: 11 },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
+        alignment: { vertical: 'middle', horizontal: 'left', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+      };
+
+      const cellStyle = {
+        alignment: { vertical: 'middle', horizontal: 'left', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        }
+      };
+
+      // Summary Sheet
+      const summarySheet = workbook.addWorksheet('Summary');
+      summarySheet.columns = [
+        { width: 30 },
+        { width: 20 }
+      ];
+
+      let summaryRow = 1;
+      summarySheet.getCell(summaryRow, 1).value = 'Comprehensive Report';
+      summarySheet.getCell(summaryRow, 1).font = { bold: true, size: 16 };
+      summarySheet.mergeCells(summaryRow, 1, summaryRow, 2);
+      summaryRow += 2;
+
+      summarySheet.getCell(summaryRow, 1).value = 'Organization:';
+      summarySheet.getCell(summaryRow, 2).value = organization?.name || 'N/A';
+      summaryRow++;
+
+      summarySheet.getCell(summaryRow, 1).value = 'Report Date:';
+      summarySheet.getCell(summaryRow, 2).value = new Date().toLocaleDateString();
+      summaryRow += 2;
+
+      // Statistics
+      const totalBlocks = blocks.length;
+      const totalProperties = properties.length;
+      const totalInspections = inspections.length;
+      const totalMaintenance = maintenanceRequests.length;
+      const openMaintenance = maintenanceRequests.filter(m => m.status === 'open' || m.status === 'in_progress').length;
+      const totalAssets = assetInventory.length;
+      const totalCompliance = complianceDocuments.length;
+      const expiringCompliance = complianceDocuments.filter(doc => {
+        if (!doc.expiryDate) return false;
+        const expiry = new Date(doc.expiryDate);
+        const daysUntil = Math.floor((expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        return daysUntil > 0 && daysUntil <= 30;
+      }).length;
+      const expiredCompliance = complianceDocuments.filter(doc => {
+        if (!doc.expiryDate) return false;
+        const expiry = new Date(doc.expiryDate);
+        return expiry.getTime() < Date.now();
+      }).length;
+
+      const stats = [
+        ['Total Blocks', totalBlocks],
+        ['Total Properties', totalProperties],
+        ['Total Inspections', totalInspections],
+        ['Total Maintenance Requests', totalMaintenance],
+        ['Open Maintenance Requests', openMaintenance],
+        ['Total Assets', totalAssets],
+        ['Total Compliance Documents', totalCompliance],
+        ['Expiring Soon (≤30 days)', expiringCompliance],
+        ['Expired Documents', expiredCompliance]
+      ];
+
+      summarySheet.getCell(summaryRow, 1).value = 'Statistics';
+      summarySheet.getCell(summaryRow, 1).font = { bold: true, size: 14 };
+      summarySheet.mergeCells(summaryRow, 1, summaryRow, 2);
+      summaryRow++;
+
+      stats.forEach(([label, value]) => {
+        summarySheet.getCell(summaryRow, 1).value = label;
+        summarySheet.getCell(summaryRow, 1).font = { bold: true };
+        summarySheet.getCell(summaryRow, 2).value = value;
+        summaryRow++;
+      });
+
+      // Blocks Sheet with nested data
+      const blocksSheet = workbook.addWorksheet('Blocks & Properties');
+      blocksSheet.columns = [
+        { width: 25 }, // Block Name
+        { width: 30 }, // Block Address
+        { width: 25 }, // Property Name
+        { width: 30 }, // Property Address
+        { width: 15 }, // Property Type
+        { width: 20 }, // Tenant Status
+        { width: 15 }, // Monthly Rent
+        { width: 15 }, // Inspections
+        { width: 15 }, // Maintenance
+        { width: 15 }, // Assets
+        { width: 15 }  // Compliance
+      ];
+
+      let row = 1;
+      // Header
+      const headers = ['Block Name', 'Block Address', 'Property Name', 'Property Address', 'Property Type', 'Tenant Status', 'Monthly Rent', 'Inspections', 'Maintenance', 'Assets', 'Compliance'];
+      headers.forEach((header, idx) => {
+        const cell = blocksSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      // Group properties by block
+      const propertiesByBlock = new Map<string, any[]>();
+      properties.forEach(prop => {
+        const blockId = prop.blockId || 'no-block';
+        if (!propertiesByBlock.has(blockId)) {
+          propertiesByBlock.set(blockId, []);
+        }
+        propertiesByBlock.get(blockId)!.push(prop);
+      });
+
+      blocks.forEach(block => {
+        const blockProperties = propertiesByBlock.get(block.id) || [];
+        
+        if (blockProperties.length === 0) {
+          // Block with no properties
+          blocksSheet.getCell(row, 1).value = block.name;
+          blocksSheet.getCell(row, 1).font = { bold: true };
+          blocksSheet.getCell(row, 2).value = block.address || '';
+          row++;
+        } else {
+          blockProperties.forEach((property, propIdx) => {
+            // Get related data for this property
+            const propertyInspections = inspections.filter(i => i.propertyId === property.id);
+            const propertyMaintenance = maintenanceRequests.filter(m => m.propertyId === property.id);
+            const propertyAssets = assetInventory.filter(a => a.propertyId === property.id);
+            const propertyCompliance = complianceDocuments.filter(c => c.propertyId === property.id);
+            const tenantAssignment = tenantAssignments.find(ta => ta.propertyId === property.id && (ta.status === 'active' || ta.status === 'current'));
+
+            // Block name (only on first property)
+            if (propIdx === 0) {
+              blocksSheet.getCell(row, 1).value = block.name;
+              blocksSheet.getCell(row, 1).font = { bold: true };
+              blocksSheet.getCell(row, 2).value = block.address || '';
+            }
+
+            // Property data
+            blocksSheet.getCell(row, 3).value = property.name || '';
+            blocksSheet.getCell(row, 4).value = property.address || '';
+            blocksSheet.getCell(row, 5).value = property.propertyType || '';
+            blocksSheet.getCell(row, 6).value = tenantAssignment ? 'Occupied' : 'Vacant';
+            blocksSheet.getCell(row, 7).value = tenantAssignment?.monthlyRent || '';
+            blocksSheet.getCell(row, 8).value = propertyInspections.length;
+            blocksSheet.getCell(row, 9).value = propertyMaintenance.length;
+            blocksSheet.getCell(row, 10).value = propertyAssets.length;
+            blocksSheet.getCell(row, 11).value = propertyCompliance.length;
+
+            // Apply cell styles
+            for (let col = 1; col <= 11; col++) {
+              Object.assign(blocksSheet.getCell(row, col), cellStyle);
+            }
+
+            row++;
+          });
+        }
+      });
+
+      // Inspections Sheet
+      const inspectionsSheet = workbook.addWorksheet('Inspections');
+      inspectionsSheet.columns = [
+        { width: 20 }, // Date
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 15 }, // Type
+        { width: 15 }, // Status
+        { width: 25 }, // Inspector
+        { width: 20 }, // Scheduled Date
+        { width: 20 }, // Completed Date
+        { width: 15 }  // Tenant Approval
+      ];
+
+      row = 1;
+      const inspectionHeaders = ['Date', 'Block', 'Property', 'Type', 'Status', 'Inspector', 'Scheduled Date', 'Completed Date', 'Tenant Approval'];
+      inspectionHeaders.forEach((header, idx) => {
+        const cell = inspectionsSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      inspections.forEach(inspection => {
+        const block = blocks.find(b => b.id === (inspection.blockId || inspection.property?.blockId));
+        const property = properties.find(p => p.id === inspection.propertyId) || inspection.property;
+
+        inspectionsSheet.getCell(row, 1).value = inspection.completedDate 
+          ? new Date(inspection.completedDate).toLocaleDateString()
+          : inspection.scheduledDate 
+          ? new Date(inspection.scheduledDate).toLocaleDateString()
+          : '';
+        inspectionsSheet.getCell(row, 2).value = block?.name || '';
+        inspectionsSheet.getCell(row, 3).value = property?.name || '';
+        inspectionsSheet.getCell(row, 4).value = inspection.type || '';
+        inspectionsSheet.getCell(row, 5).value = inspection.status || '';
+        inspectionsSheet.getCell(row, 6).value = inspection.clerk 
+          ? `${inspection.clerk.firstName || ''} ${inspection.clerk.lastName || ''}`.trim() || inspection.clerk.email
+          : '';
+        inspectionsSheet.getCell(row, 7).value = inspection.scheduledDate 
+          ? new Date(inspection.scheduledDate).toLocaleDateString()
+          : '';
+        inspectionsSheet.getCell(row, 8).value = inspection.completedDate 
+          ? new Date(inspection.completedDate).toLocaleDateString()
+          : '';
+        
+        // Tenant approval status for check-in inspections
+        if (inspection.type === 'check_in') {
+          if (inspection.tenantApprovalStatus === 'approved') {
+            inspectionsSheet.getCell(row, 9).value = 'Approved';
+            inspectionsSheet.getCell(row, 9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+          } else if (inspection.tenantApprovalStatus === 'disputed') {
+            inspectionsSheet.getCell(row, 9).value = 'Disputed';
+            inspectionsSheet.getCell(row, 9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+          } else if (inspection.tenantApprovalStatus === 'pending' || !inspection.tenantApprovalStatus) {
+            inspectionsSheet.getCell(row, 9).value = 'Pending';
+            inspectionsSheet.getCell(row, 9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+          }
+        }
+
+        for (let col = 1; col <= 9; col++) {
+          Object.assign(inspectionsSheet.getCell(row, col), cellStyle);
+        }
+        row++;
+      });
+
+      // Maintenance Sheet
+      const maintenanceSheet = workbook.addWorksheet('Maintenance');
+      maintenanceSheet.columns = [
+        { width: 20 }, // Date
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 30 }, // Title
+        { width: 15 }, // Status
+        { width: 15 }, // Priority
+        { width: 25 }, // Reported By
+        { width: 25 }, // Assigned To
+        { width: 20 }  // Due Date
+      ];
+
+      row = 1;
+      const maintenanceHeaders = ['Date', 'Block', 'Property', 'Title', 'Status', 'Priority', 'Reported By', 'Assigned To', 'Due Date'];
+      maintenanceHeaders.forEach((header, idx) => {
+        const cell = maintenanceSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      maintenanceRequests.forEach(maintenance => {
+        const block = blocks.find(b => b.id === (maintenance.blockId || maintenance.property?.blockId));
+        const property = properties.find(p => p.id === maintenance.propertyId) || maintenance.property;
+
+        maintenanceSheet.getCell(row, 1).value = maintenance.createdAt 
+          ? new Date(maintenance.createdAt).toLocaleDateString()
+          : '';
+        maintenanceSheet.getCell(row, 2).value = block?.name || maintenance.block?.name || '';
+        maintenanceSheet.getCell(row, 3).value = property?.name || maintenance.property?.name || '';
+        maintenanceSheet.getCell(row, 4).value = maintenance.title || '';
+        maintenanceSheet.getCell(row, 5).value = maintenance.status || '';
+        
+        // Color code status
+        if (maintenance.status === 'open') {
+          maintenanceSheet.getCell(row, 5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+        } else if (maintenance.status === 'in_progress') {
+          maintenanceSheet.getCell(row, 5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE3F2FD' } };
+        } else if (maintenance.status === 'completed') {
+          maintenanceSheet.getCell(row, 5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+        }
+
+        maintenanceSheet.getCell(row, 6).value = maintenance.priority || '';
+        maintenanceSheet.getCell(row, 7).value = maintenance.reportedByUser 
+          ? `${maintenance.reportedByUser.firstName || ''} ${maintenance.reportedByUser.lastName || ''}`.trim()
+          : '';
+        maintenanceSheet.getCell(row, 8).value = maintenance.assignedToUser 
+          ? `${maintenance.assignedToUser.firstName || ''} ${maintenance.assignedToUser.lastName || ''}`.trim()
+          : '';
+        maintenanceSheet.getCell(row, 9).value = maintenance.dueDate 
+          ? new Date(maintenance.dueDate).toLocaleDateString()
+          : '';
+
+        for (let col = 1; col <= 9; col++) {
+          Object.assign(maintenanceSheet.getCell(row, col), cellStyle);
+        }
+        row++;
+      });
+
+      // Assets Sheet
+      const assetsSheet = workbook.addWorksheet('Assets');
+      assetsSheet.columns = [
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 30 }, // Asset Name
+        { width: 20 }, // Category
+        { width: 15 }, // Purchase Price
+        { width: 15 }, // Current Value
+        { width: 20 }, // Purchase Date
+        { width: 15 }, // Condition
+        { width: 20 }  // Location
+      ];
+
+      row = 1;
+      const assetHeaders = ['Block', 'Property', 'Asset Name', 'Category', 'Purchase Price', 'Current Value', 'Purchase Date', 'Condition', 'Location'];
+      assetHeaders.forEach((header, idx) => {
+        const cell = assetsSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      assetInventory.forEach(asset => {
+        const property = properties.find(p => p.id === asset.propertyId);
+        const block = property ? blocks.find(b => b.id === property.blockId) : null;
+
+        assetsSheet.getCell(row, 1).value = block?.name || '';
+        assetsSheet.getCell(row, 2).value = property?.name || '';
+        assetsSheet.getCell(row, 3).value = asset.name || '';
+        assetsSheet.getCell(row, 4).value = asset.category || '';
+        assetsSheet.getCell(row, 5).value = asset.purchasePrice ? parseFloat(asset.purchasePrice) : '';
+        assetsSheet.getCell(row, 6).value = asset.currentValue ? parseFloat(asset.currentValue) : '';
+        assetsSheet.getCell(row, 7).value = asset.datePurchased 
+          ? new Date(asset.datePurchased).toLocaleDateString()
+          : '';
+        assetsSheet.getCell(row, 8).value = asset.condition || '';
+        assetsSheet.getCell(row, 9).value = asset.location || '';
+
+        for (let col = 1; col <= 9; col++) {
+          Object.assign(assetsSheet.getCell(row, col), cellStyle);
+        }
+        row++;
+      });
+
+      // Compliance Sheet
+      const complianceSheet = workbook.addWorksheet('Compliance');
+      complianceSheet.columns = [
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 25 }, // Document Type
+        { width: 30 }, // Document Name
+        { width: 20 }, // Issue Date
+        { width: 20 }, // Expiry Date
+        { width: 15 }, // Status
+        { width: 30 }  // Notes
+      ];
+
+      row = 1;
+      const complianceHeaders = ['Block', 'Property', 'Document Type', 'Document Name', 'Issue Date', 'Expiry Date', 'Status', 'Notes'];
+      complianceHeaders.forEach((header, idx) => {
+        const cell = complianceSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      complianceDocuments.forEach(doc => {
+        const property = properties.find(p => p.id === doc.propertyId);
+        const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === doc.blockId);
+
+        let status = 'Current';
+        let statusColor = 'FFDCFCE7'; // Green
+        if (doc.expiryDate) {
+          const expiry = new Date(doc.expiryDate);
+          const daysUntil = Math.floor((expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          if (daysUntil < 0) {
+            status = 'Expired';
+            statusColor = 'FFFFE5CC'; // Red
+          } else if (daysUntil <= 30) {
+            status = 'Expiring Soon';
+            statusColor = 'FFFFF3CD'; // Yellow
+          }
+        }
+
+        complianceSheet.getCell(row, 1).value = block?.name || '';
+        complianceSheet.getCell(row, 2).value = property?.name || '';
+        complianceSheet.getCell(row, 3).value = doc.documentType || '';
+        complianceSheet.getCell(row, 4).value = doc.documentName || '';
+        complianceSheet.getCell(row, 5).value = doc.issueDate 
+          ? new Date(doc.issueDate).toLocaleDateString()
+          : '';
+        complianceSheet.getCell(row, 6).value = doc.expiryDate 
+          ? new Date(doc.expiryDate).toLocaleDateString()
+          : '';
+        complianceSheet.getCell(row, 7).value = status;
+        complianceSheet.getCell(row, 7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: statusColor } };
+        complianceSheet.getCell(row, 8).value = doc.notes || '';
+
+        for (let col = 1; col <= 8; col++) {
+          Object.assign(complianceSheet.getCell(row, col), cellStyle);
+        }
+        row++;
+      });
+
+      // Tenants Sheet
+      const tenantsSheet = workbook.addWorksheet('Tenants');
+      tenantsSheet.columns = [
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 30 }, // Tenant Name
+        { width: 30 }, // Email
+        { width: 20 }, // Lease Start
+        { width: 20 }, // Lease End
+        { width: 15 }, // Monthly Rent
+        { width: 15 }, // Deposit
+        { width: 15 }  // Status
+      ];
+
+      row = 1;
+      const tenantHeaders = ['Block', 'Property', 'Tenant Name', 'Email', 'Lease Start', 'Lease End', 'Monthly Rent', 'Deposit', 'Status'];
+      tenantHeaders.forEach((header, idx) => {
+        const cell = tenantsSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      tenantAssignments.forEach(assignment => {
+        const property = properties.find(p => p.id === assignment.propertyId);
+        const block = property ? blocks.find(b => b.id === property.blockId) : null;
+        
+        // Get tenant name from firstName and lastName
+        const tenantFirstName = assignment.tenantFirstName || '';
+        const tenantLastName = assignment.tenantLastName || '';
+        const tenantFullName = [tenantFirstName, tenantLastName].filter(Boolean).join(' ') || '';
+        const tenantEmail = assignment.tenantEmail || '';
+
+        tenantsSheet.getCell(row, 1).value = block?.name || '';
+        tenantsSheet.getCell(row, 2).value = property?.name || '';
+        tenantsSheet.getCell(row, 3).value = tenantFullName;
+        tenantsSheet.getCell(row, 4).value = tenantEmail;
+        tenantsSheet.getCell(row, 5).value = assignment.leaseStartDate 
+          ? new Date(assignment.leaseStartDate).toLocaleDateString()
+          : '';
+        tenantsSheet.getCell(row, 6).value = assignment.leaseEndDate 
+          ? new Date(assignment.leaseEndDate).toLocaleDateString()
+          : '';
+        tenantsSheet.getCell(row, 7).value = assignment.monthlyRent || '';
+        tenantsSheet.getCell(row, 8).value = assignment.depositAmount || '';
+        tenantsSheet.getCell(row, 9).value = assignment.isActive ? 'active' : 'inactive';
+
+        for (let col = 1; col <= 9; col++) {
+          Object.assign(tenantsSheet.getCell(row, col), cellStyle);
+        }
+        row++;
+      });
+
+      // At Risk Sheet
+      const atRiskSheet = workbook.addWorksheet('At Risk Items');
+      atRiskSheet.columns = [
+        { width: 20 }, // Type
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 30 }, // Item Name
+        { width: 20 }, // Status
+        { width: 20 }, // Due/Expiry Date
+        { width: 15 }, // Days Overdue
+        { width: 40 }  // Notes
+      ];
+
+      row = 1;
+      const atRiskHeaders = ['Type', 'Block', 'Property', 'Item Name', 'Status', 'Due/Expiry Date', 'Days Overdue', 'Notes'];
+      atRiskHeaders.forEach((header, idx) => {
+        const cell = atRiskSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      const now = new Date();
+
+      // Expired compliance documents
+      complianceDocuments.forEach(doc => {
+        if (doc.expiryDate) {
+          const expiry = new Date(doc.expiryDate);
+          if (expiry < now) {
+            const property = properties.find(p => p.id === doc.propertyId);
+            const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === doc.blockId);
+            const daysOverdue = Math.floor((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
+
+            atRiskSheet.getCell(row, 1).value = 'Compliance Document';
+            atRiskSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 2).value = block?.name || '';
+            atRiskSheet.getCell(row, 3).value = property?.name || '';
+            atRiskSheet.getCell(row, 4).value = doc.documentName || doc.documentType || '';
+            atRiskSheet.getCell(row, 5).value = 'Expired';
+            atRiskSheet.getCell(row, 5).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 6).value = expiry.toLocaleDateString();
+            atRiskSheet.getCell(row, 7).value = daysOverdue;
+            atRiskSheet.getCell(row, 7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 8).value = doc.notes || '';
+
+            for (let col = 1; col <= 8; col++) {
+              Object.assign(atRiskSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Overdue maintenance
+      maintenanceRequests.forEach(maintenance => {
+        if (maintenance.dueDate) {
+          const dueDate = new Date(maintenance.dueDate);
+          if (dueDate < now && (maintenance.status === 'open' || maintenance.status === 'in_progress')) {
+            const property = properties.find(p => p.id === maintenance.propertyId) || maintenance.property;
+            const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === maintenance.blockId) || maintenance.block;
+            const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+
+            atRiskSheet.getCell(row, 1).value = 'Maintenance Request';
+            atRiskSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 2).value = block?.name || '';
+            atRiskSheet.getCell(row, 3).value = property?.name || '';
+            atRiskSheet.getCell(row, 4).value = maintenance.title || '';
+            atRiskSheet.getCell(row, 5).value = maintenance.status || '';
+            atRiskSheet.getCell(row, 6).value = dueDate.toLocaleDateString();
+            atRiskSheet.getCell(row, 7).value = daysOverdue;
+            atRiskSheet.getCell(row, 7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 8).value = maintenance.description || '';
+
+            for (let col = 1; col <= 8; col++) {
+              Object.assign(atRiskSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Overdue inspections
+      inspections.forEach(inspection => {
+        if (inspection.scheduledDate && inspection.status !== 'completed') {
+          const scheduled = new Date(inspection.scheduledDate);
+          if (scheduled < now) {
+            const property = properties.find(p => p.id === inspection.propertyId) || inspection.property;
+            const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === inspection.blockId);
+            const daysOverdue = Math.floor((now.getTime() - scheduled.getTime()) / (1000 * 60 * 60 * 24));
+
+            atRiskSheet.getCell(row, 1).value = 'Inspection';
+            atRiskSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 2).value = block?.name || '';
+            atRiskSheet.getCell(row, 3).value = property?.name || '';
+            atRiskSheet.getCell(row, 4).value = `${inspection.type || 'Inspection'} - ${inspection.status || 'Pending'}`;
+            atRiskSheet.getCell(row, 5).value = inspection.status || '';
+            atRiskSheet.getCell(row, 6).value = scheduled.toLocaleDateString();
+            atRiskSheet.getCell(row, 7).value = daysOverdue;
+            atRiskSheet.getCell(row, 7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+            atRiskSheet.getCell(row, 8).value = inspection.notes || '';
+
+            for (let col = 1; col <= 8; col++) {
+              Object.assign(atRiskSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Upcoming Sheet
+      const upcomingSheet = workbook.addWorksheet('Upcoming Items');
+      upcomingSheet.columns = [
+        { width: 20 }, // Type
+        { width: 25 }, // Block
+        { width: 25 }, // Property
+        { width: 30 }, // Item Name
+        { width: 20 }, // Due Date
+        { width: 15 }, // Days Until
+        { width: 40 }  // Notes
+      ];
+
+      row = 1;
+      const upcomingHeaders = ['Type', 'Block', 'Property', 'Item Name', 'Due Date', 'Days Until', 'Notes'];
+      upcomingHeaders.forEach((header, idx) => {
+        const cell = upcomingSheet.getCell(row, idx + 1);
+        cell.value = header;
+        Object.assign(cell, headerStyle);
+      });
+      row++;
+
+      // Compliance documents expiring soon (within 30 days)
+      complianceDocuments.forEach(doc => {
+        if (doc.expiryDate) {
+          const expiry = new Date(doc.expiryDate);
+          const daysUntil = Math.floor((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntil > 0 && daysUntil <= 30) {
+            const property = properties.find(p => p.id === doc.propertyId);
+            const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === doc.blockId);
+
+            upcomingSheet.getCell(row, 1).value = 'Compliance Document';
+            upcomingSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 2).value = block?.name || '';
+            upcomingSheet.getCell(row, 3).value = property?.name || '';
+            upcomingSheet.getCell(row, 4).value = doc.documentName || doc.documentType || '';
+            upcomingSheet.getCell(row, 5).value = expiry.toLocaleDateString();
+            upcomingSheet.getCell(row, 6).value = daysUntil;
+            upcomingSheet.getCell(row, 6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 7).value = doc.notes || '';
+
+            for (let col = 1; col <= 7; col++) {
+              Object.assign(upcomingSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Upcoming maintenance due dates
+      maintenanceRequests.forEach(maintenance => {
+        if (maintenance.dueDate) {
+          const dueDate = new Date(maintenance.dueDate);
+          const daysUntil = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntil > 0 && daysUntil <= 30 && (maintenance.status === 'open' || maintenance.status === 'in_progress')) {
+            const property = properties.find(p => p.id === maintenance.propertyId) || maintenance.property;
+            const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === maintenance.blockId) || maintenance.block;
+
+            upcomingSheet.getCell(row, 1).value = 'Maintenance Request';
+            upcomingSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 2).value = block?.name || '';
+            upcomingSheet.getCell(row, 3).value = property?.name || '';
+            upcomingSheet.getCell(row, 4).value = maintenance.title || '';
+            upcomingSheet.getCell(row, 5).value = dueDate.toLocaleDateString();
+            upcomingSheet.getCell(row, 6).value = daysUntil;
+            upcomingSheet.getCell(row, 6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 7).value = maintenance.description || '';
+
+            for (let col = 1; col <= 7; col++) {
+              Object.assign(upcomingSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Upcoming inspections
+      inspections.forEach(inspection => {
+        if (inspection.scheduledDate && inspection.status !== 'completed') {
+          const scheduled = new Date(inspection.scheduledDate);
+          const daysUntil = Math.floor((scheduled.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntil > 0 && daysUntil <= 30) {
+            const property = properties.find(p => p.id === inspection.propertyId) || inspection.property;
+            const block = property ? blocks.find(b => b.id === property.blockId) : blocks.find(b => b.id === inspection.blockId);
+
+            upcomingSheet.getCell(row, 1).value = 'Inspection';
+            upcomingSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 2).value = block?.name || '';
+            upcomingSheet.getCell(row, 3).value = property?.name || '';
+            upcomingSheet.getCell(row, 4).value = `${inspection.type || 'Inspection'} - ${inspection.status || 'Scheduled'}`;
+            upcomingSheet.getCell(row, 5).value = scheduled.toLocaleDateString();
+            upcomingSheet.getCell(row, 6).value = daysUntil;
+            upcomingSheet.getCell(row, 6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 7).value = inspection.notes || '';
+
+            for (let col = 1; col <= 7; col++) {
+              Object.assign(upcomingSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Upcoming lease expirations
+      tenantAssignments.forEach(assignment => {
+        if (assignment.leaseEndDate && (assignment.status === 'active' || assignment.status === 'current')) {
+          const leaseEnd = new Date(assignment.leaseEndDate);
+          const daysUntil = Math.floor((leaseEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntil > 0 && daysUntil <= 90) {
+            const property = properties.find(p => p.id === assignment.propertyId);
+            const block = property ? blocks.find(b => b.id === property.blockId) : null;
+            const tenant = assignment.tenant || assignment.tenants?.[0];
+
+            upcomingSheet.getCell(row, 1).value = 'Lease Expiration';
+            upcomingSheet.getCell(row, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 2).value = block?.name || '';
+            upcomingSheet.getCell(row, 3).value = property?.name || '';
+            upcomingSheet.getCell(row, 4).value = tenant?.fullName || 'Unknown Tenant';
+            upcomingSheet.getCell(row, 5).value = leaseEnd.toLocaleDateString();
+            upcomingSheet.getCell(row, 6).value = daysUntil;
+            upcomingSheet.getCell(row, 6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+            upcomingSheet.getCell(row, 7).value = `Monthly Rent: ${assignment.monthlyRent || 'N/A'}`;
+
+            for (let col = 1; col <= 7; col++) {
+              Object.assign(upcomingSheet.getCell(row, col), cellStyle);
+            }
+            row++;
+          }
+        }
+      });
+
+      // Validate workbook has sheets
+      if (workbook.worksheets.length === 0) {
+        throw new Error("Workbook has no worksheets");
+      }
+
+      // Generate Excel buffer
+      let buffer: Buffer;
+      try {
+        const result = await workbook.xlsx.writeBuffer();
+        // ExcelJS writeBuffer returns a Buffer or ArrayBuffer depending on environment
+        if (Buffer.isBuffer(result)) {
+          buffer = result;
+        } else if (result instanceof ArrayBuffer) {
+          buffer = Buffer.from(result);
+        } else {
+          buffer = Buffer.from(result as any);
+        }
+      } catch (writeError: any) {
+        console.error("Error writing Excel buffer:", writeError);
+        throw new Error(`Failed to generate Excel file buffer: ${writeError.message || writeError}`);
+      }
+
+      if (!buffer || buffer.length === 0) {
+        throw new Error("Generated Excel buffer is empty");
+      }
+
+      console.log(`Excel report generated successfully: ${buffer.length} bytes, ${workbook.worksheets.length} sheets`);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="comprehensive-report-${new Date().toISOString().split('T')[0]}.xlsx"`);
+      res.setHeader('Content-Length', buffer.length.toString());
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(buffer);
+    } catch (error: any) {
+      console.error("Error generating comprehensive Excel report:", error);
+      res.status(500).json({ message: error.message || "Failed to generate Excel report" });
     }
   });
 
