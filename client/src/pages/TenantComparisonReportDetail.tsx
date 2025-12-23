@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -129,6 +129,23 @@ export default function TenantComparisonReportDetail() {
   const [commentText, setCommentText] = useState("");
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const signaturePadRef = useRef<SignatureCanvas>(null);
+  
+  // Ensure signature canvas is properly initialized
+  useEffect(() => {
+    if (signaturePadRef.current) {
+      // Resize canvas to match container
+      const canvas = signaturePadRef.current.getCanvas();
+      if (canvas) {
+        const container = canvas.parentElement;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            signaturePadRef.current.clear();
+          }
+        }
+      }
+    }
+  }, [report]);
   
   // Dispute dialog state
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
@@ -660,8 +677,19 @@ export default function TenantComparisonReportDetail() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Check className="w-4 h-4 text-green-600" />
-                    <span className="text-sm">Signed: {report.operatorSignature}</span>
+                    <span className="text-sm">Signed</span>
                   </div>
+                  {report.operatorSignature.startsWith('data:image/') ? (
+                    <div className="mt-2">
+                      <img 
+                        src={report.operatorSignature} 
+                        alt="Property Manager signature" 
+                        className="h-16 object-contain border rounded bg-background"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">{report.operatorSignature}</span>
+                  )}
                   {report.operatorSignedAt && (
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(report.operatorSignedAt), "MMM d, yyyy 'at' h:mm a")}
@@ -750,17 +778,43 @@ export default function TenantComparisonReportDetail() {
                 <Card>
                   <CardContent className="p-4">
                     <div className="space-y-3">
-                      <div className="border-2 border-dashed rounded bg-background">
+                      <div 
+                        className="border-2 border-dashed rounded bg-background relative"
+                        style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+                        onTouchStart={(e) => {
+                          // Prevent default touch behaviors that might interfere
+                          e.stopPropagation();
+                        }}
+                        onTouchMove={(e) => {
+                          e.stopPropagation();
+                        }}
+                      >
                         <SignatureCanvas
                           ref={signaturePadRef}
                           canvasProps={{
                             className: "w-full h-40 cursor-crosshair",
-                            "data-testid": "canvas-signature"
+                            width: 800,
+                            height: 200,
+                            "data-testid": "canvas-signature",
+                            style: { 
+                              touchAction: 'none', 
+                              width: '100%', 
+                              height: '160px',
+                              display: 'block',
+                              userSelect: 'none',
+                              WebkitUserSelect: 'none'
+                            }
                           }}
                           backgroundColor="rgb(255, 255, 255)"
                           penColor="rgb(0, 0, 0)"
+                          velocityFilterWeight={0.7}
+                          minWidth={1}
+                          maxWidth={3}
                         />
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        Use your mouse or finger to draw your signature above
+                      </p>
                       <div className="flex gap-2">
                         <Button
                           variant="outline"

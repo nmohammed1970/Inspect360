@@ -251,7 +251,8 @@ export default function TenantCheckInReview() {
   const isApproved = inspection.tenantApprovalStatus === "approved";
   const isDisputed = inspection.tenantApprovalStatus === "disputed";
   const isPending = !inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending";
-  const canTakeAction = isPending && timeRemaining && !timeRemaining.expired;
+  // Allow action if pending (even if deadline passed, it will auto-approve on submit)
+  const canTakeAction = isPending;
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
@@ -274,23 +275,32 @@ export default function TenantCheckInReview() {
         <div className="flex items-center gap-2">
           {isApproved && <Badge className="bg-green-500">Approved</Badge>}
           {isDisputed && <Badge className="bg-orange-500">Disputed</Badge>}
-          {isPending && <Badge variant="outline">Pending Review</Badge>}
+          {isPending && (
+            <Badge variant="outline" className="border-orange-500 text-orange-600">
+              Pending Review
+              {timeRemaining && !timeRemaining.expired && ` - ${timeRemaining.text}`}
+            </Badge>
+          )}
         </div>
       </div>
 
       {/* Timer Banner */}
-      {isPending && timeRemaining && !timeRemaining.expired && (
-        <Card className="border-orange-500 bg-orange-50">
+      {isPending && (
+        <Card className={timeRemaining && !timeRemaining.expired ? "border-orange-500 bg-orange-50" : "border-red-500 bg-red-50"}>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-orange-600" />
+              <Clock className={`w-5 h-5 ${timeRemaining && !timeRemaining.expired ? "text-orange-600" : "text-red-600"}`} />
               <div className="flex-1">
-                <h3 className="font-bold text-orange-600">Approval Period</h3>
-                <p className="text-sm text-orange-600">
-                  You have {timeRemaining.text} to review and approve this check-in inspection.
+                <h3 className={`font-bold ${timeRemaining && !timeRemaining.expired ? "text-orange-600" : "text-red-600"}`}>
+                  {timeRemaining && !timeRemaining.expired ? "Approval Period" : "Approval Period Expired"}
+                </h3>
+                <p className={`text-sm ${timeRemaining && !timeRemaining.expired ? "text-orange-600" : "text-red-600"}`}>
+                  {timeRemaining && !timeRemaining.expired 
+                    ? `You have ${timeRemaining.text} to review and approve this check-in inspection.`
+                    : "The approval deadline has passed. This inspection will be automatically approved if you submit now."}
                 </p>
                 {inspection.tenantApprovalDeadline && (
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className={`text-xs mt-1 ${timeRemaining && !timeRemaining.expired ? "text-muted-foreground" : "text-red-600"}`}>
                     Deadline: {format(new Date(inspection.tenantApprovalDeadline), "PPpp")}
                   </p>
                 )}
@@ -450,7 +460,7 @@ export default function TenantCheckInReview() {
               onChange={(e) => setComments(e.target.value)}
               placeholder="Add your comments, questions, or disputes here..."
               rows={6}
-              disabled={!canTakeAction}
+              disabled={!isPending}
               className="mt-2"
             />
             <p className="text-xs text-muted-foreground mt-1">
@@ -459,8 +469,8 @@ export default function TenantCheckInReview() {
             </p>
           </div>
 
-          {canTakeAction && (
-            <div className="flex items-center gap-3">
+          {isPending && (
+            <div className="flex items-center gap-3 flex-wrap">
               <Button
                 onClick={() => saveCommentsMutation.mutate()}
                 disabled={saveCommentsMutation.isPending}
