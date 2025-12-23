@@ -4,7 +4,6 @@ import "./index.css";
 import { offlineQueue } from "./lib/offlineQueue";
 import { apiRequest } from "./lib/queryClient";
 import { fileUploadSync } from "./lib/fileUploadSync";
-import { inspectionsCache } from "./lib/inspectionsCache";
 
 // Listen for messages from service worker
 if ('serviceWorker' in navigator) {
@@ -83,32 +82,6 @@ window.addEventListener('online', async () => {
     const fileResult = await fileUploadSync.syncAll();
     console.log('[Client] File sync result:', fileResult);
     
-    // Pre-cache all inspections for offline access
-    try {
-      const response = await apiRequest("GET", "/api/inspections/my");
-      const inspections = await response.json();
-      if (inspections && inspections.length > 0) {
-        await inspectionsCache.cacheInspections(inspections);
-        console.log('[Client] Pre-cached inspections for offline access');
-        
-        // Cache entries for each inspection
-        for (const inspection of inspections) {
-          try {
-            const entriesResponse = await apiRequest("GET", `/api/inspections/${inspection.id}/entries`);
-            const entries = await entriesResponse.json();
-            if (entries && entries.length > 0) {
-              await inspectionsCache.cacheInspectionEntries(inspection.id, entries);
-            }
-          } catch (err) {
-            console.warn(`[Client] Failed to cache entries for inspection ${inspection.id}:`, err);
-          }
-        }
-        console.log('[Client] Pre-cached inspection entries for offline access');
-      }
-    } catch (err) {
-      console.warn('[Client] Failed to pre-cache inspections:', err);
-    }
-    
     // Register background sync for future offline periods
     if ('serviceWorker' in navigator && 'sync' in (self as any).registration) {
       try {
@@ -122,41 +95,5 @@ window.addEventListener('online', async () => {
     console.error('[Client] Auto-sync failed:', error);
   }
 });
-
-// Pre-cache inspections when app loads (if online)
-if (navigator.onLine) {
-  // Delay to let app initialize
-  setTimeout(async () => {
-    try {
-      const response = await apiRequest("GET", "/api/inspections/my");
-      const inspections = await response.json();
-      if (inspections && inspections.length > 0) {
-        await inspectionsCache.cacheInspections(inspections);
-        console.log('[Client] Pre-cached inspections on app load');
-        
-        // Cache entries for each inspection (in background, don't block)
-        Promise.all(
-          inspections.map(async (inspection: any) => {
-            try {
-              const entriesResponse = await apiRequest("GET", `/api/inspections/${inspection.id}/entries`);
-              const entries = await entriesResponse.json();
-              if (entries && entries.length > 0) {
-                await inspectionsCache.cacheInspectionEntries(inspection.id, entries);
-              }
-            } catch (err) {
-              // Silently fail for individual entries
-            }
-          })
-        ).then(() => {
-          console.log('[Client] Pre-cached inspection entries on app load');
-        }).catch(() => {
-          // Silently fail
-        });
-      }
-    } catch (err) {
-      // Silently fail - user might not be authenticated yet
-    }
-  }, 2000);
-}
 
 createRoot(document.getElementById("root")!).render(<App />);

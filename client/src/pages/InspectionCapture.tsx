@@ -14,7 +14,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Inspection } from "@shared/schema";
 import { FieldWidget } from "@/components/FieldWidget";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
-import { inspectionsCache } from "@/lib/inspectionsCache";
 import { InspectionQuickActions } from "@/components/InspectionQuickActions";
 import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
 import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
@@ -87,111 +86,48 @@ export default function InspectionCapture() {
   const [copiedImageKeys, setCopiedImageKeys] = useState<Set<string>>(new Set());
   const [copiedNoteKeys, setCopiedNoteKeys] = useState<Set<string>>(new Set());
 
-  const [cachedInspection, setCachedInspection] = useState<Inspection | null>(null);
-  const [cachedEntries, setCachedEntries] = useState<any[]>([]);
-  const [isLoadingCache, setIsLoadingCache] = useState(false);
-
   // Fetch inspection with template snapshot
   const { data: inspection, isLoading } = useQuery<Inspection>({
     queryKey: ["/api/inspections", id],
-    enabled: isOnline && !!id,
-    onSuccess: async (data) => {
-      // Cache inspection when loaded
-      if (data) {
-        try {
-          await inspectionsCache.cacheInspection(data);
-          console.log('[InspectionCapture] Cached inspection for offline access');
-        } catch (error) {
-          console.error('[InspectionCapture] Failed to cache inspection:', error);
-        }
-      }
-    },
   });
-
-  // Load cached inspection when offline
-  useEffect(() => {
-    const loadCachedData = async () => {
-      if (!id) return;
-      
-      if (!isOnline) {
-        setIsLoadingCache(true);
-        try {
-          const cached = await inspectionsCache.getCachedInspection(id);
-          if (cached) {
-            setCachedInspection(cached);
-            const entries = await inspectionsCache.getCachedInspectionEntries(id);
-            setCachedEntries(entries);
-            console.log('[InspectionCapture] Loaded cached inspection and entries for offline access');
-          }
-        } catch (error) {
-          console.error('[InspectionCapture] Failed to load cached inspection:', error);
-        } finally {
-          setIsLoadingCache(false);
-        }
-      } else {
-        setCachedInspection(null);
-        setCachedEntries([]);
-      }
-    };
-
-    loadCachedData();
-  }, [id, isOnline]);
-
-  // Use cached inspection when offline, API data when online
-  const displayInspection = isOnline ? inspection : cachedInspection;
-  const displayIsLoading = isOnline ? isLoading : isLoadingCache;
 
   // Fetch property details if inspection has a propertyId
   const { data: property } = useQuery<any>({
-    queryKey: [`/api/properties/${displayInspection?.propertyId}`],
-    enabled: !!displayInspection?.propertyId && isOnline,
+    queryKey: [`/api/properties/${inspection?.propertyId}`],
+    enabled: !!inspection?.propertyId,
   });
 
   // Fetch block details if inspection has a blockId
   const { data: block } = useQuery<any>({
-    queryKey: [`/api/blocks/${displayInspection?.blockId}`],
-    enabled: !!displayInspection?.blockId && isOnline,
+    queryKey: [`/api/blocks/${inspection?.blockId}`],
+    enabled: !!inspection?.blockId,
   });
 
   // Fetch inspector details - use /api/users/:userId endpoint
   const { data: inspector } = useQuery<any>({
-    queryKey: [`/api/users/${displayInspection?.inspectorId}`],
-    enabled: !!displayInspection?.inspectorId && isOnline,
+    queryKey: [`/api/users/${inspection?.inspectorId}`],
+    enabled: !!inspection?.inspectorId,
   });
 
   // Fetch tenant information for property - use existing /api/properties/:id/tenants endpoint
   const { data: tenants = [] } = useQuery<any[]>({
-    queryKey: [`/api/properties/${displayInspection?.propertyId}/tenants`],
-    enabled: !!displayInspection?.propertyId && isOnline,
+    queryKey: [`/api/properties/${inspection?.propertyId}/tenants`],
+    enabled: !!inspection?.propertyId,
   });
 
   // Fetch existing entries for this inspection
   const { data: existingEntries = [] } = useQuery<any[]>({
     queryKey: [`/api/inspections/${id}/entries`],
-    enabled: !!id && isOnline,
-    onSuccess: async (data) => {
-      // Cache entries when loaded
-      if (data && id) {
-        try {
-          await inspectionsCache.cacheInspectionEntries(id, data);
-          console.log('[InspectionCapture] Cached inspection entries for offline access');
-        } catch (error) {
-          console.error('[InspectionCapture] Failed to cache entries:', error);
-        }
-      }
-    },
+    enabled: !!id,
   });
-
-  // Use cached entries when offline, API data when online
-  const displayEntries = isOnline ? existingEntries : cachedEntries;
 
   // Fetch most recent check-in inspection for check-out inspections
   const { data: checkInData, error: checkInError } = useQuery<{
     inspection: Inspection;
     entries: any[];
   } | null>({
-    queryKey: [`/api/properties/${displayInspection?.propertyId}/most-recent-checkin`],
-    enabled: !!displayInspection?.propertyId && displayInspection?.type === "check_out" && isOnline,
+    queryKey: [`/api/properties/${inspection?.propertyId}/most-recent-checkin`],
+    enabled: !!inspection?.propertyId && inspection?.type === "check_out",
     retry: false,
   });
 
@@ -242,9 +178,9 @@ export default function InspectionCapture() {
 
   // Load existing entries into state on mount and auto-populate property address
   useEffect(() => {
-    if (displayEntries) {
+    if (existingEntries) {
       const entriesMap: Record<string, InspectionEntry> = {};
-      displayEntries.forEach((entry: any) => {
+      existingEntries.forEach((entry: any) => {
         const key = `${entry.sectionRef}-${entry.fieldKey}`;
         entriesMap[key] = {
           id: entry.id,
@@ -261,10 +197,10 @@ export default function InspectionCapture() {
       // Merge with existing entries to preserve any local changes, but prioritize server data
       setEntries(prev => ({ ...prev, ...entriesMap }));
     }
-  }, [displayEntries]);
+  }, [existingEntries]);
 
   // Parse template structure from snapshot and migrate old templates
-  const rawTemplateStructure = displayInspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
+  const rawTemplateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
 
   // Migrate old templates: ensure all fields have both id and key
   const templateStructure = rawTemplateStructure ? {
@@ -296,7 +232,7 @@ export default function InspectionCapture() {
     },
     onSuccess: () => {
       // If inspection is still in draft status, update to in_progress
-      if (displayInspection?.status === "draft") {
+      if (inspection?.status === "draft") {
         fetch(`/api/inspections/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -377,7 +313,7 @@ export default function InspectionCapture() {
 
   // Copy images from check-in when checkbox is checked
   useEffect(() => {
-    if (!checkInData || !checkInData.entries || !displayInspection || displayInspection.type !== "check_out") {
+    if (!checkInData || !checkInData.entries || !inspection || inspection.type !== "check_out") {
       return;
     }
 
@@ -426,7 +362,7 @@ export default function InspectionCapture() {
 
   // Copy notes from check-in when checkbox is checked
   useEffect(() => {
-    if (!checkInData || !checkInData.entries || !displayInspection || displayInspection.type !== "check_out") {
+    if (!checkInData || !checkInData.entries || !inspection || inspection.type !== "check_out") {
       return;
     }
 
@@ -524,7 +460,7 @@ export default function InspectionCapture() {
 
   // Auto-start inspection on first visit
   useEffect(() => {
-    if (displayInspection && displayInspection.status === "scheduled" && !displayInspection.startedAt) {
+    if (inspection && inspection.status === "scheduled" && !inspection.startedAt) {
       // Update status to in_progress
       fetch(`/api/inspections/${id}`, {
         method: "PUT",
@@ -795,20 +731,7 @@ export default function InspectionCapture() {
     );
   }
 
-  if (displayIsLoading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Loader2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground animate-spin" />
-            <h2 className="text-2xl font-semibold mb-2">Loading inspection...</h2>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!displayInspection) {
+  if (!inspection) {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card>
@@ -816,9 +739,7 @@ export default function InspectionCapture() {
             <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-2xl font-semibold mb-2">Inspection not found</h2>
             <p className="text-muted-foreground mb-6">
-              {isOnline 
-                ? "The inspection you're looking for doesn't exist or has been removed."
-                : "This inspection is not available offline. Please connect to the internet to access it."}
+              The inspection you're looking for doesn't exist or has been removed.
             </p>
             <Button onClick={() => navigate("/inspections")} data-testid="button-back-to-inspections">
               Back to Inspections
@@ -857,7 +778,7 @@ export default function InspectionCapture() {
             Inspection Capture
           </h1>
           <p className="text-muted-foreground">
-            {displayInspection.propertyId ? "Property" : "Block"} Inspection
+            {inspection.propertyId ? "Property" : "Block"} Inspection
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -1097,7 +1018,7 @@ export default function InspectionCapture() {
                 address: getAddress(),
                 tenantNames: getTenantNames(),
                 inspectionDate: inspection?.scheduledDate 
-                  ? new Date(displayInspection.scheduledDate).toISOString().split("T")[0] 
+                  ? new Date(inspection.scheduledDate).toISOString().split("T")[0] 
                   : new Date().toISOString().split("T")[0],
               };
 

@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { inspectionsCache } from "@/lib/inspectionsCache";
-import { useOnlineStatus } from "@/lib/offlineQueue";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -165,52 +163,9 @@ export default function Inspections() {
   const [filterDueSoon, setFilterDueSoon] = useState<boolean>(urlDueSoon === "true");
   const [filterTenantId, setFilterTenantId] = useState<string>("");
 
-  const isOnline = useOnlineStatus();
-  const [cachedInspections, setCachedInspections] = useState<any[]>([]);
-  const [isLoadingCache, setIsLoadingCache] = useState(false);
-
-  // Fetch inspections from API
   const { data: inspections = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inspections/my"],
-    enabled: isOnline,
-    onSuccess: async (data) => {
-      // Cache all inspections when loaded
-      if (data && data.length > 0) {
-        try {
-          await inspectionsCache.cacheInspections(data);
-          console.log('[Inspections] Cached inspections for offline access');
-        } catch (error) {
-          console.error('[Inspections] Failed to cache inspections:', error);
-        }
-      }
-    },
   });
-
-  // Load cached inspections when offline
-  useEffect(() => {
-    const loadCachedInspections = async () => {
-      if (!isOnline) {
-        setIsLoadingCache(true);
-        try {
-          const cached = await inspectionsCache.getCachedInspections();
-          setCachedInspections(cached);
-          console.log('[Inspections] Loaded cached inspections for offline access');
-        } catch (error) {
-          console.error('[Inspections] Failed to load cached inspections:', error);
-        } finally {
-          setIsLoadingCache(false);
-        }
-      } else {
-        setCachedInspections([]);
-      }
-    };
-
-    loadCachedInspections();
-  }, [isOnline]);
-
-  // Use cached inspections when offline, API data when online
-  const displayInspections = isOnline ? inspections : cachedInspections;
-  const displayIsLoading = isOnline ? isLoading : isLoadingCache;
 
   const { data: properties = [] } = useQuery<any[]>({
     queryKey: ["/api/properties"],
@@ -357,7 +312,7 @@ export default function Inspections() {
 
   // Filter inspections based on all criteria
   const filteredInspections = useMemo(() => {
-    let filtered = displayInspections;
+    let filtered = inspections;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const sevenDaysFromNow = new Date(today);
@@ -414,7 +369,7 @@ export default function Inspections() {
     }
 
     return filtered;
-  }, [displayInspections, filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, filterTenantId, properties]);
+  }, [inspections, filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, filterTenantId]);
 
   // Clear property filter when block filter changes
   useEffect(() => {
@@ -1138,22 +1093,15 @@ export default function Inspections() {
         </Sheet>
       </div>
 
-      {displayIsLoading ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <ClipboardList className="w-12 h-12 text-muted-foreground mb-4 animate-pulse" />
-            <p className="text-lg font-medium">Loading inspections...</p>
-          </CardContent>
-        </Card>
-      ) : filteredInspections.length === 0 ? (
+      {filteredInspections.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-lg font-medium" data-testid="text-empty-state">
-              {displayInspections.length === 0 ? "No inspections yet" : "No inspections match your filters"}
+              {inspections.length === 0 ? "No inspections yet" : "No inspections match your filters"}
             </p>
             <p className="text-sm text-muted-foreground mb-4">
-              {displayInspections.length === 0 
+              {inspections.length === 0 
                 ? "Create your first inspection to get started"
                 : "Try adjusting your filters or create a new inspection"
               }
