@@ -521,7 +521,7 @@ export default function Compliance() {
 
   if (authLoading) {
     return (
-      <div className="p-4 md:p-8">
+      <div className="container mx-auto p-4 md:p-6">
         <p className="text-muted-foreground">Loading...</p>
       </div>
     );
@@ -529,7 +529,7 @@ export default function Compliance() {
 
   if (!user || (user.role !== "owner" && user.role !== "compliance")) {
     return (
-      <div className="p-4 md:p-8">
+      <div className="container mx-auto p-4 md:p-6">
         <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
           <ShieldAlert className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-800 dark:text-yellow-200">
@@ -541,10 +541,10 @@ export default function Compliance() {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground" data-testid="heading-compliance">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-compliance">
             Compliance Center
           </h1>
           <p className="text-sm md:text-base text-muted-foreground mt-1">

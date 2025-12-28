@@ -475,11 +475,11 @@ export default function AssetInventory() {
   }, [properties, blocks]);
 
   if (isLoading) {
-    return <div className="p-8">Loading...</div>;
+    return <div className="container mx-auto p-4 md:p-6">Loading...</div>;
   }
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header with optional block or property breadcrumb */}
       {currentBlock && (
         <Link href={`/blocks/${currentBlock.id}`}>
@@ -499,8 +499,8 @@ export default function AssetInventory() {
       )}
       
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
             {currentBlock 
               ? `${currentBlock.name} - Asset Inventory` 
               : currentProperty 

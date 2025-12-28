@@ -16,7 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Download, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
@@ -34,7 +34,7 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal';
+type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'data-export';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
@@ -44,6 +44,7 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
   { id: 'team', label: 'Team Members', icon: Users },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tenant-portal', label: 'Tenant Portal Configuration', icon: DoorOpen },
+  { id: 'data-export', label: 'Data Export', icon: Download },
 ];
 
 export default function Settings() {
@@ -51,6 +52,7 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('branding');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<InspectionCategory | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [trademarkUrl, setTrademarkUrl] = useState<string | null>(null);
@@ -372,19 +374,15 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-8">
-          <div className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-primary/10 backdrop-blur-xl shrink-0">
-            <SettingsIcon className="w-6 h-6 md:w-8 md:h-8 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
-              Settings
-            </h1>
-            <p className="text-xs md:text-sm text-muted-foreground mt-1">Manage your organization configuration</p>
-          </div>
+    <div className="container mx-auto p-4 md:p-6 bg-background min-h-screen">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 md:mb-6">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
+            Settings
+          </h1>
+          <p className="text-sm md:text-base text-muted-foreground">Manage your organization configuration</p>
         </div>
+      </div>
 
         <div className="flex flex-col lg:flex-row gap-4 md:gap-6">
           {/* Vertical Sidebar Menu */}
@@ -964,9 +962,100 @@ export default function Settings() {
                 onApprovalPeriodChange={setCheckInApprovalPeriodDays}
               />
             )}
+
+            {activeSection === 'data-export' && (
+              <div className="space-y-6">
+                <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="text-2xl">Export Portfolio Data</CardTitle>
+                    <CardDescription className="mt-2">
+                      Download a comprehensive Excel report containing all your portfolio data including properties, blocks, inspections, compliance documents, and maintenance records.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="space-y-4">
+                      <div className="p-4 rounded-lg border bg-muted/50">
+                        <h3 className="font-semibold mb-2">What's included in the export:</h3>
+                        <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                          <li>All properties and blocks with their details</li>
+                          <li>Complete inspection history and reports</li>
+                          <li>Compliance documents and expiry dates</li>
+                          <li>Maintenance requests and their status</li>
+                          <li>Tenant assignments and lease information</li>
+                          <li>Asset inventory records</li>
+                        </ul>
+                      </div>
+                      <Button
+                        onClick={async () => {
+                          setIsExporting(true);
+                          try {
+                            const response = await fetch("/api/reports/comprehensive/excel", {
+                              method: "GET",
+                              credentials: "include",
+                            });
+
+                            if (!response.ok) {
+                              const errorData = await response.json().catch(() => ({ message: "Failed to generate Excel report" }));
+                              throw new Error(errorData.message || "Failed to generate Excel report");
+                            }
+
+                            const blob = await response.blob();
+                            
+                            if (blob.size === 0) {
+                              throw new Error("Generated Excel file is empty");
+                            }
+
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `portfolio-data-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+
+                            toast({
+                              title: "Export Successful",
+                              description: "Your portfolio data has been downloaded successfully.",
+                            });
+                          } catch (error: any) {
+                            console.error("Export error:", error);
+                            toast({
+                              title: "Export Failed",
+                              description: error.message || "Failed to generate Excel report. Please try again.",
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setIsExporting(false);
+                          }
+                        }}
+                        disabled={isExporting}
+                        size="lg"
+                        className="w-full sm:w-auto"
+                        data-testid="button-export-portfolio-data"
+                      >
+                        {isExporting ? (
+                          <>
+                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                            Generating Report...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-5 w-5 mr-2" />
+                            Download Portfolio Data Report
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-sm text-muted-foreground">
+                        The report will be generated as an Excel file (.xlsx) and downloaded to your device. Large portfolios may take a few moments to process.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </div>
         </div>
-      </div>
     </div>
   );
 }

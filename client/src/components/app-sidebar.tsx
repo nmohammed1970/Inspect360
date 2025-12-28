@@ -26,6 +26,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
@@ -36,6 +37,7 @@ import defaultLogoUrl from "@assets/Inspect360 Logo_1761302629835.png";
 export function AppSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -178,6 +180,12 @@ export function AppSidebar() {
             <SidebarMenu>
               {filteredMainMenu.map((item) => {
                 const isActive = location === item.url;
+                const handleClick = () => {
+                  // Close sidebar on mobile when navigation item is clicked
+                  if (isMobile) {
+                    setOpenMobile(false);
+                  }
+                };
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -187,7 +195,7 @@ export function AppSidebar() {
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Link href={item.url}>
+                      <Link href={item.url} onClick={handleClick}>
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
                       </Link>
@@ -205,6 +213,12 @@ export function AppSidebar() {
               <SidebarMenu>
                 {(() => {
                   const isActive = location.startsWith("/settings");
+                  const handleClick = () => {
+                    // Close sidebar on mobile when navigation item is clicked
+                    if (isMobile) {
+                      setOpenMobile(false);
+                    }
+                  };
                   return (
                     <SidebarMenuItem>
                       <SidebarMenuButton
@@ -214,7 +228,7 @@ export function AppSidebar() {
                         style={getActiveStyle(isActive)}
                         data-testid="link-settings"
                       >
-                        <Link href="/settings">
+                        <Link href="/settings" onClick={handleClick}>
                           <Settings className="w-4 h-4" />
                           <span>Settings</span>
                         </Link>

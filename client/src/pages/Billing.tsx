@@ -667,12 +667,14 @@ export default function Billing() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-4 md:space-y-6 lg:space-y-8">
-      <div>
-        <h1 className="text-xl md:text-2xl lg:text-3xl font-bold mb-2" data-testid="text-page-title">Billing & Credits</h1>
-        <p className="text-sm md:text-base text-muted-foreground">
-          Manage your subscription, credits, and billing details
-        </p>
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-page-title">Billing & Credits</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
+            Manage your subscription, credits, and billing details
+          </p>
+        </div>
       </div>
 
       {/* Duplicate Account Warning */}

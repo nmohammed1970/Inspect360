@@ -422,25 +422,22 @@ export default function Team() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-6 md:p-8 lg:p-12">
-        <div className="flex items-center gap-3 mb-6">
-          <Users className="w-8 h-8 text-primary" />
-          <div>
-            <h1 className="text-4xl md:text-5xl font-bold tracking-tight">Team Management</h1>
-            <p className="text-lg text-muted-foreground mt-1">Loading team members...</p>
-          </div>
+      <div className="container mx-auto p-4 md:p-6">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Team Management</h1>
+          <p className="text-sm md:text-base text-muted-foreground">Loading team members...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-6 md:p-8 lg:p-12 space-y-8">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">Team Management</h1>
-          <p className="text-lg text-muted-foreground mt-1">Manage your team members and their profiles</p>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Team Management</h1>
+          <p className="text-sm md:text-base text-muted-foreground">Manage your team members and their profiles</p>
         </div>
         <Button onClick={handleOpenCreate} size="lg" data-testid="button-create-team-member">
           <Plus className="mr-2 h-5 w-5" />

@@ -359,14 +359,11 @@ export default function Contacts() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex items-center gap-3 mb-6">
-            <Users className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-3xl font-semibold">Contacts</h1>
-              <p className="text-muted-foreground">Loading contacts...</p>
-            </div>
+      <div className="container mx-auto p-4 md:p-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Contacts</h1>
+            <p className="text-sm md:text-base text-muted-foreground">Loading contacts...</p>
           </div>
         </div>
       </div>
@@ -374,20 +371,15 @@ export default function Contacts() {
   }
 
   return (
-    <div className="p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-4 md:space-y-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 md:gap-3">
-            <Users className="w-6 h-6 md:w-8 md:h-8 text-primary shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-xl md:text-3xl font-semibold">Contacts</h1>
-              <p className="text-xs md:text-base text-muted-foreground">
-                Manage internal team members and external contacts
-              </p>
-            </div>
-          </div>
-
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Contacts</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
+            Manage internal team members and external contacts
+          </p>
+        </div>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button
                 onClick={() => {
@@ -1098,7 +1090,6 @@ export default function Contacts() {
             ))}
           </div>
         )}
-      </div>
     </div>
   );
 }

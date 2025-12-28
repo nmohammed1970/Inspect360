@@ -6589,7 +6589,16 @@
         "check_in",
         "check_out",
         "routine",
-        "maintenance"
+        "maintenance",
+        "esg_sustainability_inspection",
+        "fire_hazard_assessment",
+        "maintenance_inspection",
+        "damage",
+        "emergency",
+        "safety_compliance",
+        "compliance_regulatory",
+        "pre_purchase",
+        "specialized"
       ]
     },
     "public.maintenance_source": {

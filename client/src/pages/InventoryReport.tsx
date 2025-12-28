@@ -178,21 +178,21 @@ export default function InventoryReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/reports">
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-10 sm:w-10" data-testid="button-back">
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <Package className="h-8 w-8 text-primary" />
-              Inventory Report
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+              <Package className="h-6 w-6 sm:h-8 sm:w-8 text-primary flex-shrink-0" />
+              <span>Inventory Report</span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
               Asset tracking and inventory management across blocks and properties
             </p>
           </div>
@@ -200,46 +200,50 @@ export default function InventoryReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredInventory.length === 0}
+          size="sm"
+          className="sm:size-default self-start sm:self-auto"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
+              <span className="hidden sm:inline">Generating...</span>
+              <span className="sm:hidden">Exporting</span>
             </>
           ) : (
             <>
               <FileDown className="mr-2 h-4 w-4" />
-              Export PDF
+              <span className="hidden sm:inline">Export PDF</span>
+              <span className="sm:hidden">Export</span>
             </>
           )}
         </Button>
       </div>
 
       {/* Summary Statistics */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Assets</CardDescription>
-            <CardTitle className="text-3xl" data-testid="stat-total-assets">{totalAssets}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Total Assets</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-assets">{totalAssets}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Block Assets</CardDescription>
-            <CardTitle className="text-3xl text-primary" data-testid="stat-block-assets">{blockAssets}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Block Assets</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-primary" data-testid="stat-block-assets">{blockAssets}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Property Assets</CardDescription>
-            <CardTitle className="text-3xl text-accent" data-testid="stat-property-assets">{propertyAssets}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Property Assets</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-accent" data-testid="stat-property-assets">{propertyAssets}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Needs Attention</CardDescription>
-            <CardTitle className="text-3xl text-destructive" data-testid="stat-needs-attention">{damagedAssets}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Needs Attention</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-needs-attention">{damagedAssets}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -466,85 +470,91 @@ export default function InventoryReport() {
               No inventory items found matching your criteria
             </div>
           ) : (
-            <div className="border rounded-lg overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Asset Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Block</TableHead>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Condition</TableHead>
-                    <TableHead>Serial Number</TableHead>
-                    <TableHead>Added</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredInventory.map((asset) => (
-                    <TableRow key={asset.id} data-testid={`row-asset-${asset.id}`}>
-                      <TableCell className="font-medium">
-                        {asset.name}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {asset.category || "Uncategorized"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {asset.location || "N/A"}
-                      </TableCell>
-                      <TableCell>
-                        {asset.block ? (
-                          <Link href={`/blocks/${asset.block.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${asset.id}`}>
-                              <Building2 className="h-4 w-4" />
-                              {asset.block.name}
-                            </div>
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {asset.property ? (
-                          <Link href={`/properties/${asset.property.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-property-${asset.id}`}>
-                              <Home className="h-4 w-4" />
-                              {asset.property.unitNumber}
-                            </div>
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={
-                            asset.condition === "excellent" || asset.condition === "good"
-                              ? "default"
-                              : asset.condition === "fair"
-                              ? "secondary"
-                              : "destructive"
-                          }
-                        >
-                          {asset.condition || "Unknown"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm font-mono">
-                        {asset.serialNumber || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {asset.createdAt ? (
-                          format(new Date(asset.createdAt), 'MMM d, yyyy')
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
+            <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[150px]">Asset Name</TableHead>
+                      <TableHead className="min-w-[100px] hidden sm:table-cell">Category</TableHead>
+                      <TableHead className="min-w-[120px] hidden md:table-cell">Location</TableHead>
+                      <TableHead className="min-w-[120px] hidden lg:table-cell">Block</TableHead>
+                      <TableHead className="min-w-[120px] hidden lg:table-cell">Property</TableHead>
+                      <TableHead className="min-w-[100px]">Condition</TableHead>
+                      <TableHead className="min-w-[120px] hidden xl:table-cell">Serial Number</TableHead>
+                      <TableHead className="min-w-[100px] hidden md:table-cell">Added</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInventory.map((asset) => (
+                      <TableRow key={asset.id} data-testid={`row-asset-${asset.id}`}>
+                        <TableCell className="font-medium">
+                          <div className="text-sm">{asset.name}</div>
+                          <div className="text-xs text-muted-foreground sm:hidden mt-1">
+                            {asset.category || "Uncategorized"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <Badge variant="outline" className="text-xs">
+                            {asset.category || "Uncategorized"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <span className="text-sm">{asset.location || "N/A"}</span>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {asset.block ? (
+                            <Link href={`/blocks/${asset.block.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${asset.id}`}>
+                                <Building2 className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{asset.block.name}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {asset.property ? (
+                            <Link href={`/properties/${asset.property.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-property-${asset.id}`}>
+                                <Home className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{asset.property.unitNumber}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={
+                              asset.condition === "excellent" || asset.condition === "good"
+                                ? "default"
+                                : asset.condition === "fair"
+                                ? "secondary"
+                                : "destructive"
+                            }
+                            className="text-xs"
+                          >
+                            {asset.condition || "Unknown"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm font-mono hidden xl:table-cell">
+                          {asset.serialNumber || "-"}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {asset.createdAt ? (
+                            <span className="text-sm">{format(new Date(asset.createdAt), 'MMM d, yyyy')}</span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

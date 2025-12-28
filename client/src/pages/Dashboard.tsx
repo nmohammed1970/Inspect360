@@ -32,9 +32,9 @@ import {
   Activity,
   ChevronRight,
   RefreshCw,
+  Filter,
   Download,
-  Loader2,
-  Filter
+  Loader2
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -169,7 +169,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   
   // Filter state
   const [filterBlockId, setFilterBlockId] = useState<string>("");
@@ -353,50 +353,58 @@ export default function Dashboard() {
   // Check if filters are active
   const hasActiveFilters = filterBlockId || filterPropertyId;
 
-  // Handle export report
-  const handleExportReport = async () => {
-    setIsExporting(true);
+  // Handle export dashboard PDF
+  const handleExportDashboardPDF = async () => {
+    setIsExportingPDF(true);
     try {
-      // Use fetch directly for binary data instead of apiRequest
-      const response = await fetch("/api/reports/comprehensive/excel", {
+      const params = new URLSearchParams();
+      if (filterBlockId) params.set("blockId", filterBlockId);
+      if (filterPropertyId) params.set("propertyId", filterPropertyId);
+      
+      const url = `/api/reports/dashboard/pdf${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await fetch(url, {
         method: "GET",
         credentials: "include",
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to generate Excel report" }));
-        throw new Error(errorData.message || "Failed to generate Excel report");
+        const errorData = await response.json().catch(() => ({ message: "Failed to generate PDF report" }));
+        throw new Error(errorData.message || "Failed to generate PDF report");
       }
 
       const blob = await response.blob();
       
-      // Verify blob is not empty and has correct type
       if (blob.size === 0) {
-        throw new Error("Generated Excel file is empty");
+        throw new Error("Generated PDF file is empty");
       }
 
-      const url = window.URL.createObjectURL(blob);
+      const urlObj = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `comprehensive-report-${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.href = urlObj;
+      const filterText = filterPropertyId 
+        ? `property-${filterPropertyId}` 
+        : filterBlockId 
+        ? `block-${filterBlockId}` 
+        : 'all-portfolio';
+      a.download = `dashboard-report-${filterText}-${new Date().toISOString().split('T')[0]}.pdf`;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(urlObj);
       document.body.removeChild(a);
 
       toast({
-        title: "Report Exported",
-        description: "Your comprehensive Excel report has been downloaded successfully.",
+        title: "Report Generated",
+        description: "Your dashboard PDF report has been downloaded successfully.",
       });
     } catch (error: any) {
       console.error("Export error:", error);
       toast({
         title: "Export Failed",
-        description: error.message || "Failed to generate Excel report. Please try again.",
+        description: error.message || "Failed to generate PDF report. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsExporting(false);
+      setIsExportingPDF(false);
     }
   };
 
@@ -431,12 +439,12 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header Section */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight" data-testid="text-dashboard-title">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-dashboard-title">
               Operations Dashboard
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -532,23 +540,6 @@ export default function Dashboard() {
               </SelectContent>
             </Select>
           </div>
-          <Button
-            onClick={handleExportReport}
-            disabled={isExporting}
-            variant="outline"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Exporting...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </>
-            )}
-          </Button>
           {hasActiveFilters && (
             <Button 
               variant="ghost" 
@@ -568,6 +559,25 @@ export default function Dashboard() {
               Filtered View
             </Badge>
           )}
+          <Button
+            onClick={handleExportDashboardPDF}
+            disabled={isExportingPDF}
+            variant="default"
+            className="ml-auto"
+            data-testid="button-export-dashboard-pdf"
+          >
+            {isExportingPDF ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Export PDF Report
+              </>
+            )}
+          </Button>
         </div>
 
         {/* Filter Row - Mobile */}
@@ -638,20 +648,21 @@ export default function Dashboard() {
             </SheetContent>
           </Sheet>
           <Button
-            onClick={handleExportReport}
-            disabled={isExporting}
-            variant="outline"
+            onClick={handleExportDashboardPDF}
+            disabled={isExportingPDF}
+            variant="default"
             className="flex-1"
+            data-testid="button-export-dashboard-pdf-mobile"
           >
-            {isExporting ? (
+            {isExportingPDF ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Exporting...
+                Generating...
               </>
             ) : (
               <>
                 <Download className="h-4 w-4 mr-2" />
-                Export
+                Export PDF
               </>
             )}
           </Button>

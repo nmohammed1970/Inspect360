@@ -200,21 +200,21 @@ export default function ComplianceReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/reports">
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-10 sm:w-10" data-testid="button-back">
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <ShieldCheck className="h-8 w-8 text-primary" />
-              Compliance Report
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+              <ShieldCheck className="h-6 w-6 sm:h-8 sm:w-8 text-primary flex-shrink-0" />
+              <span>Compliance Report</span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
               Document tracking and compliance management by block and property
             </p>
           </div>
@@ -222,46 +222,50 @@ export default function ComplianceReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredDocuments.length === 0}
+          size="sm"
+          className="sm:size-default self-start sm:self-auto"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
+              <span className="hidden sm:inline">Generating...</span>
+              <span className="sm:hidden">Exporting</span>
             </>
           ) : (
             <>
               <FileDown className="mr-2 h-4 w-4" />
-              Export PDF
+              <span className="hidden sm:inline">Export PDF</span>
+              <span className="sm:hidden">Export</span>
             </>
           )}
         </Button>
       </div>
 
       {/* Summary Statistics */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Documents</CardDescription>
-            <CardTitle className="text-3xl" data-testid="stat-total-documents">{totalDocuments}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Total Documents</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-documents">{totalDocuments}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Current</CardDescription>
-            <CardTitle className="text-3xl text-green-600" data-testid="stat-current">{currentDocuments}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Current</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-current">{currentDocuments}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Expiring Soon</CardDescription>
-            <CardTitle className="text-3xl text-orange-600" data-testid="stat-expiring-soon">{expiringSoon}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Expiring Soon</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-expiring-soon">{expiringSoon}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Expired</CardDescription>
-            <CardTitle className="text-3xl text-destructive" data-testid="stat-expired">{expired}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Expired</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-expired">{expired}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -484,105 +488,113 @@ export default function ComplianceReport() {
               No compliance documents found matching your criteria
             </div>
           ) : (
-            <div className="border rounded-lg overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Document Type</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Block</TableHead>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Expiry Date</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Uploaded</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredDocuments.map((doc) => (
-                    <TableRow key={doc.id} data-testid={`row-document-${doc.id}`}>
-                      <TableCell className="font-medium">
-                        {doc.documentType}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {doc.blockId && !doc.propertyId ? "Block-Level" : "Property-Level"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {doc.block ? (
-                          <Link href={`/blocks/${doc.block.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${doc.id}`}>
-                              <Building2 className="h-4 w-4" />
-                              {doc.block.name}
-                            </div>
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {doc.property ? (
-                          <Link href={`/properties/${doc.property.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-property-${doc.id}`}>
-                              <Home className="h-4 w-4" />
-                              {doc.property.unitNumber}
-                            </div>
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {doc.expiryDate ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="h-4 w-4 text-muted-foreground" />
-                              {format(new Date(doc.expiryDate), 'MMM d, yyyy')}
-                            </div>
-                            {doc.daysUntilExpiry !== null && doc.daysUntilExpiry >= 0 && (
-                              <div className="text-xs text-muted-foreground">
-                                {doc.daysUntilExpiry} days left
-                              </div>
-                            )}
-                            {doc.daysUntilExpiry !== null && doc.daysUntilExpiry < 0 && (
-                              <div className="text-xs text-destructive flex items-center gap-1">
-                                <AlertTriangle className="h-3 w-3" />
-                                {Math.abs(doc.daysUntilExpiry)} days overdue
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">No expiry</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={
-                            doc.status === "expired" 
-                              ? "destructive" 
-                              : doc.status === "expiring-soon" 
-                              ? "outline" 
-                              : "default"
-                          }
-                        >
-                          {doc.status === "expired" 
-                            ? "Expired" 
-                            : doc.status === "expiring-soon"
-                            ? "Expiring Soon"
-                            : "Current"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {doc.createdAt ? (
-                          format(new Date(doc.createdAt), 'MMM d, yyyy')
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
+            <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[150px]">Document Type</TableHead>
+                      <TableHead className="min-w-[100px] hidden sm:table-cell">Location</TableHead>
+                      <TableHead className="min-w-[120px] hidden lg:table-cell">Block</TableHead>
+                      <TableHead className="min-w-[120px] hidden lg:table-cell">Property</TableHead>
+                      <TableHead className="min-w-[140px]">Expiry Date</TableHead>
+                      <TableHead className="min-w-[100px]">Status</TableHead>
+                      <TableHead className="min-w-[100px] hidden md:table-cell">Uploaded</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredDocuments.map((doc) => (
+                      <TableRow key={doc.id} data-testid={`row-document-${doc.id}`}>
+                        <TableCell className="font-medium">
+                          <div className="text-sm">{doc.documentType}</div>
+                          <div className="text-xs sm:hidden mt-1">
+                            <Badge variant="outline" className="text-xs">
+                              {doc.blockId && !doc.propertyId ? "Block-Level" : "Property-Level"}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <Badge variant="outline" className="text-xs">
+                            {doc.blockId && !doc.propertyId ? "Block-Level" : "Property-Level"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {doc.block ? (
+                            <Link href={`/blocks/${doc.block.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${doc.id}`}>
+                                <Building2 className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{doc.block.name}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {doc.property ? (
+                            <Link href={`/properties/${doc.property.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-property-${doc.id}`}>
+                                <Home className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{doc.property.unitNumber}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {doc.expiryDate ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                <span className="text-sm">{format(new Date(doc.expiryDate), 'MMM d, yyyy')}</span>
+                              </div>
+                              {doc.daysUntilExpiry !== null && doc.daysUntilExpiry >= 0 && (
+                                <div className="text-xs text-muted-foreground">
+                                  {doc.daysUntilExpiry} days left
+                                </div>
+                              )}
+                              {doc.daysUntilExpiry !== null && doc.daysUntilExpiry < 0 && (
+                                <div className="text-xs text-destructive flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {Math.abs(doc.daysUntilExpiry)} days overdue
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">No expiry</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={
+                              doc.status === "expired" 
+                                ? "destructive" 
+                                : doc.status === "expiring-soon" 
+                                ? "outline" 
+                                : "default"
+                            }
+                            className="text-xs"
+                          >
+                            {doc.status === "expired" 
+                              ? "Expired" 
+                              : doc.status === "expiring-soon"
+                              ? "Expiring Soon"
+                              : "Current"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {doc.createdAt ? (
+                            <span className="text-sm">{format(new Date(doc.createdAt), 'MMM d, yyyy')}</span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

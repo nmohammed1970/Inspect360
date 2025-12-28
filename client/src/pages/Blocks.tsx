@@ -272,12 +272,12 @@ export default function Blocks() {
   };
 
   return (
-    <div className="container mx-auto p-6 md:p-8 lg:p-12 space-y-8">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Modern Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">Blocks & Buildings</h1>
-          <p className="text-lg text-muted-foreground">Manage your property complexes and building blocks</p>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Blocks & Buildings</h1>
+          <p className="text-sm md:text-base text-muted-foreground">Manage your property complexes and building blocks</p>
         </div>
         <Button onClick={handleOpenCreate} size="lg" className="transition-smooth" data-testid="button-create-block">
           <Plus className="mr-2 h-5 w-5" />

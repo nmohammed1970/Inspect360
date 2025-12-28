@@ -275,12 +275,11 @@ export default function ComparisonReports() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-4 md:py-8 space-y-4 md:space-y-6" data-testid="page-comparison-reports">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6" data-testid="page-comparison-reports">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl md:text-4xl font-bold flex items-center gap-2 md:gap-3" data-testid="heading-comparison-reports">
-            <FileText className="w-6 h-6 md:w-10 md:h-10 text-primary shrink-0" />
-            <span className="truncate">Comparison Reports</span>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-comparison-reports">
+            Comparison Reports
           </h1>
           <p className="text-sm md:text-base text-muted-foreground mt-1 md:mt-2">
             AI-powered check-in vs check-out analysis with cost estimation and signatures

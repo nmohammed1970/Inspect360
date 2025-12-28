@@ -29,7 +29,7 @@ export const sessions = pgTable(
 // Enums
 export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant", "contractor"]);
 export const inspectionStatusEnum = pgEnum("inspection_status", ["scheduled", "in_progress", "completed", "reviewed"]);
-export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_out", "routine", "maintenance"]);
+export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]);
 export const complianceStatusEnum = pgEnum("compliance_status", ["current", "expiring_soon", "expired"]);
 export const maintenanceStatusEnum = pgEnum("maintenance_status", ["open", "in_progress", "completed", "closed"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "inactive", "cancelled"]);
@@ -1748,7 +1748,7 @@ export const updateTemplateCategorySchema = z.object({
 // Inspection update schema
 export const updateInspectionSchema = z.object({
   status: z.enum(["scheduled", "in_progress", "completed", "reviewed"]).optional(),
-  type: z.enum(["check_in", "check_out", "routine", "maintenance"]).optional(),
+  type: z.enum(["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]).optional(),
   scheduledDate: z.string().optional(),
   startedAt: z.string().datetime().optional(),
   completedDate: z.string().datetime().optional(),

@@ -126,23 +126,24 @@ export default function BlocksReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 md:p-8 lg:p-12 space-y-8">
+    <div className="container mx-auto p-4 sm:p-6 md:p-8 lg:p-12 space-y-4 sm:space-y-6 md:space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="space-y-2">
           <Link href="/reports">
-            <Button variant="ghost" className="mb-2" data-testid="button-back-reports">
+            <Button variant="ghost" className="mb-2" size="sm" data-testid="button-back-reports">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Reports
+              <span className="hidden sm:inline">Back to Reports</span>
+              <span className="sm:hidden">Back</span>
             </Button>
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center">
-              <Building2 className="h-6 w-6 text-accent" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-accent" />
             </div>
             <div>
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight">Blocks Report</h1>
-              <p className="text-lg text-muted-foreground mt-1">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight">Blocks Report</h1>
+              <p className="text-sm sm:text-base md:text-lg text-muted-foreground mt-1">
                 Block-level statistics and occupancy metrics
               </p>
             </div>
@@ -151,18 +152,21 @@ export default function BlocksReport() {
         <Button
           onClick={handleExportPDF}
           disabled={isExporting || filteredBlocks.length === 0}
-          size="lg"
+          size="sm"
+          className="sm:size-lg self-start sm:self-auto"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
             <>
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Exporting...
+              <Loader2 className="mr-2 h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
+              <span className="hidden sm:inline">Exporting...</span>
+              <span className="sm:hidden">Exporting</span>
             </>
           ) : (
             <>
-              <FileDown className="mr-2 h-5 w-5" />
-              Export PDF
+              <FileDown className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+              <span className="hidden sm:inline">Export PDF</span>
+              <span className="sm:hidden">Export</span>
             </>
           )}
         </Button>
@@ -204,37 +208,37 @@ export default function BlocksReport() {
       </div>
 
       {/* Summary Statistics */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Total Blocks</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Total Blocks</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{filteredBlocks.length}</div>
+            <div className="text-xl sm:text-2xl font-bold">{filteredBlocks.length}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Total Properties</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Total Properties</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalProperties}</div>
+            <div className="text-xl sm:text-2xl font-bold">{totalProperties}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Avg Occupancy Rate</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Avg Occupancy Rate</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{avgOccupancyRate}%</div>
+            <div className="text-xl sm:text-2xl font-bold">{avgOccupancyRate}%</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Total Tenants</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Total Tenants</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl sm:text-2xl font-bold">
               {tenantAssignments.filter(a => a.status === "active").length}
             </div>
           </CardContent>
@@ -262,68 +266,73 @@ export default function BlocksReport() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Block Name</TableHead>
-                    <TableHead>Address</TableHead>
-                    <TableHead className="text-center">Total Units</TableHead>
-                    <TableHead className="text-center">Occupied</TableHead>
-                    <TableHead className="text-center">Vacant</TableHead>
-                    <TableHead className="text-center">Occupancy Rate</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredBlocks.map((block: any) => {
-                    const occupancyColor = 
-                      block.occupancyRate >= 90 ? "default" :
-                      block.occupancyRate >= 70 ? "secondary" :
-                      "destructive";
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[150px]">Block Name</TableHead>
+                      <TableHead className="min-w-[150px] hidden sm:table-cell">Address</TableHead>
+                      <TableHead className="text-center min-w-[100px]">Units</TableHead>
+                      <TableHead className="text-center min-w-[100px] hidden md:table-cell">Occupied</TableHead>
+                      <TableHead className="text-center min-w-[80px] hidden lg:table-cell">Vacant</TableHead>
+                      <TableHead className="text-center min-w-[120px]">Rate</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredBlocks.map((block: any) => {
+                      const occupancyColor = 
+                        block.occupancyRate >= 90 ? "default" :
+                        block.occupancyRate >= 70 ? "secondary" :
+                        "destructive";
 
-                    return (
-                      <TableRow key={block.id}>
-                        <TableCell className="font-medium">
-                          <Link href={`/blocks/${block.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${block.id}`}>
-                              <Building2 className="h-4 w-4" />
-                              {block.name}
+                      return (
+                        <TableRow key={block.id}>
+                          <TableCell className="font-medium">
+                            <Link href={`/blocks/${block.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${block.id}`}>
+                                <Building2 className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{block.name}</span>
+                              </div>
+                            </Link>
+                            <div className="text-xs text-muted-foreground mt-1 sm:hidden">
+                              {block.address}
                             </div>
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div>{block.address}</div>
-                            {block.postcode && (
-                              <div className="text-muted-foreground">{block.postcode}</div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="secondary">
-                            <Home className="h-3 w-3 mr-1" />
-                            {block.totalUnits}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="default">
-                            <Users className="h-3 w-3 mr-1" />
-                            {block.occupiedUnits}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {block.vacantUnits}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={occupancyColor}>
-                            {block.occupancyRate}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            <div className="text-sm">
+                              <div>{block.address}</div>
+                              {block.postcode && (
+                                <div className="text-muted-foreground">{block.postcode}</div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="secondary" className="text-xs">
+                              <Home className="h-3 w-3 mr-1" />
+                              {block.totalUnits}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center hidden md:table-cell">
+                            <Badge variant="default" className="text-xs">
+                              <Users className="h-3 w-3 mr-1" />
+                              {block.occupiedUnits}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center hidden lg:table-cell">
+                            <span className="text-sm">{block.vacantUnits}</span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant={occupancyColor} className="text-xs">
+                              {block.occupancyRate}%
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

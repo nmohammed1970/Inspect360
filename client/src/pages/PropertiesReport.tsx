@@ -174,21 +174,21 @@ export default function PropertiesReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/reports">
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-10 sm:w-10" data-testid="button-back">
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <Home className="h-8 w-8 text-primary" />
-              Properties Report
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+              <Home className="h-6 w-6 sm:h-8 sm:w-8 text-primary flex-shrink-0" />
+              <span>Properties Report</span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
               Property portfolio overview with maintenance and inspection data
             </p>
           </div>
@@ -196,46 +196,50 @@ export default function PropertiesReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredProperties.length === 0}
+          size="sm"
+          className="sm:size-default self-start sm:self-auto"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
+              <span className="hidden sm:inline">Generating...</span>
+              <span className="sm:hidden">Exporting</span>
             </>
           ) : (
             <>
               <FileDown className="mr-2 h-4 w-4" />
-              Export PDF
+              <span className="hidden sm:inline">Export PDF</span>
+              <span className="sm:hidden">Export</span>
             </>
           )}
         </Button>
       </div>
 
       {/* Summary Statistics */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Properties</CardDescription>
-            <CardTitle className="text-3xl" data-testid="stat-total-properties">{totalProperties}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Total Properties</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-properties">{totalProperties}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Occupied</CardDescription>
-            <CardTitle className="text-3xl text-green-600" data-testid="stat-occupied">{occupiedProperties}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Occupied</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-occupied">{occupiedProperties}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Vacant</CardDescription>
-            <CardTitle className="text-3xl text-orange-600" data-testid="stat-vacant">{vacantProperties}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Vacant</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-vacant">{vacantProperties}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Open Maintenance</CardDescription>
-            <CardTitle className="text-3xl text-destructive" data-testid="stat-open-maintenance">{totalOpenMaintenance}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Open Maintenance</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-open-maintenance">{totalOpenMaintenance}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -386,87 +390,89 @@ export default function PropertiesReport() {
               No properties found matching your criteria
             </div>
           ) : (
-            <div className="border rounded-lg">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Block</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Address</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Tenant</TableHead>
-                    <TableHead>Inspections</TableHead>
-                    <TableHead>Maintenance</TableHead>
-                    <TableHead>Last Inspection</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProperties.map((property) => (
-                    <TableRow key={property.id} data-testid={`row-property-${property.id}`}>
-                      <TableCell className="font-medium" data-testid={`text-block-${property.id}`}>
-                        {property.block ? (
-                          <Link href={`/blocks/${property.block.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${property.id}`}>
-                              <Building2 className="h-4 w-4" />
-                              {property.block.name}
-                            </div>
-                          </Link>
-                        ) : (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Building2 className="h-4 w-4" />
-                            N/A
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell data-testid={`text-unit-${property.id}`}>
-                        <Link href={`/properties/${property.id}`}>
-                          <span className="text-primary hover:underline cursor-pointer" data-testid={`link-property-${property.id}`}>
-                            {property.unitNumber || property.address || "View"}
-                          </span>
-                        </Link>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate" data-testid={`text-address-${property.id}`}>
-                        {property.address}
-                      </TableCell>
-                      <TableCell data-testid={`badge-status-${property.id}`}>
-                        <Badge variant={property.isOccupied ? "default" : "secondary"}>
-                          {property.isOccupied ? "Occupied" : "Vacant"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell data-testid={`text-tenant-${property.id}`}>
-                        {property.tenant ? (
-                          <span className="text-sm">
-                            {property.tenant.tenantFirstName} {property.tenant.tenantLastName}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell data-testid={`badge-inspections-${property.id}`}>
-                        <Badge variant="outline">
-                          {property.totalInspections}
-                        </Badge>
-                      </TableCell>
-                      <TableCell data-testid={`badge-maintenance-${property.id}`}>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={property.openMaintenanceCount > 0 ? "destructive" : "outline"}>
-                            {property.openMaintenanceCount} open
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell data-testid={`text-last-inspection-${property.id}`}>
-                        {property.lastInspection ? (
-                          <span className="text-sm">
-                            {format(new Date(property.lastInspection.scheduledDate || property.lastInspection.createdAt), 'MMM d, yyyy')}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">Never</span>
-                        )}
-                      </TableCell>
+            <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[120px]">Block</TableHead>
+                      <TableHead className="min-w-[100px]">Unit</TableHead>
+                      <TableHead className="min-w-[150px] hidden sm:table-cell">Address</TableHead>
+                      <TableHead className="min-w-[90px]">Status</TableHead>
+                      <TableHead className="min-w-[120px] hidden md:table-cell">Tenant</TableHead>
+                      <TableHead className="min-w-[100px] hidden lg:table-cell">Inspections</TableHead>
+                      <TableHead className="min-w-[110px] hidden lg:table-cell">Maintenance</TableHead>
+                      <TableHead className="min-w-[120px] hidden xl:table-cell">Last Inspection</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProperties.map((property) => (
+                      <TableRow key={property.id} data-testid={`row-property-${property.id}`}>
+                        <TableCell className="font-medium" data-testid={`text-block-${property.id}`}>
+                          {property.block ? (
+                            <Link href={`/blocks/${property.block.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${property.id}`}>
+                                <Building2 className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{property.block.name}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Building2 className="h-4 w-4 flex-shrink-0" />
+                              <span className="text-sm">N/A</span>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell data-testid={`text-unit-${property.id}`}>
+                          <Link href={`/properties/${property.id}`}>
+                            <span className="text-primary hover:underline cursor-pointer text-sm" data-testid={`link-property-${property.id}`}>
+                              {property.unitNumber || property.address || "View"}
+                            </span>
+                          </Link>
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate hidden sm:table-cell" data-testid={`text-address-${property.id}`}>
+                          <span className="text-sm">{property.address}</span>
+                        </TableCell>
+                        <TableCell data-testid={`badge-status-${property.id}`}>
+                          <Badge variant={property.isOccupied ? "default" : "secondary"} className="text-xs">
+                            {property.isOccupied ? "Occupied" : "Vacant"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell" data-testid={`text-tenant-${property.id}`}>
+                          {property.tenant ? (
+                            <span className="text-sm">
+                              {property.tenant.tenantFirstName} {property.tenant.tenantLastName}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell" data-testid={`badge-inspections-${property.id}`}>
+                          <Badge variant="outline" className="text-xs">
+                            {property.totalInspections}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell" data-testid={`badge-maintenance-${property.id}`}>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={property.openMaintenanceCount > 0 ? "destructive" : "outline"} className="text-xs">
+                              {property.openMaintenanceCount} open
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden xl:table-cell" data-testid={`text-last-inspection-${property.id}`}>
+                          {property.lastInspection ? (
+                            <span className="text-sm">
+                              {format(new Date(property.lastInspection.scheduledDate || property.lastInspection.createdAt), 'MMM d, yyyy')}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">Never</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

@@ -15,7 +15,7 @@ CREATE TYPE "public"."feedback_status" AS ENUM('new', 'in_review', 'in_progress'
 CREATE TYPE "public"."field_type" AS ENUM('short_text', 'long_text', 'number', 'select', 'multiselect', 'boolean', 'rating', 'date', 'time', 'datetime', 'photo', 'photo_array', 'video', 'gps', 'signature');
 CREATE TYPE "public"."inspection_point_data_type" AS ENUM('text', 'number', 'checkbox', 'photo', 'rating');
 CREATE TYPE "public"."inspection_status" AS ENUM('scheduled', 'in_progress', 'completed', 'reviewed');
-CREATE TYPE "public"."inspection_type" AS ENUM('check_in', 'check_out', 'routine', 'maintenance');
+CREATE TYPE "public"."inspection_type" AS ENUM('check_in', 'check_out', 'routine', 'maintenance', 'esg_sustainability_inspection', 'fire_hazard_assessment', 'maintenance_inspection', 'damage', 'emergency', 'safety_compliance', 'compliance_regulatory', 'pre_purchase', 'specialized');
 CREATE TYPE "public"."maintenance_source" AS ENUM('manual', 'inspection', 'tenant_portal', 'routine');
 CREATE TYPE "public"."maintenance_status" AS ENUM('open', 'in_progress', 'completed', 'closed');
 CREATE TYPE "public"."plan_code" AS ENUM('starter', 'professional', 'enterprise', 'enterprise_plus', 'freelancer', 'btr', 'pbsa', 'housing_association', 'council');

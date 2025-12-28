@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertCircle, CheckCircle2, Clock, Circle, CalendarPlus, X, Loader2, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Circle, CalendarPlus, X, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -146,7 +146,6 @@ function StatusCell({ data, isPending, isClickable, isDisabled, onClick, onNavig
       data-testid={`cell-${isPending ? 'pending' : data.status}-${data.month}`}
     >
       {getStatusIcon()}
-      {isNavigable && <ExternalLink className="h-3 w-3 ml-1 opacity-60" />}
     </div>
   );
 }
@@ -334,6 +333,15 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
                   <SelectItem value="check_out">Check Out</SelectItem>
                   <SelectItem value="routine">Routine</SelectItem>
                   <SelectItem value="maintenance">Maintenance</SelectItem>
+                  <SelectItem value="esg_sustainability_inspection">ESG Sustainability Inspection</SelectItem>
+                  <SelectItem value="fire_hazard_assessment">Fire Hazard Assessment</SelectItem>
+                  <SelectItem value="maintenance_inspection">Maintenance Inspection</SelectItem>
+                  <SelectItem value="damage">Damage</SelectItem>
+                  <SelectItem value="emergency">Emergency</SelectItem>
+                  <SelectItem value="safety_compliance">Safety & Compliance</SelectItem>
+                  <SelectItem value="compliance_regulatory">Compliance / Regulatory</SelectItem>
+                  <SelectItem value="pre_purchase">Pre-Purchase</SelectItem>
+                  <SelectItem value="specialized">Specialized</SelectItem>
                 </SelectContent>
               </Select>
               <Button

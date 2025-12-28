@@ -85,7 +85,7 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint
 DO $$ BEGIN
-    CREATE TYPE "public"."inspection_type" AS ENUM('check_in', 'check_out', 'routine', 'maintenance');
+    CREATE TYPE "public"."inspection_type" AS ENUM('check_in', 'check_out', 'routine', 'maintenance', 'esg_sustainability_inspection', 'fire_hazard_assessment', 'maintenance_inspection', 'damage', 'emergency', 'safety_compliance', 'compliance_regulatory', 'pre_purchase', 'specialized');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint

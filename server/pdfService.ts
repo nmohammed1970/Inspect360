@@ -409,7 +409,7 @@ export async function generateInspectionPDF(
 
     const pdf = await page.pdf({
       format: "A4",
-      landscape: true,
+      landscape: false,
       printBackground: true,
       margin: {
         top: "15mm",
@@ -504,8 +504,13 @@ function generateInspectionHTML(
   
   const companyName = branding?.brandingName || "Inspect360";
   const hasLogo = !!branding?.logoUrl;
-  const logoHtml = hasLogo
-    ? `<img src="${sanitizeUrl(branding.logoUrl || '')}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+  // Handle logo URL - if it's a data URL (base64), use it directly; otherwise sanitize
+  const logoUrl = branding?.logoUrl || '';
+  const logoSrc = logoUrl.startsWith('data:') 
+    ? logoUrl  // Data URLs should be used as-is (already base64 encoded)
+    : sanitizeUrl(logoUrl, baseUrl);
+  const logoHtml = hasLogo && logoSrc
+    ? `<img src="${logoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
     : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
   
   const companyNameHtml = hasLogo 
@@ -741,23 +746,12 @@ function generateInspectionHTML(
   // Build cover page HTML conditionally - with custom title/subtitle support
   const coverTitle = config.coverPageTitle || 'Inspection Report';
   const coverSubtitle = config.coverPageSubtitle || '';
-  // Trade associations section for second page (after cover)
-  const tradeAssociationsPageHTML = config.showTradeMarks && trademarkHtml ? `
-    <!-- Trade Associations Page -->
-    <div style="page-break-before: always; padding: 40px 0; text-align: center;">
-      <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 24px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px; display: inline-block;">
-        Trade Associations & Certifications
-      </h2>
-      <div style="display: flex; justify-content: center; align-items: center; gap: 32px; flex-wrap: wrap; margin-top: 24px;">
-        ${trademarkHtml}
-      </div>
-    </div>
-  ` : '';
+  // Trade associations section removed - not shown in report
+  const tradeAssociationsPageHTML = '';
 
   const coverPageHTML = config.showCover ? `
     <!-- Cover Page -->
     <div class="cover-page">
-      ${trademarkHtml}
       <div class="cover-content">
         <div class="cover-logo-container">
           ${logoHtml}
@@ -1236,15 +1230,6 @@ function generateInspectionHTML(
       font-weight: 500;
     }
 
-    .status-badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 16px;
-      font-size: 13px;
-      font-weight: 600;
-      background: #dcfce7;
-      color: #166534;
-    }
 
     /* Section styles - Landscape optimized */
     .section {
@@ -1317,9 +1302,7 @@ function generateInspectionHTML(
         </div>
         <div class="info-item">
           <div class="info-label">Status</div>
-          <div class="info-value">
-            <span class="status-badge">${escapeHtml(inspection.status.toUpperCase())}</span>
-          </div>
+          <div class="info-value">${escapeHtml(inspection.status.charAt(0).toUpperCase() + inspection.status.slice(1))}</div>
         </div>
         <div class="info-item">
           <div class="info-label">Inspector</div>

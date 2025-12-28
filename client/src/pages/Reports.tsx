@@ -73,19 +73,14 @@ export default function Reports() {
   ];
 
   return (
-    <div className="container mx-auto p-4 md:p-6 lg:p-8 xl:p-12 space-y-4 md:space-y-8">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 md:gap-3">
-          <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <FileBarChart className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold tracking-tight">Reports</h1>
-            <p className="text-sm md:text-lg text-muted-foreground mt-1">
-              Generate detailed reports and export to PDF
-            </p>
-          </div>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Reports</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
+            Generate detailed reports and export to PDF
+          </p>
         </div>
       </div>
 

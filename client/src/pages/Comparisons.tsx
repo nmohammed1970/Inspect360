@@ -132,12 +132,12 @@ export default function Comparisons() {
     : null;
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold" data-testid="heading-comparisons">Comparison Reports</h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-1">AI-powered check-in vs check-out analysis</p>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-comparisons">Comparison Reports</h1>
+          <p className="text-sm md:text-base text-muted-foreground">AI-powered check-in vs check-out analysis</p>
         </div>
         <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
           <DialogTrigger asChild>

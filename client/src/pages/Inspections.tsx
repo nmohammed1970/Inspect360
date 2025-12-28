@@ -105,7 +105,7 @@ const createInspectionSchema = z.object({
   propertyId: z.string().optional(),
   blockId: z.string().optional(),
   tenantId: z.string().optional(),
-  type: z.enum(["check_in", "check_out", "routine", "maintenance"]),
+  type: z.enum(["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]),
   scheduledDate: z.string().min(1, "Scheduled date is required"),
   templateId: z.string().optional(),
   clerkId: z.string().optional(),
@@ -489,6 +489,15 @@ export default function Inspections() {
       check_out: "Check Out",
       routine: "Routine",
       maintenance: "Maintenance",
+      esg_sustainability_inspection: "ESG Sustainability Inspection",
+      fire_hazard_assessment: "Fire Hazard Assessment",
+      maintenance_inspection: "Maintenance Inspection",
+      damage: "Damage",
+      emergency: "Emergency",
+      safety_compliance: "Safety & Compliance",
+      compliance_regulatory: "Compliance / Regulatory",
+      pre_purchase: "Pre-Purchase",
+      specialized: "Specialized",
     };
     return <Badge variant="outline">{labels[type] || type}</Badge>;
   };
@@ -719,6 +728,15 @@ export default function Inspections() {
                           <SelectItem value="check_out">Check Out</SelectItem>
                           <SelectItem value="routine">Routine</SelectItem>
                           <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="esg_sustainability_inspection">ESG Sustainability Inspection</SelectItem>
+                          <SelectItem value="fire_hazard_assessment">Fire Hazard Assessment</SelectItem>
+                          <SelectItem value="maintenance_inspection">Maintenance Inspection</SelectItem>
+                          <SelectItem value="damage">Damage</SelectItem>
+                          <SelectItem value="emergency">Emergency</SelectItem>
+                          <SelectItem value="safety_compliance">Safety & Compliance</SelectItem>
+                          <SelectItem value="compliance_regulatory">Compliance / Regulatory</SelectItem>
+                          <SelectItem value="pre_purchase">Pre-Purchase</SelectItem>
+                          <SelectItem value="specialized">Specialized</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

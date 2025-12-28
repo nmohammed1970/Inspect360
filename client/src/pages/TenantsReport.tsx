@@ -168,21 +168,21 @@ export default function TenantsReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/reports">
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-10 sm:w-10" data-testid="button-back">
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <Users className="h-8 w-8 text-primary" />
-              Tenants Report
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+              <Users className="h-6 w-6 sm:h-8 sm:w-8 text-primary flex-shrink-0" />
+              <span>Tenants Report</span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
               Tenant occupancy, lease tracking, and rental income analysis
             </p>
           </div>
@@ -190,46 +190,50 @@ export default function TenantsReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredTenants.length === 0}
+          size="sm"
+          className="sm:size-default self-start sm:self-auto"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
+              <span className="hidden sm:inline">Generating...</span>
+              <span className="sm:hidden">Exporting</span>
             </>
           ) : (
             <>
               <FileDown className="mr-2 h-4 w-4" />
-              Export PDF
+              <span className="hidden sm:inline">Export PDF</span>
+              <span className="sm:hidden">Export</span>
             </>
           )}
         </Button>
       </div>
 
       {/* Summary Statistics */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Tenants</CardDescription>
-            <CardTitle className="text-3xl" data-testid="stat-total-tenants">{totalTenants}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Total Tenants</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-tenants">{totalTenants}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Active</CardDescription>
-            <CardTitle className="text-3xl text-green-600" data-testid="stat-active">{activeTenants}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Active</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-active">{activeTenants}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Expiring Soon</CardDescription>
-            <CardTitle className="text-3xl text-orange-600" data-testid="stat-expiring">{expiringSoon}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Expiring Soon</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-expiring">{expiringSoon}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Monthly Rent</CardDescription>
-            <CardTitle className="text-3xl" data-testid="stat-monthly-rent">£{totalMonthlyRent.toLocaleString()}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Total Monthly Rent</CardDescription>
+            <CardTitle className="text-lg sm:text-xl md:text-2xl lg:text-3xl" data-testid="stat-monthly-rent">£{totalMonthlyRent.toLocaleString()}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -417,108 +421,112 @@ export default function TenantsReport() {
               No tenants found matching your criteria
             </div>
           ) : (
-            <div className="border rounded-lg overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tenant Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Block</TableHead>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Lease Start</TableHead>
-                    <TableHead>Lease End</TableHead>
-                    <TableHead>Monthly Rent</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTenants.map((tenant) => (
-                    <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`}>
-                      <TableCell className="font-medium">
-                        {tenant.tenantFirstName} {tenant.tenantLastName}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {tenant.tenantEmail || "N/A"}
-                      </TableCell>
-                      <TableCell>
-                        {tenant.block ? (
-                          <Link href={`/blocks/${tenant.block.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${tenant.id}`}>
-                              <Building2 className="h-4 w-4" />
-                              {tenant.block.name}
-                            </div>
-                          </Link>
-                        ) : (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Building2 className="h-4 w-4" />
-                            N/A
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {tenant.property ? (
-                          <Link href={`/properties/${tenant.property.id}`}>
-                            <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-property-${tenant.id}`}>
-                              <Home className="h-4 w-4" />
-                              {tenant.property.unitNumber || "View Property"}
-                            </div>
-                          </Link>
-                        ) : (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Home className="h-4 w-4" />
-                            N/A
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {tenant.leaseStartDate ? (
-                          format(new Date(tenant.leaseStartDate), 'MMM d, yyyy')
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {tenant.leaseEndDate ? (
-                          <div className="space-y-1">
-                            <div>{format(new Date(tenant.leaseEndDate), 'MMM d, yyyy')}</div>
-                            {tenant.daysUntilExpiry !== null && tenant.daysUntilExpiry >= 0 && (
-                              <div className="text-xs text-muted-foreground">
-                                {tenant.daysUntilExpiry} days left
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {tenant.monthlyRent > 0 ? (
-                          <span className="font-medium">£{tenant.monthlyRent.toLocaleString()}</span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={
-                            tenant.status === "active" 
-                              ? "default" 
-                              : tenant.isExpiringSoon 
-                              ? "outline" 
-                              : "secondary"
-                          }
-                        >
-                          {tenant.status === "active" && tenant.isExpiringSoon 
-                            ? "Expiring Soon" 
-                            : tenant.status === "active"
-                            ? "Active"
-                            : "Inactive"}
-                        </Badge>
-                      </TableCell>
+            <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[150px]">Tenant Name</TableHead>
+                      <TableHead className="min-w-[150px] hidden md:table-cell">Email</TableHead>
+                      <TableHead className="min-w-[120px] hidden lg:table-cell">Block</TableHead>
+                      <TableHead className="min-w-[120px]">Property</TableHead>
+                      <TableHead className="min-w-[100px] hidden xl:table-cell">Lease Start</TableHead>
+                      <TableHead className="min-w-[120px] hidden sm:table-cell">Lease End</TableHead>
+                      <TableHead className="min-w-[100px] hidden lg:table-cell">Monthly Rent</TableHead>
+                      <TableHead className="min-w-[100px]">Status</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredTenants.map((tenant) => (
+                      <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`}>
+                        <TableCell className="font-medium">
+                          <div className="text-sm">{tenant.tenantFirstName} {tenant.tenantLastName}</div>
+                          <div className="text-xs text-muted-foreground md:hidden mt-1">{tenant.tenantEmail || "N/A"}</div>
+                        </TableCell>
+                        <TableCell className="text-sm hidden md:table-cell">
+                          {tenant.tenantEmail || "N/A"}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {tenant.block ? (
+                            <Link href={`/blocks/${tenant.block.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-block-${tenant.id}`}>
+                                <Building2 className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{tenant.block.name}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Building2 className="h-4 w-4 flex-shrink-0" />
+                              <span className="text-sm">N/A</span>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {tenant.property ? (
+                            <Link href={`/properties/${tenant.property.id}`}>
+                              <div className="flex items-center gap-2 text-primary hover:underline cursor-pointer" data-testid={`link-property-${tenant.id}`}>
+                                <Home className="h-4 w-4 flex-shrink-0" />
+                                <span className="text-sm">{tenant.property.unitNumber || "View Property"}</span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Home className="h-4 w-4 flex-shrink-0" />
+                              <span className="text-sm">N/A</span>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden xl:table-cell">
+                          {tenant.leaseStartDate ? (
+                            <span className="text-sm">{format(new Date(tenant.leaseStartDate), 'MMM d, yyyy')}</span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {tenant.leaseEndDate ? (
+                            <div className="space-y-1">
+                              <div className="text-sm">{format(new Date(tenant.leaseEndDate), 'MMM d, yyyy')}</div>
+                              {tenant.daysUntilExpiry !== null && tenant.daysUntilExpiry >= 0 && (
+                                <div className="text-xs text-muted-foreground">
+                                  {tenant.daysUntilExpiry} days left
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {tenant.monthlyRent > 0 ? (
+                            <span className="font-medium text-sm">£{tenant.monthlyRent.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={
+                              tenant.status === "active" 
+                                ? "default" 
+                                : tenant.isExpiringSoon 
+                                ? "outline" 
+                                : "secondary"
+                            }
+                            className="text-xs"
+                          >
+                            {tenant.status === "active" && tenant.isExpiringSoon 
+                              ? "Expiring Soon" 
+                              : tenant.status === "active"
+                              ? "Active"
+                              : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

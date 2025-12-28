@@ -398,7 +398,7 @@ export default function CommunityModeration() {
   // Thread view - loading state
   if (viewMode === 'thread' && threadLoading) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -441,7 +441,7 @@ export default function CommunityModeration() {
   // Thread view - error state (no data after loading)
   if (viewMode === 'thread' && !threadLoading && !threadData) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -461,7 +461,7 @@ export default function CommunityModeration() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">Discussion Not Found</h1>
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Discussion Not Found</h1>
             <p className="text-muted-foreground text-sm">This discussion may have been removed or you don't have access.</p>
           </div>
         </div>
@@ -476,7 +476,7 @@ export default function CommunityModeration() {
   // Thread view
   if (viewMode === 'thread' && threadData) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -504,7 +504,7 @@ export default function CommunityModeration() {
             <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl md:text-2xl font-bold truncate" data-testid="text-thread-title">{threadData.title}</h1>
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold truncate" data-testid="text-thread-title">{threadData.title}</h1>
             <p className="text-xs md:text-sm text-muted-foreground">
               Started by {threadData.authorName} {threadData.isOperator && <Badge variant="outline" className="ml-1 text-xs">Staff</Badge>}
             </p>
@@ -590,7 +590,7 @@ export default function CommunityModeration() {
   // Group view - loading state
   if (viewMode === 'group' && groupsLoading) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -630,7 +630,7 @@ export default function CommunityModeration() {
   // Group view - error state (no group found)
   if (viewMode === 'group' && !groupsLoading && !currentGroup) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -650,7 +650,7 @@ export default function CommunityModeration() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">Group Not Found</h1>
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Group Not Found</h1>
             <p className="text-muted-foreground text-sm">This group may have been removed or you don't have access.</p>
           </div>
         </div>
@@ -665,7 +665,7 @@ export default function CommunityModeration() {
   // Group view (threads list)
   if (viewMode === 'group' && currentGroup) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -690,7 +690,7 @@ export default function CommunityModeration() {
               <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
             </Button>
             <div className="min-w-0">
-              <h1 className="text-xl md:text-2xl font-bold truncate" data-testid="text-group-name">{currentGroup.name}</h1>
+              <h1 className="text-xl md:text-2xl lg:text-3xl font-bold truncate" data-testid="text-group-name">{currentGroup.name}</h1>
               <p className="text-xs md:text-sm text-muted-foreground truncate">{currentGroup.blockName}</p>
             </div>
           </div>
@@ -803,7 +803,7 @@ export default function CommunityModeration() {
 
   // Main list view
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -820,7 +820,7 @@ export default function CommunityModeration() {
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
             <Shield className="h-5 w-5 md:h-6 md:w-6 text-primary shrink-0" />
             <span className="truncate">Community Moderation</span>
           </h1>

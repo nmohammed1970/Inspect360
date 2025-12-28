@@ -154,23 +154,24 @@ export default function InspectionsReport() {
   };
 
   return (
-    <div className="container mx-auto p-6 md:p-8 lg:p-12 space-y-8">
+    <div className="container mx-auto p-4 sm:p-6 md:p-8 lg:p-12 space-y-4 sm:space-y-6 md:space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="space-y-2">
           <Link href="/reports">
-            <Button variant="ghost" className="mb-2" data-testid="button-back-reports">
+            <Button variant="ghost" className="mb-2" size="sm" data-testid="button-back-reports">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Reports
+              <span className="hidden sm:inline">Back to Reports</span>
+              <span className="sm:hidden">Back</span>
             </Button>
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-              <ClipboardCheck className="h-6 w-6 text-primary" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <ClipboardCheck className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight">Inspections Report</h1>
-              <p className="text-lg text-muted-foreground mt-1">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight">Inspections Report</h1>
+              <p className="text-sm sm:text-base md:text-lg text-muted-foreground mt-1">
                 Comprehensive inspection history and analytics
               </p>
             </div>
@@ -179,18 +180,21 @@ export default function InspectionsReport() {
         <Button
           onClick={handleExportPDF}
           disabled={isExporting || filteredInspections.length === 0}
-          size="lg"
+          size="sm"
+          className="sm:size-lg self-start sm:self-auto"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
             <>
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Exporting...
+              <Loader2 className="mr-2 h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
+              <span className="hidden sm:inline">Exporting...</span>
+              <span className="sm:hidden">Exporting</span>
             </>
           ) : (
             <>
-              <FileDown className="mr-2 h-5 w-5" />
-              Export PDF
+              <FileDown className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+              <span className="hidden sm:inline">Export PDF</span>
+              <span className="sm:hidden">Export</span>
             </>
           )}
         </Button>
@@ -441,41 +445,41 @@ export default function InspectionsReport() {
       </div>
 
       {/* Summary Statistics */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Total Inspections</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Total Inspections</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{filteredInspections.length}</div>
+            <div className="text-xl sm:text-2xl font-bold">{filteredInspections.length}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Completed</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Completed</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl sm:text-2xl font-bold">
               {filteredInspections.filter(i => i.status === "completed").length}
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>In Progress</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">In Progress</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl sm:text-2xl font-bold">
               {filteredInspections.filter(i => i.status === "in_progress").length}
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardDescription>Scheduled</CardDescription>
+          <CardHeader className="pb-2 sm:pb-3">
+            <CardDescription className="text-xs sm:text-sm">Scheduled</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className="text-xl sm:text-2xl font-bold">
               {filteredInspections.filter(i => i.status === "scheduled").length}
             </div>
           </CardContent>
@@ -501,63 +505,66 @@ export default function InspectionsReport() {
               <p className="text-muted-foreground">No inspections found matching your filters</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Inspector</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredInspections.map((inspection: any) => {
-                    const property = properties.find(p => p.id === inspection.propertyId);
-                    const inspectionDate = new Date(inspection.scheduledDate || inspection.createdAt);
-                    
-                    return (
-                      <TableRow key={inspection.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            {format(inspectionDate, 'MMM d, yyyy')}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {property ? (
-                            <Link href={`/properties/${property.id}`}>
-                              <span className="text-primary hover:underline cursor-pointer" data-testid={`link-property-${inspection.id}`}>
-                                {property.name || property.address || "View Property"}
-                              </span>
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[100px]">Date</TableHead>
+                      <TableHead className="min-w-[150px]">Property</TableHead>
+                      <TableHead className="min-w-[100px] hidden sm:table-cell">Type</TableHead>
+                      <TableHead className="min-w-[120px] hidden md:table-cell">Inspector</TableHead>
+                      <TableHead className="min-w-[100px]">Status</TableHead>
+                      <TableHead className="text-right min-w-[80px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInspections.map((inspection: any) => {
+                      const property = properties.find(p => p.id === inspection.propertyId);
+                      const inspectionDate = new Date(inspection.scheduledDate || inspection.createdAt);
+                      
+                      return (
+                        <TableRow key={inspection.id}>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="text-sm">{format(inspectionDate, 'MMM d, yyyy')}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium min-w-[150px]">
+                            {property ? (
+                              <Link href={`/properties/${property.id}`}>
+                                <span className="text-primary hover:underline cursor-pointer text-sm" data-testid={`link-property-${inspection.id}`}>
+                                  {property.name || property.address || "View Property"}
+                                </span>
+                              </Link>
+                            ) : (
+                              <span className="text-sm">Unknown Property</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="capitalize hidden sm:table-cell">
+                            <span className="text-sm">{inspection.type?.replace('-', ' ') || "N/A"}</span>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <span className="text-sm">{inspection.inspector || "Unassigned"}</span>
+                          </TableCell>
+                          <TableCell>
+                            {getStatusBadge(inspection.status)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Link href={`/inspections/${inspection.id}`}>
+                              <Button variant="ghost" size="sm" className="h-8">
+                                <span className="hidden sm:inline">View</span>
+                                <span className="sm:hidden">→</span>
+                              </Button>
                             </Link>
-                          ) : (
-                            "Unknown Property"
-                          )}
-                        </TableCell>
-                        <TableCell className="capitalize">
-                          {inspection.type?.replace('-', ' ') || "N/A"}
-                        </TableCell>
-                        <TableCell>
-                          {inspection.inspector || "Unassigned"}
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(inspection.status)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Link href={`/inspections/${inspection.id}`}>
-                            <Button variant="ghost" size="sm">
-                              View
-                            </Button>
-                          </Link>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

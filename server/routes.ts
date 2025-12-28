@@ -7060,6 +7060,1307 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     }
   });
 
+  // Helper function to generate inspection schedule calendar HTML
+  function generateInspectionCalendarHTML(
+    propertyInspections: any[],
+    templates: any[],
+    year: number,
+    escapeHtml: (str: string) => string
+  ): string {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const complianceData = templates.map(template => {
+      const templateInspections = propertyInspections.filter(i => i.templateId === template.id);
+      
+      const monthData = monthNames.map((monthName, monthIndex) => {
+        const monthInspections = templateInspections.filter(inspection => {
+          if (!inspection.scheduledDate) return false;
+          const schedDate = new Date(inspection.scheduledDate);
+          return schedDate.getFullYear() === year && schedDate.getMonth() === monthIndex;
+        });
+
+        if (monthInspections.length === 0) {
+          return { month: months[monthIndex], status: 'not_scheduled', count: 0 };
+        }
+
+        const completedCount = monthInspections.filter(i => i.status === 'completed').length;
+        const overdueCount = monthInspections.filter(i => {
+          if (i.status === 'completed' || !i.scheduledDate) return false;
+          const schedDate = new Date(i.scheduledDate);
+          return schedDate < today;
+        }).length;
+
+        const dueCount = monthInspections.filter(i => {
+          if (i.status === 'completed' || !i.scheduledDate) return false;
+          const schedDate = new Date(i.scheduledDate);
+          const daysUntil = Math.ceil((schedDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          return daysUntil >= 0 && daysUntil <= 30;
+        }).length;
+
+        let status = 'not_scheduled';
+        if (overdueCount > 0) {
+          status = 'overdue';
+        } else if (completedCount === monthInspections.length) {
+          status = 'completed';
+        } else if (dueCount > 0) {
+          status = 'due';
+        } else {
+          status = 'scheduled';
+        }
+
+        return {
+          month: months[monthIndex],
+          status,
+          count: monthInspections.length,
+          completed: completedCount,
+          overdue: overdueCount,
+        };
+      });
+
+      const totalScheduled = monthData.reduce((sum, m) => sum + m.count, 0);
+      const totalCompleted = monthData.reduce((sum, m) => sum + (m.completed || 0), 0);
+      const complianceRate = totalScheduled > 0 ? Math.round((totalCompleted / totalScheduled) * 100) : 0;
+
+      return {
+        templateId: template.id,
+        templateName: template.name,
+        monthData,
+        complianceRate,
+        totalScheduled,
+        totalCompleted,
+      };
+    });
+
+    const getStatusIcon = (status: string) => {
+      switch (status) {
+        case 'completed': return '✓';
+        case 'overdue': return '⚠';
+        case 'due': return '⏰';
+        case 'scheduled': return '○';
+        default: return '·';
+      }
+    };
+
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'completed': return 'background: #dcfce7; border: 1px solid #86efac; color: #166534;';
+        case 'overdue': return 'background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b;';
+        case 'due': return 'background: #fef3c7; border: 1px solid #fde047; color: #92400e;';
+        case 'scheduled': return 'background: #dbeafe; border: 1px solid #93c5fd; color: #1e40af;';
+        default: return 'background: #f3f4f6; border: 1px solid #d1d5db; color: #6b7280;';
+      }
+    };
+
+    if (complianceData.length === 0) {
+      return '<p style="color: #6b7280; font-size: 14px;">No inspection templates configured.</p>';
+    }
+
+    return `
+      <div style="overflow-x: auto; margin: 20px 0;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+          <thead>
+            <tr>
+              <th style="background: #00D5CC; color: white; padding: 8px; text-align: left; font-weight: 600; border: 1px solid #00D5CC;">Template</th>
+              ${months.map(m => `<th style="background: #00D5CC; color: white; padding: 8px; text-align: center; font-weight: 600; border: 1px solid #00D5CC; min-width: 40px;">${m}</th>`).join('')}
+              <th style="background: #00D5CC; color: white; padding: 8px; text-align: center; font-weight: 600; border: 1px solid #00D5CC;">Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${complianceData.map(template => `
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: 500;">${escapeHtml(template.templateName)}</td>
+                ${template.monthData.map((m: any) => `
+                  <td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; ${getStatusColor(m.status)}">
+                    ${getStatusIcon(m.status)}
+                  </td>
+                `).join('')}
+                <td style="padding: 8px; border: 1px solid #e5e7eb; text-align: center; font-weight: 600;">${template.complianceRate}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // Helper function to generate compliance document calendar HTML
+  function generateComplianceDocumentCalendarHTML(
+    propertyCompliance: any[],
+    year: number,
+    escapeHtml: (str: string) => string
+  ): string {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Group by document type
+    const docTypes = Array.from(new Set(propertyCompliance.map(d => d.documentType)));
+    
+    const documentTypeData = docTypes.map(docType => {
+      const docs = propertyCompliance.filter(d => d.documentType === docType);
+      const latestDoc = docs.sort((a, b) => {
+        const dateA = a.expiryDate ? new Date(a.expiryDate).getTime() : 0;
+        const dateB = b.expiryDate ? new Date(b.expiryDate).getTime() : 0;
+        return dateB - dateA;
+      })[0];
+
+      const monthData = monthNames.map((monthName, monthIndex) => {
+        const monthDocs = docs.filter(doc => {
+          if (!doc.expiryDate) return false;
+          const expiryDate = new Date(doc.expiryDate);
+          return expiryDate.getFullYear() === year && expiryDate.getMonth() === monthIndex;
+        });
+
+        const hasDocument = monthDocs.length > 0;
+        if (!hasDocument) {
+          return { month: months[monthIndex], status: 'missing', hasDocument: false };
+        }
+
+        const doc = monthDocs[0];
+        const expiryDate = new Date(doc.expiryDate);
+        const daysUntilExpiry = Math.floor((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+        let status = 'valid';
+        if (daysUntilExpiry < 0) {
+          status = 'expired';
+        } else if (daysUntilExpiry <= 30) {
+          status = 'expiring_soon';
+        }
+
+        return {
+          month: months[monthIndex],
+          status,
+          hasDocument: true,
+        };
+      });
+
+      let overallStatus = 'valid';
+      if (latestDoc?.expiryDate) {
+        const expiryDate = new Date(latestDoc.expiryDate);
+        const daysUntilExpiry = Math.floor((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysUntilExpiry < 0) {
+          overallStatus = 'expired';
+        } else if (daysUntilExpiry <= 30) {
+          overallStatus = 'expiring_soon';
+        }
+      } else if (latestDoc) {
+        overallStatus = 'no_expiry';
+      } else {
+        overallStatus = 'missing';
+      }
+
+      return {
+        documentType: docType,
+        monthData,
+        status: overallStatus,
+      };
+    });
+
+    const getStatusIcon = (data: any) => {
+      if (!data.hasDocument) return '·';
+      switch (data.status) {
+        case 'valid': return '✓';
+        case 'expired': return '⚠';
+        case 'expiring_soon': return '⏰';
+        case 'no_expiry': return '✓';
+        default: return '·';
+      }
+    };
+
+    const getStatusColor = (data: any) => {
+      if (!data.hasDocument) return 'background: #f3f4f6; border: 1px solid #d1d5db; color: #6b7280;';
+      switch (data.status) {
+        case 'valid': return 'background: #dcfce7; border: 1px solid #86efac; color: #166534;';
+        case 'expired': return 'background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b;';
+        case 'expiring_soon': return 'background: #fef3c7; border: 1px solid #fde047; color: #92400e;';
+        case 'no_expiry': return 'background: #dbeafe; border: 1px solid #93c5fd; color: #1e40af;';
+        default: return 'background: #f3f4f6; border: 1px solid #d1d5db; color: #6b7280;';
+      }
+    };
+
+    const getStatusBadge = (status: string) => {
+      switch (status) {
+        case 'valid': return '<span style="padding: 3px 8px; border-radius: 4px; background: #dcfce7; color: #166534; font-size: 10px; font-weight: 600;">Valid</span>';
+        case 'expired': return '<span style="padding: 3px 8px; border-radius: 4px; background: #fee2e2; color: #991b1b; font-size: 10px; font-weight: 600;">Expired</span>';
+        case 'expiring_soon': return '<span style="padding: 3px 8px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 600;">Expiring Soon</span>';
+        case 'no_expiry': return '<span style="padding: 3px 8px; border-radius: 4px; background: #dbeafe; color: #1e40af; font-size: 10px; font-weight: 600;">Valid</span>';
+        default: return '<span style="padding: 3px 8px; border-radius: 4px; background: #f3f4f6; color: #6b7280; font-size: 10px; font-weight: 600;">Missing</span>';
+      }
+    };
+
+    if (documentTypeData.length === 0) {
+      return '<p style="color: #6b7280; font-size: 14px;">No compliance documents found.</p>';
+    }
+
+    return `
+      <div style="overflow-x: auto; margin: 20px 0;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+          <thead>
+            <tr>
+              <th style="background: #00D5CC; color: white; padding: 8px; text-align: left; font-weight: 600; border: 1px solid #00D5CC;">Document Type</th>
+              ${months.map(m => `<th style="background: #00D5CC; color: white; padding: 8px; text-align: center; font-weight: 600; border: 1px solid #00D5CC; min-width: 40px;">${m}</th>`).join('')}
+              <th style="background: #00D5CC; color: white; padding: 8px; text-align: center; font-weight: 600; border: 1px solid #00D5CC;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${documentTypeData.map(docType => `
+              <tr>
+                <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: 500;">${escapeHtml(docType.documentType)}</td>
+                ${docType.monthData.map((m: any) => `
+                  <td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; ${getStatusColor(m)}">
+                    ${getStatusIcon(m)}
+                  </td>
+                `).join('')}
+                <td style="padding: 8px; border: 1px solid #e5e7eb; text-align: center;">${getStatusBadge(docType.status)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // Generate Dashboard Report HTML
+  function generateDashboardReportHTML(
+    properties: any[],
+    blocks: any[],
+    inspections: any[],
+    compliance: any[],
+    maintenance: any[],
+    tenantAssignments: any[],
+    filterBlockId?: string,
+    filterPropertyId?: string,
+    branding?: ReportBrandingInfo,
+    baseUrl?: string
+  ): string {
+    const escapeHtml = (str: string) => {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    };
+
+    const sanitizeReportUrl = (url: string): string => {
+      if (!url || typeof url !== 'string') return '';
+      const trimmed = url.trim();
+      const lower = trimmed.toLowerCase();
+      if (trimmed.startsWith('/') && baseUrl) {
+        const absoluteUrl = `${baseUrl}${trimmed}`;
+        return escapeHtml(absoluteUrl);
+      }
+      const safeProtocols = ['https://', 'http://'];
+      const isSafeProtocol = safeProtocols.some(protocol => lower.startsWith(protocol));
+      if (!isSafeProtocol) {
+        const safeDataImages = [
+          'data:image/png',
+          'data:image/jpeg',
+          'data:image/jpg',
+          'data:image/gif',
+          'data:image/webp',
+        ];
+        const isSafeDataUrl = safeDataImages.some(prefix => lower.startsWith(prefix));
+        if (isSafeDataUrl) {
+          return trimmed;
+        }
+        return '';
+      }
+      return escapeHtml(trimmed);
+    };
+
+    // Calculate stats
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const days7Future = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const days30Future = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const days90Ago = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+    const overdueInspections = inspections.filter((i: any) => {
+      if (i.status === 'completed' || i.status === 'cancelled') return false;
+      if (!i.scheduledDate) return false;
+      return new Date(i.scheduledDate) < today;
+    });
+
+    const overdueCompliance = compliance.filter((c: any) => {
+      if (!c.expiryDate) return false;
+      return new Date(c.expiryDate) < today;
+    });
+
+    const urgentMaintenance = maintenance.filter((m: any) => {
+      if (m.status === 'completed' || m.status === 'closed') return false;
+      if (m.priority === 'urgent' || m.priority === 'high') return true;
+      if (m.dueDate) {
+        const dueDate = new Date(m.dueDate);
+        const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        return dueDateOnly < today;
+      }
+      return false;
+    });
+
+    const activeAssignments = tenantAssignments.filter((t: any) => {
+      const isActive = t.isActive !== undefined ? t.isActive : (t as any).is_active;
+      return isActive === true || t.status === 'active' || t.status === 'current';
+    });
+    const occupiedProperties = new Set(activeAssignments.map((t: any) => t.propertyId || (t as any).property_id));
+    const occupancyRate = properties.length > 0 
+      ? Math.round((occupiedProperties.size / properties.length) * 100) 
+      : 0;
+
+    const validCompliance = compliance.filter((c: any) => {
+      if (!c.expiryDate) return true;
+      return new Date(c.expiryDate) >= today;
+    });
+    const complianceRate = compliance.length > 0 
+      ? Math.round((validCompliance.length / compliance.length) * 100) 
+      : 100;
+
+    const recentInspections = inspections.filter((i: any) => {
+      if (!i.createdAt) return false;
+      return new Date(i.createdAt) >= days90Ago;
+    });
+    const completedRecentInspections = recentInspections.filter((i: any) => i.status === 'completed');
+    const inspectionCompletionRate = recentInspections.length > 0 
+      ? Math.round((completedRecentInspections.length / recentInspections.length) * 100) 
+      : 0;
+
+    const completedMaintenance = maintenance.filter((m: any) => {
+      if (m.status !== 'completed') return false;
+      if (!m.completedAt) return false;
+      return new Date(m.completedAt) >= days90Ago;
+    });
+    
+    let avgResolutionDays = 0;
+    if (completedMaintenance.length > 0) {
+      const totalDays = completedMaintenance.reduce((sum: number, m: any) => {
+        if (!m.createdAt || !m.completedAt) return sum;
+        const created = new Date(m.createdAt);
+        const completed = new Date(m.completedAt);
+        return sum + Math.ceil((completed.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+      }, 0);
+      avgResolutionDays = Math.round(totalDays / completedMaintenance.length * 10) / 10;
+    }
+
+    const openMaintenance = maintenance.filter((m: any) => m.status === 'open' || m.status === 'in_progress');
+    const inProgressMaintenance = maintenance.filter((m: any) => m.status === 'in_progress');
+
+    const inspectionsDueNext7Days = inspections.filter((i: any) => {
+      if (i.status === 'completed' || i.status === 'cancelled') return false;
+      if (!i.scheduledDate) return false;
+      const scheduled = new Date(i.scheduledDate);
+      return scheduled >= today && scheduled <= days7Future;
+    });
+
+    const inspectionsDueNext30Days = inspections.filter((i: any) => {
+      if (i.status === 'completed' || i.status === 'cancelled') return false;
+      if (!i.scheduledDate) return false;
+      const scheduled = new Date(i.scheduledDate);
+      return scheduled >= today && scheduled <= days30Future;
+    });
+
+    const complianceExpiringNext30Days = compliance.filter((c: any) => {
+      if (!c.expiryDate) return false;
+      const expiry = new Date(c.expiryDate);
+      return expiry >= today && expiry <= days30Future;
+    });
+
+    const complianceExpiringNext90Days = compliance.filter((c: any) => {
+      if (!c.expiryDate) return false;
+      const expiry = new Date(c.expiryDate);
+      return expiry >= today && expiry <= new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+    });
+
+    const totalAlerts = overdueInspections.length + overdueCompliance.length + urgentMaintenance.length;
+
+    // Helper function to get badge class based on priority
+    const getPriorityBadgeClass = (priority: string): string => {
+      const priorityLower = (priority || '').toLowerCase();
+      if (priorityLower === 'low') return 'badge-success';
+      if (priorityLower === 'medium') return 'badge-warning';
+      if (priorityLower === 'high' || priorityLower === 'urgent') return 'badge-danger';
+      return 'badge-warning'; // default to warning for unknown priorities
+    };
+
+    // Branding
+    const companyName = branding?.brandingName || "Inspect360";
+    const hasLogo = !!branding?.logoUrl;
+    const logoHtml = hasLogo
+      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
+    const companyNameHtml = hasLogo
+      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
+      : '';
+    const contactParts: string[] = [];
+    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
+    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
+    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
+    const contactInfoHtml = contactParts.length > 0
+      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
+      : '';
+
+    // Filter text
+    const filterText = filterPropertyId 
+      ? `Property: ${properties.find(p => p.id === filterPropertyId)?.name || 'Selected'}`
+      : filterBlockId 
+      ? `Block: ${blocks.find(b => b.id === filterBlockId)?.name || 'Selected'}`
+      : 'All Portfolio';
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.5;
+      color: #333;
+      background: white;
+    }
+    .cover-page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
+      color: white;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover-page::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 60%;
+      height: 200%;
+      background: rgba(255, 255, 255, 0.03);
+      transform: rotate(15deg);
+    }
+    .cover-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .cover-logo-container { margin-bottom: 32px; }
+    .cover-logo-img {
+      max-height: 100px;
+      max-width: 280px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+    }
+    .cover-page::after {
+      content: '';
+      position: absolute;
+      bottom: -30%;
+      left: -10%;
+      width: 40%;
+      height: 150%;
+      background: rgba(255, 255, 255, 0.02);
+      transform: rotate(-10deg);
+    }
+    .cover-logo-text {
+      font-size: 56px;
+      font-weight: 800;
+      letter-spacing: -2px;
+      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .cover-company-name {
+      font-size: 28px;
+      font-weight: 600;
+      margin-top: 12px;
+      opacity: 0.95;
+      letter-spacing: 1px;
+    }
+    .cover-divider {
+      width: 120px;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.5);
+      margin: 32px 0;
+      border-radius: 2px;
+    }
+    .cover-title {
+      font-size: 42px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    .cover-subtitle {
+      font-size: 22px;
+      font-weight: 400;
+      margin-bottom: 20px;
+      opacity: 0.9;
+    }
+    .cover-contact {
+      position: absolute;
+      bottom: 40px;
+      font-size: 14px;
+      opacity: 0.8;
+      z-index: 1;
+    }
+    .cover-date {
+      font-size: 16px;
+      opacity: 0.9;
+      margin-top: 16px;
+    }
+    .page {
+      padding: 40px;
+      page-break-after: always;
+    }
+    .page:last-child {
+      page-break-after: auto;
+    }
+    .section-title {
+      font-size: 26px;
+      font-weight: 800;
+      margin-bottom: 28px;
+      color: #00D5CC;
+      border-bottom: 4px solid #00D5CC;
+      padding-bottom: 12px;
+      padding-left: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: relative;
+    }
+    .section-title::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: -4px;
+      width: 60px;
+      height: 4px;
+      background: #3B7A8C;
+      border-radius: 2px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #00D5CC;
+      margin-bottom: 8px;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+    }
+    .alert-banner {
+      background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+      border-left: 5px solid #dc2626;
+      border-right: 2px solid #fca5a5;
+      border-top: 2px solid #fca5a5;
+      border-bottom: 2px solid #fca5a5;
+      padding: 20px;
+      margin-bottom: 24px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.15);
+    }
+    .alert-title {
+      font-weight: 700;
+      color: #991b1b;
+      margin-bottom: 4px;
+    }
+    .alert-text {
+      color: #7f1d1d;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      border: 2px solid #00D5CC;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      background: white;
+    }
+    th {
+      background: #00D5CC;
+      color: white;
+      padding: 14px 16px;
+      text-align: left;
+      font-weight: 700;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-right: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    th:last-child {
+      border-right: none;
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e7eb;
+      border-right: 1px solid #e5e7eb;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    td:last-child {
+      border-right: none;
+    }
+    tbody tr {
+      border-bottom: 1px solid #e5e7eb;
+      transition: background-color 0.2s;
+    }
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+    tbody tr:hover {
+      background: #f0fdfa;
+    }
+    tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
+    tbody tr:nth-child(even):hover {
+      background: #f0fdfa;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .badge-danger {
+      background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+      color: #991b1b;
+      border-color: #fca5a5;
+    }
+    .badge-warning {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      color: #92400e;
+      border-color: #fcd34d;
+    }
+    .badge-success {
+      background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+      color: #166534;
+      border-color: #86efac;
+    }
+    .property-header {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .info-box {
+      background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+      padding: 18px;
+      border-radius: 8px;
+      border-left: 5px solid #00D5CC;
+      border-top: 1px solid #e5e7eb;
+      border-right: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    }
+    .info-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .info-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+    .subsection-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #00D5CC;
+      margin: 24px 0 16px;
+      padding: 12px 16px;
+      padding-bottom: 10px;
+      border-bottom: 3px solid #00D5CC;
+      background: linear-gradient(135deg, #f0fdfa 0%, #ffffff 100%);
+      border-radius: 6px 6px 0 0;
+      border-left: 4px solid #00D5CC;
+      border-top: 1px solid #e5e7eb;
+      border-right: 1px solid #e5e7eb;
+    }
+    .calendar-container {
+      overflow-x: auto;
+      margin: 20px 0;
+      border: 2px solid #00D5CC;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .calendar-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      background: white;
+    }
+    .calendar-header {
+      background: #00D5CC;
+      color: white;
+      padding: 10px 8px;
+      text-align: center;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-right: 1px solid rgba(255, 255, 255, 0.2);
+      min-width: 40px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 10px;
+    }
+    .calendar-header:last-child {
+      border-right: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .calendar-cell {
+      padding: 8px 6px;
+      border: 1px solid #e5e7eb;
+      text-align: center;
+      background: white;
+    }
+    .calendar-cell:hover {
+      background: #f0fdfa;
+    }
+    .status-completed {
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #166534;
+    }
+    .status-overdue {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #991b1b;
+    }
+    .status-due {
+      background: #fef3c7;
+      border: 1px solid #fde047;
+      color: #92400e;
+    }
+    .status-scheduled {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: #1e40af;
+    }
+    .status-missing {
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <!-- Cover Page -->
+  <div class="cover-page">
+    <div class="cover-content">
+      <div class="cover-logo-container">
+        ${logoHtml}
+      </div>
+      ${companyNameHtml}
+      <div class="cover-divider"></div>
+      <h1 class="cover-title">Portfolio Operations Report</h1>
+      <p class="cover-subtitle">${escapeHtml(filterText)}</p>
+      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
+    </div>
+    ${contactInfoHtml}
+    </div>
+  </div>
+
+  <!-- Summary Statistics -->
+  <div class="page">
+    <h2 class="section-title">Summary Statistics</h2>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">${properties.length}</div>
+        <div class="stat-label">Total Properties</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${blocks.length}</div>
+        <div class="stat-label">Total Blocks</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${occupancyRate}%</div>
+        <div class="stat-label">Occupancy Rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${complianceRate}%</div>
+        <div class="stat-label">Compliance Rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${inspectionCompletionRate}%</div>
+        <div class="stat-label">Inspection Rate (90d)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${avgResolutionDays}d</div>
+        <div class="stat-label">Avg Resolution Time</div>
+      </div>
+    </div>
+
+    ${totalAlerts > 0 ? `
+    <div class="alert-banner">
+      <div class="alert-title">${totalAlerts} Critical Alert${totalAlerts !== 1 ? 's' : ''} Require Attention</div>
+      <div class="alert-text">
+        ${overdueInspections.length} overdue inspections, ${overdueCompliance.length} expired compliance, ${urgentMaintenance.length} urgent maintenance
+      </div>
+    </div>
+    ` : ''}
+  </div>
+
+  <!-- Action Required -->
+  ${totalAlerts > 0 ? `
+  <div class="page">
+    <h2 class="section-title">Action Required</h2>
+    ${overdueInspections.length > 0 ? `
+    <h3 class="subsection-title">Overdue Inspections (${overdueInspections.length})</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th>Type</th>
+          <th>Scheduled Date</th>
+          <th>Days Overdue</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${overdueInspections.slice(0, 20).map((i: any) => {
+          const property = properties.find(p => p.id === i.propertyId);
+          const daysOverdue = Math.floor((today.getTime() - new Date(i.scheduledDate).getTime()) / (1000 * 60 * 60 * 24));
+          return `
+          <tr>
+            <td>${escapeHtml(property?.name || 'Unknown')}</td>
+            <td>${escapeHtml(i.type || 'N/A')}</td>
+            <td>${format(new Date(i.scheduledDate), 'MMM d, yyyy')}</td>
+            <td><span class="badge badge-danger">${daysOverdue}d overdue</span></td>
+          </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+    ` : ''}
+    ${overdueCompliance.length > 0 ? `
+    <h3 class="subsection-title">Expired Compliance (${overdueCompliance.length})</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th>Document Type</th>
+          <th>Expiry Date</th>
+          <th>Days Overdue</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${overdueCompliance.slice(0, 20).map((c: any) => {
+          const property = properties.find(p => p.id === c.propertyId);
+          const daysOverdue = Math.floor((today.getTime() - new Date(c.expiryDate).getTime()) / (1000 * 60 * 60 * 24));
+          return `
+          <tr>
+            <td>${escapeHtml(property?.name || 'Unknown')}</td>
+            <td>${escapeHtml(c.documentType || 'N/A')}</td>
+            <td>${format(new Date(c.expiryDate), 'MMM d, yyyy')}</td>
+            <td><span class="badge badge-danger">${daysOverdue}d expired</span></td>
+          </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+    ` : ''}
+    ${urgentMaintenance.length > 0 ? `
+    <h3 class="subsection-title">Urgent Maintenance (${urgentMaintenance.length})</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th>Title</th>
+          <th>Priority</th>
+          <th>Due Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${urgentMaintenance.slice(0, 20).map((m: any) => {
+          const property = properties.find(p => p.id === m.propertyId);
+          return `
+          <tr>
+            <td>${escapeHtml(property?.name || 'Unknown')}</td>
+            <td>${escapeHtml(m.title || 'N/A')}</td>
+            <td><span class="badge ${getPriorityBadgeClass(m.priority)}">${escapeHtml(m.priority || 'N/A')}</span></td>
+            <td>${m.dueDate ? format(new Date(m.dueDate), 'MMM d, yyyy') : 'N/A'}</td>
+          </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+    ` : ''}
+  </div>
+  ` : ''}
+
+  <!-- Upcoming Due -->
+  <div class="page">
+    <h2 class="section-title">Upcoming Due Items</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Timeframe</th>
+          <th>Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Inspections</td>
+          <td>Next 7 days</td>
+          <td>${inspectionsDueNext7Days.length}</td>
+        </tr>
+        <tr>
+          <td>Inspections</td>
+          <td>Next 30 days</td>
+          <td>${inspectionsDueNext30Days.length}</td>
+        </tr>
+        <tr>
+          <td>Compliance</td>
+          <td>Expiring in 30 days</td>
+          <td>${complianceExpiringNext30Days.length}</td>
+        </tr>
+        <tr>
+          <td>Compliance</td>
+          <td>Expiring in 90 days</td>
+          <td>${complianceExpiringNext90Days.length}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  ${(() => {
+    const currentYear = new Date().getFullYear();
+    const propertyPages: string[] = [];
+    
+    // Generate pages for each property
+    properties.forEach((property: any) => {
+      const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
+      const propertyInspections = inspections.filter((i: any) => i.propertyId === property.id);
+      const propertyMaintenance = maintenance.filter((m: any) => m.propertyId === property.id);
+      const propertyCompliance = compliance.filter((c: any) => c.propertyId === property.id);
+      const propertyTenants = tenantAssignments.filter((t: any) => t.propertyId === property.id);
+      
+      // Get unique template IDs from inspections
+      const templateIds = Array.from(new Set(propertyInspections.map((i: any) => i.templateId).filter(Boolean)));
+      const templates = templateIds.map(id => {
+        const inspection = propertyInspections.find((i: any) => i.templateId === id);
+        return {
+          id: id,
+          name: inspection?.type || 'Unknown Template',
+        };
+      });
+
+      // Calculate property stats
+      const propertyOverdueInspections = propertyInspections.filter((i: any) => {
+        if (i.status === 'completed' || i.status === 'cancelled') return false;
+        if (!i.scheduledDate) return false;
+        return new Date(i.scheduledDate) < today;
+      });
+      
+      const propertyOverdueCompliance = propertyCompliance.filter((c: any) => {
+        if (!c.expiryDate) return false;
+        return new Date(c.expiryDate) < today;
+      });
+      
+      const propertyUrgentMaintenance = propertyMaintenance.filter((m: any) => {
+        if (m.status === 'completed' || m.status === 'closed') return false;
+        return m.priority === 'urgent' || m.priority === 'high';
+      });
+
+      const activeTenants = propertyTenants.filter((t: any) => {
+        const isActive = t.isActive !== undefined ? t.isActive : (t as any).is_active;
+        return isActive === true || t.status === 'active' || t.status === 'current';
+      });
+
+      propertyPages.push(`
+  <!-- Property: ${escapeHtml(property.name)} -->
+  <div class="page">
+    <h2 class="section-title">${escapeHtml(property.name)}</h2>
+    
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px;">
+      <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC;">
+        <div style="font-size: 12px; color: #666; margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">Block</div>
+        <div style="font-size: 16px; font-weight: 600; color: #1a1a1a;">${propertyBlock ? escapeHtml(propertyBlock.name) : 'N/A'}</div>
+      </div>
+      <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC;">
+        <div style="font-size: 12px; color: #666; margin-bottom: 4px; text-transform: uppercase; font-weight: 600;">Tenants</div>
+        <div style="font-size: 16px; font-weight: 600; color: #1a1a1a;">${activeTenants.length} Active</div>
+      </div>
+    </div>
+
+    ${propertyOverdueInspections.length > 0 || propertyOverdueCompliance.length > 0 || propertyUrgentMaintenance.length > 0 ? `
+    <div style="background: #fee2e2; border-left: 4px solid #dc2626; padding: 12px; margin-bottom: 24px; border-radius: 4px;">
+      <div style="font-weight: 700; color: #991b1b; margin-bottom: 4px;">Alerts</div>
+      <div style="color: #7f1d1d; font-size: 14px;">
+        ${propertyOverdueInspections.length} overdue inspections, ${propertyOverdueCompliance.length} expired compliance, ${propertyUrgentMaintenance.length} urgent maintenance
+      </div>
+    </div>
+    ` : ''}
+
+    <h3 style="font-size: 18px; font-weight: 700; color: #00D5CC; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #00D5CC;">Inspections (${propertyInspections.length})</h3>
+    ${propertyInspections.length > 0 ? `
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Scheduled Date</th>
+          <th>Completed Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${propertyInspections.slice(0, 10).map((i: any) => {
+          const statusBadge = i.status === 'completed' 
+            ? '<span class="badge badge-success">Completed</span>'
+            : i.status === 'cancelled'
+            ? '<span class="badge" style="background: #f3f4f6; color: #6b7280;">Cancelled</span>'
+            : new Date(i.scheduledDate || 0) < today
+            ? '<span class="badge badge-danger">Overdue</span>'
+            : '<span class="badge badge-warning">Pending</span>';
+          return `
+          <tr>
+            <td>${escapeHtml(i.type || 'N/A')}</td>
+            <td>${statusBadge}</td>
+            <td>${i.scheduledDate ? format(new Date(i.scheduledDate), 'MMM d, yyyy') : 'N/A'}</td>
+            <td>${i.completedAt ? format(new Date(i.completedAt), 'MMM d, yyyy') : '-'}</td>
+          </tr>
+          `;
+        }).join('')}
+        ${propertyInspections.length > 10 ? `<tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 12px;">... and ${propertyInspections.length - 10} more inspections</td></tr>` : ''}
+      </tbody>
+    </table>
+    ` : '<p style="color: #6b7280; font-size: 14px;">No inspections found.</p>'}
+
+    <h3 style="font-size: 18px; font-weight: 700; color: #00D5CC; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #00D5CC;">Maintenance Requests (${propertyMaintenance.length})</h3>
+    ${propertyMaintenance.length > 0 ? `
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Due Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${propertyMaintenance.slice(0, 10).map((m: any) => {
+          const priorityBadge = '<span class="badge ' + getPriorityBadgeClass(m.priority) + '">' + escapeHtml(m.priority || 'N/A') + '</span>';
+          const statusBadge = m.status === 'completed'
+            ? '<span class="badge badge-success">Completed</span>'
+            : m.status === 'in_progress'
+            ? '<span class="badge" style="background: #dbeafe; color: #1e40af;">In Progress</span>'
+            : '<span class="badge badge-warning">Open</span>';
+          return `
+          <tr>
+            <td>${escapeHtml(m.title || 'N/A')}</td>
+            <td>${priorityBadge}</td>
+            <td>${statusBadge}</td>
+            <td>${m.dueDate ? format(new Date(m.dueDate), 'MMM d, yyyy') : 'N/A'}</td>
+          </tr>
+          `;
+        }).join('')}
+        ${propertyMaintenance.length > 10 ? `<tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 12px;">... and ${propertyMaintenance.length - 10} more requests</td></tr>` : ''}
+      </tbody>
+    </table>
+    ` : '<p style="color: #6b7280; font-size: 14px;">No maintenance requests found.</p>'}
+
+    <h3 style="font-size: 18px; font-weight: 700; color: #00D5CC; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #00D5CC;">Compliance Documents (${propertyCompliance.length})</h3>
+    ${propertyCompliance.length > 0 ? `
+    <table>
+      <thead>
+        <tr>
+          <th>Document Type</th>
+          <th>Expiry Date</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${propertyCompliance.map((c: any) => {
+          const expiryDate = c.expiryDate ? new Date(c.expiryDate) : null;
+          const daysUntilExpiry = expiryDate ? Math.floor((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : null;
+          let statusBadge = '';
+          if (!expiryDate) {
+            statusBadge = '<span class="badge badge-success">No Expiry</span>';
+          } else if (daysUntilExpiry! < 0) {
+            statusBadge = '<span class="badge badge-danger">Expired</span>';
+          } else if (daysUntilExpiry! <= 30) {
+            statusBadge = '<span class="badge badge-warning">Expiring Soon</span>';
+          } else {
+            statusBadge = '<span class="badge badge-success">Valid</span>';
+          }
+          return `
+          <tr>
+            <td>${escapeHtml(c.documentType || 'N/A')}</td>
+            <td>${expiryDate ? format(expiryDate, 'MMM d, yyyy') : 'No expiry'}</td>
+            <td>${statusBadge}</td>
+          </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+    ` : '<p style="color: #6b7280; font-size: 14px;">No compliance documents found.</p>'}
+  </div>
+      `);
+    });
+
+    return propertyPages.join('');
+  })()}
+</body>
+</html>
+    `;
+  }
+
+  // Generate Dashboard PDF Report
+  app.get("/api/reports/dashboard/pdf", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const orgId = user.organizationId;
+      const filterBlockId = req.query.blockId as string | undefined;
+      const filterPropertyId = req.query.propertyId as string | undefined;
+
+      // Get organization branding
+      const organization = await storage.getOrganization(orgId);
+      const branding: ReportBrandingInfo = organization ? {
+        logoUrl: organization.logoUrl,
+        brandingName: organization.brandingName,
+        brandingEmail: organization.brandingEmail,
+        brandingPhone: organization.brandingPhone,
+        brandingWebsite: organization.brandingWebsite,
+      } : {};
+
+      // Build base URL for images
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const baseUrl = `${protocol}://${host}`;
+
+      // Fetch all data (similar to dashboard stats endpoint)
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      const [allProperties, allBlocks, allInspections, allCompliance, allMaintenance, allTenantAssignments] = await Promise.all([
+        storage.getPropertiesByOrganization(orgId),
+        storage.getBlocksByOrganization(orgId),
+        storage.getInspectionsByOrganization(orgId),
+        storage.getComplianceDocuments(orgId),
+        storage.getMaintenanceByOrganization(orgId),
+        storage.getTenantAssignmentsByOrganization(orgId),
+      ]);
+
+      // Apply filters
+      let properties = allProperties;
+      let blocks = allBlocks;
+      let inspections = allInspections;
+      let compliance = allCompliance;
+      let maintenance = allMaintenance;
+      let tenantAssignments = allTenantAssignments;
+
+      if (filterPropertyId) {
+        properties = properties.filter((p: any) => p.id === filterPropertyId);
+        inspections = inspections.filter((i: any) => i.propertyId === filterPropertyId);
+        compliance = compliance.filter((c: any) => c.propertyId === filterPropertyId);
+        maintenance = maintenance.filter((m: any) => m.propertyId === filterPropertyId);
+        tenantAssignments = tenantAssignments.filter((t: any) => t.propertyId === filterPropertyId);
+        const propertyBlock = allProperties.find((p: any) => p.id === filterPropertyId);
+        if (propertyBlock?.blockId) {
+          blocks = blocks.filter((b: any) => b.id === propertyBlock.blockId);
+        }
+      } else if (filterBlockId) {
+        const blockPropertyIds = new Set(allProperties.filter((p: any) => p.blockId === filterBlockId).map((p: any) => p.id));
+        blocks = blocks.filter((b: any) => b.id === filterBlockId);
+        properties = properties.filter((p: any) => p.blockId === filterBlockId);
+        inspections = inspections.filter((i: any) => i.blockId === filterBlockId || (i.propertyId && blockPropertyIds.has(i.propertyId)));
+        compliance = compliance.filter((c: any) => c.blockId === filterBlockId || (c.propertyId && blockPropertyIds.has(c.propertyId)));
+        maintenance = maintenance.filter((m: any) => blockPropertyIds.has(m.propertyId));
+        tenantAssignments = tenantAssignments.filter((t: any) => blockPropertyIds.has(t.propertyId));
+      }
+
+      // Generate HTML for the dashboard report
+      const html = generateDashboardReportHTML(
+        properties,
+        blocks,
+        inspections,
+        compliance,
+        maintenance,
+        tenantAssignments,
+        filterBlockId,
+        filterPropertyId,
+        branding,
+        baseUrl
+      );
+
+      let browser;
+      try {
+        browser = await launchPuppeteerBrowser();
+        const page = await browser.newPage();
+        await page.setContent(html, {
+          waitUntil: "networkidle0",
+        });
+
+        const pdf = await page.pdf({
+          format: "A4",
+          landscape: false,
+          printBackground: true,
+          margin: {
+            top: "15mm",
+            right: "12mm",
+            bottom: "15mm",
+            left: "12mm",
+          },
+        });
+
+        res.contentType("application/pdf");
+        const filterText = filterPropertyId 
+          ? `property-${filterPropertyId}` 
+          : filterBlockId 
+          ? `block-${filterBlockId}` 
+          : 'all-portfolio';
+        res.setHeader("Content-Disposition", `attachment; filename="dashboard-report-${filterText}-${new Date().toISOString().split('T')[0]}.pdf"`);
+        res.send(Buffer.from(pdf));
+      } finally {
+        if (browser) {
+          await browser.close();
+        }
+      }
+    } catch (error) {
+      console.error("Error generating dashboard PDF:", error);
+      res.status(500).json({ message: "Failed to generate dashboard PDF" });
+    }
+  });
+
   // Send Comparison Report to Finance Department
   app.post("/api/comparison-reports/:id/send-to-finance", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
     try {
@@ -17157,7 +18458,7 @@ You can help the tenant with:
                   ],
                 },
               ],
-              max_completion_tokens: 2000,
+              max_completion_tokens: 1000,
             });
 
             console.log("[Tenant Maintenance Chat] Full OpenAI response with image:", JSON.stringify(analysisCompletion, null, 2));
@@ -17207,7 +18508,7 @@ You can help the tenant with:
               },
               { role: "user", content: message },
             ],
-            max_completion_tokens: 2000,
+            max_completion_tokens: 1000,
           });
 
           console.log("[Tenant Maintenance Chat] Full OpenAI response (text-only):", JSON.stringify(completion, null, 2));
@@ -20284,6 +21585,271 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       }
     } catch (error) {
       console.error("Error generating compliance report PDF:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // ==================== DASHBOARD PDF REPORT ====================
+
+  // Generate Dashboard PDF Report
+  app.post("/api/reports/dashboard/pdf", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { blockId, propertyId } = req.body;
+
+      // Fetch organization branding
+      const organization = await storage.getOrganization(user.organizationId);
+      const branding: ReportBrandingInfo = organization ? {
+        logoUrl: organization.logoUrl,
+        brandingName: organization.brandingName,
+        brandingEmail: organization.brandingEmail,
+        brandingPhone: organization.brandingPhone,
+        brandingWebsite: organization.brandingWebsite,
+      } : {};
+
+      // Fetch all data
+      const allBlocks = await storage.getBlocksByOrganization(user.organizationId);
+      const allProperties = await storage.getPropertiesByOrganization(user.organizationId);
+      const allInspections = await storage.getInspectionsByOrganization(user.organizationId);
+      const allMaintenance = await storage.getMaintenanceByOrganization(user.organizationId);
+      const allCompliance = await storage.getComplianceDocuments(user.organizationId);
+      const allTenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
+
+      // Apply filters
+      let blocks = allBlocks;
+      let properties = allProperties;
+      let inspections = allInspections;
+      let maintenance = allMaintenance;
+      let compliance = allCompliance;
+      let tenantAssignments = allTenantAssignments;
+
+      if (propertyId) {
+        properties = properties.filter((p: any) => p.id === propertyId);
+        inspections = inspections.filter((i: any) => i.propertyId === propertyId);
+        compliance = compliance.filter((c: any) => c.propertyId === propertyId);
+        maintenance = maintenance.filter((m: any) => m.propertyId === propertyId);
+        tenantAssignments = tenantAssignments.filter((t: any) => t.propertyId === propertyId);
+        const propertyBlock = allProperties.find((p: any) => p.id === propertyId);
+        if (propertyBlock?.blockId) {
+          blocks = blocks.filter((b: any) => b.id === propertyBlock.blockId);
+        }
+      } else if (blockId) {
+        const blockPropertyIds = new Set(allProperties.filter((p: any) => p.blockId === blockId).map((p: any) => p.id));
+        blocks = blocks.filter((b: any) => b.id === blockId);
+        properties = properties.filter((p: any) => p.blockId === blockId);
+        inspections = inspections.filter((i: any) => i.blockId === blockId || (i.propertyId && blockPropertyIds.has(i.propertyId)));
+        compliance = compliance.filter((c: any) => c.blockId === blockId || (c.propertyId && blockPropertyIds.has(c.propertyId)));
+        maintenance = maintenance.filter((m: any) => blockPropertyIds.has(m.propertyId));
+        tenantAssignments = tenantAssignments.filter((t: any) => blockPropertyIds.has(t.propertyId));
+      }
+
+      // Get dashboard stats
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const days7Future = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const days30Future = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const days90Ago = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+      const overdueInspections = inspections.filter((i: any) => {
+        if (i.status === 'completed' || i.status === 'cancelled') return false;
+        if (!i.scheduledDate) return false;
+        return new Date(i.scheduledDate) < today;
+      });
+
+      const overdueCompliance = compliance.filter((c: any) => {
+        if (!c.expiryDate) return false;
+        return new Date(c.expiryDate) < today;
+      });
+
+      const urgentMaintenance = maintenance.filter((m: any) => {
+        if (m.status === 'completed' || m.status === 'closed') return false;
+        if (m.priority === 'urgent' || m.priority === 'high') return true;
+        if (m.dueDate) {
+          const dueDate = new Date(m.dueDate);
+          const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+          return dueDateOnly < today;
+        }
+        return false;
+      });
+
+      const activeAssignments = tenantAssignments.filter((t: any) => {
+        const isActive = t.isActive !== undefined ? t.isActive : (t as any).is_active;
+        return isActive === true;
+      });
+      const occupiedProperties = new Set(activeAssignments.map((t: any) => t.propertyId || (t as any).property_id));
+      const occupancyRate = properties.length > 0 
+        ? Math.round((occupiedProperties.size / properties.length) * 100) 
+        : 0;
+
+      const validCompliance = compliance.filter((c: any) => {
+        if (!c.expiryDate) return true;
+        return new Date(c.expiryDate) >= today;
+      });
+      const complianceRate = compliance.length > 0 
+        ? Math.round((validCompliance.length / compliance.length) * 100) 
+        : 100;
+
+      const recentInspections = inspections.filter((i: any) => {
+        if (!i.createdAt) return false;
+        return new Date(i.createdAt) >= days90Ago;
+      });
+      const completedRecentInspections = recentInspections.filter((i: any) => i.status === 'completed');
+      const inspectionCompletionRate = recentInspections.length > 0 
+        ? Math.round((completedRecentInspections.length / recentInspections.length) * 100) 
+        : 0;
+
+      const completedMaintenance = maintenance.filter((m: any) => {
+        if (m.status !== 'completed') return false;
+        if (!m.completedAt) return false;
+        return new Date(m.completedAt) >= days90Ago;
+      });
+      
+      let avgResolutionDays = 0;
+      if (completedMaintenance.length > 0) {
+        const totalDays = completedMaintenance.reduce((sum: number, m: any) => {
+          if (!m.createdAt || !m.completedAt) return sum;
+          const created = new Date(m.createdAt);
+          const completed = new Date(m.completedAt);
+          return sum + Math.ceil((completed.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+        }, 0);
+        avgResolutionDays = Math.round(totalDays / completedMaintenance.length * 10) / 10;
+      }
+
+      const openMaintenance = maintenance.filter((m: any) => m.status === 'open' || m.status === 'in_progress');
+      const inProgressMaintenance = maintenance.filter((m: any) => m.status === 'in_progress');
+
+      const inspectionsDueNext7Days = inspections.filter((i: any) => {
+        if (i.status === 'completed' || i.status === 'cancelled') return false;
+        if (!i.scheduledDate) return false;
+        const scheduled = new Date(i.scheduledDate);
+        return scheduled >= today && scheduled <= days7Future;
+      });
+
+      const inspectionsDueNext30Days = inspections.filter((i: any) => {
+        if (i.status === 'completed' || i.status === 'cancelled') return false;
+        if (!i.scheduledDate) return false;
+        const scheduled = new Date(i.scheduledDate);
+        return scheduled >= today && scheduled <= days30Future;
+      });
+
+      const complianceExpiringNext30Days = compliance.filter((c: any) => {
+        if (!c.expiryDate) return false;
+        const expiry = new Date(c.expiryDate);
+        return expiry >= today && expiry <= days30Future;
+      });
+
+      const complianceExpiringNext90Days = compliance.filter((c: any) => {
+        if (!c.expiryDate) return false;
+        const expiry = new Date(c.expiryDate);
+        return expiry >= today && expiry <= new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+      });
+
+      const stats = {
+        totals: {
+          properties: properties.length,
+          blocks: blocks.length,
+          inspections: inspections.length,
+          maintenance: maintenance.length,
+          compliance: compliance.length,
+        },
+        alerts: {
+          overdueInspections: overdueInspections.length,
+          overdueInspectionsList: overdueInspections.map((i: any) => ({
+            id: i.id,
+            propertyId: i.propertyId,
+            blockId: i.blockId,
+            type: i.type,
+            scheduledDate: i.scheduledDate,
+            daysOverdue: Math.floor((today.getTime() - new Date(i.scheduledDate).getTime()) / (1000 * 60 * 60 * 24)),
+          })),
+          overdueCompliance: overdueCompliance.length,
+          overdueComplianceList: overdueCompliance.map((c: any) => ({
+            id: c.id,
+            propertyId: c.propertyId,
+            blockId: c.blockId,
+            documentType: c.documentType,
+            expiryDate: c.expiryDate,
+            daysOverdue: Math.floor((today.getTime() - new Date(c.expiryDate).getTime()) / (1000 * 60 * 60 * 24)),
+          })),
+          urgentMaintenance: urgentMaintenance.length,
+          urgentMaintenanceList: urgentMaintenance.map((m: any) => ({
+            id: m.id,
+            title: m.title,
+            propertyId: m.propertyId,
+            priority: m.priority,
+            dueDate: m.dueDate,
+            daysOverdue: m.dueDate ? Math.floor((today.getTime() - new Date(m.dueDate).getTime()) / (1000 * 60 * 60 * 24)) : null,
+            createdAt: m.createdAt,
+          })),
+        },
+        upcoming: {
+          inspectionsDueNext7Days: inspectionsDueNext7Days.length,
+          inspectionsDueNext30Days: inspectionsDueNext30Days.length,
+          complianceExpiringNext30Days: complianceExpiringNext30Days.length,
+          complianceExpiringNext90Days: complianceExpiringNext90Days.length,
+        },
+        kpis: {
+          occupancyRate,
+          complianceRate,
+          inspectionCompletionRate,
+          avgMaintenanceResolutionDays: avgResolutionDays,
+          openMaintenanceCount: openMaintenance.length,
+          inProgressMaintenanceCount: inProgressMaintenance.length,
+        },
+      };
+
+      const baseUrl = getBaseUrl(req);
+      const html = generateDashboardReportHTML(
+        properties,
+        blocks,
+        inspections,
+        compliance,
+        maintenance,
+        tenantAssignments,
+        blockId || undefined,
+        propertyId || undefined,
+        branding,
+        baseUrl
+      );
+
+      let browser;
+      try {
+        browser = await launchPuppeteerBrowser();
+
+        const page = await browser.newPage();
+        await page.setContent(html, {
+          waitUntil: "networkidle0",
+        });
+
+        const pdf = await page.pdf({
+          format: "A4",
+          landscape: true,
+          printBackground: true,
+          margin: {
+            top: "15mm",
+            right: "12mm",
+            bottom: "15mm",
+            left: "12mm",
+          },
+        });
+
+        res.contentType("application/pdf");
+        const filterText = blockId ? `-block-${blocks.find((b: any) => b.id === blockId)?.name || 'filtered'}` : 
+                          propertyId ? `-property-${properties.find((p: any) => p.id === propertyId)?.name || 'filtered'}` : 
+                          '-all';
+        res.setHeader("Content-Disposition", `attachment; filename="dashboard-report${filterText}-${new Date().toISOString().split('T')[0]}.pdf"`);
+        res.send(Buffer.from(pdf));
+      } finally {
+        if (browser) {
+          await browser.close();
+        }
+      }
+    } catch (error) {
+      console.error("Error generating dashboard report PDF:", error);
       res.status(500).json({ message: "Failed to generate report" });
     }
   });

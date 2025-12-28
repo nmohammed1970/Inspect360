@@ -770,23 +770,23 @@ export default function InspectionCapture() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-6">
+    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-semibold mb-2" data-testid="text-inspection-title">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2" data-testid="text-inspection-title">
             Inspection Capture
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-xs sm:text-sm md:text-base text-muted-foreground">
             {inspection.propertyId ? "Property" : "Block"} Inspection
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
           {/* Online/Offline status */}
           <Badge
             variant={isOnline ? "default" : "secondary"}
             data-testid="badge-online-status"
-            className="gap-2"
+            className="gap-2 text-xs sm:text-sm"
           >
             {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {isOnline ? "Online" : "Offline"}
@@ -794,7 +794,7 @@ export default function InspectionCapture() {
 
           {/* Pending sync count */}
           {pendingCount > 0 && (
-            <Badge variant="outline" data-testid="badge-pending-sync">
+            <Badge variant="outline" data-testid="badge-pending-sync" className="text-xs sm:text-sm">
               <Cloud className="w-3 h-3 mr-1" />
               {pendingCount} pending
             </Badge>
@@ -808,36 +808,41 @@ export default function InspectionCapture() {
               onClick={handleSync}
               disabled={isSyncing}
               data-testid="button-sync"
+              className="text-xs sm:text-sm h-7 sm:h-8"
             >
-              {isSyncing ? "Syncing..." : "Sync Now"}
+              {isSyncing ? "Syncing..." : "Sync"}
             </Button>
           )}
 
-          <Badge variant="secondary" data-testid="badge-progress">
+          <Badge variant="secondary" data-testid="badge-progress" className="text-xs sm:text-sm">
             {completedFields} / {totalFields} fields
           </Badge>
 
           {/* AI Analysis Button */}
           {aiAnalysisStatus?.status === "processing" ? (
-            <Button variant="outline" disabled data-testid="button-ai-analyzing">
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Analysing ({aiAnalysisStatus.progress}/{aiAnalysisStatus.totalFields})
+            <Button variant="outline" disabled data-testid="button-ai-analyzing" size="sm" className="text-xs sm:text-sm h-7 sm:h-8">
+              <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2 animate-spin" />
+              <span className="hidden sm:inline">Analysing ({aiAnalysisStatus.progress}/{aiAnalysisStatus.totalFields})</span>
+              <span className="sm:hidden">Analysing</span>
             </Button>
           ) : aiAnalysisStatus?.status === "completed" ? (
-            <Badge variant="default" className="bg-green-600" data-testid="badge-ai-complete">
+            <Badge variant="default" className="bg-green-600 text-xs sm:text-sm" data-testid="badge-ai-complete">
               <CheckCircle2 className="w-3 h-3 mr-1" />
-              AI Analysis Complete
+              <span className="hidden sm:inline">AI Analysis Complete</span>
+              <span className="sm:hidden">AI Done</span>
             </Badge>
           ) : (
             <Button
               variant="default"
-              className="bg-primary hover:bg-primary/90"
+              className="bg-primary hover:bg-primary/90 text-xs sm:text-sm h-7 sm:h-8 md:h-9"
               onClick={() => startAIAnalysis.mutate()}
               disabled={startAIAnalysis.isPending || !isOnline}
               data-testid="button-analyze-report"
+              size="sm"
             >
-              <Sparkles className="w-4 h-4 mr-2" />
-              {startAIAnalysis.isPending ? "Starting..." : "Analyse Report Using AI"}
+              <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden md:inline">{startAIAnalysis.isPending ? "Starting..." : "Analyse Report Using AI"}</span>
+              <span className="md:hidden">{startAIAnalysis.isPending ? "Starting..." : "AI Analyse"}</span>
             </Button>
           )}
 
@@ -845,9 +850,12 @@ export default function InspectionCapture() {
             onClick={() => completeInspection.mutate()}
             disabled={completeInspection.isPending}
             data-testid="button-complete-inspection"
+            size="sm"
+            className="text-xs sm:text-sm h-7 sm:h-8 md:h-9"
           >
-            <CheckCircle2 className="w-4 h-4 mr-2" />
-            Complete Inspection
+            <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+            <span className="hidden sm:inline">Complete Inspection</span>
+            <span className="sm:hidden">Complete</span>
           </Button>
         </div>
       </div>
@@ -948,19 +956,19 @@ export default function InspectionCapture() {
 
       {/* Progress bar */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <div className="space-y-2">
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between text-xs sm:text-sm">
               <span className="text-muted-foreground">Progress</span>
               <span className="font-medium">{Math.round(progress)}%</span>
             </div>
-            <Progress value={progress} data-testid="progress-inspection" />
+            <Progress value={progress} data-testid="progress-inspection" className="h-2" />
           </div>
         </CardContent>
       </Card>
 
       {/* Section navigation */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
         {sections.map((section, index) => (
           <Button
             key={section.id}
@@ -968,6 +976,7 @@ export default function InspectionCapture() {
             size="sm"
             onClick={() => setCurrentSectionIndex(index)}
             data-testid={`button-section-${index}`}
+            className="text-xs sm:text-sm whitespace-nowrap flex-shrink-0"
           >
             {section.title}
           </Button>

@@ -298,14 +298,14 @@ export default function Properties() {
 
   if (isLoading) {
     return (
-      <div className="p-4 md:p-8">
+      <div className="container mx-auto p-4 md:p-6">
         <div className="text-muted-foreground">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {urlBlockId && selectedBlock && (
         <Link href={`/blocks/${urlBlockId}`}>
           <Button variant="ghost" className="mb-4" data-testid="button-back-to-block">
@@ -317,7 +317,7 @@ export default function Properties() {
       
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-foreground">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
             {urlBlockId && selectedBlock ? `${selectedBlock.name} - Properties` : "Properties"}
           </h1>
           <p className="text-sm md:text-base text-muted-foreground">

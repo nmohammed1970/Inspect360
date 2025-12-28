@@ -719,14 +719,18 @@ export default function Maintenance() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2 md:gap-3" data-testid="heading-maintenance">
-            <Wrench className="w-6 h-6 md:w-8 md:h-8 text-primary" />
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-maintenance">
             Maintenance
           </h1>
+          <p className="text-sm md:text-base text-muted-foreground">
+            {user?.role === "tenant" 
+              ? "Submit and track your maintenance requests" 
+              : "Manage maintenance requests and contractor work orders"}
+          </p>
           <p className="text-sm md:text-base text-muted-foreground mt-1">
             {user?.role === "tenant" 
               ? "Submit and track your maintenance requests" 
