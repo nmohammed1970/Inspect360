@@ -619,7 +619,7 @@ export default function Maintenance() {
             Please enable this feature from the marketplace to continue.
           </p>
         </div>
-        <Button variant="default" onClick={() => window.location.href = "/settings?tab=marketplace"}>
+        <Button variant="default" onClick={() => window.location.href = "/marketplace"}>
           Go to Marketplace
         </Button>
       </div>

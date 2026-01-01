@@ -455,7 +455,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                 Please enable this feature from the marketplace to continue.
               </DialogDescription>
             </div>
-            <Button variant="default" onClick={() => window.location.href = "/settings?tab=marketplace"}>
+            <Button variant="default" onClick={() => window.location.href = "/marketplace"}>
               Go to Marketplace
             </Button>
           </div>

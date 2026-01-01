@@ -11305,7 +11305,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           }
 
           // Create add-on purchase record
-          await storage.createInstanceAddonPurchase({
+          const addonPurchase = await storage.createInstanceAddonPurchase({
             instanceId: instanceSub.id,
             packId,
             tierIdAtPurchase,
@@ -11317,7 +11317,20 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             status: "active"
           });
 
-          console.log(`Add-on pack ${packId} purchased for organization ${organizationId}: ${quantity} inspections at ${pricePerInspection / 100} ${currency} each`);
+          // Grant credits to the organization
+          const { subscriptionService } = await import("./subscriptionService");
+          await subscriptionService.grantCredits(
+            organizationId,
+            quantity,
+            "addon_pack",
+            undefined, // No expiration date for addon packs
+            {
+              addonPurchaseId: addonPurchase.id,
+            },
+            pricePerInspection
+          );
+
+          console.log(`Add-on pack ${packId} purchased for organization ${organizationId}: ${quantity} inspections at ${pricePerInspection / 100} ${currency} each. Credits granted.`);
         } else if (purchaseType === 'bundle_purchase') {
           // Handle bundle purchase
           const bundleId = session.metadata.bundleId;

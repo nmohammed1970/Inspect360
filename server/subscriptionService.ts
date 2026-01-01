@@ -140,21 +140,21 @@ export class SubscriptionService {
   }
 
   /**
-   * Grant credits to an organization (from plan inclusion, top-up, or admin grant)
+   * Grant credits to an organization (from plan inclusion, top-up, admin grant, or addon pack)
    * @param organizationId - Organization receiving credits
    * @param quantity - Number of credits to grant
-   * @param source - Source of credits ("plan_inclusion", "topup", "admin_grant")
+   * @param source - Source of credits ("plan_inclusion", "topup", "admin_grant", "addon_pack")
    * @param expiresAt - Optional expiration date
-   * @param metadata - Optional metadata (subscriptionId, topupOrderId, adminNotes)
+   * @param metadata - Optional metadata (subscriptionId, topupOrderId, addonPurchaseId, adminNotes)
    * @param unitCostMinorUnits - Optional unit cost for valuation
    * @returns Created credit batch
    */
   async grantCredits(
     organizationId: string,
     quantity: number,
-    source: "plan_inclusion" | "topup" | "admin_grant",
+    source: "plan_inclusion" | "topup" | "admin_grant" | "addon_pack",
     expiresAt?: Date,
-    metadata?: { subscriptionId?: string; topupOrderId?: string; adminNotes?: string; createdBy?: string },
+    metadata?: { subscriptionId?: string; topupOrderId?: string; addonPurchaseId?: string; adminNotes?: string; createdBy?: string },
     unitCostMinorUnits?: number
   ): Promise<CreditBatch> {
     if (quantity <= 0) {
@@ -174,6 +174,20 @@ export class SubscriptionService {
       metadataJson: metadata ?? null,
     });
 
+    // Determine linked entity type and ID based on source
+    let linkedEntityType = "subscription";
+    let linkedEntityId: string | null = null;
+    
+    if (source === "topup") {
+      linkedEntityType = "topup_order";
+      linkedEntityId = metadata?.topupOrderId ?? null;
+    } else if (source === "addon_pack") {
+      linkedEntityType = "addon_pack_purchase";
+      linkedEntityId = metadata?.addonPurchaseId ?? null;
+    } else {
+      linkedEntityId = metadata?.subscriptionId ?? null;
+    }
+
     // Record in credit ledger
     await storage.createCreditLedgerEntry({
       organizationId,
@@ -183,8 +197,8 @@ export class SubscriptionService {
       batchId: batch.id,
       unitCostMinorUnits: unitCostMinorUnits ?? null,
       notes: `Granted ${quantity} credits from ${source}`,
-      linkedEntityType: source === "topup" ? "topup_order" : "subscription",
-      linkedEntityId: metadata?.topupOrderId ?? metadata?.subscriptionId ?? null,
+      linkedEntityType,
+      linkedEntityId,
     });
 
     // Also update the legacy creditsRemaining field for backward compatibility
