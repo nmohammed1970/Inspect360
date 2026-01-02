@@ -16319,15 +16319,71 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       }
 
       const org = await storage.getOrganization(user.organizationId);
-      if (!org?.stripeCustomerId) {
-        return res.status(400).json({ message: "No active Stripe customer" });
+      let stripeCustomerId = org?.stripeCustomerId;
+
+      // If org doesn't have a customer ID, try to find it from existing subscriptions
+      if (!stripeCustomerId) {
+        console.log(`[Portal] Organization ${user.organizationId} has no stripeCustomerId, checking subscriptions...`);
+        
+        // Check if there's a subscription with a customer ID
+        const subscription = await storage.getSubscriptionByOrganization(user.organizationId);
+        
+        if (subscription?.stripeCustomerId) {
+          console.log(`[Portal] Found customer ID from subscription: ${subscription.stripeCustomerId}`);
+          stripeCustomerId = subscription.stripeCustomerId;
+          // Update the organization with the customer ID
+          await storage.updateOrganizationStripe(user.organizationId, stripeCustomerId, org?.subscriptionStatus || "inactive");
+        } else {
+          // Check instance_subscriptions for Stripe customer
+          const instanceSub = await storage.getInstanceSubscription(user.organizationId);
+          if (instanceSub) {
+            // Try to find customer from Stripe subscriptions
+            const stripe = await getUncachableStripeClient();
+            try {
+              // Search for subscriptions by organization metadata or email
+              const subscriptions = await stripe.subscriptions.list({
+                limit: 100,
+                expand: ['data.customer'],
+              });
+              
+              // Try to match by user email
+              const matchingSub = subscriptions.data.find((sub: any) => {
+                const customer = sub.customer;
+                if (typeof customer === 'object' && customer?.email === user.email) {
+                  return true;
+                }
+                return false;
+              });
+              
+              if (matchingSub) {
+                const customerId = typeof matchingSub.customer === 'string' 
+                  ? matchingSub.customer 
+                  : (matchingSub.customer as any)?.id;
+                
+                if (customerId) {
+                  console.log(`[Portal] Found customer ID from Stripe: ${customerId}`);
+                  stripeCustomerId = customerId;
+                  await storage.updateOrganizationStripe(user.organizationId, stripeCustomerId, "active");
+                }
+              }
+            } catch (stripeError: any) {
+              console.warn(`[Portal] Could not search Stripe for customer: ${stripeError.message}`);
+            }
+          }
+        }
+      }
+
+      if (!stripeCustomerId) {
+        return res.status(400).json({ 
+          message: "No active Stripe customer found. Please complete a subscription purchase first." 
+        });
       }
 
       const baseUrl = getBaseUrl(req);
 
       const stripe = await getUncachableStripeClient();
       const session = await stripe.billingPortal.sessions.create({
-        customer: org.stripeCustomerId,
+        customer: stripeCustomerId,
         return_url: `${baseUrl}/billing`,
       });
 
