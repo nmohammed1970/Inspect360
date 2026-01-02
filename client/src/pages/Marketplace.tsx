@@ -253,24 +253,6 @@ export default function Marketplace() {
                 </div>
             </div>
 
-            {/* Highlights Banner */}
-            <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between">
-                <div className="flex items-center gap-4 mb-4 md:mb-0">
-                    <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-                        <Check className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                        <h4 className="text-foreground font-bold text-lg">Active Plan Entitlements</h4>
-                        <p className="text-muted-foreground text-sm">Most marketplace features are automatically included in your Professional subscription.</p>
-                    </div>
-                </div>
-                <Link href="/billing">
-                    <Button variant="outline" className="h-10 px-6 font-semibold border-primary/50 text-primary hover:bg-primary/5">
-                        Explore Tiers
-                    </Button>
-                </Link>
-            </div>
-
             {/* Active Modules Section */}
             {activeModules.length > 0 && (
                 <div className="space-y-6">
