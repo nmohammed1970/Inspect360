@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { fileURLToPath } from 'url';
+import { resolve } from 'path';
 import { db } from "./db";
 import { 
   subscriptionTiersTable, 
@@ -304,8 +306,12 @@ async function seedEcoAdmin() {
 export { seedEcoAdmin };
 
 // If run directly (not imported), execute and exit
-// Check if this file is being run directly vs imported
-if (import.meta.url.endsWith(process.argv[1]?.replace(/\\/g, '/') || '') || process.argv[1]?.includes('seedEcoAdmin')) {
+// This check ensures the file only runs when executed directly via npm run seed:plans
+// and NOT when imported by index.ts
+const __filename = fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+
+if (isMainModule) {
   seedEcoAdmin()
     .then(() => {
       console.log("🎉 Done!");
