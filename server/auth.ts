@@ -299,7 +299,7 @@ export async function setupAuth(app: Express) {
             name: validatedData.username, // Company name from registration form
             ownerId: user.id,
             countryCode: countryCode,
-            creditsRemaining: 10, // Give 10 free inspection credits to start
+            creditsRemaining: 5, // Initial credits (will be granted via credit system)
           });
 
           // Update user with organization ID and set role to owner
@@ -309,13 +309,25 @@ export async function setupAuth(app: Express) {
             role: "owner",
           });
 
-          // Create initial credit transaction for free credits
-          await storage.createCreditTransaction({
-            organizationId: organization.id,
-            amount: 10,
-            type: "purchase",
-            description: "Welcome credits - 10 free inspection credits",
-          });
+          // Grant 5 free inspection credits as signup reward using the new credit system
+          try {
+            const { subscriptionService } = await import("./subscriptionService");
+            await subscriptionService.grantCredits(
+              organization.id,
+              5,
+              "admin_grant",
+              undefined, // No expiration date for signup credits
+              {
+                adminNotes: "Signup reward - Welcome bonus for new user registration",
+                createdBy: user.id,
+              }
+            );
+            console.log(`✓ Granted 5 signup reward credits to new organization ${organization.id}`);
+          } catch (creditError: any) {
+            console.error("Warning: Failed to grant signup credits:", creditError);
+            // Fallback: Update organization credits directly if credit system fails
+            await storage.updateOrganizationCredits(organization.id, 5);
+          }
 
           // Create default inspection templates
           try {
