@@ -2798,10 +2798,56 @@ export const creditNotes = pgTable("credit_notes", {
   appliedAt: timestamp("applied_at"),
 });
 
+// 3.3 Quotation System
+export const quotationRequests = pgTable("quotation_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id),
+  requestedInspections: integer("requested_inspections").notNull(),
+  currency: varchar("currency", { length: 3 }).references(() => currencyConfig.code).notNull(),
+  preferredBillingPeriod: billingIntervalEnum("preferred_billing_period").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | quoted | accepted | cancelled | rejected
+  customerNotes: text("customer_notes"),
+  assignedAdminId: varchar("assigned_admin_id").references(() => adminUsers.id),
+  viewedByCustomerAt: timestamp("viewed_by_customer_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const quotations = pgTable("quotations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  quotationRequestId: varchar("quotation_request_id").notNull().references(() => quotationRequests.id),
+  quotedPrice: integer("quoted_price").notNull(), // in minor units (pence/cents)
+  quotedInspections: integer("quoted_inspections").notNull(),
+  billingPeriod: billingIntervalEnum("billing_period").notNull(),
+  currency: varchar("currency", { length: 3 }).references(() => currencyConfig.code).notNull(),
+  adminNotes: text("admin_notes"), // Internal notes, not visible to customer
+  customerNotes: text("customer_notes"), // Visible to customer in billing page
+  createdBy: varchar("created_by").notNull().references(() => adminUsers.id),
+  status: varchar("status", { length: 20 }).notNull().default("draft"), // draft | sent | accepted | declined
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const quotationActivityLog = pgTable("quotation_activity_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  quotationRequestId: varchar("quotation_request_id").notNull().references(() => quotationRequests.id),
+  action: varchar("action", { length: 50 }).notNull(), // created | viewed | quoted | accepted | cancelled | rejected | note_added | assigned | contacted
+  performedBy: varchar("performed_by").notNull(), // user ID or admin ID
+  performedByType: varchar("performed_by_type", { length: 20 }).notNull(), // customer | admin
+  details: jsonb("details"), // Additional context as JSON
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;
 export type CreditNote = typeof creditNotes.$inferSelect;
 export type InsertCreditNote = typeof creditNotes.$inferInsert;
+export type QuotationRequest = typeof quotationRequests.$inferSelect;
+export type InsertQuotationRequest = typeof quotationRequests.$inferInsert;
+export type Quotation = typeof quotations.$inferSelect;
+export type InsertQuotation = typeof quotations.$inferInsert;
+export type QuotationActivityLog = typeof quotationActivityLog.$inferSelect;
+export type InsertQuotationActivityLog = typeof quotationActivityLog.$inferInsert;
 
 // Export Zod schemas for validation
 export const insertCurrencyConfigSchema = createInsertSchema(currencyConfig);
@@ -2820,6 +2866,20 @@ export const insertInstanceModuleSchema = createInsertSchema(instanceModules);
 export const insertInstanceAddonPurchaseSchema = createInsertSchema(instanceAddonPurchases);
 export const insertBundlePricingSchema = createInsertSchema(bundlePricingTable);
 export const insertInstanceBundleSchema = createInsertSchema(instanceBundles);
+export const insertQuotationRequestSchema = createInsertSchema(quotationRequests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertQuotationSchema = createInsertSchema(quotations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertQuotationActivityLogSchema = createInsertSchema(quotationActivityLog).omit({
+  id: true,
+  createdAt: true,
+});
 
 export const bundlePricing = bundlePricingTable;
 

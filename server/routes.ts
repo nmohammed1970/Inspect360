@@ -415,6 +415,7 @@ import {
   instanceModules,
   organizations,
   inspections,
+  adminUsers,
   type User,
 } from "@shared/schema";
 import { pricingService } from "./pricingService";
@@ -2249,6 +2250,307 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ url: session.url });
     } catch (error: any) {
       console.error("Error in checkout:", error);
+      res.status(500).json({ message: "Failed to initiate checkout", error: error.message });
+    }
+  });
+
+  // Quotation endpoints - Customer
+  app.post("/api/quotations/request", isAuthenticated, async (req: any, res) => {
+    try {
+      const { requestedInspections, currency, preferredBillingPeriod, customerNotes } = req.body;
+      const organizationId = req.user.organizationId;
+
+      if (!organizationId) {
+        return res.status(400).json({ message: "Organization ID is required" });
+      }
+
+      if (!requestedInspections || requestedInspections < 500) {
+        return res.status(400).json({ message: "Quotation requests are only available for 500+ inspections" });
+      }
+
+      // Check if there's already a pending/quoted request
+      const existingRequest = await storage.getQuotationRequestByOrganization(organizationId);
+      if (existingRequest) {
+        return res.status(400).json({ 
+          message: "You already have a pending quotation request",
+          requestId: existingRequest.id 
+        });
+      }
+
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      const request = await storage.createQuotationRequest({
+        organizationId,
+        requestedInspections: Number(requestedInspections),
+        currency: currency || org.preferredCurrency || "GBP",
+        preferredBillingPeriod: preferredBillingPeriod || "monthly",
+        status: "pending",
+        customerNotes: customerNotes || null,
+      });
+
+      // Log activity
+      await storage.createQuotationActivityLog({
+        quotationRequestId: request.id,
+        action: "created",
+        performedBy: req.user.id,
+        performedByType: "customer",
+        details: { requestedInspections, currency, preferredBillingPeriod },
+      });
+
+      // Send email notification to all admins
+      try {
+        const { sendQuotationRequestNotification } = await import("./resend");
+        const admins = await db.select().from(adminUsers);
+        for (const admin of admins) {
+          await sendQuotationRequestNotification(
+            admin.email,
+            admin.firstName,
+            {
+              requestId: request.id,
+              organizationName: org.name,
+              requestedInspections,
+              currency,
+              preferredBillingPeriod,
+            }
+          );
+        }
+      } catch (emailError) {
+        console.error("Failed to send quotation request notification:", emailError);
+        // Don't fail the request if email fails
+      }
+
+      res.json({ success: true, request });
+    } catch (error: any) {
+      console.error("Error creating quotation request:", error);
+      res.status(500).json({ message: "Failed to create quotation request", error: error.message });
+    }
+  });
+
+  app.get("/api/quotations/pending", isAuthenticated, async (req: any, res) => {
+    try {
+      const organizationId = req.user.organizationId;
+      const request = await storage.getQuotationRequestByOrganization(organizationId);
+      
+      if (!request) {
+        return res.json({ request: null, quotation: null });
+      }
+
+      const quotation = await storage.getQuotationByRequest(request.id);
+      
+      // Mark as viewed by customer if quotation exists
+      if (quotation && !request.viewedByCustomerAt) {
+        await storage.updateQuotationRequest(request.id, { viewedByCustomerAt: new Date() });
+        await storage.createQuotationActivityLog({
+          quotationRequestId: request.id,
+          action: "viewed",
+          performedBy: req.user.id,
+          performedByType: "customer",
+          details: { quotationId: quotation.id },
+        });
+      }
+
+      res.json({ request, quotation });
+    } catch (error: any) {
+      console.error("Error fetching pending quotation:", error);
+      res.status(500).json({ message: "Failed to fetch quotation", error: error.message });
+    }
+  });
+
+  app.post("/api/quotations/:id/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const organizationId = req.user.organizationId;
+
+      const request = await storage.getQuotationRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: "Quotation request not found" });
+      }
+
+      if (request.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      if (request.status === "accepted") {
+        return res.status(400).json({ message: "Cannot cancel an accepted quotation" });
+      }
+
+      await storage.updateQuotationRequest(id, { status: "cancelled" });
+      
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: "cancelled",
+        performedBy: req.user.id,
+        performedByType: "customer",
+      });
+
+      // Send email notification to admins
+      try {
+        const { sendQuotationCancelledEmail } = await import("./resend");
+        const org = await storage.getOrganization(request.organizationId);
+        const admins = await db.select().from(adminUsers);
+        for (const admin of admins) {
+          await sendQuotationCancelledEmail(
+            admin.email,
+            admin.firstName,
+            {
+              requestId: request.id,
+              organizationName: org?.name || "Unknown Organization",
+            }
+          );
+        }
+      } catch (emailError) {
+        console.error("Failed to send cancellation notification:", emailError);
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error cancelling quotation request:", error);
+      res.status(500).json({ message: "Failed to cancel quotation request", error: error.message });
+    }
+  });
+
+  app.post("/api/quotations/:id/decline", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const organizationId = req.user.organizationId;
+
+      const request = await storage.getQuotationRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: "Quotation request not found" });
+      }
+
+      if (request.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const quotation = await storage.getQuotationByRequest(id);
+      if (!quotation) {
+        return res.status(400).json({ message: "No quotation found for this request" });
+      }
+
+      await storage.updateQuotation(quotation.id, { status: "declined" });
+      await storage.updateQuotationRequest(id, { status: "pending" }); // Reset to pending so admin can create new quote
+      
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: "rejected",
+        performedBy: req.user.id,
+        performedByType: "customer",
+        details: { reason, quotationId: quotation.id },
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error declining quotation:", error);
+      res.status(500).json({ message: "Failed to decline quotation", error: error.message });
+    }
+  });
+
+  app.post("/api/billing/quotation-checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const { quotationId } = req.body;
+      const organizationId = req.user.organizationId;
+
+      if (!quotationId) {
+        return res.status(400).json({ message: "Quotation ID is required" });
+      }
+
+      const quotation = await storage.getQuotation(quotationId);
+      if (!quotation) {
+        return res.status(404).json({ message: "Quotation not found" });
+      }
+
+      const request = await storage.getQuotationRequest(quotation.quotationRequestId);
+      if (!request || request.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      if (quotation.status !== "sent") {
+        return res.status(400).json({ message: "Quotation is not available for checkout" });
+      }
+
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const baseUrl = getBaseUrl(req);
+
+      const description = `${quotation.quotedInspections} inspections per month (Custom Enterprise+ Quote)`;
+
+      const session = await stripe.checkout.sessions.create({
+        customer: org.stripeCustomerId || undefined,
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: quotation.currency.toLowerCase(),
+              product_data: {
+                name: `Inspect360 Enterprise+ Custom Plan`,
+                description: description,
+              },
+              unit_amount: quotation.quotedPrice,
+              recurring: {
+                interval: quotation.billingPeriod === "annual" ? "year" : "month",
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${baseUrl}/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseUrl}/billing?canceled=true`,
+        metadata: {
+          organizationId: org.id,
+          quotationId: quotation.id,
+          quotationRequestId: request.id,
+          quotedInspections: quotation.quotedInspections.toString(),
+          billingPeriod: quotation.billingPeriod,
+          currency: quotation.currency,
+          type: "quotation_subscription"
+        },
+      });
+
+      // Mark quotation as accepted
+      await storage.updateQuotation(quotation.id, { status: "accepted" });
+      await storage.updateQuotationRequest(request.id, { status: "accepted" });
+      
+      await storage.createQuotationActivityLog({
+        quotationRequestId: request.id,
+        action: "accepted",
+        performedBy: req.user.id,
+        performedByType: "customer",
+        details: { quotationId: quotation.id, checkoutSessionId: session.id },
+      });
+
+      // Send email notification to admins
+      try {
+        const { sendQuotationAcceptedEmail } = await import("./resend");
+        const admins = await db.select().from(adminUsers);
+        for (const admin of admins) {
+          await sendQuotationAcceptedEmail(
+            admin.email,
+            admin.firstName,
+            {
+              requestId: request.id,
+              organizationName: org.name,
+              quotedPrice: quotation.quotedPrice,
+              currency: quotation.currency,
+            }
+          );
+        }
+      } catch (emailError) {
+        console.error("Failed to send acceptance notification:", emailError);
+      }
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Error in quotation checkout:", error);
       res.status(500).json({ message: "Failed to initiate checkout", error: error.message });
     }
   });
@@ -16076,6 +16378,409 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     } catch (error) {
       console.error("Error deleting admin:", error);
       res.status(500).json({ message: "Failed to delete admin" });
+    }
+  });
+
+  // ==================== ADMIN QUOTATION MANAGEMENT ====================
+
+  // Get all quotation requests with filters
+  app.get("/api/admin/quotations", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { status, assignedAdminId, search } = req.query;
+      const requests = await storage.getQuotationRequests({
+        status: status || undefined,
+        assignedAdminId: assignedAdminId || undefined,
+        search: search || undefined,
+      });
+
+      // Enrich with organization details
+      const enriched = await Promise.all(requests.map(async (req) => {
+        const org = await storage.getOrganization(req.organizationId);
+        const quotation = await storage.getQuotationByRequest(req.id);
+        const assignedAdmin = req.assignedAdminId ? await storage.getAdmin(req.assignedAdminId) : null;
+        
+        return {
+          ...req,
+          organization: org ? {
+            name: org.name,
+            countryCode: org.countryCode,
+            createdAt: org.createdAt,
+          } : null,
+          quotation,
+          assignedAdmin: assignedAdmin ? {
+            id: assignedAdmin.id,
+            firstName: assignedAdmin.firstName,
+            lastName: assignedAdmin.lastName,
+            email: assignedAdmin.email,
+          } : null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching quotations:", error);
+      res.status(500).json({ message: "Failed to fetch quotations", error: error.message });
+    }
+  });
+
+  // Get quotation statistics
+  app.get("/api/admin/quotations/stats", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const stats = await storage.getQuotationRequestStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Error fetching quotation stats:", error);
+      res.status(500).json({ message: "Failed to fetch stats", error: error.message });
+    }
+  });
+
+  // Get single quotation request with full details
+  app.get("/api/admin/quotations/:id", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const request = await storage.getQuotationRequest(id);
+      
+      if (!request) {
+        return res.status(404).json({ message: "Quotation request not found" });
+      }
+
+      const org = await storage.getOrganization(request.organizationId);
+      const quotation = await storage.getQuotationByRequest(id);
+      const activityLog = await storage.getQuotationActivityLog(id);
+      const assignedAdmin = request.assignedAdminId ? await storage.getAdmin(request.assignedAdminId) : null;
+      
+      // Get organization owner/contact
+      const owner = org ? await storage.getUser(org.ownerId) : null;
+      
+      // Get instance subscription for usage stats
+      const instanceSub = org ? await storage.getInstanceSubscription(org.id) : null;
+      
+      // Get subscription history (if any)
+      const subscription = org ? await storage.getSubscriptionByOrganization(org.id) : null;
+
+      res.json({
+        request,
+        organization: org ? {
+          id: org.id,
+          name: org.name,
+          countryCode: org.countryCode,
+          createdAt: org.createdAt,
+          owner: owner ? {
+            id: owner.id,
+            firstName: owner.firstName,
+            lastName: owner.lastName,
+            email: owner.email,
+            phone: owner.phone,
+          } : null,
+          instanceSubscription: instanceSub ? {
+            currentTierId: instanceSub.currentTierId,
+            billingCycle: instanceSub.billingCycle,
+            subscriptionStatus: instanceSub.subscriptionStatus,
+          } : null,
+          subscription: subscription ? {
+            id: subscription.id,
+            status: subscription.status,
+            billingInterval: subscription.billingInterval,
+            currentPeriodStart: subscription.currentPeriodStart,
+            currentPeriodEnd: subscription.currentPeriodEnd,
+          } : null,
+        } : null,
+        quotation,
+        assignedAdmin: assignedAdmin ? {
+          id: assignedAdmin.id,
+          firstName: assignedAdmin.firstName,
+          lastName: assignedAdmin.lastName,
+          email: assignedAdmin.email,
+        } : null,
+        activityLog,
+      });
+    } catch (error: any) {
+      console.error("Error fetching quotation details:", error);
+      res.status(500).json({ message: "Failed to fetch quotation details", error: error.message });
+    }
+  });
+
+  // Create or update quote for a request
+  app.post("/api/admin/quotations/:id/quote", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { quotedPrice, quotedInspections, billingPeriod, adminNotes, customerNotes } = req.body;
+      const adminId = req.session.adminUser.id;
+
+      const request = await storage.getQuotationRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: "Quotation request not found" });
+      }
+
+      // Check if quote already exists
+      let quotation = await storage.getQuotationByRequest(id);
+      const isUpdate = !!quotation;
+      
+      if (quotation) {
+        // Update existing quote
+        quotation = await storage.updateQuotation(quotation.id, {
+          quotedPrice: Number(quotedPrice),
+          quotedInspections: Number(quotedInspections),
+          billingPeriod: billingPeriod || request.preferredBillingPeriod,
+          adminNotes: adminNotes || null,
+          customerNotes: customerNotes || null,
+          status: "sent",
+        });
+      } else {
+        // Create new quote
+        quotation = await storage.createQuotation({
+          quotationRequestId: id,
+          quotedPrice: Number(quotedPrice),
+          quotedInspections: Number(quotedInspections),
+          billingPeriod: billingPeriod || request.preferredBillingPeriod,
+          currency: request.currency,
+          adminNotes: adminNotes || null,
+          customerNotes: customerNotes || null,
+          createdBy: adminId,
+          status: "sent",
+        });
+      }
+
+      // Update request status
+      await storage.updateQuotationRequest(id, { status: "quoted" });
+
+      // Log activity
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: isUpdate ? "quoted" : "quoted", // Could differentiate "quote_updated" if needed
+        performedBy: adminId,
+        performedByType: "admin",
+        details: { quotationId: quotation.id, quotedPrice, quotedInspections, isUpdate },
+      });
+
+      // Send email to customer
+      try {
+        const org = await storage.getOrganization(request.organizationId);
+        const owner = org ? await storage.getUser(org.ownerId) : null;
+        
+        if (org && owner) {
+          if (isUpdate) {
+            // Send update email if quote was updated
+            const { sendQuotationUpdatedEmail } = await import("./resend");
+            await sendQuotationUpdatedEmail(
+              owner.email,
+              owner.firstName || "Customer",
+              {
+                requestId: request.id,
+                organizationName: org.name,
+                quotedPrice: Number(quotedPrice),
+                quotedInspections: Number(quotedInspections),
+                billingPeriod: billingPeriod || request.preferredBillingPeriod,
+                currency: request.currency,
+              }
+            );
+          } else {
+            // Send ready email if new quote
+            const { sendQuotationReadyEmail } = await import("./resend");
+            await sendQuotationReadyEmail(
+              owner.email,
+              owner.firstName || "Customer",
+              {
+                requestId: request.id,
+                organizationName: org.name,
+                quotedPrice: Number(quotedPrice),
+                quotedInspections: Number(quotedInspections),
+                billingPeriod: billingPeriod || request.preferredBillingPeriod,
+                currency: request.currency,
+              }
+            );
+          }
+        }
+      } catch (emailError) {
+        console.error("Failed to send quotation email:", emailError);
+        // Don't fail the request if email fails
+      }
+
+      res.json({ success: true, quotation });
+    } catch (error: any) {
+      console.error("Error creating/updating quote:", error);
+      res.status(500).json({ message: "Failed to create/update quote", error: error.message });
+    }
+  });
+
+  // Assign quotation to admin
+  app.post("/api/admin/quotations/:id/assign", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { adminId } = req.body;
+      const currentAdminId = req.session.adminUser.id;
+
+      const request = await storage.getQuotationRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: "Quotation request not found" });
+      }
+
+      await storage.updateQuotationRequest(id, { 
+        assignedAdminId: adminId || currentAdminId 
+      });
+
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: "assigned",
+        performedBy: currentAdminId,
+        performedByType: "admin",
+        details: { assignedTo: adminId || currentAdminId },
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error assigning quotation:", error);
+      res.status(500).json({ message: "Failed to assign quotation", error: error.message });
+    }
+  });
+
+  // Mark as contacted
+  app.post("/api/admin/quotations/:id/contacted", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const adminId = req.session.adminUser.id;
+
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: "contacted",
+        performedBy: adminId,
+        performedByType: "admin",
+        details: {},
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error marking as contacted:", error);
+      res.status(500).json({ message: "Failed to mark as contacted", error: error.message });
+    }
+  });
+
+  // Reject quotation request
+  app.post("/api/admin/quotations/:id/reject", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const adminId = req.session.adminUser.id;
+
+      const request = await storage.getQuotationRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: "Quotation request not found" });
+      }
+
+      await storage.updateQuotationRequest(id, { status: "rejected" });
+
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: "rejected",
+        performedBy: adminId,
+        performedByType: "admin",
+        details: { reason },
+      });
+
+      // Send rejection email to customer
+      try {
+        const { sendQuotationRejectedEmail } = await import("./resend");
+        const org = await storage.getOrganization(request.organizationId);
+        const owner = org ? await storage.getUser(org.ownerId) : null;
+        
+        if (org && owner) {
+          await sendQuotationRejectedEmail(
+            owner.email,
+            owner.firstName || "Customer",
+            {
+              requestId: request.id,
+              organizationName: org.name,
+              reason: reason || "No reason provided",
+            }
+          );
+        }
+      } catch (emailError) {
+        console.error("Failed to send rejection email:", emailError);
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error rejecting quotation:", error);
+      res.status(500).json({ message: "Failed to reject quotation", error: error.message });
+    }
+  });
+
+  // Add internal admin notes
+  app.post("/api/admin/quotations/:id/notes", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { notes } = req.body;
+      const adminId = req.session.adminUser.id;
+
+      const quotation = await storage.getQuotationByRequest(id);
+      if (quotation) {
+        await storage.updateQuotation(quotation.id, { adminNotes: notes });
+      }
+
+      await storage.createQuotationActivityLog({
+        quotationRequestId: id,
+        action: "note_added",
+        performedBy: adminId,
+        performedByType: "admin",
+        details: { notes },
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error adding notes:", error);
+      res.status(500).json({ message: "Failed to add notes", error: error.message });
+    }
+  });
+
+  // Get activity log
+  app.get("/api/admin/quotations/:id/activity", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const activityLog = await storage.getQuotationActivityLog(id);
+      res.json(activityLog);
+    } catch (error: any) {
+      console.error("Error fetching activity log:", error);
+      res.status(500).json({ message: "Failed to fetch activity log", error: error.message });
+    }
+  });
+
+  // Export quotations to CSV
+  app.get("/api/admin/quotations/export", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const requests = await storage.getQuotationRequests();
+      
+      // Enrich with organization names
+      const enriched = await Promise.all(requests.map(async (req) => {
+        const org = await storage.getOrganization(req.organizationId);
+        return {
+          ...req,
+          organizationName: org?.name || "Unknown",
+        };
+      }));
+
+      // Convert to CSV
+      const headers = ["ID", "Organization", "Requested Inspections", "Currency", "Billing Period", "Status", "Created At"];
+      const rows = enriched.map(r => [
+        r.id,
+        r.organizationName,
+        r.requestedInspections,
+        r.currency,
+        r.preferredBillingPeriod,
+        r.status,
+        r.createdAt,
+      ]);
+
+      const csv = [
+        headers.join(","),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+      ].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=quotations.csv");
+      res.send(csv);
+    } catch (error: any) {
+      console.error("Error exporting quotations:", error);
+      res.status(500).json({ message: "Failed to export quotations", error: error.message });
     }
   });
 

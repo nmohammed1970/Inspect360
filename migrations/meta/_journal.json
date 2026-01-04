@@ -15,6 +15,13 @@
       "when": 1766930634217,
       "tag": "0001_freezing_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1735689600000,
+      "tag": "0002_quotation_system",
+      "breakpoints": true
     }
   ]
 }

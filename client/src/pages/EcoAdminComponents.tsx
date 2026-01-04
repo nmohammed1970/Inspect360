@@ -10,9 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Edit, Trash2, Save, X, Download } from "lucide-react";
+import { Edit, Trash2, Save, X, Download, Clock, CheckCircle2, XCircle, AlertCircle, User, Mail, Phone, Building2, Calendar, Eye, MessageSquare } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { format } from "date-fns";
 
 // Currency Management Component
 export function CurrencyManagement() {
@@ -1966,6 +1970,531 @@ export function PricingPreview() {
           ) : null}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// Quotations Management Component
+export function QuotationsManagement() {
+  const { toast } = useToast();
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [selectedRequest, setSelectedRequest] = useState<any>(null);
+  const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [quoteFormData, setQuoteFormData] = useState({
+    quotedPrice: "",
+    quotedInspections: "",
+    billingPeriod: "monthly" as "monthly" | "annual",
+    adminNotes: "",
+    customerNotes: "",
+  });
+
+  const { data: quotations, isLoading, refetch } = useQuery({
+    queryKey: ["/api/admin/quotations", selectedStatus],
+    queryFn: async () => {
+      const params = selectedStatus !== "all" ? `?status=${selectedStatus}` : "";
+      const res = await apiRequest("GET", `/api/admin/quotations${params}`);
+      return res.json();
+    },
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ["/api/admin/quotations/stats"],
+  });
+
+  const { data: requestDetails } = useQuery({
+    queryKey: ["/api/admin/quotations", selectedRequest?.id],
+    queryFn: async () => {
+      if (!selectedRequest?.id) return null;
+      const res = await apiRequest("GET", `/api/admin/quotations/${selectedRequest.id}`);
+      return res.json();
+    },
+    enabled: !!selectedRequest?.id,
+  });
+
+  const createQuoteMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/admin/quotations/${selectedRequest.id}/quote`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Quote created successfully" });
+      setQuoteDialogOpen(false);
+      setQuoteFormData({ quotedPrice: "", quotedInspections: "", billingPeriod: "monthly", adminNotes: "", customerNotes: "" });
+      refetch();
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to create quote", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/quotations/${selectedRequest.id}/assign`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Quotation assigned to you" });
+      refetch();
+    },
+  });
+
+  const markContactedMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/quotations/${selectedRequest.id}/contacted`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Marked as contacted" });
+      refetch();
+    },
+  });
+
+  const handleCreateQuote = () => {
+    if (!selectedRequest) return;
+    const existingQuote = quotations?.find((q: any) => q.id === selectedRequest.id)?.quotation;
+    if (existingQuote) {
+      setQuoteFormData({
+        quotedPrice: (existingQuote.quotedPrice / 100).toString(),
+        quotedInspections: existingQuote.quotedInspections.toString(),
+        billingPeriod: existingQuote.billingPeriod,
+        adminNotes: existingQuote.adminNotes || "",
+        customerNotes: existingQuote.customerNotes || "",
+      });
+    } else {
+      setQuoteFormData({
+        quotedPrice: "",
+        quotedInspections: selectedRequest.requestedInspections?.toString() || "",
+        billingPeriod: selectedRequest.preferredBillingPeriod || "monthly",
+        adminNotes: "",
+        customerNotes: "",
+      });
+    }
+    setQuoteDialogOpen(true);
+  };
+
+  const handleSubmitQuote = () => {
+    createQuoteMutation.mutate({
+      quotedPrice: Math.round(parseFloat(quoteFormData.quotedPrice) * 100),
+      quotedInspections: parseInt(quoteFormData.quotedInspections),
+      billingPeriod: quoteFormData.billingPeriod,
+      adminNotes: quoteFormData.adminNotes || undefined,
+      customerNotes: quoteFormData.customerNotes || undefined,
+    });
+  };
+
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, any> = {
+      pending: { label: "Pending", className: "bg-amber-500" },
+      quoted: { label: "Quoted", className: "bg-blue-500" },
+      accepted: { label: "Accepted", className: "bg-emerald-500" },
+      cancelled: { label: "Cancelled", className: "bg-gray-500" },
+      rejected: { label: "Rejected", className: "bg-red-500" },
+    };
+    const variant = variants[status] || { label: status, className: "bg-gray-500" };
+    return <Badge className={variant.className}>{variant.label}</Badge>;
+  };
+
+  const formatCurrency = (amount: number, currency: string) => {
+    const symbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+    const symbol = symbols[currency] || currency;
+    return `${symbol}${(amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  if (isLoading) return <div>Loading quotations...</div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-5 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-2xl font-bold">{stats?.total || 0}</div>
+            <div className="text-sm text-muted-foreground">Total</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-2xl font-bold text-amber-600">{stats?.pending || 0}</div>
+            <div className="text-sm text-muted-foreground">Pending</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-2xl font-bold text-blue-600">{stats?.quoted || 0}</div>
+            <div className="text-sm text-muted-foreground">Quoted</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-2xl font-bold text-emerald-600">{stats?.accepted || 0}</div>
+            <div className="text-sm text-muted-foreground">Accepted</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-2xl font-bold text-gray-600">{stats?.cancelled || 0}</div>
+            <div className="text-sm text-muted-foreground">Cancelled</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters and Actions */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Quotation Requests</CardTitle>
+          <div className="flex gap-2">
+            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="quoted">Quoted</SelectItem>
+                <SelectItem value="accepted">Accepted</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={() => {
+              fetch("/api/admin/quotations/export", { credentials: "include" })
+                .then(res => res.blob())
+                .then(blob => {
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `quotations-${new Date().toISOString().split('T')[0]}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                  toast({ title: "Export started" });
+                });
+            }}>
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Organization</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Inspections</TableHead>
+                <TableHead>Billing</TableHead>
+                <TableHead>Currency</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Assigned</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {quotations?.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    No quotation requests found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                quotations?.map((item: any) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{format(new Date(item.createdAt), "MMM d, yyyy")}</TableCell>
+                    <TableCell className="font-medium">{item.organization?.name || "Unknown"}</TableCell>
+                    <TableCell>{item.organization?.owner?.email || "N/A"}</TableCell>
+                    <TableCell>{item.requestedInspections}</TableCell>
+                    <TableCell>{item.preferredBillingPeriod}</TableCell>
+                    <TableCell>{item.currency}</TableCell>
+                    <TableCell>{getStatusBadge(item.status)}</TableCell>
+                    <TableCell>
+                      {item.assignedAdmin ? `${item.assignedAdmin.firstName} ${item.assignedAdmin.lastName}` : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedRequest(item);
+                            setDetailsDialogOpen(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {item.status === "pending" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedRequest(item);
+                              handleCreateQuote();
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Quote Dialog */}
+      <Dialog open={quoteDialogOpen} onOpenChange={setQuoteDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create/Update Quote</DialogTitle>
+            <DialogDescription>
+              Create a custom quote for {selectedRequest?.organization?.name || "this organization"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Quoted Price ({selectedRequest?.currency || "GBP"})</Label>
+                <Input
+                  type="number"
+                  value={quoteFormData.quotedPrice}
+                  onChange={(e) => setQuoteFormData({ ...quoteFormData, quotedPrice: e.target.value })}
+                  placeholder="200.00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Quoted Inspections</Label>
+                <Input
+                  type="number"
+                  value={quoteFormData.quotedInspections}
+                  onChange={(e) => setQuoteFormData({ ...quoteFormData, quotedInspections: e.target.value })}
+                  placeholder="600"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Billing Period</Label>
+              <Select
+                value={quoteFormData.billingPeriod}
+                onValueChange={(v: "monthly" | "annual") => setQuoteFormData({ ...quoteFormData, billingPeriod: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="annual">Annual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Internal Notes (Admin Only)</Label>
+              <Textarea
+                value={quoteFormData.adminNotes}
+                onChange={(e) => setQuoteFormData({ ...quoteFormData, adminNotes: e.target.value })}
+                placeholder="Internal notes not visible to customer..."
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Customer Notes (Visible to Customer)</Label>
+              <Textarea
+                value={quoteFormData.customerNotes}
+                onChange={(e) => setQuoteFormData({ ...quoteFormData, customerNotes: e.target.value })}
+                placeholder="Notes visible to customer in billing page..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuoteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmitQuote} disabled={createQuoteMutation.isPending}>
+              {createQuoteMutation.isPending ? "Saving..." : "Save Quote"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Details Dialog */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Quotation Request Details</DialogTitle>
+            <DialogDescription>
+              Full details for {selectedRequest?.organization?.name || "this request"}
+            </DialogDescription>
+          </DialogHeader>
+          {requestDetails && (
+            <div className="space-y-6 py-4">
+              <Tabs defaultValue="overview">
+                <TabsList>
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="organization">Organization</TabsTrigger>
+                  <TabsTrigger value="activity">Activity Log</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview" className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-muted-foreground">Request ID</Label>
+                      <p className="font-medium">{requestDetails.request.id}</p>
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground">Status</Label>
+                      <div>{getStatusBadge(requestDetails.request.status)}</div>
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground">Requested Inspections</Label>
+                      <p className="font-medium">{requestDetails.request.requestedInspections}</p>
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground">Preferred Billing</Label>
+                      <p className="font-medium">{requestDetails.request.preferredBillingPeriod}</p>
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground">Currency</Label>
+                      <p className="font-medium">{requestDetails.request.currency}</p>
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground">Created</Label>
+                      <p className="font-medium">{format(new Date(requestDetails.request.createdAt), "PPp")}</p>
+                    </div>
+                  </div>
+                  {requestDetails.quotation && (
+                    <div className="border-t pt-4">
+                      <h3 className="font-semibold mb-2">Current Quote</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-muted-foreground">Quoted Price</Label>
+                          <p className="font-medium text-lg">
+                            {formatCurrency(requestDetails.quotation.quotedPrice, requestDetails.quotation.currency)}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">Quoted Inspections</Label>
+                          <p className="font-medium">{requestDetails.quotation.quotedInspections}</p>
+                        </div>
+                      </div>
+                      {requestDetails.quotation.customerNotes && (
+                        <div className="mt-2">
+                          <Label className="text-muted-foreground">Customer Notes</Label>
+                          <p className="text-sm">{requestDetails.quotation.customerNotes}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-4 border-t">
+                    {requestDetails.request.status === "pending" && (
+                      <>
+                        <Button onClick={handleCreateQuote}>Create Quote</Button>
+                        <Button variant="outline" onClick={() => assignMutation.mutate()}>
+                          Assign to Me
+                        </Button>
+                        <Button variant="outline" onClick={() => markContactedMutation.mutate()}>
+                          Mark as Contacted
+                        </Button>
+                      </>
+                    )}
+                    {requestDetails.request.status === "quoted" && (
+                      <Button onClick={handleCreateQuote}>Update Quote</Button>
+                    )}
+                  </div>
+                </TabsContent>
+                <TabsContent value="organization" className="space-y-4">
+                  {requestDetails.organization && (
+                    <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-muted-foreground">Organization Name</Label>
+                          <p className="font-medium">{requestDetails.organization.name}</p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">Country</Label>
+                          <p className="font-medium">{requestDetails.organization.countryCode || "N/A"}</p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">Registration Date</Label>
+                          <p className="font-medium">
+                            {format(new Date(requestDetails.organization.createdAt), "PP")}
+                          </p>
+                        </div>
+                      </div>
+                      {requestDetails.organization.owner && (
+                        <div className="border-t pt-4">
+                          <h3 className="font-semibold mb-2">Contact Person</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label className="text-muted-foreground">Name</Label>
+                              <p className="font-medium">
+                                {requestDetails.organization.owner.firstName} {requestDetails.organization.owner.lastName}
+                              </p>
+                            </div>
+                            <div>
+                              <Label className="text-muted-foreground">Email</Label>
+                              <p className="font-medium">{requestDetails.organization.owner.email}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {requestDetails.organization.instanceSubscription && (
+                        <div className="border-t pt-4">
+                          <h3 className="font-semibold mb-2">Current Subscription</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label className="text-muted-foreground">Billing Cycle</Label>
+                              <p className="font-medium">{requestDetails.organization.instanceSubscription.billingCycle}</p>
+                            </div>
+                            <div>
+                              <Label className="text-muted-foreground">Status</Label>
+                              <p className="font-medium">{requestDetails.organization.instanceSubscription.subscriptionStatus}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </TabsContent>
+                <TabsContent value="activity" className="space-y-2">
+                  {requestDetails.activityLog?.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No activity logged yet</p>
+                  ) : (
+                    requestDetails.activityLog?.map((log: any) => (
+                      <div key={log.id} className="flex items-start gap-3 p-3 border rounded-lg">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                          {log.performedByType === "admin" ? <User className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{log.action}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(log.createdAt), "PPp")}
+                            </span>
+                          </div>
+                          {log.details && Object.keys(log.details).length > 0 && (
+                            <pre className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">
+                              {JSON.stringify(log.details, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

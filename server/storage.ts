@@ -244,6 +244,15 @@ import {
   type BundlePricing,
   bundleModulesJunction,
   moduleBundlesTable,
+  quotationRequests,
+  type QuotationRequest,
+  type InsertQuotationRequest,
+  quotations,
+  type Quotation,
+  type InsertQuotation,
+  quotationActivityLog,
+  type QuotationActivityLog,
+  type InsertQuotationActivityLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
@@ -587,6 +596,7 @@ export interface IStorage {
   updateDashboardPreferences(userId: string, enabledPanels: string[]): Promise<any>;
 
   // Admin operations
+  getAdmin(id: string): Promise<AdminUser | undefined>;
   getAdminByEmail(email: string): Promise<AdminUser | undefined>;
   getAllAdmins(): Promise<AdminUser[]>;
   createAdmin(admin: InsertAdminUser): Promise<AdminUser>;
@@ -823,6 +833,23 @@ export interface IStorage {
   getInstanceModuleByModuleKey(instanceId: string, moduleKey: string): Promise<InstanceModule | undefined>;
   getInstanceBundles(instanceId: string): Promise<InstanceBundle[]>;
   addInstanceBundle(instanceId: string, bundleId: string): Promise<void>;
+  
+  // Quotation operations
+  createQuotationRequest(data: InsertQuotationRequest): Promise<QuotationRequest>;
+  getQuotationRequest(id: string): Promise<QuotationRequest | undefined>;
+  getQuotationRequestByOrganization(organizationId: string): Promise<QuotationRequest | undefined>;
+  getQuotationRequests(filters?: { status?: string; assignedAdminId?: string; search?: string }): Promise<QuotationRequest[]>;
+  getQuotationRequestStats(): Promise<{ total: number; pending: number; quoted: number; accepted: number; cancelled: number; rejected: number }>;
+  updateQuotationRequest(id: string, updates: Partial<InsertQuotationRequest>): Promise<QuotationRequest>;
+  deleteQuotationRequest(id: string): Promise<void>;
+  
+  createQuotation(data: InsertQuotation): Promise<Quotation>;
+  getQuotation(id: string): Promise<Quotation | undefined>;
+  getQuotationByRequest(quotationRequestId: string): Promise<Quotation | undefined>;
+  updateQuotation(id: string, updates: Partial<InsertQuotation>): Promise<Quotation>;
+  
+  createQuotationActivityLog(data: InsertQuotationActivityLog): Promise<QuotationActivityLog>;
+  getQuotationActivityLog(quotationRequestId: string): Promise<QuotationActivityLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3278,6 +3305,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Admin operations
+  async getAdmin(id: string): Promise<AdminUser | undefined> {
+    const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.id, id));
+    return admin;
+  }
+
   async getAdminByEmail(email: string): Promise<AdminUser | undefined> {
     const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
     return admin;
@@ -4950,6 +4982,131 @@ export class DatabaseStorage implements IStorage {
 
   async addInstanceBundle(instanceId: string, bundleId: string): Promise<void> {
     await db.insert(instanceBundles).values({ instanceId, bundleId });
+  }
+
+  // Quotation operations
+  async createQuotationRequest(data: InsertQuotationRequest): Promise<QuotationRequest> {
+    const [request] = await db.insert(quotationRequests)
+      .values({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .returning();
+    return request;
+  }
+
+  async getQuotationRequest(id: string): Promise<QuotationRequest | undefined> {
+    const [request] = await db.select().from(quotationRequests).where(eq(quotationRequests.id, id));
+    return request;
+  }
+
+  async getQuotationRequestByOrganization(organizationId: string): Promise<QuotationRequest | undefined> {
+    const [request] = await db.select()
+      .from(quotationRequests)
+      .where(and(
+        eq(quotationRequests.organizationId, organizationId),
+        or(
+          eq(quotationRequests.status, "pending"),
+          eq(quotationRequests.status, "quoted")
+        )
+      ))
+      .orderBy(desc(quotationRequests.createdAt))
+      .limit(1);
+    return request;
+  }
+
+  async getQuotationRequests(filters?: { status?: string; assignedAdminId?: string; search?: string }): Promise<QuotationRequest[]> {
+    let query = db.select().from(quotationRequests);
+    const conditions = [];
+
+    if (filters?.status) {
+      conditions.push(eq(quotationRequests.status, filters.status));
+    }
+    if (filters?.assignedAdminId) {
+      conditions.push(eq(quotationRequests.assignedAdminId, filters.assignedAdminId));
+    }
+    if (filters?.search) {
+      // Search in organization name via join - we'll need to handle this differently
+      // For now, we'll just filter by status and assigned admin
+    }
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    return await query.orderBy(desc(quotationRequests.createdAt));
+  }
+
+  async getQuotationRequestStats(): Promise<{ total: number; pending: number; quoted: number; accepted: number; cancelled: number; rejected: number }> {
+    const all = await db.select().from(quotationRequests);
+    return {
+      total: all.length,
+      pending: all.filter(r => r.status === "pending").length,
+      quoted: all.filter(r => r.status === "quoted").length,
+      accepted: all.filter(r => r.status === "accepted").length,
+      cancelled: all.filter(r => r.status === "cancelled").length,
+      rejected: all.filter(r => r.status === "rejected").length,
+    };
+  }
+
+  async updateQuotationRequest(id: string, updates: Partial<InsertQuotationRequest>): Promise<QuotationRequest> {
+    const [updated] = await db.update(quotationRequests)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(quotationRequests.id, id))
+      .returning();
+    if (!updated) throw new Error(`Quotation request ${id} not found`);
+    return updated;
+  }
+
+  async deleteQuotationRequest(id: string): Promise<void> {
+    await db.delete(quotationRequests).where(eq(quotationRequests.id, id));
+  }
+
+  async createQuotation(data: InsertQuotation): Promise<Quotation> {
+    const [quotation] = await db.insert(quotations)
+      .values({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .returning();
+    return quotation;
+  }
+
+  async getQuotation(id: string): Promise<Quotation | undefined> {
+    const [quotation] = await db.select().from(quotations).where(eq(quotations.id, id));
+    return quotation;
+  }
+
+  async getQuotationByRequest(quotationRequestId: string): Promise<Quotation | undefined> {
+    const [quotation] = await db.select()
+      .from(quotations)
+      .where(eq(quotations.quotationRequestId, quotationRequestId))
+      .orderBy(desc(quotations.createdAt))
+      .limit(1);
+    return quotation;
+  }
+
+  async updateQuotation(id: string, updates: Partial<InsertQuotation>): Promise<Quotation> {
+    const [updated] = await db.update(quotations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(quotations.id, id))
+      .returning();
+    if (!updated) throw new Error(`Quotation ${id} not found`);
+    return updated;
+  }
+
+  async createQuotationActivityLog(data: InsertQuotationActivityLog): Promise<QuotationActivityLog> {
+    const [log] = await db.insert(quotationActivityLog)
+      .values(data)
+      .returning();
+    return log;
+  }
+
+  async getQuotationActivityLog(quotationRequestId: string): Promise<QuotationActivityLog[]> {
+    return await db.select()
+      .from(quotationActivityLog)
+      .where(eq(quotationActivityLog.quotationRequestId, quotationRequestId))
+      .orderBy(asc(quotationActivityLog.createdAt));
   }
 
   // Currency Management CRUD

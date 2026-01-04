@@ -32,6 +32,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useLocation, Link } from "wouter";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
@@ -90,6 +92,9 @@ export default function Billing() {
   const [inspectionsNeeded, setInspectionsNeeded] = useState<number>(50);
   const [selectedCurrency, setSelectedCurrency] = useState<string>("GBP");
   const [debouncedInspections, setDebouncedInspections] = useState<number>(50);
+  const [quotationDialogOpen, setQuotationDialogOpen] = useState(false);
+  const [exactInspectionsCount, setExactInspectionsCount] = useState<number>(500);
+  const [quotationNotes, setQuotationNotes] = useState<string>("");
   
   // Per-inspection price in pence (£5.50 = 550 pence)
   const PER_INSPECTION_PRICE = 550;
@@ -153,6 +158,69 @@ export default function Billing() {
   // Fetch inspection balance
   const { data: balance } = useQuery<any>({
     queryKey: ["/api/billing/inspection-balance"],
+  });
+
+  // Fetch pending quotation
+  const { data: quotationData, refetch: refetchQuotation } = useQuery<{ request: any; quotation: any }>({
+    queryKey: ["/api/quotations/pending"],
+    retry: false,
+  });
+
+  // Quotation request mutation
+  const quotationRequestMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/quotations/request", {
+        requestedInspections: exactInspectionsCount,
+        currency: selectedCurrency,
+        preferredBillingPeriod: billingPeriod,
+        customerNotes: quotationNotes || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Quotation Request Submitted",
+        description: "We've received your request. Our team will prepare a custom quote for you.",
+      });
+      setQuotationDialogOpen(false);
+      setQuotationNotes("");
+      refetchQuotation();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to submit quotation request",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Quotation checkout mutation
+  const quotationCheckoutMutation = useMutation({
+    mutationFn: async (quotationId: string) => {
+      const res = await apiRequest("POST", "/api/billing/quotation-checkout", {
+        quotationId,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to initiate checkout",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to initiate checkout",
+        variant: "destructive",
+      });
+    },
   });
 
   const checkoutMutation = useMutation({
@@ -543,44 +611,33 @@ export default function Billing() {
             })()}
 
             {/* Pricing Breakdown */}
-            <AnimatePresence mode="wait">
-              {isError && (
-                <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-6 text-center">
-                  <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-2" />
-                  <h3 className="text-lg font-bold text-destructive text-sm uppercase tracking-wider">Pricing Engine Unavailable</h3>
-                  <p className="text-xs text-muted-foreground mt-2">{(pricingError as Error)?.message || "Subscription tiers are not configured."}</p>
-                </div>
-              )}
+            {isError && (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-6 text-center">
+                <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-2" />
+                <h3 className="text-lg font-bold text-destructive text-sm uppercase tracking-wider">Pricing Engine Unavailable</h3>
+                <p className="text-xs text-muted-foreground mt-2">{(pricingError as Error)?.message || "Subscription tiers are not configured."}</p>
+              </div>
+            )}
 
-              {pricingBreakdown && (() => {
-                // Use pricingBreakdown from useMemo (always reactive to inspectionsNeeded)
-                // This updates immediately when slider changes (no debounce delay)
-                const {
-                  tierPrice,
-                  additionalInspections,
-                  additionalCost,
-                  currentTierName,
-                  tierIncluded,
-                  moduleCost,
-                  totalCost,
-                  tierCodeForCheckout
-                } = pricingBreakdown;
-                
-                // Force re-render when inspectionsNeeded changes by using it in the key
-                // Use inspectionsNeeded directly (not debounced) to ensure immediate updates
-                const calculationKey = `pricing-${inspectionsNeeded}-${billingPeriod}-${tierPrice}-${additionalCost}-${moduleCost}`;
-                
-                // Debug log to verify calculation
-                console.log(`[Billing] Pricing breakdown render - Inspections: ${inspectionsNeeded}, Additional: ${additionalInspections}, Cost: ${additionalCost}, TierPrice: ${tierPrice}`);
-                
-                return (
-                  <motion.div
-                    key={calculationKey}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="bg-card rounded-2xl p-8 border border-border shadow-sm space-y-4"
-                  >
+            {pricingBreakdown && !isError && (() => {
+              // Use pricingBreakdown from useMemo (always reactive to inspectionsNeeded)
+              // This updates immediately when slider changes (no debounce delay)
+              const {
+                tierPrice,
+                additionalInspections,
+                additionalCost,
+                currentTierName,
+                tierIncluded,
+                moduleCost,
+                totalCost,
+                tierCodeForCheckout
+              } = pricingBreakdown;
+              
+              return (
+                <div
+                  key={`pricing-${inspectionsNeeded}-${billingPeriod}`}
+                  className="bg-card rounded-2xl p-8 border border-border shadow-sm space-y-4"
+                >
                     <div className="space-y-3">
                       {/* Tier Subscription Cost (if applicable) */}
                       {currentTierName !== "No Tier" && tierPrice > 0 && (
@@ -660,21 +717,112 @@ export default function Billing() {
                       </div>
                     )}
 
-                    {/* Custom Quote for 500+ */}
-                    {inspectionsNeeded >= 500 && (
-                      <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                        <p className="font-semibold text-sm text-amber-900 dark:text-amber-100">
-                          Enterprise Plus - Custom Quote Required
-                        </p>
-                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-                          For 500+ inspections per month, please contact us for a custom pricing quote.
-                        </p>
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })()}
-            </AnimatePresence>
+                    {/* Quotation Section for 500+ */}
+                    {inspectionsNeeded >= 500 && (() => {
+                      const pendingRequest = quotationData?.request;
+                      const quotation = quotationData?.quotation;
+
+                      if (quotation && quotation.status === "sent") {
+                        // Show approved quotation
+                        const priceInMajor = quotation.quotedPrice / 100;
+                        const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+                        const symbol = currencySymbols[quotation.currency] || quotation.currency;
+
+                        return (
+                          <div className="mt-6 p-6 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                            <div className="flex items-start justify-between mb-4">
+                              <div>
+                                <p className="font-semibold text-lg text-emerald-900 dark:text-emerald-100">
+                                  Your Custom Quote is Ready!
+                                </p>
+                                <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
+                                  {quotation.quotedInspections} inspections per month
+                                </p>
+                              </div>
+                              <Badge className="bg-emerald-500">Quote Ready</Badge>
+                            </div>
+                            
+                            <div className="mb-4">
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                                  {symbol}{priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                                <span className="text-sm text-emerald-700 dark:text-emerald-300">
+                                  /{quotation.billingPeriod === "annual" ? "year" : "month"}
+                                </span>
+                              </div>
+                              {quotation.customerNotes && (
+                                <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-2">
+                                  {quotation.customerNotes}
+                                </p>
+                              )}
+                            </div>
+
+                            <Button
+                              onClick={() => quotationCheckoutMutation.mutate(quotation.id)}
+                              disabled={quotationCheckoutMutation.isPending}
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                            >
+                              {quotationCheckoutMutation.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  Subscribe Now <ChevronRight className="h-4 w-4 ml-2" />
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        );
+                      }
+
+                      if (pendingRequest) {
+                        // Show pending request status
+                        return (
+                          <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Clock className="h-4 w-4 text-amber-600" />
+                              <p className="font-semibold text-sm text-amber-900 dark:text-amber-100">
+                                Quotation Request Pending
+                              </p>
+                            </div>
+                            <p className="text-xs text-amber-700 dark:text-amber-300">
+                              We've received your request for {pendingRequest.requestedInspections} inspections. 
+                              Our team is preparing a custom quote for you. You'll receive an email when it's ready.
+                            </p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                              Requested on {new Date(pendingRequest.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      // Show request quotation button
+                      return (
+                        <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                          <p className="font-semibold text-sm text-amber-900 dark:text-amber-100 mb-2">
+                            Enterprise Plus - Custom Quote Required
+                          </p>
+                          <p className="text-xs text-amber-700 dark:text-amber-300 mb-4">
+                            For 500+ inspections per month, we'll prepare a custom pricing quote tailored to your needs.
+                          </p>
+                          <Button
+                            onClick={() => {
+                              setExactInspectionsCount(inspectionsNeeded);
+                              setQuotationDialogOpen(true);
+                            }}
+                            className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                          >
+                            Request Custom Quote
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </section>
@@ -730,6 +878,74 @@ export default function Billing() {
 
       {/* External Stripe Portal Link */}
       <ManageBillingMethodCard />
+
+      {/* Quotation Request Dialog */}
+      <Dialog open={quotationDialogOpen} onOpenChange={setQuotationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request Custom Quote</DialogTitle>
+            <DialogDescription>
+              For 500+ inspections per month, we'll prepare a custom pricing quote tailored to your needs.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="inspections">Number of Inspections Needed</Label>
+              <Input
+                id="inspections"
+                type="number"
+                min={500}
+                value={exactInspectionsCount}
+                onChange={(e) => setExactInspectionsCount(Number(e.target.value))}
+                placeholder="e.g., 600, 1000, 2000"
+              />
+              <p className="text-xs text-muted-foreground">
+                Minimum 500 inspections required for custom quotes
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="billing-period">Preferred Billing Period</Label>
+              <Select value={billingPeriod} onValueChange={(v: "monthly" | "annual") => setBillingPeriod(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="annual">Annual (Save 20%)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="notes">Additional Notes (Optional)</Label>
+              <Textarea
+                id="notes"
+                value={quotationNotes}
+                onChange={(e) => setQuotationNotes(e.target.value)}
+                placeholder="Any specific requirements or questions..."
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuotationDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => quotationRequestMutation.mutate()}
+              disabled={quotationRequestMutation.isPending || exactInspectionsCount < 500}
+            >
+              {quotationRequestMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Request"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

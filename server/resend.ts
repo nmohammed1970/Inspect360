@@ -1129,3 +1129,486 @@ export async function sendComparisonReportToFinance(
     throw error;
   }
 }
+
+// ==================== QUOTATION EMAIL TEMPLATES ====================
+
+export async function sendQuotationRequestNotification(
+  adminEmail: string,
+  adminName: string,
+  details: {
+    requestId: string;
+    organizationName: string;
+    requestedInspections: number;
+    currency: string;
+    preferredBillingPeriod: string;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `New Quotation Request: ${details.organizationName} - ${details.requestedInspections} inspections`;
+    const baseUrl = process.env.BASE_URL || 'https://portal.inspect360.ai';
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">New Quotation Request</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${adminName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        A new quotation request has been submitted and requires your attention.
+      </p>
+
+      <div style="background-color: #f8f9fa; border-left: 4px solid #00D5CC; padding: 20px; border-radius: 4px; margin-bottom: 24px;">
+        <h2 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: #1a1a1a;">Request Details</h2>
+        
+        <div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Organization:</span>
+          <span style="color: #333; margin-left: 8px;">${details.organizationName}</span>
+        </div>
+        
+        <div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Requested Inspections:</span>
+          <span style="color: #333; margin-left: 8px;">${details.requestedInspections} per month</span>
+        </div>
+        
+        <div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Preferred Billing:</span>
+          <span style="color: #333; margin-left: 8px;">${details.preferredBillingPeriod}</span>
+        </div>
+        
+        <div>
+          <span style="font-weight: 600; color: #555;">Currency:</span>
+          <span style="color: #333; margin-left: 8px;">${details.currency}</span>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${baseUrl}/admin/eco-admin?tab=quotations" 
+           style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+          View in Admin Panel
+        </a>
+      </div>
+    </div>
+
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        Request ID: ${details.requestId}
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: adminEmail,
+      subject,
+      html,
+    });
+
+    console.log('Quotation request notification sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send quotation request notification:', error);
+    throw error;
+  }
+}
+
+export async function sendQuotationReadyEmail(
+  recipientEmail: string,
+  recipientName: string,
+  details: {
+    requestId: string;
+    organizationName: string;
+    quotedPrice: number;
+    quotedInspections: number;
+    billingPeriod: string;
+    currency: string;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `Your Custom Quote is Ready - Inspect360`;
+    const baseUrl = process.env.BASE_URL || 'https://portal.inspect360.ai';
+    const priceInMajor = details.quotedPrice / 100;
+    const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+    const symbol = currencySymbols[details.currency] || details.currency;
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Your Custom Quote is Ready!</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        We've prepared a custom quotation for your Enterprise+ subscription. Your quote is now available in your billing page.
+      </p>
+
+      <div style="background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 24px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Monthly Price</p>
+        <p style="margin: 0; font-size: 42px; font-weight: 700;">${symbol}${priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        <p style="margin: 12px 0 0 0; font-size: 13px; opacity: 0.85;">${details.quotedInspections} inspections per month</p>
+        <p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.85;">Billing: ${details.billingPeriod}</p>
+      </div>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${baseUrl}/billing" 
+           style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+          View Quote & Subscribe
+        </a>
+      </div>
+
+      <p style="margin: 24px 0 0 0; font-size: 14px; color: #666;">
+        You can review the full details and subscribe directly from your billing page. If you have any questions, please don't hesitate to contact us.
+      </p>
+    </div>
+
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        This email was sent from <strong style="color: #00D5CC;">Inspect360</strong> — Your AI-Powered Building Inspection Platform
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    });
+
+    console.log('Quotation ready email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send quotation ready email:', error);
+    throw error;
+  }
+}
+
+export async function sendQuotationRejectedEmail(
+  recipientEmail: string,
+  recipientName: string,
+  details: {
+    requestId: string;
+    organizationName: string;
+    reason: string;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `Quotation Request Update - Inspect360`;
+    const baseUrl = process.env.BASE_URL || 'https://portal.inspect360.ai';
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 6v6l4 2"></path>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Quotation Request Update</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        We've reviewed your quotation request, and unfortunately we're unable to proceed at this time.
+      </p>
+
+      <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; border-radius: 4px; margin-bottom: 24px;">
+        <p style="margin: 0; font-size: 14px; color: #856404;">
+          <strong>Reason:</strong><br>
+          ${details.reason}
+        </p>
+      </div>
+
+      <p style="margin: 24px 0 0 0; font-size: 14px; color: #666;">
+        If you have any questions or would like to discuss alternative options, please don't hesitate to contact our support team.
+      </p>
+    </div>
+
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        This email was sent from <strong style="color: #00D5CC;">Inspect360</strong> — Your AI-Powered Building Inspection Platform
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    });
+
+    console.log('Quotation rejected email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send quotation rejected email:', error);
+    throw error;
+  }
+}
+
+export async function sendQuotationAcceptedEmail(
+  adminEmail: string,
+  adminName: string,
+  details: {
+    requestId: string;
+    organizationName: string;
+    quotedPrice: number;
+    currency: string;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `Quotation Accepted: ${details.organizationName}`;
+    const baseUrl = process.env.BASE_URL || 'https://portal.inspect360.ai';
+    const priceInMajor = details.quotedPrice / 100;
+    const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+    const symbol = currencySymbols[details.currency] || details.currency;
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Quotation Accepted</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${adminName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        Great news! A customer has accepted their quotation and completed checkout.
+      </p>
+
+      <div style="background-color: #f8f9fa; border-left: 4px solid #10b981; padding: 20px; border-radius: 4px; margin-bottom: 24px;">
+        <div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Organization:</span>
+          <span style="color: #333; margin-left: 8px;">${details.organizationName}</span>
+        </div>
+        
+        <div>
+          <span style="font-weight: 600; color: #555;">Accepted Price:</span>
+          <span style="color: #333; margin-left: 8px;">${symbol}${priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${baseUrl}/admin/eco-admin?tab=quotations" 
+           style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+          View in Admin Panel
+        </a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: adminEmail,
+      subject,
+      html,
+    });
+
+    console.log('Quotation accepted email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send quotation accepted email:', error);
+    throw error;
+  }
+}
+
+export async function sendQuotationCancelledEmail(
+  adminEmail: string,
+  adminName: string,
+  details: {
+    requestId: string;
+    organizationName: string;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `Quotation Request Cancelled: ${details.organizationName}`;
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Quotation Request Cancelled</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${adminName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        A customer has cancelled their quotation request.
+      </p>
+
+      <div style="background-color: #f8f9fa; border-left: 4px solid #6b7280; padding: 20px; border-radius: 4px; margin-bottom: 24px;">
+        <div>
+          <span style="font-weight: 600; color: #555;">Organization:</span>
+          <span style="color: #333; margin-left: 8px;">${details.organizationName}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: adminEmail,
+      subject,
+      html,
+    });
+
+    console.log('Quotation cancelled email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send quotation cancelled email:', error);
+    throw error;
+  }
+}
+
+export async function sendQuotationUpdatedEmail(
+  recipientEmail: string,
+  recipientName: string,
+  details: {
+    requestId: string;
+    organizationName: string;
+    quotedPrice: number;
+    quotedInspections: number;
+    billingPeriod: string;
+    currency: string;
+  }
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    const subject = `Your Quote Has Been Updated - Inspect360`;
+    const baseUrl = process.env.BASE_URL || 'https://portal.inspect360.ai';
+    const priceInMajor = details.quotedPrice / 100;
+    const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+    const symbol = currencySymbols[details.currency] || details.currency;
+    
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Quote Updated</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        Your custom quotation has been updated. Please review the new details below.
+      </p>
+
+      <div style="background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; padding: 24px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Updated Monthly Price</p>
+        <p style="margin: 0; font-size: 42px; font-weight: 700;">${symbol}${priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        <p style="margin: 12px 0 0 0; font-size: 13px; opacity: 0.85;">${details.quotedInspections} inspections per month</p>
+      </div>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${baseUrl}/billing" 
+           style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+          View Updated Quote
+        </a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    });
+
+    console.log('Quotation updated email sent:', response);
+    return response;
+  } catch (error) {
+    console.error('Failed to send quotation updated email:', error);
+    throw error;
+  }
+}

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Plus, Edit, Trash2, Save, X, Package, CreditCard, Globe, Loader2, Settings, Gift, Info, MessageSquarePlus, Bug, Lightbulb, TrendingUp, Clock, Eye, CheckCircle2, XCircle, AlertCircle, Filter, Download } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, Package, CreditCard, Globe, Loader2, Settings, Gift, Info, MessageSquarePlus, Bug, Lightbulb, TrendingUp, Clock, Eye, CheckCircle2, XCircle, AlertCircle, Filter, Download, FileText } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
@@ -21,7 +21,8 @@ import {
   ExtensiveInspectionManagement, 
   ModuleManagement, 
   ModuleBundleManagement, 
-  PricingPreview 
+  PricingPreview,
+  QuotationsManagement
 } from "./EcoAdminComponents";
 
 export default function EcoAdmin() {
@@ -63,7 +64,7 @@ export default function EcoAdmin() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-10">
+        <TabsList className="grid w-full grid-cols-11">
           <TabsTrigger value="currencies" data-testid="tab-currencies">
             <Globe className="h-4 w-4 mr-2" />
             Currencies
@@ -91,6 +92,10 @@ export default function EcoAdmin() {
           <TabsTrigger value="pricing-preview" data-testid="tab-pricing-preview">
             <Eye className="h-4 w-4 mr-2" />
             Preview
+          </TabsTrigger>
+          <TabsTrigger value="quotations" data-testid="tab-quotations">
+            <FileText className="h-4 w-4 mr-2" />
+            Quotations
           </TabsTrigger>
           <TabsTrigger value="plans" data-testid="tab-plans">
             <Package className="h-4 w-4 mr-2" />
@@ -132,6 +137,10 @@ export default function EcoAdmin() {
 
         <TabsContent value="pricing-preview" className="mt-6">
           <PricingPreview />
+        </TabsContent>
+
+        <TabsContent value="quotations" className="mt-6">
+          <QuotationsManagement />
         </TabsContent>
 
         <TabsContent value="plans" className="mt-6">
