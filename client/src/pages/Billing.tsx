@@ -96,7 +96,7 @@ const getPerInspectionPriceFromConfig = (tierName: string, selectedCurrency: str
         }
       }
     }
-  } catch {}
+  } catch { }
   // Fallback defaults (GBP)
   switch (tierName) {
     case "Starter":
@@ -124,8 +124,9 @@ export default function Billing() {
   const [exactInspectionsCount, setExactInspectionsCount] = useState<number>(500);
   const [quotationNotes, setQuotationNotes] = useState<string>("");
   const sliderContainerRef = useRef<HTMLDivElement>(null);
-  const [trackInfo, setTrackInfo] = useState<{ left: number; width: number; thumbOffset?: number; thumbWidth?: number } | null>(null);
-  const [markerPositions, setMarkerPositions] = useState<{ [key: number]: number }>({});
+  const getPositionPercent = (value: number) => {
+    return ((value - 10) / (500 - 10)) * 100;
+  };
 
   // Debounce inspectionsNeeded to avoid too many API calls while dragging
   useEffect(() => {
@@ -138,138 +139,11 @@ export default function Billing() {
 
   // Force invalidate pricing query when inspectionsNeeded changes to prevent stale data
   useEffect(() => {
-    queryClient.invalidateQueries({ 
+    queryClient.invalidateQueries({
       queryKey: ["/api/pricing/calculate"],
-      exact: false 
+      exact: false
     });
   }, [inspectionsNeeded, queryClient]);
-
-  // Measure slider track to align markers precisely
-  useEffect(() => {
-    const measureTrack = () => {
-      if (!sliderContainerRef.current) return;
-      
-      // Find the slider root element (Radix UI Slider root)
-      const sliderRoot = sliderContainerRef.current.querySelector('[role="slider"]')?.closest('[class*="relative"]') as HTMLElement;
-      if (!sliderRoot) return;
-      
-      // Find the track element (the background track with bg-secondary)
-      const track = sliderRoot.querySelector('div[class*="bg-secondary"]') as HTMLElement;
-      if (!track) return;
-      
-      // Also find the thumb to verify positioning
-      const thumb = sliderRoot.querySelector('[role="slider"]') as HTMLElement;
-      if (!thumb) return;
-      
-      // Get the actual track dimensions - Radix UI positions the thumb relative to the track
-      const trackRect = track.getBoundingClientRect();
-      const containerRect = sliderContainerRef.current.getBoundingClientRect();
-      const thumbRect = thumb.getBoundingClientRect();
-      const sliderRootRect = sliderRoot.getBoundingClientRect();
-      
-      // Calculate the track's position relative to the container
-      // Use the track's actual left edge and width
-      const trackLeft = trackRect.left - containerRect.left;
-      const trackWidth = trackRect.width;
-      
-      // Calculate thumb center position relative to container - this is the EXACT position Radix uses
-      const thumbCenter = thumbRect.left - containerRect.left + (thumbRect.width / 2);
-      
-      // Get thumb width for adjustment calculations
-      const thumbWidth = thumbRect.width;
-      
-      // Get the actual computed transform from Radix UI to see how it positions the thumb
-      const computedStyle = window.getComputedStyle(thumb);
-      const transform = computedStyle.transform;
-      
-      // Calculate where the thumb should be based on current slider value
-      const currentValue = inspectionsNeeded;
-      const expectedThumbPercent = ((currentValue - 10) / (500 - 10)) * 100;
-      const expectedThumbPosition = trackLeft + (trackWidth * expectedThumbPercent / 100);
-      
-      // Calculate any offset between expected and actual thumb position
-      // This offset represents how Radix UI actually positions the thumb vs our calculation
-      // If positive, thumb is to the right of calculated position (markers need to move right)
-      // If negative, thumb is to the left of calculated position (markers need to move left)
-      const thumbOffset = thumbCenter - expectedThumbPosition;
-      
-      console.log(`[Track Measurement] Transform: ${transform}, ThumbCenter: ${thumbCenter}, Expected: ${expectedThumbPosition}, Offset: ${thumbOffset}`);
-      
-      // Store track info first
-      setTrackInfo({
-        left: trackLeft,
-        width: trackWidth,
-        thumbOffset: thumbOffset,
-        thumbWidth: thumbWidth
-      });
-      
-      // Always recalculate all threshold positions with a large rightward adjustment
-      // The markers are consistently behind (to the left of) the thumb, so we push them significantly right
-      const thresholds = [30, 75, 200];
-      const newMarkerPositions: { [key: number]: number } = {};
-      
-      thresholds.forEach(threshold => {
-        const thresholdPercent = ((threshold - 10) / (500 - 10)) * 100;
-        const calculatedPos = trackLeft + (trackWidth * thresholdPercent / 100);
-        
-        // If slider is currently at this threshold, use the exact measured thumb center
-        if (currentValue === threshold) {
-          newMarkerPositions[threshold] = thumbCenter;
-          console.log(`[Track Measurement] Direct measurement for ${threshold}: ${thumbCenter}px`);
-        } else {
-          // Calculate position with offset and LARGE rightward adjustment
-          // The adjustment is based on the observation that markers are consistently behind (to left of) the thumb
-          // Since markers are behind, we need to push them SIGNIFICANTLY right
-          // Use a combination of fixed pixel offset and percentage-based offset
-          const fixedOffset = 10; // Fixed 10px rightward push - increased from 6px
-          const percentageOffset = trackWidth * 0.05; // 5% of track width - increased from 4%
-          const totalAdjustment = fixedOffset + percentageOffset;
-          const adjustedPos = calculatedPos + thumbOffset + totalAdjustment;
-          newMarkerPositions[threshold] = adjustedPos;
-          console.log(`[Track Measurement] Calculated for ${threshold}: ${adjustedPos}px (base: ${calculatedPos}, offset: ${thumbOffset}, adjustment: ${totalAdjustment})`);
-        }
-      });
-      
-      // Update all positions at once to avoid stale state
-      setMarkerPositions(newMarkerPositions);
-      
-      console.log(`[Track Measurement] Value: ${currentValue}, Track: left=${trackLeft}, width=${trackWidth}, ThumbCenter: ${thumbCenter}, Expected: ${expectedThumbPosition}, Offset: ${thumbOffset}`);
-    };
-
-    // Measure on mount and resize
-    const measureWithDelay = () => {
-      // Use requestAnimationFrame to ensure DOM is ready
-      requestAnimationFrame(() => {
-        measureTrack();
-      });
-    };
-
-    measureWithDelay();
-    window.addEventListener('resize', measureWithDelay);
-    
-    // Also measure after delays to ensure slider is fully rendered
-    const timeouts = [
-      setTimeout(measureWithDelay, 100),
-      setTimeout(measureWithDelay, 300),
-      setTimeout(measureWithDelay, 600)
-    ];
-    
-    // Use ResizeObserver for more accurate tracking
-    let resizeObserver: ResizeObserver | null = null;
-    if (sliderContainerRef.current) {
-      resizeObserver = new ResizeObserver(measureWithDelay);
-      resizeObserver.observe(sliderContainerRef.current);
-    }
-    
-    return () => {
-      window.removeEventListener('resize', measureWithDelay);
-      timeouts.forEach(clearTimeout);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [inspectionsNeeded]); // Recalculate when slider value changes to calibrate offset
-
   // Fetch pricing configuration (tiers and currencies)
   const { data: config } = useQuery<{ tiers: Tier[], currencies: any[] }>({
     queryKey: ["/api/pricing/config"],
@@ -442,9 +316,9 @@ export default function Billing() {
         try {
           const response = await apiRequest("POST", "/api/billing/process-session", { sessionId });
           const data = await response.json();
-          
+
           console.log("[Billing] Process session response:", data);
-          
+
           // Show appropriate success message based on purchase type
           if (data.creditsGranted) {
             toast({
@@ -502,13 +376,13 @@ export default function Billing() {
   const pricingBreakdown = useMemo(() => {
     // Force recalculation by logging current value
     console.log(`[Billing] Recalculating pricingBreakdown for ${inspectionsNeeded} inspections`);
-    
+
     let tierPrice = 0;
     let additionalInspections = 0;
     let additionalCost = 0;
     let currentTierName = "";
     let tierIncluded = 0;
-    
+
     // Minimum 10 inspections required - always use Starter tier as base
     if (inspectionsNeeded < 30) {
       // Starter: tier price + per inspection for above 10
@@ -543,22 +417,22 @@ export default function Billing() {
       additionalInspections = inspectionsNeeded - 200;
       additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Enterprise", selectedCurrency, config);
     }
-    
+
     // Get module costs from API (this is the only part that needs API data)
     // Module costs don't change with inspection count, so we use the latest available value
     // This allows the breakdown to update immediately for tier/additional costs
     const moduleCost = pricing?.calculations ? (billingPeriod === "monthly" ? pricing.calculations.modulesMonthly : pricing.calculations.modulesAnnual) : 0;
     const totalCost = tierPrice + additionalCost + moduleCost;
-    
+
     // Determine which tier code to use for checkout
     let tierCodeForCheckout = "";
     if (currentTierName === "Starter") tierCodeForCheckout = "starter";
     else if (currentTierName === "Growth") tierCodeForCheckout = "growth";
     else if (currentTierName === "Professional") tierCodeForCheckout = "professional";
     else if (currentTierName === "Enterprise") tierCodeForCheckout = "enterprise";
-    
+
     console.log(`[Billing] Calculated: Tier=${currentTierName}, Additional=${additionalInspections}, Cost=${additionalCost}, TierPrice=${tierPrice}`);
-    
+
     return {
       tierPrice,
       additionalInspections,
@@ -574,7 +448,7 @@ export default function Billing() {
   // Determine active module names for display
   const activeModuleNames = useMemo(() => {
     if (!pricing?.modules) return [];
-    
+
     // If we have myModules data, use it to filter enabled modules
     if (myModules && myModules.length > 0) {
       // Get enabled module IDs
@@ -583,14 +457,14 @@ export default function Billing() {
           .filter(m => m.isEnabled)
           .map(m => m.moduleId)
       );
-      
+
       // Match enabled modules with pricing modules by module_id
       return pricing.modules
         .filter(m => enabledModuleIds.has(m.module_id))
         .map(m => m.module_name)
         .filter(Boolean); // Remove any undefined/null names
     }
-    
+
     // Fallback: if module has a price > 0, assume it's enabled
     // This handles cases where myModules might not be loaded yet
     return pricing.modules
@@ -705,11 +579,18 @@ export default function Billing() {
           <div className="space-y-8 py-4">
             {/* Slider with Tier Boundaries */}
             <div className="relative pt-8 pb-12">
-              {/* Selected Value Display */}
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-1.5 rounded-full font-bold text-base shadow-lg z-10">
+              {/* Selected Value Display - following the slider thumb */}
+              <div
+                className="absolute -top-4 bg-primary text-white px-4 py-1.5 rounded-full font-bold text-base shadow-lg z-10 whitespace-nowrap"
+                style={{
+                  left: `${getPositionPercent(inspectionsNeeded)}%`,
+                  transform: 'translateX(-50%)',
+                  pointerEvents: 'none'
+                }}
+              >
                 {inspectionsNeeded >= 500 ? "500+" : inspectionsNeeded}
               </div>
-              
+
               {/* Slider Container - ensures markers align with slider track */}
               <div className="relative w-full" ref={sliderContainerRef}>
                 <Slider
@@ -719,73 +600,61 @@ export default function Billing() {
                     // Snap to tier thresholds when close
                     const snapPoints = [10, 30, 75, 200, 500];
                     const snapThreshold = 3; // pixels/units
-                    
+
                     for (const snap of snapPoints) {
                       if (Math.abs(snap - value) <= snapThreshold) {
                         value = snap;
                         break;
                       }
                     }
-                    
+
                     setInspectionsNeeded(value);
                   }}
                   min={10}
                   max={500}
                   step={1}
-                  className="[&_[role=slider]]:h-6 [&_[role=slider]]:w-6 [&_[role=slider]]:bg-background [&_[role=slider]]:border-primary [&_[role=slider]]:border-2"
+                  className="[&_[role=slider]]:h-6 [&_[role=slider]]:w-6 [&_[role=slider]]:bg-background [&_[role=slider]]:border-primary [&_[role=slider]]:border-2 [&_[role=slider]]:-translate-x-1/2"
                 />
-                
-                {/* Tier Boundary Markers - aligned with slider handle center */}
-                <div className="absolute top-0 left-0 right-0" style={{ marginTop: '12px' }}>
-                  {[30, 75, 200].map((threshold) => {
-                    // Calculate position to match Radix UI Slider handle center exactly
-                    let leftPosition: string;
-                    
-                    // Always use stored position from markerPositions (either direct measurement or calculated)
-                    if (markerPositions[threshold] !== undefined) {
-                      leftPosition = `${markerPositions[threshold]}px`;
-                    } else if (trackInfo) {
-                      // Fallback calculation if markerPositions not set yet - use same large adjustment
-                      const positionPercent = ((threshold - 10) / (500 - 10)) * 100;
-                      const basePosition = trackInfo.left + (trackInfo.width * positionPercent / 100);
-                      const fixedOffset = 10; // Match the measurement code: 10px
-                      const percentageOffset = trackInfo.width * 0.05; // Match the measurement code: 5%
-                      const totalAdjustment = fixedOffset + percentageOffset;
-                      const exactPosition = basePosition + (trackInfo.thumbOffset || 0) + totalAdjustment;
-                      leftPosition = `${exactPosition}px`;
-                    } else {
-                      // Final fallback to percentage
-                      leftPosition = `${((threshold - 10) / (500 - 10)) * 100}%`;
-                    }
-                    return (
-                      <div 
-                        key={threshold} 
-                        className="absolute flex flex-col items-center gap-1" 
-                        style={{ 
-                          left: leftPosition,
-                          transform: 'translateX(-50%)',
-                          pointerEvents: 'none'
-                        }}
-                      >
-                        <div className="w-0.5 h-6 bg-primary/30" />
-                        <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mt-1">{threshold}</span>
-                      </div>
-                    );
-                  })}
+
+                <div className="absolute top-0 left-0 right-0 h-1" style={{ marginTop: '12px' }}>
+                  {[30, 75, 200].map((threshold) => (
+                    <div
+                      key={threshold}
+                      className="absolute flex flex-col items-center gap-1"
+                      style={{
+                        left: `${getPositionPercent(threshold) - (threshold === 200 ? 0.4 : 0)}%`,
+                        transform: 'translateX(-50%)',
+                        pointerEvents: 'none'
+                      }}
+                    >
+                      <div className="w-0.5 h-6 bg-primary/30" />
+                      <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mt-1">{threshold}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              
-              {/* Tier Names Below - positioned exactly at tier thresholds with spacing */}
-              <div className="absolute top-20 left-0 right-0 flex justify-between px-2 mt-4">
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((30 - 10) / (500 - 10)) * 100}%`, transform: 'translateX(-50%)', minWidth: '60px' }}>
-                  <span className="text-xs font-medium text-foreground whitespace-nowrap">Growth</span>
-                </div>
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((75 - 10) / (500 - 10)) * 100}%`, transform: 'translateX(-50%)', minWidth: '80px' }}>
-                  <span className="text-xs font-medium text-foreground whitespace-nowrap">Professional</span>
-                </div>
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((200 - 10) / (500 - 10)) * 100}%`, transform: 'translateX(-50%)', minWidth: '70px' }}>
-                  <span className="text-xs font-medium text-foreground whitespace-nowrap">Enterprise</span>
-                </div>
+
+              <div className="absolute top-20 left-0 right-0 mt-4 h-8">
+                {[
+                  { threshold: 30, name: "Growth" },
+                  { threshold: 75, name: "Professional" },
+                  { threshold: 200, name: "Enterprise" }
+                ].map((tier) => {
+                  const percent = getPositionPercent(tier.threshold);
+                  const adjustedPercent = tier.threshold === 200 ? percent - 0.4 : percent;
+                  return (
+                    <div
+                      key={tier.name}
+                      className="flex flex-col items-center absolute"
+                      style={{
+                        left: `${adjustedPercent}%`,
+                        transform: 'translateX(-50%)'
+                      }}
+                    >
+                      <span className="text-xs font-medium text-foreground whitespace-nowrap">{tier.name}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -802,7 +671,7 @@ export default function Billing() {
               } else if (inspectionsNeeded <= 500) {
                 currentTier = { name: "Enterprise", range: "200-500", included: 200 };
               }
-              
+
               return (
                 <div className="bg-muted/30 rounded-xl p-6 space-y-2 border border-border">
                   <div className="text-sm space-y-1">
@@ -850,193 +719,193 @@ export default function Billing() {
                 totalCost,
                 tierCodeForCheckout
               } = pricingBreakdown;
-              
+
               return (
                 <div
                   key={`pricing-${inspectionsNeeded}-${billingPeriod}`}
                   className="bg-card rounded-2xl p-8 border border-border shadow-sm space-y-4"
                 >
-                    <div className="space-y-3">
-                      {/* Tier Subscription Cost (if applicable) */}
-                      {tierPrice > 0 && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">
-                            {billingPeriod === "annual" ? "Annual" : "Monthly"} Subscription ({currentTierName}):
-                          </span>
-                          <span className="font-bold text-lg">
-                            {formatCurrency(tierPrice, selectedCurrency)}
-                          </span>
-                        </div>
-                      )}
-                      
-                      {/* Per-Inspection Cost */}
-                      {additionalInspections > 0 && (
-                        <>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">
-                              Additional Inspections:
-                            </span>
-                            <span className="font-bold text-lg">
-                              {formatCurrency(additionalCost, selectedCurrency)}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground pl-4">
-                            ({additionalInspections} × {formatCurrency(getPerInspectionPriceFromConfig(pricingBreakdown.currentTierName, selectedCurrency, config) / 100, selectedCurrency)} per inspection)
-                          </p>
-                        </>
-                      )}
-                      
-                      {/* Module Costs */}
-                      {moduleCost > 0 && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">
-                            Active Modules{activeModuleNames.length > 0 ? ` (${activeModuleNames.join(", ")})` : ""}:
-                          </span>
-                          <span className="font-bold text-lg">
-                            {formatCurrency(moduleCost, selectedCurrency)}
-                          </span>
-                        </div>
-                      )}
-                      
-                      <Separator />
-                      
+                  <div className="space-y-3">
+                    {/* Tier Subscription Cost (if applicable) */}
+                    {tierPrice > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="font-semibold">
-                          {billingPeriod === "annual" ? "Annual Total" : "Total Monthly"}:
+                        <span className="text-muted-foreground">
+                          {billingPeriod === "annual" ? "Annual" : "Monthly"} Subscription ({currentTierName}):
                         </span>
-                        <span className="font-bold text-2xl">
-                          {formatCurrency(totalCost, selectedCurrency)}
+                        <span className="font-bold text-lg">
+                          {formatCurrency(tierPrice, selectedCurrency)}
                         </span>
-                      </div>
-                    </div>
-
-                    {/* Subscribe Button */}
-                    {tierCodeForCheckout && (
-                      <div className="pt-4">
-                        <Button
-                          onClick={() => checkoutMutation.mutate(tierCodeForCheckout)}
-                          disabled={checkoutMutation.isPending || subscription?.currentTierId === config?.tiers?.find((t: Tier) => t.code === tierCodeForCheckout)?.id}
-                          className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-md active:scale-95"
-                        >
-                          {checkoutMutation.isPending ? (
-                            <span className="flex items-center gap-2">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Processing...
-                            </span>
-                          ) : subscription?.currentTierId === config?.tiers?.find((t: Tier) => t.code === tierCodeForCheckout)?.id ? (
-                            "Current Plan"
-                          ) : (
-                            <span className="flex items-center gap-2">
-                              Subscribe & Pay <ChevronRight className="h-4 w-4" />
-                            </span>
-                          )}
-                        </Button>
                       </div>
                     )}
 
-                    {/* Quotation Section for 500+ */}
-                    {inspectionsNeeded >= 500 && (() => {
-                      const pendingRequest = quotationData?.request;
-                      const quotation = quotationData?.quotation;
+                    {/* Per-Inspection Cost */}
+                    {additionalInspections > 0 && (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">
+                            Additional Inspections:
+                          </span>
+                          <span className="font-bold text-lg">
+                            {formatCurrency(additionalCost, selectedCurrency)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pl-4">
+                          ({additionalInspections} × {formatCurrency(getPerInspectionPriceFromConfig(pricingBreakdown.currentTierName, selectedCurrency, config) / 100, selectedCurrency)} per inspection)
+                        </p>
+                      </>
+                    )}
 
-                      if (quotation && quotation.status === "sent") {
-                        // Show approved quotation
-                        const priceInMajor = quotation.quotedPrice / 100;
-                        const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
-                        const symbol = currencySymbols[quotation.currency] || quotation.currency;
+                    {/* Module Costs */}
+                    {moduleCost > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">
+                          Active Modules{activeModuleNames.length > 0 ? ` (${activeModuleNames.join(", ")})` : ""}:
+                        </span>
+                        <span className="font-bold text-lg">
+                          {formatCurrency(moduleCost, selectedCurrency)}
+                        </span>
+                      </div>
+                    )}
 
-                        return (
-                          <div className="mt-6 p-6 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                            <div className="flex items-start justify-between mb-4">
-                              <div>
-                                <p className="font-semibold text-lg text-emerald-900 dark:text-emerald-100">
-                                  Your Custom Quote is Ready!
-                                </p>
-                                <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
-                                  {quotation.quotedInspections} inspections per month
-                                </p>
-                              </div>
-                              <Badge className="bg-emerald-500">Quote Ready</Badge>
-                            </div>
-                            
-                            <div className="mb-4">
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
-                                  {symbol}{priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
-                                <span className="text-sm text-emerald-700 dark:text-emerald-300">
-                                  /{quotation.billingPeriod === "annual" ? "year" : "month"}
-                                </span>
-                              </div>
-                              {quotation.customerNotes && (
-                                <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-2">
-                                  {quotation.customerNotes}
-                                </p>
-                              )}
-                            </div>
+                    <Separator />
 
-                            <Button
-                              onClick={() => quotationCheckoutMutation.mutate(quotation.id)}
-                              disabled={quotationCheckoutMutation.isPending}
-                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-                            >
-                              {quotationCheckoutMutation.isPending ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Processing...
-                                </>
-                              ) : (
-                                <>
-                                  Subscribe Now <ChevronRight className="h-4 w-4 ml-2" />
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                        );
-                      }
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold">
+                        {billingPeriod === "annual" ? "Annual Total" : "Total Monthly"}:
+                      </span>
+                      <span className="font-bold text-2xl">
+                        {formatCurrency(totalCost, selectedCurrency)}
+                      </span>
+                    </div>
+                  </div>
 
-                      if (pendingRequest) {
-                        // Show pending request status
-                        return (
-                          <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Clock className="h-4 w-4 text-amber-600" />
-                              <p className="font-semibold text-sm text-amber-900 dark:text-amber-100">
-                                Quotation Request Pending
+                  {/* Subscribe Button */}
+                  {tierCodeForCheckout && (
+                    <div className="pt-4">
+                      <Button
+                        onClick={() => checkoutMutation.mutate(tierCodeForCheckout)}
+                        disabled={checkoutMutation.isPending || subscription?.currentTierId === config?.tiers?.find((t: Tier) => t.code === tierCodeForCheckout)?.id}
+                        className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-md active:scale-95"
+                      >
+                        {checkoutMutation.isPending ? (
+                          <span className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Processing...
+                          </span>
+                        ) : subscription?.currentTierId === config?.tiers?.find((t: Tier) => t.code === tierCodeForCheckout)?.id ? (
+                          "Current Plan"
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            Subscribe & Pay <ChevronRight className="h-4 w-4" />
+                          </span>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Quotation Section for 500+ */}
+                  {inspectionsNeeded >= 500 && (() => {
+                    const pendingRequest = quotationData?.request;
+                    const quotation = quotationData?.quotation;
+
+                    if (quotation && quotation.status === "sent") {
+                      // Show approved quotation
+                      const priceInMajor = quotation.quotedPrice / 100;
+                      const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+                      const symbol = currencySymbols[quotation.currency] || quotation.currency;
+
+                      return (
+                        <div className="mt-6 p-6 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                          <div className="flex items-start justify-between mb-4">
+                            <div>
+                              <p className="font-semibold text-lg text-emerald-900 dark:text-emerald-100">
+                                Your Custom Quote is Ready!
+                              </p>
+                              <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
+                                {quotation.quotedInspections} inspections per month
                               </p>
                             </div>
-                            <p className="text-xs text-amber-700 dark:text-amber-300">
-                              We've received your request for {pendingRequest.requestedInspections} inspections. 
-                              Our team is preparing a custom quote for you. You'll receive an email when it's ready.
-                            </p>
-                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                              Requested on {new Date(pendingRequest.createdAt).toLocaleDateString()}
-                            </p>
+                            <Badge className="bg-emerald-500">Quote Ready</Badge>
                           </div>
-                        );
-                      }
 
-                      // Show request quotation button
-                      return (
-                        <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                          <p className="font-semibold text-sm text-amber-900 dark:text-amber-100 mb-2">
-                            Enterprise Plus - Custom Quote Required
-                          </p>
-                          <p className="text-xs text-amber-700 dark:text-amber-300 mb-4">
-                            For 500+ inspections per month, we'll prepare a custom pricing quote tailored to your needs.
-                          </p>
+                          <div className="mb-4">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                                {symbol}{priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                              <span className="text-sm text-emerald-700 dark:text-emerald-300">
+                                /{quotation.billingPeriod === "annual" ? "year" : "month"}
+                              </span>
+                            </div>
+                            {quotation.customerNotes && (
+                              <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-2">
+                                {quotation.customerNotes}
+                              </p>
+                            )}
+                          </div>
+
                           <Button
-                            onClick={() => {
-                              setExactInspectionsCount(inspectionsNeeded);
-                              setQuotationDialogOpen(true);
-                            }}
-                            className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={() => quotationCheckoutMutation.mutate(quotation.id)}
+                            disabled={quotationCheckoutMutation.isPending}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
                           >
-                            Request Custom Quote
+                            {quotationCheckoutMutation.isPending ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                Subscribe Now <ChevronRight className="h-4 w-4 ml-2" />
+                              </>
+                            )}
                           </Button>
                         </div>
                       );
-                    })()}
+                    }
+
+                    if (pendingRequest) {
+                      // Show pending request status
+                      return (
+                        <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Clock className="h-4 w-4 text-amber-600" />
+                            <p className="font-semibold text-sm text-amber-900 dark:text-amber-100">
+                              Quotation Request Pending
+                            </p>
+                          </div>
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            We've received your request for {pendingRequest.requestedInspections} inspections.
+                            Our team is preparing a custom quote for you. You'll receive an email when it's ready.
+                          </p>
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                            Requested on {new Date(pendingRequest.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    // Show request quotation button
+                    return (
+                      <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                        <p className="font-semibold text-sm text-amber-900 dark:text-amber-100 mb-2">
+                          Enterprise Plus - Custom Quote Required
+                        </p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-4">
+                          For 500+ inspections per month, we'll prepare a custom pricing quote tailored to your needs.
+                        </p>
+                        <Button
+                          onClick={() => {
+                            setExactInspectionsCount(inspectionsNeeded);
+                            setQuotationDialogOpen(true);
+                          }}
+                          className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                        >
+                          Request Custom Quote
+                        </Button>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -1177,7 +1046,7 @@ function ManageBillingMethodCard() {
       setIsLoading(true);
       const res = await apiRequest("POST", "/api/billing/portal");
       const data = await res.json();
-      
+
       if (data.url) {
         window.location.href = data.url;
       } else {
@@ -1195,30 +1064,30 @@ function ManageBillingMethodCard() {
   };
 
   return (
-      <Card className="bg-muted/20 border-border">
-        <CardContent className="flex flex-col md:flex-row items-center justify-between p-6 gap-4">
-          <div className="flex items-center gap-4">
-            <div className="h-10 w-10 rounded-full bg-background border border-border flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-bold text-sm">Manage Billing Method</p>
-              <p className="text-xs text-muted-foreground">Update credit cards, download historic PDF invoices, or cancel subscription.</p>
-            </div>
+    <Card className="bg-muted/20 border-border">
+      <CardContent className="flex flex-col md:flex-row items-center justify-between p-6 gap-4">
+        <div className="flex items-center gap-4">
+          <div className="h-10 w-10 rounded-full bg-background border border-border flex items-center justify-center">
+            <ShieldCheck className="h-5 w-5 text-muted-foreground" />
           </div>
-        <Button 
-          variant="outline" 
+          <div>
+            <p className="font-bold text-sm">Manage Billing Method</p>
+            <p className="text-xs text-muted-foreground">Update credit cards, download historic PDF invoices, or cancel subscription.</p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
           className="h-10 px-6 gap-2"
           onClick={openStripePortal}
           disabled={isLoading}
         >
           {isLoading ? "Loading..." : (
             <>
-            Stripe Portal <ArrowUpRight className="h-4 w-4" />
+              Stripe Portal <ArrowUpRight className="h-4 w-4" />
             </>
           )}
-          </Button>
-        </CardContent>
+        </Button>
+      </CardContent>
     </Card>
   );
 }
@@ -1302,9 +1171,8 @@ function AddOnPackPurchaseSection() {
             return (
               <Card
                 key={pack.id}
-                className={`relative border-2 transition-all hover:shadow-lg ${
-                  isBestValue ? "border-primary bg-primary/5" : "border-border"
-                }`}
+                className={`relative border-2 transition-all hover:shadow-lg ${isBestValue ? "border-primary bg-primary/5" : "border-border"
+                  }`}
               >
                 {isBestValue && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -1345,7 +1213,7 @@ function AddOnPackPurchaseSection() {
               </Card>
             );
           })}
-    </div>
+        </div>
       </CardContent>
     </Card>
   );
