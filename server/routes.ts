@@ -2688,11 +2688,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Add-on pack not found or inactive" });
       }
 
+      // Validate pack has inspectionQuantity
+      if (!pack.inspectionQuantity || pack.inspectionQuantity <= 0) {
+        console.error(`[Addon Pack Purchase] Invalid inspectionQuantity for pack ${packId}: ${pack.inspectionQuantity}`);
+        return res.status(400).json({ message: "Add-on pack has invalid inspection quantity" });
+      }
+
       // Get tier-specific pricing
       const pricing = await storage.getAddonPackPricing(packId, instanceSub.currentTierId, currency);
       if (!pricing) {
         return res.status(400).json({ message: "Pricing not configured for this pack and tier" });
       }
+
+      console.log(`[Addon Pack Purchase] Pack ${packId}: name=${pack.name}, inspectionQuantity=${pack.inspectionQuantity}, pricePerInspection=${pricing.pricePerInspection}, totalPrice=${pricing.totalPackPrice}`);
 
       // Create Stripe checkout session (one-time payment)
       const { getUncachableStripeClient } = await import("./stripeClient");
@@ -2723,10 +2731,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           packId,
           tierIdAtPurchase: instanceSub.currentTierId,
           type: "addon_pack_purchase",
-          quantity: pack.inspectionQuantity.toString(),
+          quantity: pack.inspectionQuantity.toString(), // This is the number of inspection credits to grant
           pricePerInspection: pricing.pricePerInspection.toString(),
           totalPrice: pricing.totalPackPrice.toString(),
-          currency: currency
+          currency: currency,
+          packName: pack.name // Add pack name for debugging
         },
       });
 
@@ -11674,12 +11683,20 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           console.log(`[Webhook] Processing addon pack purchase for organization ${organizationId}`);
           const packId = session.metadata?.packId;
           const tierIdAtPurchase = session.metadata?.tierIdAtPurchase;
-          const quantity = parseInt(session.metadata?.quantity || "0");
+          let quantity = parseInt(session.metadata?.quantity || "0");
           const pricePerInspection = parseInt(session.metadata?.pricePerInspection || "0");
           const totalPrice = parseInt(session.metadata?.totalPrice || "0");
           const currency = session.metadata?.currency || "GBP";
 
-          console.log(`[Webhook] Addon pack purchase details - PackId: ${packId}, Quantity: ${quantity}, OrganizationId: ${organizationId}, TierId: ${tierIdAtPurchase}`);
+          // Verify quantity matches the actual pack inspectionQuantity
+          const packs = await storage.getAddonPacks();
+          const pack = packs.find(p => p.id === packId);
+          if (pack && pack.inspectionQuantity !== quantity) {
+            console.error(`[Webhook] QUANTITY MISMATCH: Pack ${packId} has inspectionQuantity=${pack.inspectionQuantity}, but metadata says quantity=${quantity}. Using pack.inspectionQuantity.`);
+            quantity = pack.inspectionQuantity;
+          }
+
+          console.log(`[Webhook] Addon pack purchase details - PackId: ${packId}, Quantity: ${quantity}, OrganizationId: ${organizationId}, TierId: ${tierIdAtPurchase}, PackName: ${pack?.name || 'N/A'}`);
 
           if (!packId || !organizationId || !tierIdAtPurchase) {
             console.error(`[Webhook] Missing required fields - PackId: ${packId}, OrganizationId: ${organizationId}, TierId: ${tierIdAtPurchase}`);
@@ -17429,7 +17446,16 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         const totalPrice = parseInt(session.metadata?.totalPrice || "0");
         const currency = session.metadata?.currency || "GBP";
 
-        console.log(`[Process Session] Processing addon pack purchase for org ${user.organizationId}: packId=${packId}, quantity=${quantity}`);
+        console.log(`[Process Session] Processing addon pack purchase for org ${user.organizationId}: packId=${packId}, quantity=${quantity}, packName=${session.metadata?.packName || 'N/A'}`);
+        
+        // Double-check quantity is valid and matches pack
+        const packs = await storage.getAddonPacks();
+        const pack = packs.find(p => p.id === packId);
+        if (pack && pack.inspectionQuantity !== quantity) {
+          console.error(`[Process Session] QUANTITY MISMATCH: Pack ${packId} has inspectionQuantity=${pack.inspectionQuantity}, but metadata says quantity=${quantity}. Using pack.inspectionQuantity.`);
+          // Use the actual pack quantity instead of metadata
+          quantity = pack.inspectionQuantity;
+        }
 
         if (!packId || !tierIdAtPurchase || quantity <= 0) {
           console.error(`[Process Session] Missing required fields for addon pack purchase - PackId: ${packId}, TierId: ${tierIdAtPurchase}, Quantity: ${quantity}`);
