@@ -1088,7 +1088,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   // Auth middleware
+  const authStartTime = Date.now();
   await setupAuth(app);
+  console.log(`✅ Auth setup completed (took ${Date.now() - authStartTime}ms)`);
 
   // ==================== ERROR HANDLING MIDDLEWARE ====================
   // Handle Passport deserialization errors gracefully
@@ -2025,7 +2027,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const tiers = await storage.getSubscriptionTiers();
       const currencies = await storage.getCurrencyConfig();
-      res.json({ tiers, currencies });
+      // Include tier pricing (with per-inspection price) for admin-managed rates
+      const { tierPricing } = await import("@shared/schema");
+      const allTierPricing = await db.select().from(tierPricing);
+      res.json({ tiers, currencies, tierPricing: allTierPricing });
     } catch (error) {
       console.error("Error fetching pricing config:", error);
       res.status(500).json({ message: "Failed to fetch pricing configuration" });
@@ -11598,8 +11603,10 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
       if (event.type === 'checkout.session.completed') {
         const session = event.data.object as any;
-        const organizationId = session.metadata.organizationId;
-        const purchaseType = session.metadata.type;
+        const organizationId = session.metadata?.organizationId;
+        const purchaseType = session.metadata?.type;
+
+        console.log(`[Webhook] Checkout session completed - Organization: ${organizationId}, Type: ${purchaseType}, Metadata:`, JSON.stringify(session.metadata, null, 2));
 
         if (purchaseType === 'module_purchase') {
           // Handle module purchase
@@ -11664,15 +11671,23 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           }
         } else if (purchaseType === 'addon_pack_purchase') {
           // Handle add-on pack purchase
-          const packId = session.metadata.packId;
-          const tierIdAtPurchase = session.metadata.tierIdAtPurchase;
-          const quantity = parseInt(session.metadata.quantity || "0");
-          const pricePerInspection = parseInt(session.metadata.pricePerInspection || "0");
-          const totalPrice = parseInt(session.metadata.totalPrice || "0");
-          const currency = session.metadata.currency || "GBP";
+          console.log(`[Webhook] Processing addon pack purchase for organization ${organizationId}`);
+          const packId = session.metadata?.packId;
+          const tierIdAtPurchase = session.metadata?.tierIdAtPurchase;
+          const quantity = parseInt(session.metadata?.quantity || "0");
+          const pricePerInspection = parseInt(session.metadata?.pricePerInspection || "0");
+          const totalPrice = parseInt(session.metadata?.totalPrice || "0");
+          const currency = session.metadata?.currency || "GBP";
+
+          console.log(`[Webhook] Addon pack purchase details - PackId: ${packId}, Quantity: ${quantity}, OrganizationId: ${organizationId}, TierId: ${tierIdAtPurchase}`);
 
           if (!packId || !organizationId || !tierIdAtPurchase) {
-            console.error('Missing required fields in add-on pack purchase webhook metadata');
+            console.error(`[Webhook] Missing required fields - PackId: ${packId}, OrganizationId: ${organizationId}, TierId: ${tierIdAtPurchase}`);
+            return res.json({ received: true });
+          }
+
+          if (quantity <= 0) {
+            console.error(`[Webhook] Invalid quantity: ${quantity}`);
             return res.json({ received: true });
           }
 
@@ -11707,19 +11722,28 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           });
 
           // Grant credits to the organization
-          const { subscriptionService } = await import("./subscriptionService");
-          await subscriptionService.grantCredits(
-            organizationId,
-            quantity,
-            "addon_pack",
-            undefined, // No expiration date for addon packs
-            {
-              addonPurchaseId: addonPurchase.id,
-            },
-            pricePerInspection
-          );
+          try {
+            const { subscriptionService } = await import("./subscriptionService");
+            await subscriptionService.grantCredits(
+              organizationId,
+              quantity,
+              "addon_pack",
+              undefined, // No expiration date for addon packs
+              {
+                addonPurchaseId: addonPurchase.id,
+              },
+              pricePerInspection
+            );
 
-          console.log(`Add-on pack ${packId} purchased for organization ${organizationId}: ${quantity} inspections at ${pricePerInspection / 100} ${currency} each. Credits granted.`);
+            console.log(`[Addon Pack Webhook] Successfully granted ${quantity} credits to organization ${organizationId} for pack ${packId}`);
+          } catch (creditError: any) {
+            console.error(`[Addon Pack Webhook] ERROR granting credits to organization ${organizationId}:`, creditError);
+            // Don't throw - log the error but still mark purchase as successful
+            // The purchase record is already created, so we can retry credit granting later if needed
+          }
+          
+          // Explicitly return success response for addon pack purchase
+          return res.json({ received: true, creditsGranted: quantity });
         } else if (purchaseType === 'bundle_purchase') {
           // Handle bundle purchase
           const bundleId = session.metadata.bundleId;
@@ -17396,6 +17420,91 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         }
       }
 
+      // Handle addon pack purchase processing
+      if (session.metadata?.type === "addon_pack_purchase") {
+        const packId = session.metadata?.packId;
+        const tierIdAtPurchase = session.metadata?.tierIdAtPurchase;
+        const quantity = parseInt(session.metadata?.quantity || "0");
+        const pricePerInspection = parseInt(session.metadata?.pricePerInspection || "0");
+        const totalPrice = parseInt(session.metadata?.totalPrice || "0");
+        const currency = session.metadata?.currency || "GBP";
+
+        console.log(`[Process Session] Processing addon pack purchase for org ${user.organizationId}: packId=${packId}, quantity=${quantity}`);
+
+        if (!packId || !tierIdAtPurchase || quantity <= 0) {
+          console.error(`[Process Session] Missing required fields for addon pack purchase - PackId: ${packId}, TierId: ${tierIdAtPurchase}, Quantity: ${quantity}`);
+          return res.status(400).json({ message: "Missing required fields for addon pack purchase" });
+        }
+
+        // Get or create instance subscription
+        let instanceSub = await storage.getInstanceSubscription(user.organizationId);
+        if (!instanceSub) {
+          instanceSub = await storage.createInstanceSubscription({
+            organizationId: user.organizationId,
+            registrationCurrency: currency,
+            inspectionQuotaIncluded: 0,
+            billingCycle: "monthly",
+            subscriptionStatus: "active"
+          });
+        }
+
+        // Check if purchase already exists (prevent duplicate processing)
+        const existingPurchases = await storage.getInstanceAddonPurchases(instanceSub.id);
+        const existingPurchase = existingPurchases.find(
+          p => p.packId === packId && 
+               p.status === "active" && 
+               Math.abs(new Date(p.purchaseDate || new Date()).getTime() - new Date().getTime()) < 60000 // Within 1 minute
+        );
+
+        if (existingPurchase) {
+          console.log(`[Process Session] Addon pack purchase already processed: ${existingPurchase.id}`);
+          return res.json({ message: "Already processed", processed: true });
+        }
+
+        // Create add-on purchase record
+        const addonPurchase = await storage.createInstanceAddonPurchase({
+          instanceId: instanceSub.id,
+          packId,
+          tierIdAtPurchase,
+          quantity,
+          pricePerInspection,
+          totalPrice,
+          currencyCode: currency,
+          inspectionsRemaining: quantity,
+          status: "active"
+        });
+
+        console.log(`[Process Session] Created addon purchase record: ${addonPurchase.id}`);
+
+        // Grant credits to the organization
+        try {
+          const { subscriptionService: subService } = await import("./subscriptionService");
+          await subService.grantCredits(
+            user.organizationId,
+            quantity,
+            "addon_pack",
+            undefined, // No expiration date for addon packs
+            {
+              addonPurchaseId: addonPurchase.id,
+              adminNotes: `Addon pack purchase via Stripe session: ${sessionId}`,
+              createdBy: user.id
+            },
+            pricePerInspection
+          );
+
+          console.log(`[Process Session] Successfully granted ${quantity} credits to organization ${user.organizationId} for pack ${packId}`);
+          return res.json({ message: "Addon pack purchased and credits granted successfully", processed: true, creditsGranted: quantity });
+        } catch (creditError: any) {
+          console.error(`[Process Session] ERROR granting credits to organization ${user.organizationId}:`, creditError);
+          // Still return success since purchase record is created - credits can be granted manually if needed
+          return res.status(500).json({ 
+            message: "Purchase recorded but credits grant failed", 
+            error: creditError.message,
+            processed: false 
+          });
+        }
+      }
+
       console.log(`[Process Session] Extracted data:`, {
         organizationId, planId, tierId, planCode, billingPeriod,
         requestedInspections: parsedRequested,
@@ -17409,8 +17518,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(403).json({ message: "Session metadata does not match your organization" });
       }
 
-      // Validate metadata (allow quotation subscriptions to pass)
-      if (!planId && !topupOrderId && !tierId && session.metadata?.type !== "quotation_subscription") {
+      // Validate metadata (allow quotation subscriptions, module purchases, and addon pack purchases to pass)
+      if (!planId && !topupOrderId && !tierId && 
+          session.metadata?.type !== "quotation_subscription" && 
+          session.metadata?.type !== "module_purchase" && 
+          session.metadata?.type !== "addon_pack_purchase") {
         console.error(`[Process Session] Missing required metadata: planId=${planId}, topupOrderId=${topupOrderId}, tierId=${tierId}, type=${session.metadata?.type}`);
         return res.status(400).json({ message: "Session metadata is incomplete. Missing planId, topupOrderId or tierId." });
       }
@@ -19187,12 +19299,13 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       }
       const { tierId } = req.params;
       const { tierPricing } = await import("@shared/schema");
-      const { currencyCode, priceMonthly, priceAnnual } = req.body;
+      const { currencyCode, priceMonthly, priceAnnual, perInspectionPrice } = req.body;
       const [pricing] = await db.insert(tierPricing).values({
         tierId,
         currencyCode,
         priceMonthly,
-        priceAnnual
+        priceAnnual,
+        perInspectionPrice: perInspectionPrice ?? 0
       }).returning();
       res.json(pricing);
     } catch (error: any) {
@@ -19209,11 +19322,12 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       }
       const { id } = req.params;
       const { tierPricing } = await import("@shared/schema");
-      const { priceMonthly, priceAnnual } = req.body;
+      const { priceMonthly, priceAnnual, perInspectionPrice } = req.body;
       const [pricing] = await db.update(tierPricing)
         .set({
           priceMonthly,
           priceAnnual,
+          ...(perInspectionPrice !== undefined ? { perInspectionPrice } : {}),
           lastUpdated: new Date()
         })
         .where(eq(tierPricing.id, id))
@@ -19347,6 +19461,53 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     } catch (error: any) {
       console.error("Error updating addon pack pricing:", error);
       res.status(500).json({ message: "Failed to update addon pack pricing", error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/addon-packs/:packId/pricing/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const adminUser = await storage.getAdminByEmail(req.user.email);
+      if (!adminUser) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { id } = req.params;
+      const { addonPackPricing } = await import("@shared/schema");
+      await db.delete(addonPackPricing).where(eq(addonPackPricing.id, id));
+      res.json({ message: "Pricing deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting addon pack pricing:", error);
+      res.status(500).json({ message: "Failed to delete addon pack pricing", error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/addon-packs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const adminUser = await storage.getAdminByEmail(req.user.email);
+      if (!adminUser) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { id } = req.params;
+      const { addonPackConfig, instanceAddonPurchases } = await import("@shared/schema");
+      
+      // Check if pack has any active purchases
+      const packPurchases = await db.select()
+        .from(instanceAddonPurchases)
+        .where(and(
+          eq(instanceAddonPurchases.packId, id),
+          eq(instanceAddonPurchases.status, "active")
+        ));
+      
+      if (packPurchases.length > 0) {
+        return res.status(400).json({ 
+          message: `Cannot delete pack. There are ${packPurchases.length} active purchase(s) associated with this pack.` 
+        });
+      }
+
+      await db.delete(addonPackConfig).where(eq(addonPackConfig.id, id));
+      res.json({ message: "Pack deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting addon pack:", error);
+      res.status(500).json({ message: "Failed to delete addon pack", error: error.message });
     }
   });
 

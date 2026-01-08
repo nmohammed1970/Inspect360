@@ -4,8 +4,7 @@ import { type SubscriptionTier, type MarketplaceModule } from "@shared/schema";
 export class PricingService {
     // Detect the appropriate tier based on inspection count
     // New tier ranges:
-    // 0-9: No tier (pay per inspection)
-    // 10-29: Starter (includes 10)
+    // 10-29: Starter (includes 10) - MINIMUM
     // 30-74: Growth (includes 30)
     // 75-199: Professional (includes 75)
     // 200-500: Enterprise (includes 200)
@@ -15,18 +14,15 @@ export class PricingService {
         const activeTiers = tiers.filter(t => t.isActive !== false);
         const sortedTiers = [...activeTiers].sort((a, b) => a.includedInspections - b.includedInspections);
 
+        // Enforce minimum 10 inspections - use Starter tier
+        const minCount = Math.max(inspectionCount, 10);
+
         // If count > 500, use Enterprise (the highest tier)
-        if (inspectionCount > 500) {
+        if (minCount > 500) {
             return sortedTiers.find(t => t.code === "enterprise") || sortedTiers[sortedTiers.length - 1];
         }
 
-        // For 0-9 inspections, no tier (pay per inspection only)
-        // But we still need to return a tier for the API, so return Starter as the base tier
-        if (inspectionCount < 10) {
-            return sortedTiers.find(t => t.code === "starter");
-        }
-
-        // Find the tier where inspectionCount falls within its range
+        // Find the tier where minCount falls within its range
         // Range is from tier's includedInspections up to (but not including) next tier's includedInspections
         for (let i = 0; i < sortedTiers.length; i++) {
             const currentTier = sortedTiers[i];
@@ -34,13 +30,13 @@ export class PricingService {
             
             // If this is the last tier, use it if count >= its includedInspections
             if (!nextTier) {
-                if (inspectionCount >= currentTier.includedInspections) {
+                if (minCount >= currentTier.includedInspections) {
                     return currentTier;
                 }
             } else {
-                // Check if inspectionCount falls within this tier's range
+                // Check if minCount falls within this tier's range
                 // Range: [currentTier.includedInspections, nextTier.includedInspections)
-                if (inspectionCount >= currentTier.includedInspections && inspectionCount < nextTier.includedInspections) {
+                if (minCount >= currentTier.includedInspections && minCount < nextTier.includedInspections) {
                     return currentTier;
                 }
             }
@@ -160,8 +156,11 @@ export class PricingService {
         const tiers = await storage.getSubscriptionTiers();
         const modules = await storage.getMarketplaceModules();
 
+        // Enforce minimum 10 inspections
+        const minInspectionCount = Math.max(inspectionCount, 10);
+        
         // 1. Detect appropriate tier
-        const detectedTier = this.detectTier(inspectionCount, tiers);
+        const detectedTier = this.detectTier(minInspectionCount, tiers);
         if (!detectedTier) {
             throw new Error("Could not detect appropriate tier for inspection count");
         }
@@ -193,7 +192,7 @@ export class PricingService {
         }
 
         // 3. Calculate inspection pack recommendations if needed
-        const inspectionsOverTier = Math.max(0, inspectionCount - detectedTier.includedInspections);
+        const inspectionsOverTier = Math.max(0, minInspectionCount - detectedTier.includedInspections);
         const recommendedPacks = inspectionsOverTier > 0
             ? await this.calculateSmartPacks(inspectionsOverTier, detectedTier.id, currencyCode)
             : [];

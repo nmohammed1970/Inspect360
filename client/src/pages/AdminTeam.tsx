@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Shield, Plus, Trash2, Edit, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, Edit } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -45,11 +45,7 @@ export default function AdminTeam() {
     retry: false,
   });
 
-  // Fetch current admin user
-  const { data: currentAdmin, isLoading: isLoadingAdmin } = useQuery({
-    queryKey: ["/api/admin/me"],
-    retry: false,
-  });
+  // Admin user is now checked in AdminPageWrapper
 
   // Create admin mutation
   const createMutation = useMutation({
@@ -181,53 +177,9 @@ export default function AdminTeam() {
     }
   };
 
-  // Show loading state while checking authentication
-  if (isLoadingAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Redirect to login if not authenticated
-  if (!currentAdmin) {
-    navigate("/admin/login");
-    return null;
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/admin/dashboard")}
-              data-testid="button-back-to-dashboard"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
-            </Button>
-          </div>
-          <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold" data-testid="heading-admin-team">Admin Team</h1>
-              <p className="text-sm text-muted-foreground">Manage admin users</p>
-            </div>
-          </div>
-          <div />
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-8 space-y-6">
+    <>
+    <div className="container mx-auto px-4 py-6 space-y-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
             <div>
@@ -458,6 +410,6 @@ export default function AdminTeam() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

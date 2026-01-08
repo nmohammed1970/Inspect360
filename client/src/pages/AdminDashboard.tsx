@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Shield, Search, Building2, LogOut, Users, CreditCard, AlertCircle, CheckCircle, XCircle, BookOpen, Settings, DollarSign, History } from "lucide-react";
+import { Shield, Search, Building2, Users, CreditCard, AlertCircle, CheckCircle, XCircle, DollarSign, History } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -56,11 +56,7 @@ export default function AdminDashboard() {
     overrideReason: "",
   });
 
-  // Fetch admin user
-  const { data: adminUser, isLoading: isLoadingAdmin } = useQuery({
-    queryKey: ["/api/admin/me"],
-    retry: false,
-  });
+  // Admin user is now checked in AdminPageWrapper
 
   // Fetch instances
   const { data: instances = [], isLoading } = useQuery<any[]>({
@@ -74,18 +70,7 @@ export default function AdminDashboard() {
     select: (data: any) => data?.tiers || [],
   });
 
-  // Logout mutation
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await fetch("/api/admin/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    },
-    onSuccess: () => {
-      navigate("/admin/login");
-    },
-  });
+  // Logout is now handled in AdminProfileMenu
 
   // Pricing override mutations
   const pricingOverrideMutation = useMutation({
@@ -223,61 +208,8 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold" data-testid="heading-admin-dashboard">Admin Dashboard</h1>
-              <p className="text-sm text-muted-foreground">Inspect360 Platform Administration</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin/knowledge-base")}
-              data-testid="button-knowledge-base"
-            >
-              <BookOpen className="h-4 w-4 mr-2" />
-              Knowledge Base
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin/eco-admin")}
-              data-testid="button-eco-admin"
-            >
-              <Settings className="h-4 w-4 mr-2" />
-              Eco Admin
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {adminUser.firstName} {adminUser.lastName}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/admin/team")}
-              data-testid="button-admin-team"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Admin Team
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => logoutMutation.mutate()}
-              data-testid="button-admin-logout"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-8 space-y-6">
+    <>
+    <div className="container mx-auto px-4 py-6 space-y-6">
         {/* Search Bar */}
         <Card>
           <CardHeader>
@@ -356,7 +288,10 @@ export default function AdminDashboard() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <CreditCard className="w-4 h-4 text-muted-foreground" />
-                          {instance.creditsRemaining || 0}
+                          {instance.creditBalance?.total ?? instance.creditsRemaining ?? 0}
+                          {instance.creditsRemaining && instance.creditBalance?.total && instance.creditsRemaining !== instance.creditBalance.total && (
+                            <span className="text-xs text-muted-foreground">(legacy: {instance.creditsRemaining})</span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -613,6 +548,6 @@ export default function AdminDashboard() {
           </Tabs>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

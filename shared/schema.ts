@@ -2566,6 +2566,8 @@ export const tierPricing = pgTable("tier_pricing", {
   currencyCode: varchar("currency_code", { length: 3 }).references(() => currencyConfig.code).notNull(),
   priceMonthly: integer("price_monthly").notNull(),
   priceAnnual: integer("price_annual").notNull(),
+  // New: per-inspection price (minor units, e.g. pence/cents)
+  perInspectionPrice: integer("per_inspection_price").notNull().default(0),
   lastUpdated: timestamp("last_updated").defaultNow(),
 });
 

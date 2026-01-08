@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,6 @@ import {
   Loader2
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useLocation, Link } from "wouter";
 import { Label } from "@/components/ui/label";
@@ -84,20 +84,47 @@ interface PricingResult {
   };
 }
 
+// Tier per-inspection price from config (fallbacks provided)
+const getPerInspectionPriceFromConfig = (tierName: string, selectedCurrency: string, config: any): number => {
+  try {
+    if (config?.tierPricing && config?.tiers) {
+      const tier = config.tiers.find((t: any) => t.name === tierName);
+      if (tier) {
+        const pricingRow = config.tierPricing.find((p: any) => p.tierId === tier.id && p.currencyCode === selectedCurrency);
+        if (pricingRow?.perInspectionPrice) {
+          return pricingRow.perInspectionPrice;
+        }
+      }
+    }
+  } catch {}
+  // Fallback defaults (GBP)
+  switch (tierName) {
+    case "Starter":
+      return 1200;
+    case "Growth":
+      return 1000;
+    case "Professional":
+      return 900;
+    case "Enterprise":
+      return 550;
+    default:
+      return 550;
+  }
+};
+
 export default function Billing() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
-  const [inspectionsNeeded, setInspectionsNeeded] = useState<number>(50);
+  const [inspectionsNeeded, setInspectionsNeeded] = useState<number>(10);
   const [selectedCurrency, setSelectedCurrency] = useState<string>("GBP");
-  const [debouncedInspections, setDebouncedInspections] = useState<number>(50);
+  const [debouncedInspections, setDebouncedInspections] = useState<number>(10);
   const [quotationDialogOpen, setQuotationDialogOpen] = useState(false);
   const [exactInspectionsCount, setExactInspectionsCount] = useState<number>(500);
   const [quotationNotes, setQuotationNotes] = useState<string>("");
-  
-  // Per-inspection price in pence (£5.50 = 550 pence)
-  const PER_INSPECTION_PRICE = 550;
+  const sliderContainerRef = useRef<HTMLDivElement>(null);
+  const [trackInfo, setTrackInfo] = useState<{ left: number; width: number; thumbOffset?: number } | null>(null);
 
   // Debounce inspectionsNeeded to avoid too many API calls while dragging
   useEffect(() => {
@@ -115,6 +142,84 @@ export default function Billing() {
       exact: false 
     });
   }, [inspectionsNeeded, queryClient]);
+
+  // Measure slider track to align markers precisely
+  useEffect(() => {
+    const measureTrack = () => {
+      if (!sliderContainerRef.current) return;
+      
+      // Find the slider root element (Radix UI Slider root)
+      const sliderRoot = sliderContainerRef.current.querySelector('[role="slider"]')?.closest('[class*="relative"]') as HTMLElement;
+      if (!sliderRoot) return;
+      
+      // Find the track element (the background track with bg-secondary)
+      const track = sliderRoot.querySelector('div[class*="bg-secondary"]') as HTMLElement;
+      if (!track) return;
+      
+      // Also find the thumb to verify positioning
+      const thumb = sliderRoot.querySelector('[role="slider"]') as HTMLElement;
+      if (!thumb) return;
+      
+      // Get the actual track dimensions
+      const trackRect = track.getBoundingClientRect();
+      const containerRect = sliderContainerRef.current.getBoundingClientRect();
+      const thumbRect = thumb.getBoundingClientRect();
+      
+      // Calculate the track's position relative to the container
+      const trackLeft = trackRect.left - containerRect.left;
+      const trackWidth = trackRect.width;
+      
+      // Calculate thumb center position relative to container
+      const thumbCenter = thumbRect.left - containerRect.left + (thumbRect.width / 2);
+      
+      // Calculate where the thumb should be based on current slider value
+      const currentValue = inspectionsNeeded;
+      const expectedThumbPercent = ((currentValue - 10) / (500 - 10)) * 100;
+      const expectedThumbPosition = trackLeft + (trackWidth * expectedThumbPercent / 100);
+      
+      // Calculate any offset between expected and actual thumb position
+      const thumbOffset = thumbCenter - expectedThumbPosition;
+      
+      setTrackInfo({
+        left: trackLeft,
+        width: trackWidth,
+        thumbOffset: thumbOffset
+      });
+    };
+
+    // Measure on mount and resize
+    const measureWithDelay = () => {
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        measureTrack();
+      });
+    };
+
+    measureWithDelay();
+    window.addEventListener('resize', measureWithDelay);
+    
+    // Also measure after delays to ensure slider is fully rendered
+    const timeouts = [
+      setTimeout(measureWithDelay, 100),
+      setTimeout(measureWithDelay, 300),
+      setTimeout(measureWithDelay, 600)
+    ];
+    
+    // Use ResizeObserver for more accurate tracking
+    let resizeObserver: ResizeObserver | null = null;
+    if (sliderContainerRef.current) {
+      resizeObserver = new ResizeObserver(measureWithDelay);
+      resizeObserver.observe(sliderContainerRef.current);
+    }
+    
+    return () => {
+      window.removeEventListener('resize', measureWithDelay);
+      timeouts.forEach(clearTimeout);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [inspectionsNeeded]); // Recalculate when slider value changes to calibrate offset
 
   // Fetch pricing configuration (tiers and currencies)
   const { data: config } = useQuery<{ tiers: Tier[], currencies: any[] }>({
@@ -158,6 +263,11 @@ export default function Billing() {
   // Fetch inspection balance
   const { data: balance } = useQuery<any>({
     queryKey: ["/api/billing/inspection-balance"],
+  });
+
+  // Fetch enabled modules to get their names
+  const { data: myModules } = useQuery<any[]>({
+    queryKey: ["/api/marketplace/my-modules"],
   });
 
   // Fetch pending quotation
@@ -330,20 +440,15 @@ export default function Billing() {
     let currentTierName = "";
     let tierIncluded = 0;
     
-    if (inspectionsNeeded < 10) {
-      // No tier: pay per inspection only
-      currentTierName = "No Tier";
-      tierIncluded = 0;
-      additionalInspections = inspectionsNeeded;
-      additionalCost = inspectionsNeeded * PER_INSPECTION_PRICE;
-    } else if (inspectionsNeeded < 30) {
+    // Minimum 10 inspections required - always use Starter tier as base
+    if (inspectionsNeeded < 30) {
       // Starter: tier price + per inspection for above 10
       currentTierName = "Starter";
       tierIncluded = 10;
       const starterTier = config?.tiers?.find((t: Tier) => t.code === "starter");
       tierPrice = starterTier ? (billingPeriod === "monthly" ? starterTier.basePriceMonthly : starterTier.basePriceAnnual) : 0;
       additionalInspections = inspectionsNeeded - 10;
-      additionalCost = additionalInspections * PER_INSPECTION_PRICE;
+      additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Starter", selectedCurrency, config);
     } else if (inspectionsNeeded < 75) {
       // Growth: tier price + per inspection for above 30
       currentTierName = "Growth";
@@ -351,7 +456,7 @@ export default function Billing() {
       const growthTier = config?.tiers?.find((t: Tier) => t.code === "growth");
       tierPrice = growthTier ? (billingPeriod === "monthly" ? growthTier.basePriceMonthly : growthTier.basePriceAnnual) : 0;
       additionalInspections = inspectionsNeeded - 30;
-      additionalCost = additionalInspections * PER_INSPECTION_PRICE;
+      additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Growth", selectedCurrency, config);
     } else if (inspectionsNeeded < 200) {
       // Professional: tier price + per inspection for above 75
       currentTierName = "Professional";
@@ -359,7 +464,7 @@ export default function Billing() {
       const professionalTier = config?.tiers?.find((t: Tier) => t.code === "professional");
       tierPrice = professionalTier ? (billingPeriod === "monthly" ? professionalTier.basePriceMonthly : professionalTier.basePriceAnnual) : 0;
       additionalInspections = inspectionsNeeded - 75;
-      additionalCost = additionalInspections * PER_INSPECTION_PRICE;
+      additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Professional", selectedCurrency, config);
     } else if (inspectionsNeeded <= 500) {
       // Enterprise: tier price + per inspection for above 200
       currentTierName = "Enterprise";
@@ -367,7 +472,7 @@ export default function Billing() {
       const enterpriseTier = config?.tiers?.find((t: Tier) => t.code === "enterprise");
       tierPrice = enterpriseTier ? (billingPeriod === "monthly" ? enterpriseTier.basePriceMonthly : enterpriseTier.basePriceAnnual) : 0;
       additionalInspections = inspectionsNeeded - 200;
-      additionalCost = additionalInspections * PER_INSPECTION_PRICE;
+      additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Enterprise", selectedCurrency, config);
     }
     
     // Get module costs from API (this is the only part that needs API data)
@@ -399,10 +504,31 @@ export default function Billing() {
 
   // Determine active module names for display
   const activeModuleNames = useMemo(() => {
-    return pricing?.modules
-      ?.filter(m => m.isEnabled) // Filter for modules that are actually enabled
-      .map(m => m.module_name) || [];
-  }, [pricing?.modules]);
+    if (!pricing?.modules) return [];
+    
+    // If we have myModules data, use it to filter enabled modules
+    if (myModules && myModules.length > 0) {
+      // Get enabled module IDs
+      const enabledModuleIds = new Set(
+        myModules
+          .filter(m => m.isEnabled)
+          .map(m => m.moduleId)
+      );
+      
+      // Match enabled modules with pricing modules by module_id
+      return pricing.modules
+        .filter(m => enabledModuleIds.has(m.module_id))
+        .map(m => m.module_name)
+        .filter(Boolean); // Remove any undefined/null names
+    }
+    
+    // Fallback: if module has a price > 0, assume it's enabled
+    // This handles cases where myModules might not be loaded yet
+    return pricing.modules
+      .filter(m => m.price && m.price > 0)
+      .map(m => m.module_name)
+      .filter(Boolean);
+  }, [pricing?.modules, myModules]);
 
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-8 mb-24">
@@ -515,55 +641,80 @@ export default function Billing() {
                 {inspectionsNeeded >= 500 ? "500+" : inspectionsNeeded}
               </div>
               
-              {/* Slider */}
-              <Slider
-                value={[Math.min(inspectionsNeeded, 500)]}
-                onValueChange={(v) => {
-                  let value = v[0];
-                  // Snap to tier thresholds when close
-                  const snapPoints = [0, 10, 30, 75, 200, 500];
-                  const snapThreshold = 3; // pixels/units
-                  
-                  for (const snap of snapPoints) {
-                    if (Math.abs(snap - value) <= snapThreshold) {
-                      value = snap;
-                      break;
+              {/* Slider Container - ensures markers align with slider track */}
+              <div className="relative w-full" ref={sliderContainerRef}>
+                <Slider
+                  value={[Math.min(Math.max(inspectionsNeeded, 10), 500)]}
+                  onValueChange={(v) => {
+                    let value = Math.max(v[0], 10); // Enforce minimum 10
+                    // Snap to tier thresholds when close
+                    const snapPoints = [10, 30, 75, 200, 500];
+                    const snapThreshold = 3; // pixels/units
+                    
+                    for (const snap of snapPoints) {
+                      if (Math.abs(snap - value) <= snapThreshold) {
+                        value = snap;
+                        break;
+                      }
                     }
-                  }
-                  
-                  setInspectionsNeeded(value);
-                }}
-                min={0}
-                max={500}
-                step={1}
-                className="[&_[role=slider]]:h-6 [&_[role=slider]]:w-6 [&_[role=slider]]:bg-background [&_[role=slider]]:border-primary [&_[role=slider]]:border-2"
-              />
-              
-              {/* Tier Boundary Markers */}
-              <div className="absolute top-8 left-0 right-0 flex justify-between px-2 mt-2">
-                {[10, 30, 75, 200].map((threshold) => {
-                  const position = (threshold / 500) * 100;
-                  return (
-                    <div key={threshold} className="flex flex-col items-center gap-1" style={{ position: 'absolute', left: `${position}%`, transform: 'translateX(-50%)' }}>
-                      <div className="w-0.5 h-6 bg-primary/30" />
-                      <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mt-1">{threshold}</span>
-                    </div>
-                  );
-                })}
+                    
+                    setInspectionsNeeded(value);
+                  }}
+                  min={10}
+                  max={500}
+                  step={1}
+                  className="[&_[role=slider]]:h-6 [&_[role=slider]]:w-6 [&_[role=slider]]:bg-background [&_[role=slider]]:border-primary [&_[role=slider]]:border-2"
+                />
+                
+                {/* Tier Boundary Markers - aligned with slider handle center */}
+                <div className="absolute top-0 left-0 right-0" style={{ marginTop: '12px' }}>
+                  {[30, 75, 200].map((threshold) => {
+                    // Calculate position to match Radix UI Slider handle center exactly
+                    // Radix UI positions the handle center at: ((value - min) / (max - min)) * 100%
+                    // We need to account for the track's actual position and width
+                    let leftPosition: string;
+                    if (trackInfo) {
+                      // Calculate the percentage position on the track (0-100%)
+                      // Radix UI uses: ((value - min) / (max - min)) * 100%
+                      const positionPercent = ((threshold - 10) / (500 - 10)) * 100;
+                      // Calculate the position: track left edge + (percentage of track width)
+                      // Apply any thumb offset we detected to ensure perfect alignment
+                      // Add a small percentage-based offset (1.5% of track width) to push markers to the right for alignment
+                      const basePosition = trackInfo.left + (trackInfo.width * positionPercent / 100);
+                      const offsetAdjustment = trackInfo.width * 0.015; // 1.5% of track width for responsive offset
+                      const adjustedPosition = basePosition + (trackInfo.thumbOffset || 0) + offsetAdjustment;
+                      leftPosition = `${adjustedPosition}px`;
+                    } else {
+                      // Fallback to percentage if track info not available
+                      leftPosition = `${((threshold - 10) / (500 - 10)) * 100}%`;
+                    }
+                    return (
+                      <div 
+                        key={threshold} 
+                        className="absolute flex flex-col items-center gap-1" 
+                        style={{ 
+                          left: leftPosition,
+                          transform: 'translateX(-50%)',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <div className="w-0.5 h-6 bg-primary/30" />
+                        <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mt-1">{threshold}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               
               {/* Tier Names Below - positioned exactly at tier thresholds with spacing */}
               <div className="absolute top-20 left-0 right-0 flex justify-between px-2 mt-4">
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: '2%', transform: 'translateX(-50%)', minWidth: '60px' }}>
-                  <span className="text-xs font-medium text-foreground whitespace-nowrap">Starter</span>
-                </div>
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: '9%', transform: 'translateX(-50%)', minWidth: '60px' }}>
+                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((30 - 10) / (500 - 10)) * 100}%`, transform: 'translateX(-50%)', minWidth: '60px' }}>
                   <span className="text-xs font-medium text-foreground whitespace-nowrap">Growth</span>
                 </div>
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: '18%', transform: 'translateX(-50%)', minWidth: '80px' }}>
+                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((75 - 10) / (500 - 10)) * 100}%`, transform: 'translateX(-50%)', minWidth: '80px' }}>
                   <span className="text-xs font-medium text-foreground whitespace-nowrap">Professional</span>
                 </div>
-                <div className="flex flex-col items-center" style={{ position: 'absolute', left: '40%', transform: 'translateX(-50%)', minWidth: '70px' }}>
+                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((200 - 10) / (500 - 10)) * 100}%`, transform: 'translateX(-50%)', minWidth: '70px' }}>
                   <span className="text-xs font-medium text-foreground whitespace-nowrap">Enterprise</span>
                 </div>
               </div>
@@ -571,11 +722,9 @@ export default function Billing() {
 
             {/* Selected Details */}
             {(() => {
-              // Determine current tier based on inspection count
+              // Determine current tier based on inspection count (minimum 10)
               let currentTier: { name: string; range: string; included: number } | null = null;
-              if (inspectionsNeeded < 10) {
-                currentTier = null; // No tier for 0-9
-              } else if (inspectionsNeeded < 30) {
+              if (inspectionsNeeded < 30) {
                 currentTier = { name: "Starter", range: "10-29", included: 10 };
               } else if (inspectionsNeeded < 75) {
                 currentTier = { name: "Growth", range: "30-74", included: 30 };
@@ -602,7 +751,7 @@ export default function Billing() {
                       </>
                     ) : (
                       <p className="text-muted-foreground">
-                        Pay per inspection (£5.50 per inspection)
+                        Additional inspections priced by tier
                       </p>
                     )}
                   </div>
@@ -640,9 +789,11 @@ export default function Billing() {
                 >
                     <div className="space-y-3">
                       {/* Tier Subscription Cost (if applicable) */}
-                      {currentTierName !== "No Tier" && tierPrice > 0 && (
+                      {tierPrice > 0 && (
                         <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">Monthly Subscription ({currentTierName}):</span>
+                          <span className="text-muted-foreground">
+                            {billingPeriod === "annual" ? "Annual" : "Monthly"} Subscription ({currentTierName}):
+                          </span>
                           <span className="font-bold text-lg">
                             {formatCurrency(tierPrice, selectedCurrency)}
                           </span>
@@ -654,39 +805,36 @@ export default function Billing() {
                         <>
                           <div className="flex justify-between items-center">
                             <span className="text-muted-foreground">
-                              {currentTierName === "No Tier" ? "Inspections:" : "Additional Inspections:"}
+                              Additional Inspections:
                             </span>
                             <span className="font-bold text-lg">
                               {formatCurrency(additionalCost, selectedCurrency)}
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground pl-4">
-                            ({additionalInspections} × {formatCurrency(PER_INSPECTION_PRICE / 100, selectedCurrency)} per inspection)
+                            ({additionalInspections} × {formatCurrency(getPerInspectionPriceFromConfig(pricingBreakdown.currentTierName, selectedCurrency, config) / 100, selectedCurrency)} per inspection)
                           </p>
                         </>
                       )}
                       
                       {/* Module Costs */}
                       {moduleCost > 0 && (
-                        <>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Active Modules:</span>
-                            <span className="font-bold text-lg">
-                              {formatCurrency(moduleCost, selectedCurrency)}
-                            </span>
-                          </div>
-                          {activeModuleNames.length > 0 && (
-                            <p className="text-xs text-muted-foreground pl-4">
-                              ({activeModuleNames.join(", ")})
-                            </p>
-                          )}
-                        </>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">
+                            Active Modules{activeModuleNames.length > 0 ? ` (${activeModuleNames.join(", ")})` : ""}:
+                          </span>
+                          <span className="font-bold text-lg">
+                            {formatCurrency(moduleCost, selectedCurrency)}
+                          </span>
+                        </div>
                       )}
                       
                       <Separator />
                       
                       <div className="flex justify-between items-center">
-                        <span className="font-semibold">Total Monthly:</span>
+                        <span className="font-semibold">
+                          {billingPeriod === "annual" ? "Annual Total" : "Total Monthly"}:
+                        </span>
                         <span className="font-bold text-2xl">
                           {formatCurrency(totalCost, selectedCurrency)}
                         </span>
@@ -694,7 +842,7 @@ export default function Billing() {
                     </div>
 
                     {/* Subscribe Button */}
-                    {currentTierName !== "No Tier" && tierCodeForCheckout && (
+                    {tierCodeForCheckout && (
                       <div className="pt-4">
                         <Button
                           onClick={() => checkoutMutation.mutate(tierCodeForCheckout)}

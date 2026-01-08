@@ -51,6 +51,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import AdminTeam from "@/pages/AdminTeam";
 import KnowledgeBase from "@/pages/KnowledgeBase";
 import EcoAdmin from "@/pages/EcoAdmin";
+import { AdminPageWrapper } from "@/components/admin-page-wrapper";
 import TenantLogin from "@/pages/TenantLogin";
 import TenantHome from "@/pages/TenantHome";
 import TenantMaintenance from "@/pages/TenantMaintenance";
@@ -165,10 +166,34 @@ function AppContent() {
           <Route path="/forgot-password" component={ForgotPassword} />
           <Route path="/reset-password" component={ResetPassword} />
           <Route path="/admin/login" component={AdminLogin} />
-          <Route path="/admin/dashboard" component={AdminDashboard} />
-          <Route path="/admin/team" component={AdminTeam} />
-          <Route path="/admin/knowledge-base" component={KnowledgeBase} />
-          <Route path="/admin/eco-admin" component={EcoAdmin} />
+          <Route path="/admin/dashboard">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard" }]}>
+                <AdminDashboard />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/team">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Team" }]}>
+                <AdminTeam />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/knowledge-base">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Knowledge Base" }]}>
+                <KnowledgeBase />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/eco-admin">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Eco Admin" }]}>
+                <EcoAdmin />
+              </AdminPageWrapper>
+            )}
+          </Route>
           <Route path="/tenant/login" component={TenantLogin} />
           <Route component={NotFound} />
         </Switch>

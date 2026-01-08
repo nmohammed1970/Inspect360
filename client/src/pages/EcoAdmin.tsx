@@ -19,8 +19,6 @@ import {
   SubscriptionTierManagement, 
   AddonPackManagement, 
   ExtensiveInspectionManagement, 
-  ModuleManagement, 
-  ModuleBundleManagement, 
   PricingPreview,
   QuotationsManagement
 } from "./EcoAdminComponents";
@@ -30,29 +28,7 @@ export default function EcoAdmin() {
   const [activeTab, setActiveTab] = useState("plans");
   const [, navigate] = useLocation();
 
-  // Fetch admin user for authentication
-  const { data: adminUser, isLoading: isLoadingAdmin } = useQuery({
-    queryKey: ["/api/admin/me"],
-    retry: false,
-  });
-
-  // Show loading state while checking authentication
-  if (isLoadingAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="animate-spin h-12 w-12 text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Redirect to login if not authenticated
-  if (!adminUser) {
-    navigate("/admin/login");
-    return null;
-  }
+  // Admin user is now checked in AdminPageWrapper
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">
@@ -64,7 +40,7 @@ export default function EcoAdmin() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-11">
+        <TabsList className="grid w-full grid-cols-8">
           <TabsTrigger value="currencies" data-testid="tab-currencies">
             <Globe className="h-4 w-4 mr-2" />
             Currencies
@@ -81,14 +57,6 @@ export default function EcoAdmin() {
             <Info className="h-4 w-4 mr-2" />
             Extensive
           </TabsTrigger>
-          <TabsTrigger value="modules" data-testid="tab-modules">
-            <Settings className="h-4 w-4 mr-2" />
-            Modules
-          </TabsTrigger>
-          <TabsTrigger value="module-bundles" data-testid="tab-module-bundles">
-            <Gift className="h-4 w-4 mr-2" />
-            Module Bundles
-          </TabsTrigger>
           <TabsTrigger value="pricing-preview" data-testid="tab-pricing-preview">
             <Eye className="h-4 w-4 mr-2" />
             Preview
@@ -100,10 +68,6 @@ export default function EcoAdmin() {
           <TabsTrigger value="plans" data-testid="tab-plans">
             <Package className="h-4 w-4 mr-2" />
             Legacy Plans
-          </TabsTrigger>
-          <TabsTrigger value="bundles" data-testid="tab-bundles">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Legacy Bundles
           </TabsTrigger>
           <TabsTrigger value="pricing" data-testid="tab-pricing">
             <Globe className="h-4 w-4 mr-2" />
@@ -127,14 +91,6 @@ export default function EcoAdmin() {
           <ExtensiveInspectionManagement />
         </TabsContent>
 
-        <TabsContent value="modules" className="mt-6">
-          <ModuleManagement />
-        </TabsContent>
-
-        <TabsContent value="module-bundles" className="mt-6">
-          <ModuleBundleManagement />
-        </TabsContent>
-
         <TabsContent value="pricing-preview" className="mt-6">
           <PricingPreview />
         </TabsContent>
@@ -145,10 +101,6 @@ export default function EcoAdmin() {
 
         <TabsContent value="plans" className="mt-6">
           <PlansManagement />
-        </TabsContent>
-
-        <TabsContent value="bundles" className="mt-6">
-          <BundlesManagement />
         </TabsContent>
 
         <TabsContent value="pricing" className="mt-6">
@@ -853,9 +805,10 @@ function CountryPricingManagement() {
                         <Badge data-testid={`badge-currency-${override.id}`}>{override.currency}</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground" data-testid={`text-override-details-${override.id}`}>
-                        Monthly: {override.currency} {(override.monthlyPriceMinorUnits / 100).toFixed(2)}
+                        Monthly: {override.currency === "GBP" ? "£" : override.currency === "USD" ? "$" : override.currency === "AED" ? "د.إ" : override.currency}{" "}
+                        {(override.monthlyPriceMinorUnits / 100).toFixed(2)}
                         {override.topupPricePerCreditMinorUnits && (
-                          ` · Top-up: ${override.currency} ${(override.topupPricePerCreditMinorUnits / 100).toFixed(2)}/credit`
+                          ` · Top-up: ${override.currency === "GBP" ? "£" : override.currency === "USD" ? "$" : override.currency === "AED" ? "د.إ" : override.currency}${(override.topupPricePerCreditMinorUnits / 100).toFixed(2)}/credit`
                         )}
                         {override.includedCreditsOverride && ` · Credits: ${override.includedCreditsOverride}`}
                       </p>
@@ -907,7 +860,7 @@ function RegistrationSettings() {
               </div>
               <div className="mt-4">
                 <Badge variant="default" className="text-lg px-3 py-1" data-testid="badge-welcome-credits">
-                  10 Inspection Credits
+                  5 Inspection Credits
                 </Badge>
               </div>
             </div>
@@ -939,7 +892,7 @@ function RegistrationSettings() {
                   When a new owner registers for Inspect360, they automatically receive:
                 </p>
                 <ul className="text-sm text-muted-foreground mt-2 space-y-1 list-disc list-inside">
-                  <li data-testid="text-benefit-credits">10 free inspection credits to get started</li>
+                  <li data-testid="text-benefit-credits">5 free inspection credits to get started</li>
                   <li data-testid="text-benefit-templates">Pre-configured BTR inspection templates (Check In, Check Out, Periodic, Maintenance)</li>
                   <li data-testid="text-benefit-sample">Sample block and property data for demonstration</li>
                   <li data-testid="text-benefit-org">Automatic organization setup with their company name</li>
@@ -959,9 +912,9 @@ function RegistrationSettings() {
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-3 border rounded-lg">
               <Badge variant="outline" className="mt-0.5">Credit Usage</Badge>
-              <p className="text-sm text-muted-foreground" data-testid="text-credit-usage-info">
-                1 credit is consumed per AI-powered photo analysis during inspections. Welcome credits allow new users to complete approximately 10 AI photo analyses for free.
-              </p>
+                  <p className="text-sm text-muted-foreground" data-testid="text-credit-usage-info">
+                 1 credit is consumed per AI-powered photo analysis during inspections. Welcome credits allow new users to complete approximately 5 AI photo analyses for free.
+               </p>
             </div>
             <div className="flex items-start gap-3 p-3 border rounded-lg">
               <Badge variant="outline" className="mt-0.5">Credit Purchase</Badge>

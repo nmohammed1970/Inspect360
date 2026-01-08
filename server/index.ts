@@ -47,9 +47,13 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+    const startTime = Date.now();
     console.log("🚀 Starting server...");
+    
+    const routesStartTime = Date.now();
     const server = await registerRoutes(app);
-    console.log("✅ Routes registered successfully");
+    const routesTime = Date.now() - routesStartTime;
+    console.log(`✅ Routes registered successfully (took ${routesTime}ms)`);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -62,10 +66,13 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
+  const viteStartTime = Date.now();
   if (app.get("env") === "development") {
     await setupVite(app, server);
+    console.log(`✅ Vite setup completed (took ${Date.now() - viteStartTime}ms)`);
   } else {
     serveStatic(app);
+    console.log(`✅ Static files served (took ${Date.now() - viteStartTime}ms)`);
   }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
@@ -78,10 +85,11 @@ app.use((req, res, next) => {
 
     // Use traditional listen format for better Windows compatibility
     // Windows doesn't support reusePort option
+    const totalStartupTime = Date.now() - startTime;
     if (process.platform === "win32") {
       server.listen(port, host, () => {
         log(`serving on http://${host}:${port}`);
-        console.log(`✅ Server started successfully on http://${host}:${port}`);
+        console.log(`✅ Server started successfully on http://${host}:${port} (total startup: ${totalStartupTime}ms)`);
       });
     } else {
       // Unix systems can use the options object with reusePort
@@ -91,7 +99,7 @@ app.use((req, res, next) => {
         reusePort: true,
       }, () => {
         log(`serving on http://${host}:${port}`);
-        console.log(`✅ Server started successfully on http://${host}:${port}`);
+        console.log(`✅ Server started successfully on http://${host}:${port} (total startup: ${totalStartupTime}ms)`);
       });
     }
   } catch (error) {

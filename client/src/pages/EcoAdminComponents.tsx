@@ -424,7 +424,7 @@ export function SubscriptionTierManagement() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Currency</Label>
                 <Select value={pricingFormData.currencyCode || ""} onValueChange={(v) => setPricingFormData({ ...pricingFormData, currencyCode: v })}>
@@ -454,6 +454,14 @@ export function SubscriptionTierManagement() {
                   onChange={(e) => setPricingFormData({ ...pricingFormData, priceAnnual: parseInt(e.target.value) })}
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Per-Inspection Price (minor units)</Label>
+                <Input
+                  type="number"
+                  value={pricingFormData.perInspectionPrice || ""}
+                  onChange={(e) => setPricingFormData({ ...pricingFormData, perInspectionPrice: parseInt(e.target.value) })}
+                />
+              </div>
             </div>
             <Button onClick={() => {
               createPricingMutation.mutate(pricingFormData);
@@ -468,17 +476,20 @@ export function SubscriptionTierManagement() {
               <div className="space-y-2 mt-4">
                 <h4 className="font-semibold">Existing Pricing</h4>
                 {tierPricing && tierPricing.length > 0 ? (
-                  tierPricing.map((p: any) => (
-                    <div key={p.id} className="flex items-center justify-between p-2 border rounded">
-                      <span>{p.currencyCode}: {p.priceMonthly / 100}/mo • {p.priceAnnual / 100}/yr</span>
-                      <Button size="sm" variant="ghost" onClick={async () => {
-                        await apiRequest("DELETE", `/api/admin/subscription-tiers/${selectedTierId}/pricing/${p.id}`);
-                        queryClient.invalidateQueries({ queryKey: ["/api/admin/subscription-tiers", selectedTierId, "pricing"] });
-                      }}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))
+                  tierPricing.map((p: any) => {
+                    const symbol = p.currencyCode === "GBP" ? "£" : p.currencyCode === "USD" ? "$" : p.currencyCode === "AED" ? "د.إ" : p.currencyCode;
+                    return (
+                      <div key={p.id} className="flex items-center justify-between p-2 border rounded">
+                        <span>{p.currencyCode}: {symbol}{(p.priceMonthly / 100).toFixed(2)}/mo • {symbol}{(p.priceAnnual / 100).toFixed(2)}/yr • Per-inspection {symbol}{((p.perInspectionPrice || 0) / 100).toFixed(2)}</span>
+                        <Button size="sm" variant="ghost" onClick={async () => {
+                          await apiRequest("DELETE", `/api/admin/subscription-tiers/${selectedTierId}/pricing/${p.id}`);
+                          queryClient.invalidateQueries({ queryKey: ["/api/admin/subscription-tiers", selectedTierId, "pricing"] });
+                        }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })
                 ) : (
                   <p className="text-sm text-muted-foreground">No pricing configured</p>
                 )}
@@ -550,6 +561,23 @@ export function AddonPackManagement() {
     },
   });
 
+  const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/admin/addon-packs/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/addon-packs"] });
+      toast({ title: "Pack deleted successfully" });
+      setDeleteConfirmOpen(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete pack", description: error.message, variant: "destructive" });
+    },
+  });
+
   const createPricingMutation = useMutation({
     mutationFn: async (data: any) => {
       const totalPackPrice = data.pricePerInspection * (packs?.find((p: any) => p.id === selectedPackId)?.inspectionQuantity || 0);
@@ -565,6 +593,38 @@ export function AddonPackManagement() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to create pricing", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updatePricingMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const totalPackPrice = data.pricePerInspection * (packs?.find((p: any) => p.id === selectedPackId)?.inspectionQuantity || 0);
+      return await apiRequest("PATCH", `/api/admin/addon-packs/${selectedPackId}/pricing/${id}`, {
+        ...data,
+        totalPackPrice
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/addon-packs", selectedPackId, "pricing"] });
+      toast({ title: "Pricing updated successfully" });
+      setEditingPricingId(null);
+      setPricingFormData({});
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update pricing", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deletePricingMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/admin/addon-packs/${selectedPackId}/pricing/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/addon-packs", selectedPackId, "pricing"] });
+      toast({ title: "Pricing deleted successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete pricing", description: error.message, variant: "destructive" });
     },
   });
 
@@ -639,44 +699,90 @@ export function AddonPackManagement() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Add-On Packs</CardTitle>
+          <CardTitle>All Add-On Packs</CardTitle>
+          <CardDescription>Manage all add-on inspection packs. Edit, delete, or manage pricing for each pack.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {packs && packs.length > 0 ? (
-              packs.map((pack: any) => (
-                <div key={pack.id} className="border rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold">{pack.name}</h3>
-                        {pack.isActive && <Badge variant="default">Active</Badge>}
+          {packs && packs.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Pack Name</TableHead>
+                  <TableHead>Inspection Quantity</TableHead>
+                  <TableHead>Order</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {packs.map((pack: any) => (
+                  <TableRow key={pack.id}>
+                    <TableCell className="font-medium">{pack.name}</TableCell>
+                    <TableCell>{pack.inspectionQuantity} credits</TableCell>
+                    <TableCell>{pack.packOrder}</TableCell>
+                    <TableCell>
+                      {pack.isActive ? (
+                        <Badge variant="default">Active</Badge>
+                      ) : (
+                        <Badge variant="secondary">Inactive</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setEditingId(pack.id);
+                          setFormData(pack);
+                        }}>
+                          <Edit className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setSelectedPackId(pack.id)}>
+                          Pricing
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="destructive" 
+                          onClick={() => setDeleteConfirmOpen(pack.id)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete
+                        </Button>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {pack.inspectionQuantity} inspections • Order: {pack.packOrder}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => {
-                        setEditingId(pack.id);
-                        setFormData(pack);
-                      }}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setSelectedPackId(pack.id)}>
-                        Manage Pricing
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-center text-muted-foreground py-8">No packs configured</p>
-            )}
-          </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-center text-muted-foreground py-8">No packs configured</p>
+          )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmOpen} onOpenChange={(open) => !open && setDeleteConfirmOpen(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Pack</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this pack? This action cannot be undone. 
+              If there are active purchases for this pack, it cannot be deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(null)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => deleteConfirmOpen && deleteMutation.mutate(deleteConfirmOpen)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {selectedPackId && (
         <Card>
@@ -734,11 +840,24 @@ export function AddonPackManagement() {
               </div>
             </div>
             <Button onClick={() => {
-              createPricingMutation.mutate(pricingFormData);
+              if (editingPricingId) {
+                updatePricingMutation.mutate({ id: editingPricingId, data: pricingFormData });
+              } else {
+                createPricingMutation.mutate(pricingFormData);
+              }
             }}>
               <Save className="h-4 w-4 mr-2" />
-              Add Pricing
+              {editingPricingId ? "Update Pricing" : "Add Pricing"}
             </Button>
+            {editingPricingId && (
+              <Button variant="outline" onClick={() => {
+                setEditingPricingId(null);
+                setPricingFormData({});
+              }}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+            )}
 
             {pricingLoading ? (
               <div>Loading pricing...</div>
@@ -746,20 +865,54 @@ export function AddonPackManagement() {
               <div className="space-y-2 mt-4">
                 <h4 className="font-semibold">Existing Pricing</h4>
                 {packPricing && packPricing.length > 0 ? (
-                  packPricing.map((p: any) => (
-                    <div key={p.id} className="flex items-center justify-between p-2 border rounded">
-                      <span>
-                        {tiers?.find((t: any) => t.id === p.tierId)?.name} • {p.currencyCode}: 
-                        {p.pricePerInspection / 100} per inspection • {p.totalPackPrice / 100} total
-                      </span>
-                      <Button size="sm" variant="ghost" onClick={async () => {
-                        await apiRequest("DELETE", `/api/admin/addon-packs/${selectedPackId}/pricing/${p.id}`);
-                        queryClient.invalidateQueries({ queryKey: ["/api/admin/addon-packs", selectedPackId, "pricing"] });
-                      }}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tier</TableHead>
+                        <TableHead>Currency</TableHead>
+                        <TableHead>Price per Inspection</TableHead>
+                        <TableHead>Total Pack Price</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {packPricing.map((p: any) => (
+                        <TableRow key={p.id}>
+                          <TableCell>{tiers?.find((t: any) => t.id === p.tierId)?.name || "Unknown"}</TableCell>
+                          <TableCell>{p.currencyCode}</TableCell>
+                          <TableCell>{(p.pricePerInspection / 100).toFixed(2)}</TableCell>
+                          <TableCell>{(p.totalPackPrice / 100).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => {
+                                  setEditingPricingId(p.id);
+                                  setPricingFormData({
+                                    tierId: p.tierId,
+                                    currencyCode: p.currencyCode,
+                                    pricePerInspection: p.pricePerInspection
+                                  });
+                                }}
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                onClick={() => deletePricingMutation.mutate(p.id)}
+                                disabled={deletePricingMutation.isPending}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 ) : (
                   <p className="text-sm text-muted-foreground">No pricing configured</p>
                 )}
@@ -1326,7 +1479,12 @@ export function ModuleManagement() {
                   {modulePricing && modulePricing.length > 0 ? (
                     modulePricing.map((p: any) => (
                       <div key={p.id} className="flex items-center justify-between p-2 border rounded">
-                        <span>{p.currencyCode}: {p.priceMonthly / 100}/mo • {p.priceAnnual / 100}/yr</span>
+                        <span>
+                          {(() => {
+                            const symbol = p.currencyCode === "GBP" ? "£" : p.currencyCode === "USD" ? "$" : p.currencyCode === "AED" ? "د.إ" : p.currencyCode;
+                            return `${p.currencyCode}: ${symbol}${(p.priceMonthly / 100).toFixed(2)}/mo • ${symbol}${(p.priceAnnual / 100).toFixed(2)}/yr`;
+                          })()}
+                        </span>
                         <Button size="sm" variant="ghost" onClick={async () => {
                           await apiRequest("DELETE", `/api/admin/modules/${selectedModuleId}/pricing/${p.id}`);
                           queryClient.invalidateQueries({ queryKey: ["/api/admin/modules", selectedModuleId, "pricing"] });
@@ -1757,8 +1915,10 @@ export function ModuleBundleManagement() {
                     bundlePricing.map((p: any) => (
                       <div key={p.id} className="flex items-center justify-between p-2 border rounded">
                         <span>
-                          {p.currencyCode}: {p.priceMonthly / 100}/mo • {p.priceAnnual / 100}/yr
-                          {p.savingsMonthly && ` • Savings: ${p.savingsMonthly / 100}/mo`}
+                          {(() => {
+                            const symbol = p.currencyCode === "GBP" ? "£" : p.currencyCode === "USD" ? "$" : p.currencyCode === "AED" ? "د.إ" : p.currencyCode;
+                            return `${p.currencyCode}: ${symbol}${(p.priceMonthly / 100).toFixed(2)}/mo • ${symbol}${(p.priceAnnual / 100).toFixed(2)}/yr${p.savingsMonthly ? ` • Savings: ${symbol}${(p.savingsMonthly / 100).toFixed(2)}/mo` : ""}`;
+                          })()}
                         </span>
                         <Button size="sm" variant="ghost" onClick={async () => {
                           await apiRequest("DELETE", `/api/admin/module-bundles/${selectedBundleId}/pricing/${p.id}`);
