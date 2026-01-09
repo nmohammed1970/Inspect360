@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { type SubscriptionTier, type MarketplaceModule } from "@shared/schema";
+import { currencyService } from "./currencyService";
 
 export class PricingService {
     // Detect the appropriate tier based on inspection count
@@ -56,17 +57,25 @@ export class PricingService {
         if (extraCount <= 0) return [];
 
         const packs = await storage.getAddonPacks();
+        // Fetch pack prices in GBP and convert to target currency
         const packPrices = await Promise.all(
             packs
                 .filter(pack => pack.isActive)
                 .map(async (pack) => {
-                    const pricing = await storage.getAddonPackPricing(pack.id, tierId, currencyCode);
+                    const pricingGBP = await storage.getAddonPackPricing(pack.id, tierId, "GBP");
+                    const packPriceGBP = pricingGBP?.totalPackPrice || 0;
+                    const perInspectionGBP = pricingGBP?.pricePerInspection || 0;
+                    
                     return {
                         packId: pack.id,
                         name: pack.name,
                         quantity: pack.inspectionQuantity,
-                        price: pricing?.totalPackPrice || 0,
-                        pricePerInspection: pricing?.pricePerInspection || 0
+                        price: currencyCode === "GBP" 
+                            ? packPriceGBP 
+                            : await currencyService.convertFromGBP(packPriceGBP, currencyCode),
+                        pricePerInspection: currencyCode === "GBP"
+                            ? perInspectionGBP
+                            : await currencyService.convertFromGBP(perInspectionGBP, currencyCode)
                     };
                 })
         );
@@ -165,14 +174,40 @@ export class PricingService {
             throw new Error("Could not detect appropriate tier for inspection count");
         }
 
-        // 2. Get tier pricing for currency (with instance override if applicable)
-        let tierPrice = await storage.getTierPricing(detectedTier.id, currencyCode);
+        // 2. Get tier pricing in GBP (base currency) and convert to target currency
+        let tierPriceGBP = await storage.getTierPricing(detectedTier.id, "GBP");
+        
+        // If no GBP pricing found, fall back to base prices from tier
+        if (!tierPriceGBP || !tierPriceGBP.priceMonthly) {
+            tierPriceGBP = {
+                priceMonthly: detectedTier.basePriceMonthly || 0,
+                priceAnnual: detectedTier.basePriceAnnual || 0,
+                perInspectionPrice: 0, // Will use fallback
+            };
+        }
+        
+        // Get per-inspection price from GBP and convert
+        const perInspectionPriceGBP = tierPriceGBP.perInspectionPrice || 0;
+        const perInspectionPrice = currencyCode === "GBP"
+            ? perInspectionPriceGBP
+            : await currencyService.convertFromGBP(perInspectionPriceGBP, currencyCode);
+        
+        // Convert to target currency
+        let tierPrice = {
+            priceMonthly: currencyCode === "GBP" 
+                ? tierPriceGBP.priceMonthly 
+                : await currencyService.convertFromGBP(tierPriceGBP.priceMonthly, currencyCode),
+            priceAnnual: currencyCode === "GBP"
+                ? tierPriceGBP.priceAnnual
+                : await currencyService.convertFromGBP(tierPriceGBP.priceAnnual, currencyCode),
+            perInspectionPrice: perInspectionPrice,
+        };
         
         // Apply instance-level override if organizationId is provided
         if (organizationId) {
             const instanceSub = await storage.getInstanceSubscription(organizationId);
             if (instanceSub && instanceSub.currentTierId === detectedTier.id) {
-                // Check for override
+                // Check for override (overrides are already in the instance's currency)
                 if (instanceSub.overrideMonthlyFee) {
                     tierPrice = {
                         ...tierPrice,
@@ -192,6 +227,7 @@ export class PricingService {
         }
 
         // 3. Calculate inspection pack recommendations if needed
+        // calculateSmartPacks now handles currency conversion internally
         const inspectionsOverTier = Math.max(0, minInspectionCount - detectedTier.includedInspections);
         const recommendedPacks = inspectionsOverTier > 0
             ? await this.calculateSmartPacks(inspectionsOverTier, detectedTier.id, currencyCode)
@@ -200,12 +236,20 @@ export class PricingService {
         const addonCost = recommendedPacks.reduce((sum, pack) => sum + pack.price, 0);
 
         // 4. Get module statuses and pricing for organization if provided
+        // Always fetch in GBP and convert to target currency
         let moduleStatuses = await Promise.all(modules.map(async m => {
-            const mPrice = await storage.getModulePricing(m.id, currencyCode);
+            const mPriceGBP = await storage.getModulePricing(m.id, "GBP");
+            const monthlyPriceGBP = mPriceGBP?.priceMonthly || 0;
+            const annualPriceGBP = mPriceGBP?.priceAnnual || 0;
+            
             return {
                 ...m,
-                monthlyPrice: mPrice?.priceMonthly || 0,
-                annualPrice: mPrice?.priceAnnual || 0,
+                monthlyPrice: currencyCode === "GBP" 
+                    ? monthlyPriceGBP 
+                    : await currencyService.convertFromGBP(monthlyPriceGBP, currencyCode),
+                annualPrice: currencyCode === "GBP"
+                    ? annualPriceGBP
+                    : await currencyService.convertFromGBP(annualPriceGBP, currencyCode),
                 isEnabled: false
             };
         }));
@@ -220,7 +264,7 @@ export class PricingService {
                     const active = activeModules.find(am => am.moduleId === m.id);
                     const override = moduleOverrides.find(o => o.moduleId === m.id && o.isActive);
                     
-                    // Apply override if exists
+                    // Apply override if exists (overrides are already in instance currency)
                     let monthlyPrice = m.monthlyPrice;
                     let annualPrice = m.annualPrice;
                     if (override) {
@@ -249,10 +293,17 @@ export class PricingService {
             if (instanceSub) {
                 const activeBundles = await storage.getInstanceBundles(instanceSub.id);
                 for (const b of activeBundles) {
-                    const bPricing = await storage.getBundlePricing(b.bundleId, currencyCode);
-                    if (bPricing) {
-                        totalBundlesMonthly += bPricing.priceMonthly;
-                        totalBundlesAnnual += bPricing.priceAnnual;
+                    // Fetch bundle pricing in GBP and convert
+                    const bPricingGBP = await storage.getBundlePricing(b.bundleId, "GBP");
+                    if (bPricingGBP) {
+                        const monthlyGBP = bPricingGBP.priceMonthly || 0;
+                        const annualGBP = bPricingGBP.priceAnnual || 0;
+                        totalBundlesMonthly += currencyCode === "GBP" 
+                            ? monthlyGBP 
+                            : await currencyService.convertFromGBP(monthlyGBP, currencyCode);
+                        totalBundlesAnnual += currencyCode === "GBP"
+                            ? annualGBP
+                            : await currencyService.convertFromGBP(annualGBP, currencyCode);
                     }
                     const bModules = await storage.getBundleModules(b.bundleId);
                     bModules.forEach(m => coveredModuleIds.add(m.moduleId));
@@ -274,12 +325,17 @@ export class PricingService {
                 
                 // Only recommend if next tier includes enough inspections
                 if (nextTier.includedInspections >= inspectionCount) {
-                    const nextTierPrice = await storage.getTierPricing(nextTier.id, currencyCode);
+                    // Get next tier pricing in GBP and convert
+                    const nextTierPriceGBP = await storage.getTierPricing(nextTier.id, "GBP");
+                    const nextTierMonthlyGBP = nextTierPriceGBP?.priceMonthly || nextTier.basePriceMonthly || 0;
+                    const nextTierMonthly = currencyCode === "GBP"
+                        ? nextTierMonthlyGBP
+                        : await currencyService.convertFromGBP(nextTierMonthlyGBP, currencyCode);
                     
                     // Current cost: tier + add-ons + modules
                     const currentTotalMonthly = (tierPrice?.priceMonthly || 0) + addonCost + totalModulesMonthly;
                     // Next tier cost: just tier + modules (no add-ons needed)
-                    const nextTotalMonthly = (nextTierPrice?.priceMonthly || 0) + totalModulesMonthly;
+                    const nextTotalMonthly = nextTierMonthly + totalModulesMonthly;
 
                     if (nextTotalMonthly < currentTotalMonthly && nextTier.includedInspections >= inspectionCount) {
                         const savings = currentTotalMonthly - nextTotalMonthly;
@@ -293,8 +349,8 @@ export class PricingService {
             }
         }
 
-        const baseMonthly = tierPrice?.priceMonthly || (currencyCode === "GBP" ? detectedTier.basePriceMonthly : 0);
-        const baseAnnual = tierPrice?.priceAnnual || (currencyCode === "GBP" ? detectedTier.basePriceAnnual : 0);
+        const baseMonthly = tierPrice?.priceMonthly || 0;
+        const baseAnnual = tierPrice?.priceAnnual || 0;
 
         return {
             tier: {
@@ -312,7 +368,8 @@ export class PricingService {
                 count: inspectionsOverTier,
                 recommended_pack: recommendedPacks[0]?.name || "Custom",
                 pack_price: addonCost / 100, // Convert from minor units
-                price_per_inspection: recommendedPacks[0] ? (recommendedPacks[0].price / recommendedPacks[0].quantity) / 100 : 0
+                // Use per-inspection price from tier_pricing table (already converted to target currency)
+                price_per_inspection: tierPrice.perInspectionPrice / 100 // Convert from minor units to major units for API response
             } : null,
             modules: moduleStatuses.map(m => ({
                 module_id: m.id,

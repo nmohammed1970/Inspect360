@@ -85,31 +85,55 @@ interface PricingResult {
 }
 
 // Tier per-inspection price from config (fallbacks provided)
+// Simple currency conversion rates (approximate, will be replaced by API conversion)
+// These are fallback rates if API conversion fails
+const FALLBACK_RATES: Record<string, number> = {
+  USD: 1.27,
+  EUR: 1.17,
+  AED: 4.67,
+  GBP: 1.0,
+};
+
 const getPerInspectionPriceFromConfig = (tierName: string, selectedCurrency: string, config: any): number => {
   try {
     if (config?.tierPricing && config?.tiers) {
       const tier = config.tiers.find((t: any) => t.name === tierName);
       if (tier) {
-        const pricingRow = config.tierPricing.find((p: any) => p.tierId === tier.id && p.currencyCode === selectedCurrency);
+        // First try to get price for selected currency
+        let pricingRow = config.tierPricing.find((p: any) => p.tierId === tier.id && p.currencyCode === selectedCurrency);
         if (pricingRow?.perInspectionPrice) {
           return pricingRow.perInspectionPrice;
+        }
+        
+        // If not found, get GBP price and convert
+        pricingRow = config.tierPricing.find((p: any) => p.tierId === tier.id && p.currencyCode === "GBP");
+        if (pricingRow?.perInspectionPrice) {
+          const gbpPrice = pricingRow.perInspectionPrice;
+          const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+          return Math.round(gbpPrice * rate);
         }
       }
     }
   } catch { }
-  // Fallback defaults (GBP)
+  // Fallback defaults (GBP) - convert to selected currency
+  let basePrice = 550;
   switch (tierName) {
     case "Starter":
-      return 1200;
+      basePrice = 1200;
+      break;
     case "Growth":
-      return 1000;
+      basePrice = 1000;
+      break;
     case "Professional":
-      return 900;
+      basePrice = 900;
+      break;
     case "Enterprise":
-      return 550;
-    default:
-      return 550;
+      basePrice = 550;
+      break;
   }
+  // Convert from GBP to selected currency
+  const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+  return Math.round(basePrice * rate);
 };
 
 export default function Billing() {
@@ -137,13 +161,13 @@ export default function Billing() {
     return () => clearTimeout(timer);
   }, [inspectionsNeeded]);
 
-  // Force invalidate pricing query when inspectionsNeeded changes to prevent stale data
+  // Force invalidate pricing query when inspectionsNeeded or currency changes to prevent stale data
   useEffect(() => {
     queryClient.invalidateQueries({
       queryKey: ["/api/pricing/calculate"],
       exact: false
     });
-  }, [inspectionsNeeded, queryClient]);
+  }, [inspectionsNeeded, selectedCurrency, queryClient]);
   // Fetch pricing configuration (tiers and currencies)
   const { data: config } = useQuery<{ tiers: Tier[], currencies: any[] }>({
     queryKey: ["/api/pricing/config"],
@@ -372,11 +396,69 @@ export default function Billing() {
   };
 
   // Calculate pricing breakdown based on current slider value (always reactive)
-  // This calculation is IMMEDIATE and doesn't wait for API - only module costs come from API
+  // Use API pricing data which includes proper currency conversion
   const pricingBreakdown = useMemo(() => {
     // Force recalculation by logging current value
-    console.log(`[Billing] Recalculating pricingBreakdown for ${inspectionsNeeded} inspections`);
+    console.log(`[Billing] Recalculating pricingBreakdown for ${inspectionsNeeded} inspections, currency: ${selectedCurrency}`);
 
+    // Use API pricing data which has proper currency conversion
+    // If API data is available, use it (most accurate)
+    if (pricing?.calculations) {
+      let tierPrice = 0;
+      let additionalInspections = 0;
+      let additionalCost = 0;
+      let currentTierName = pricing?.tier?.name || "";
+      let tierIncluded = pricing?.tier?.included_inspections || 0;
+
+      // Get tier price from API (already converted)
+      tierPrice = billingPeriod === "monthly" 
+        ? pricing.calculations.baseMonthly 
+        : pricing.calculations.baseAnnual;
+
+      // Get additional inspection cost from API (already converted)
+      if (pricing.additional_inspections) {
+        additionalInspections = pricing.additional_inspections.count || 0;
+        // Calculate: additionalInspections × pricePerInspection
+        // API returns price_per_inspection in major units (e.g., 5.50 for £5.50), convert to minor units (cents/pence)
+        const pricePerInspectionMajor = pricing.additional_inspections.price_per_inspection || 0;
+        const pricePerInspectionMinor = Math.round(pricePerInspectionMajor * 100);
+        additionalCost = additionalInspections * pricePerInspectionMinor;
+      } else {
+        // Calculate locally if API doesn't have it yet
+        if (inspectionsNeeded < 30) {
+          additionalInspections = Math.max(0, inspectionsNeeded - 10);
+        } else if (inspectionsNeeded < 75) {
+          additionalInspections = Math.max(0, inspectionsNeeded - 30);
+        } else if (inspectionsNeeded < 200) {
+          additionalInspections = Math.max(0, inspectionsNeeded - 75);
+        } else if (inspectionsNeeded <= 500) {
+          additionalInspections = Math.max(0, inspectionsNeeded - 200);
+        }
+        // Use per-inspection price from config (will be converted by API on next fetch)
+        const perInspectionPrice = getPerInspectionPriceFromConfig(currentTierName, selectedCurrency, config);
+        additionalCost = additionalInspections * perInspectionPrice;
+      }
+
+      // Get module costs from API (already converted)
+      const moduleCost = billingPeriod === "monthly" 
+        ? pricing.calculations.modulesMonthly 
+        : pricing.calculations.modulesAnnual;
+      
+      const totalCost = tierPrice + additionalCost + moduleCost;
+
+      return {
+        tierPrice,
+        additionalInspections,
+        additionalCost,
+        currentTierName,
+        tierIncluded,
+        moduleCost,
+        totalCost,
+        tierCodeForCheckout: pricing?.tier?.code || ""
+      };
+    }
+
+    // Fallback: Calculate locally if API data not available yet
     let tierPrice = 0;
     let additionalInspections = 0;
     let additionalCost = 0;
@@ -384,12 +466,16 @@ export default function Billing() {
     let tierIncluded = 0;
 
     // Minimum 10 inspections required - always use Starter tier as base
+    // Convert tier prices from GBP to selected currency
+    const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+    
     if (inspectionsNeeded < 30) {
       // Starter: tier price + per inspection for above 10
       currentTierName = "Starter";
       tierIncluded = 10;
       const starterTier = config?.tiers?.find((t: Tier) => t.code === "starter");
-      tierPrice = starterTier ? (billingPeriod === "monthly" ? starterTier.basePriceMonthly : starterTier.basePriceAnnual) : 0;
+      const basePrice = starterTier ? (billingPeriod === "monthly" ? starterTier.basePriceMonthly : starterTier.basePriceAnnual) : 0;
+      tierPrice = selectedCurrency === "GBP" ? basePrice : Math.round(basePrice * rate);
       additionalInspections = inspectionsNeeded - 10;
       additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Starter", selectedCurrency, config);
     } else if (inspectionsNeeded < 75) {
@@ -397,7 +483,8 @@ export default function Billing() {
       currentTierName = "Growth";
       tierIncluded = 30;
       const growthTier = config?.tiers?.find((t: Tier) => t.code === "growth");
-      tierPrice = growthTier ? (billingPeriod === "monthly" ? growthTier.basePriceMonthly : growthTier.basePriceAnnual) : 0;
+      const basePrice = growthTier ? (billingPeriod === "monthly" ? growthTier.basePriceMonthly : growthTier.basePriceAnnual) : 0;
+      tierPrice = selectedCurrency === "GBP" ? basePrice : Math.round(basePrice * rate);
       additionalInspections = inspectionsNeeded - 30;
       additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Growth", selectedCurrency, config);
     } else if (inspectionsNeeded < 200) {
@@ -405,7 +492,8 @@ export default function Billing() {
       currentTierName = "Professional";
       tierIncluded = 75;
       const professionalTier = config?.tiers?.find((t: Tier) => t.code === "professional");
-      tierPrice = professionalTier ? (billingPeriod === "monthly" ? professionalTier.basePriceMonthly : professionalTier.basePriceAnnual) : 0;
+      const basePrice = professionalTier ? (billingPeriod === "monthly" ? professionalTier.basePriceMonthly : professionalTier.basePriceAnnual) : 0;
+      tierPrice = selectedCurrency === "GBP" ? basePrice : Math.round(basePrice * rate);
       additionalInspections = inspectionsNeeded - 75;
       additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Professional", selectedCurrency, config);
     } else if (inspectionsNeeded <= 500) {
@@ -413,7 +501,8 @@ export default function Billing() {
       currentTierName = "Enterprise";
       tierIncluded = 200;
       const enterpriseTier = config?.tiers?.find((t: Tier) => t.code === "enterprise");
-      tierPrice = enterpriseTier ? (billingPeriod === "monthly" ? enterpriseTier.basePriceMonthly : enterpriseTier.basePriceAnnual) : 0;
+      const basePrice = enterpriseTier ? (billingPeriod === "monthly" ? enterpriseTier.basePriceMonthly : enterpriseTier.basePriceAnnual) : 0;
+      tierPrice = selectedCurrency === "GBP" ? basePrice : Math.round(basePrice * rate);
       additionalInspections = inspectionsNeeded - 200;
       additionalCost = additionalInspections * getPerInspectionPriceFromConfig("Enterprise", selectedCurrency, config);
     }
@@ -431,7 +520,7 @@ export default function Billing() {
     else if (currentTierName === "Professional") tierCodeForCheckout = "professional";
     else if (currentTierName === "Enterprise") tierCodeForCheckout = "enterprise";
 
-    console.log(`[Billing] Calculated: Tier=${currentTierName}, Additional=${additionalInspections}, Cost=${additionalCost}, TierPrice=${tierPrice}`);
+    console.log(`[Billing] Calculated: Tier=${currentTierName}, Additional=${additionalInspections}, Cost=${additionalCost}, TierPrice=${tierPrice}, ModuleCost=${moduleCost}`);
 
     return {
       tierPrice,
@@ -443,7 +532,7 @@ export default function Billing() {
       totalCost,
       tierCodeForCheckout
     };
-  }, [inspectionsNeeded, billingPeriod, config?.tiers, pricing?.calculations]);
+  }, [inspectionsNeeded, billingPeriod, selectedCurrency, config?.tiers, config?.tierPricing, pricing]);
 
   // Determine active module names for display
   const activeModuleNames = useMemo(() => {
@@ -750,7 +839,23 @@ export default function Billing() {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground pl-4">
-                          ({additionalInspections} × {formatCurrency(getPerInspectionPriceFromConfig(pricingBreakdown.currentTierName, selectedCurrency, config) / 100, selectedCurrency)} per inspection)
+                          ({additionalInspections} × {(() => {
+                            // Get per-inspection price from API if available, otherwise from config
+                            let pricePerInspectionMajor = 0;
+                            if (pricing?.additional_inspections?.price_per_inspection) {
+                              // API returns price_per_inspection in major units (e.g., 10.00 for £10.00)
+                              pricePerInspectionMajor = pricing.additional_inspections.price_per_inspection;
+                            } else {
+                              // getPerInspectionPriceFromConfig returns in minor units (pence/cents)
+                              // Convert to major units for display
+                              const priceMinor = getPerInspectionPriceFromConfig(pricingBreakdown.currentTierName, selectedCurrency, config);
+                              pricePerInspectionMajor = priceMinor / 100;
+                            }
+                            // Format directly as major units
+                            const symbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
+                            const symbol = symbols[selectedCurrency] || selectedCurrency;
+                            return `${symbol}${pricePerInspectionMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                          })()} per inspection)
                         </p>
                       </>
                     )}
