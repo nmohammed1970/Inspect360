@@ -168,8 +168,12 @@ export default function Compliance() {
       };
       
       if (propertyIdFromUrl) {
+        // Find the property to get its blockId
+        const property = properties.find(p => p.id === propertyIdFromUrl);
+        const propertyBlockId = property?.blockId;
+        
         resetValues.propertyId = propertyIdFromUrl;
-        resetValues.blockId = undefined;
+        resetValues.blockId = propertyBlockId || undefined;
         setSelectedPropertyIds([propertyIdFromUrl]);
       } else if (blockIdFromUrl) {
         resetValues.blockId = blockIdFromUrl;
@@ -192,7 +196,7 @@ export default function Compliance() {
       setPropertySearchTerm("");
       form.clearErrors();
     }
-  }, [open, propertyIdFromUrl, blockIdFromUrl, form]);
+  }, [open, propertyIdFromUrl, blockIdFromUrl, properties, form]);
 
   const uploadMutation = useMutation({
     mutationFn: async (data: UploadFormValues & { propertyIds?: string[], documentUrls?: string[] }) => {
@@ -609,6 +613,50 @@ export default function Compliance() {
                 />
 
                 <div className="space-y-4">
+                  {/* Block field - moved above properties */}
+                  <FormField
+                    control={form.control}
+                    name="blockId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Block (Optional)</FormLabel>
+                        <Select 
+                          onValueChange={(value) => {
+                            const blockId = value === "none" ? undefined : value;
+                            field.onChange(blockId);
+                            // Clear selected properties when block changes
+                            if (blockId) {
+                              setSelectedPropertyIds([]);
+                            }
+                          }} 
+                          value={field.value || "none"}
+                          disabled={selectedPropertyIds.length > 0}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-block">
+                              <SelectValue placeholder="Select block" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            {blocks.map((block) => (
+                              <SelectItem key={block.id} value={block.id}>
+                                {block.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {selectedPropertyIds.length > 0 
+                            ? "Clear property selection to select a block instead"
+                            : "Select a block to filter properties or apply this document to all properties in the block"
+                          }
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
                   {/* Multi-select Properties */}
                   <div className="space-y-2">
                     <Label>Properties (Optional)</Label>
@@ -642,10 +690,16 @@ export default function Compliance() {
                             <CommandEmpty>No properties found.</CommandEmpty>
                             <CommandGroup className="max-h-[200px] overflow-auto">
                               {properties
-                                .filter(property => 
-                                  property.name.toLowerCase().includes(propertySearchTerm.toLowerCase()) ||
-                                  (property.address && property.address.toLowerCase().includes(propertySearchTerm.toLowerCase()))
-                                )
+                                .filter(property => {
+                                  // Filter by block if one is selected
+                                  const selectedBlockId = form.watch("blockId");
+                                  if (selectedBlockId && property.blockId !== selectedBlockId) {
+                                    return false;
+                                  }
+                                  // Filter by search term
+                                  return property.name.toLowerCase().includes(propertySearchTerm.toLowerCase()) ||
+                                    (property.address && property.address.toLowerCase().includes(propertySearchTerm.toLowerCase()));
+                                })
                                 .map((property) => {
                                   const isSelected = selectedPropertyIds.includes(property.id);
                                   return (
@@ -653,11 +707,28 @@ export default function Compliance() {
                                       key={property.id}
                                       value={property.id}
                                       onSelect={() => {
-                                        setSelectedPropertyIds(prev => 
-                                          isSelected 
-                                            ? prev.filter(id => id !== property.id)
-                                            : [...prev, property.id]
-                                        );
+                                        const newSelectedIds = isSelected 
+                                          ? selectedPropertyIds.filter(id => id !== property.id)
+                                          : [...selectedPropertyIds, property.id];
+                                        
+                                        setSelectedPropertyIds(newSelectedIds);
+                                        
+                                        // If a block is already selected, keep it (properties are already filtered to that block)
+                                        // Only clear block if all properties are deselected
+                                        const selectedBlockId = form.watch("blockId");
+                                        if (newSelectedIds.length === 0 && selectedBlockId) {
+                                          // All properties cleared - user can manually change block if needed
+                                          // Don't auto-clear block to preserve the context
+                                        }
+                                        // If no block is selected but properties are, and they all share the same block, auto-select it
+                                        else if (!selectedBlockId && newSelectedIds.length > 0) {
+                                          const selectedProps = properties.filter(p => newSelectedIds.includes(p.id));
+                                          const uniqueBlocks = new Set(selectedProps.map(p => p.blockId).filter(Boolean));
+                                          if (uniqueBlocks.size === 1) {
+                                            const commonBlockId = Array.from(uniqueBlocks)[0];
+                                            form.setValue("blockId", commonBlockId);
+                                          }
+                                        }
                                       }}
                                       data-testid={`option-property-${property.id}`}
                                     >
@@ -716,45 +787,12 @@ export default function Compliance() {
                       </div>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      Select one or more properties to apply this document to. Leave empty for organization-wide.
+                      {form.watch("blockId") 
+                        ? "Select one or more properties from the selected block. Leave empty to apply to all properties in the block."
+                        : "Select one or more properties to apply this document to. Leave empty for organization-wide."
+                      }
                     </p>
                   </div>
-
-                  <FormField
-                    control={form.control}
-                    name="blockId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Block (Optional)</FormLabel>
-                        <Select 
-                          onValueChange={(value) => field.onChange(value === "none" ? undefined : value)} 
-                          value={field.value || "none"}
-                          disabled={selectedPropertyIds.length > 0}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-block">
-                              <SelectValue placeholder="Select block" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            {blocks.map((block) => (
-                              <SelectItem key={block.id} value={block.id}>
-                                {block.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          {selectedPropertyIds.length > 0 
-                            ? "Clear property selection to select a block instead"
-                            : "Select a block to apply this document to all properties in the block"
-                          }
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                 </div>
 
                 <FormItem>

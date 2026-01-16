@@ -36,6 +36,7 @@ import { Loader2, UserPlus, Users, Eye, EyeOff } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/contexts/LocaleContext";
 import { useModules } from "@/hooks/use-modules";
+import { PhoneInput } from "@/components/PhoneInput";
 
 interface User {
   id: string;
@@ -60,6 +61,7 @@ const createTenantFormSchema = z.object({
   lastName: z.string().min(1, "Last name is required").max(255),
   username: z.string().min(3, "Username must be at least 3 characters").max(100),
   password: z.string().min(6, "Password must be at least 6 characters"),
+  phone: z.string().optional(),
   leaseStartDate: z.string().optional(),
   leaseEndDate: z.string().optional(),
   monthlyRent: z.string().optional(),
@@ -121,6 +123,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       lastName: "",
       username: "",
       password: "",
+      phone: "",
       leaseStartDate: "",
       leaseEndDate: "",
       monthlyRent: "",
@@ -153,6 +156,25 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       }
     }
   }, [selectStartDate, selectForm]);
+
+  // Reset create form when dialog opens or when switching to create mode
+  useEffect(() => {
+    if (open && mode === "create") {
+      createForm.reset({
+        email: "",
+        firstName: "",
+        lastName: "",
+        username: "",
+        password: "",
+        phone: "",
+        leaseStartDate: "",
+        leaseEndDate: "",
+        monthlyRent: "",
+        depositAmount: "",
+        isActive: true,
+      });
+    }
+  }, [open, mode, createForm]);
 
   // Auto-populate end date when start date changes (for create form)
   useEffect(() => {
@@ -193,6 +215,9 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       }
       if (data.lastName?.trim()) {
         userPayload.lastName = data.lastName.trim();
+      }
+      if (data.phone?.trim()) {
+        userPayload.phone = data.phone.trim();
       }
 
       // Don't include undefined fields - Zod will handle optional fields
@@ -433,7 +458,10 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
 
   const getTenantDisplayName = (user: User) => {
     const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ");
-    return fullName || user.email;
+    if (fullName) {
+      return `${fullName} (${user.email})`;
+    }
+    return user.email;
   };
 
   const isSubmitting = createUserMutation.isPending || assignTenantMutation.isPending;
@@ -712,6 +740,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                                 <Input
                                   type="email"
                                   placeholder="john.doe@example.com"
+                                  autoComplete="off"
                                   {...field}
                                   onChange={(e) => {
                                     const newEmail = e.target.value;
@@ -734,6 +763,26 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                           )}
                         />
 
+                        <FormField
+                          control={createForm.control}
+                          name="phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Phone Number</FormLabel>
+                              <FormControl>
+                                <PhoneInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="Enter phone number"
+                                  data-testid="input-phone"
+                                  field={field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
                         <div className="grid grid-cols-2 gap-4">
                           <FormField
                             control={createForm.control}
@@ -743,7 +792,9 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                                 <FormLabel>Username *</FormLabel>
                                 <FormControl>
                                   <Input
+                                    key={`username-${open}-${mode}`}
                                     placeholder="johndoe"
+                                    autoComplete="off"
                                     {...field}
                                     data-testid="input-username"
                                   />
@@ -761,9 +812,19 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                                 <FormLabel>Password *</FormLabel>
                                 <FormControl>
                                   <div className="relative">
+                                    {/* Hidden dummy password field to prevent browser autofill */}
+                                    <input
+                                      type="password"
+                                      autoComplete="new-password"
+                                      style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
+                                      tabIndex={-1}
+                                      readOnly
+                                    />
                                     <Input
+                                      key={`password-${open}-${mode}`}
                                       type={showPassword ? "text" : "password"}
                                       placeholder="••••••••"
+                                      autoComplete="new-password"
                                       {...field}
                                       data-testid="input-password"
                                       className="pr-10"

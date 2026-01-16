@@ -815,6 +815,7 @@ export default function Team() {
                   id="email"
                   type="email"
                   value={email}
+                  autoComplete="off"
                   onChange={(e) => {
                     const newEmail = e.target.value;
                     setEmail(newEmail);
@@ -835,8 +836,10 @@ export default function Team() {
               <div className="space-y-2">
                 <Label htmlFor="username">Username *</Label>
                 <Input
+                  key={`username-${isDialogOpen}-${editingUser?.id || 'new'}`}
                   id="username"
                   value={username}
+                  autoComplete="off"
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="johndoe"
                   data-testid="input-username"
@@ -847,10 +850,20 @@ export default function Team() {
                 <div className="space-y-2">
                   <Label htmlFor="password">Password *</Label>
                   <div className="relative">
+                    {/* Hidden dummy password field to prevent browser autofill */}
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
+                      tabIndex={-1}
+                      readOnly
+                    />
                     <Input
+                      key={`password-${isDialogOpen}-${editingUser?.id || 'new'}`}
                       id="password"
                       type={showPassword ? "text" : "password"}
                       value={password}
+                      autoComplete="new-password"
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter password"
                       data-testid="input-password"

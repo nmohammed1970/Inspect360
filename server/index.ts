@@ -5,6 +5,41 @@ import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
 
+// CORS middleware - Allow requests from Expo dev server and mobile apps
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin;
+  
+  // Allow requests from Expo dev server (localhost:8081) and other common dev origins
+  const allowedOrigins = [
+    'http://localhost:8081',
+    'http://localhost:19006',
+    'http://localhost:19000',
+    'http://localhost:5005',
+    'http://localhost:5000',
+  ];
+  
+  // In development, allow any localhost origin
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const isAllowed = isDevelopment 
+    ? (origin?.includes('localhost') || origin?.includes('127.0.0.1') || !origin)
+    : allowedOrigins.includes(origin || '');
+  
+  if (isAllowed || !origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma, Expires');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
+
 // Use JSON parser for all routes except Stripe webhook which needs raw body
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/webhooks/stripe') {
