@@ -10,7 +10,7 @@ export function useOfflineSync() {
   const checkNetworkStatus = useCallback(async () => {
     const online = await offlineQueue.isOnline();
     setIsOnline(online);
-    
+
     if (online) {
       const size = await offlineQueue.getQueueSize();
       setQueueSize(size);
@@ -19,7 +19,7 @@ export function useOfflineSync() {
 
   const sync = useCallback(async () => {
     if (!isOnline || isSyncing) return;
-    
+
     setIsSyncing(true);
     try {
       const result = await offlineQueue.syncQueue();
@@ -36,6 +36,9 @@ export function useOfflineSync() {
     // Check network status periodically
     const interval = setInterval(checkNetworkStatus, 5000);
 
+    // Initial sync
+    sync();
+
     // Sync when app comes to foreground
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
@@ -44,14 +47,20 @@ export function useOfflineSync() {
       }
     });
 
-    // Initial sync
-    sync();
-
     return () => {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [checkNetworkStatus, sync]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run setup once on mount
+
+  // Sync automatically when coming back online
+  useEffect(() => {
+    if (isOnline) {
+      sync();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   return {
     isOnline,

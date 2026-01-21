@@ -28,7 +28,9 @@ export default function Card({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card.DEFAULT,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl, // More rounded for modern look
+    borderWidth: 0.5, // Subtle border
+    borderColor: colors.border.light,
   },
   default: {
     ...shadows.sm,

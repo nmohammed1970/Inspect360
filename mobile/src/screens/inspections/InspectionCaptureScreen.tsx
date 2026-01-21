@@ -24,14 +24,14 @@ import Input from '../../components/ui/Input';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { FieldWidget } from '../../components/inspections/FieldWidget';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, Sparkles, Wifi, WifiOff, Check, FileText, Download, Cloud } from 'lucide-react-native';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, X, AlertCircle } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
-import { colors, spacing, typography, borderRadius } from '../../theme';
+import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { offlineQueue } from '../../services/offlineQueue';
 import Constants from 'expo-constants';
+import InspectionQuickActions from '../../components/inspections/InspectionQuickActions';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
@@ -61,6 +61,7 @@ interface TemplateField {
 export default function InspectionCaptureScreen() {
   const route = useRoute<RoutePropType>();
   const navigation = useNavigation<NavigationProp>();
+  const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
   const { inspectionId } = route.params;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
@@ -69,9 +70,10 @@ export default function InspectionCaptureScreen() {
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [copyImages, setCopyImages] = useState(false);
   const [copyNotes, setCopyNotes] = useState(false);
+  const [copiedImageKeys, setCopiedImageKeys] = useState<Set<string>>(new Set());
+  const [copiedNoteKeys, setCopiedNoteKeys] = useState<Set<string>>(new Set());
 
   // Fetch inspection with template snapshot
   const { data: inspection, isLoading: inspectionLoading, error: inspectionError } = useQuery({
@@ -102,9 +104,9 @@ export default function InspectionCaptureScreen() {
 
   // Fetch inspector details
   const { data: inspector } = useQuery({
-    queryKey: [`/api/users/${inspection?.inspectorId}`],
-    queryFn: () => authService.getUser(inspection!.inspectorId!),
-    enabled: !!inspection?.inspectorId,
+    queryKey: [`/api/users/${inspection?.assignedToId}`],
+    queryFn: () => authService.getUser(inspection!.assignedToId!),
+    enabled: !!inspection?.assignedToId,
     retry: 1,
     staleTime: 60000,
   });
@@ -137,30 +139,35 @@ export default function InspectionCaptureScreen() {
     retry: false,
   });
 
-  // AI Analysis status - only poll if explicitly started
+  // AI Analysis status polling (same as web version)
   const { data: aiAnalysisStatus } = useQuery({
     queryKey: [`/api/ai/analyze-inspection/${inspectionId}/status`],
     queryFn: () => inspectionsService.getAIAnalysisStatus(inspectionId),
-    enabled: false, // Disabled by default, only enable when analysis is started
+    enabled: !!inspectionId,
     retry: 1,
-    refetchInterval: false, // Disable automatic polling
+    refetchInterval: (query) => {
+      // Poll every 2 seconds while processing (same as web version)
+      const status = query.state.data?.status;
+      return status === 'processing' ? 2000 : false;
+    },
   });
 
+  // Refetch entries when AI analysis completes
+  useEffect(() => {
+    if (aiAnalysisStatus?.status === 'completed') {
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      Alert.alert('AI Analysis Complete', 'All inspection fields have been analyzed.');
+    }
+  }, [aiAnalysisStatus?.status, inspectionId, queryClient]);
+
   // Load existing entries into state
-  // Load existing entries into state (only when entries data changes)
-  const entriesLoadedRef = useRef(false);
+  // Always update entries when existingEntries changes (to support copy from check-in)
   useEffect(() => {
     if (!existingEntries || existingEntries.length === 0) {
-      entriesLoadedRef.current = false;
       return;
     }
 
-    // Only load entries once when they first arrive
-    if (entriesLoadedRef.current) {
-      return;
-    }
-
-    entriesLoadedRef.current = true;
     const entriesMap: Record<string, InspectionEntry> = {};
     existingEntries.forEach((entry: any) => {
       const key = `${entry.sectionRef}-${entry.fieldKey}`;
@@ -177,14 +184,30 @@ export default function InspectionCaptureScreen() {
         markedForReview: entry.markedForReview,
       };
     });
-    
+
     setEntries(prev => {
-      // Only merge new entries, don't overwrite existing ones that might have been edited
+      // Merge entries from server, prioritizing server data for photos and notes when copying
       const merged = { ...prev };
       Object.keys(entriesMap).forEach(key => {
-        // Only set if entry doesn't exist or if it's a new entry from server
-        if (!merged[key] || entriesMap[key].id !== merged[key].id) {
-          merged[key] = entriesMap[key];
+        const serverEntry = entriesMap[key];
+        const localEntry = merged[key];
+        
+        // Always update if entry doesn't exist
+        if (!localEntry) {
+          merged[key] = serverEntry;
+        } else {
+          // Update entry with server data (especially important after copy from check-in)
+          // Merge photos and notes from server to ensure copied data is shown
+          const mergedEntry: InspectionEntry = {
+            ...localEntry,
+            ...serverEntry,
+            // Preserve any local unsaved changes for valueJson if entry hasn't been copied
+            valueJson: serverEntry.valueJson !== undefined ? serverEntry.valueJson : localEntry.valueJson,
+            // Always use server photos and notes when they exist (from copy operation)
+            photos: serverEntry.photos && serverEntry.photos.length > 0 ? serverEntry.photos : localEntry.photos,
+            note: serverEntry.note !== undefined ? serverEntry.note : localEntry.note,
+          };
+          merged[key] = mergedEntry;
         }
       });
       return merged;
@@ -201,7 +224,7 @@ export default function InspectionCaptureScreen() {
     }
 
     let rawTemplateStructure: { sections: TemplateSection[] } | null = null;
-    
+
     if (typeof inspection.templateSnapshotJson === 'string') {
       try {
         rawTemplateStructure = JSON.parse(inspection.templateSnapshotJson);
@@ -226,26 +249,26 @@ export default function InspectionCaptureScreen() {
           id: field.id || field.key,
           key: field.key || field.id,
         };
-        
+
         // Convert string booleans to actual booleans
         if (typeof parsedField.required === 'string') {
           parsedField.required = parsedField.required.toLowerCase() === 'true';
         } else {
           parsedField.required = !!parsedField.required;
         }
-        
+
         if (typeof parsedField.includeCondition === 'string') {
           parsedField.includeCondition = parsedField.includeCondition.toLowerCase() === 'true';
         } else {
           parsedField.includeCondition = !!parsedField.includeCondition;
         }
-        
+
         if (typeof parsedField.includeCleanliness === 'string') {
           parsedField.includeCleanliness = parsedField.includeCleanliness.toLowerCase() === 'true';
         } else {
           parsedField.includeCleanliness = !!parsedField.includeCleanliness;
         }
-        
+
         return parsedField;
       }),
     }));
@@ -282,9 +305,24 @@ export default function InspectionCaptureScreen() {
 
   // Update inspection status mutation
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ status, startedAt }: { status: string; startedAt?: string }) => {
+    mutationFn: async ({ status, startedAt, completedDate, submittedAt }: { 
+      status: string; 
+      startedAt?: string;
+      completedDate?: string;
+      submittedAt?: string;
+    }) => {
+      const updates: any = { status };
       if (startedAt) {
-        await inspectionsService.updateInspection(inspectionId, { status, startedAt } as any);
+        updates.startedAt = startedAt;
+      }
+      if (completedDate) {
+        updates.completedDate = completedDate;
+      }
+      if (submittedAt) {
+        updates.submittedAt = submittedAt;
+      }
+      if (startedAt || completedDate || submittedAt) {
+        await inspectionsService.updateInspection(inspectionId, updates);
       } else {
         await inspectionsService.updateInspectionStatus(inspectionId, status);
       }
@@ -302,24 +340,31 @@ export default function InspectionCaptureScreen() {
     },
     onSuccess: async (data) => {
       if (data.modifiedImageKeys?.length) {
-        setCopiedImageKeys(prev => {
+        setCopiedImageKeys((prev: Set<string>) => {
           const next = new Set(prev);
           data.modifiedImageKeys!.forEach((k: string) => next.add(k));
           return next;
         });
       }
       if (data.modifiedNoteKeys?.length) {
-        setCopiedNoteKeys(prev => {
+        setCopiedNoteKeys((prev: Set<string>) => {
           const next = new Set(prev);
           data.modifiedNoteKeys!.forEach((k: string) => next.add(k));
           return next;
         });
       }
 
-      // Invalidate and refetch entries
+      // Invalidate and refetch entries to get updated data with copied photos/notes
       queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      
+      // Wait a bit for the server to finish processing, then refetch
       setTimeout(async () => {
-        await queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+        const result = await queryClient.refetchQueries({ 
+          queryKey: [`/api/inspections/${inspectionId}/entries`] 
+        });
+        console.log('[Copy] Refetched entries result:', result);
+        // Force reload by invalidating again to ensure UI updates
+        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
       }, 500);
 
       Alert.alert('Success', 'Data copied from previous check-in');
@@ -333,36 +378,19 @@ export default function InspectionCaptureScreen() {
   const startAIAnalysis = useMutation({
     mutationFn: () => inspectionsService.startAIAnalysis(inspectionId),
     onSuccess: () => {
-      // Enable the query and start polling
-      queryClient.setQueryData([`/api/ai/analyze-inspection/${inspectionId}/status`], {
-        status: 'processing',
-        progress: 0,
-        totalFields: 0,
-        error: null,
-      });
-      // Manually refetch status every 2 seconds while processing
-      const pollInterval = setInterval(async () => {
-        try {
-          const status = await inspectionsService.getAIAnalysisStatus(inspectionId);
-          queryClient.setQueryData([`/api/ai/analyze-inspection/${inspectionId}/status`], status);
-          if (status.status !== 'processing') {
-            clearInterval(pollInterval);
-          }
-        } catch (error) {
-          clearInterval(pollInterval);
-        }
-      }, 2000);
+      // Invalidate status query to start polling (refetchInterval will handle polling)
+      queryClient.invalidateQueries({ queryKey: [`/api/ai/analyze-inspection/${inspectionId}/status`] });
       Alert.alert('AI Analysis Started', 'Analysis is running in the background. You can continue working.');
     },
     onError: (error: any) => {
-      Alert.alert('Error', error.message || 'Failed to start AI analysis');
+      Alert.alert('Failed to start AI analysis', error.message || 'Please try again');
     },
   });
 
   // Auto-start inspection on first visit (only once)
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
   useEffect(() => {
-    if (inspection && inspection.status === 'scheduled' && !inspection.startedAt && !hasAutoStarted) {
+    if (inspection && inspection.status === 'scheduled' && !(inspection as any).startedAt && !hasAutoStarted) {
       setHasAutoStarted(true);
       updateStatusMutation.mutate({
         status: 'in_progress',
@@ -372,50 +400,44 @@ export default function InspectionCaptureScreen() {
   }, [inspection, hasAutoStarted]);
 
   // Track if copy has been triggered to prevent re-triggering
-  const copyImagesTriggeredRef = useRef(false);
-  const copyNotesTriggeredRef = useRef(false);
+  const copyTriggeredRef = useRef<{ copyImages: boolean; copyNotes: boolean }>({ copyImages: false, copyNotes: false });
 
-  // Copy images from check-in when checkbox is checked (debounced to prevent rapid firing)
+  // Copy from check-in when checkboxes are checked (debounced to prevent rapid firing)
   useEffect(() => {
     if (!checkInData || !checkInData.entries || !inspection || inspection.type !== 'check_out') {
-      copyImagesTriggeredRef.current = false;
+      copyTriggeredRef.current = { copyImages: false, copyNotes: false };
       return;
     }
 
-    if (copyImages && !copyImagesTriggeredRef.current && !copyFromCheckIn.isPending) {
-      copyImagesTriggeredRef.current = true;
+    // Check if either checkbox is checked and hasn't been triggered yet
+    const shouldCopyImages = copyImages && !copyTriggeredRef.current.copyImages;
+    const shouldCopyNotes = copyNotes && !copyTriggeredRef.current.copyNotes;
+    
+    // If both are checked at the same time, copy both in one call
+    if ((shouldCopyImages || shouldCopyNotes) && !copyFromCheckIn.isPending) {
+      if (shouldCopyImages) copyTriggeredRef.current.copyImages = true;
+      if (shouldCopyNotes) copyTriggeredRef.current.copyNotes = true;
+      
       // Use setTimeout to debounce and prevent rapid firing
       const timeoutId = setTimeout(() => {
-        copyFromCheckIn.mutate({ copyImages: true, copyNotes: false });
+        // Copy both if both are checked, otherwise copy individually
+        copyFromCheckIn.mutate({ 
+          copyImages: copyImages, 
+          copyNotes: copyNotes 
+        });
       }, 300);
       return () => clearTimeout(timeoutId);
+    } else if (!copyImages && !copyNotes) {
+      // Reset when both are unchecked
+      copyTriggeredRef.current = { copyImages: false, copyNotes: false };
     } else if (!copyImages) {
-      copyImagesTriggeredRef.current = false;
-    }
-    // Only depend on copyImages to prevent re-triggering when other dependencies change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copyImages]);
-
-  // Copy notes from check-in when checkbox is checked (debounced to prevent rapid firing)
-  useEffect(() => {
-    if (!checkInData || !checkInData.entries || !inspection || inspection.type !== 'check_out') {
-      copyNotesTriggeredRef.current = false;
-      return;
-    }
-
-    if (copyNotes && !copyNotesTriggeredRef.current && !copyFromCheckIn.isPending) {
-      copyNotesTriggeredRef.current = true;
-      // Use setTimeout to debounce and prevent rapid firing
-      const timeoutId = setTimeout(() => {
-        copyFromCheckIn.mutate({ copyImages: false, copyNotes: true });
-      }, 300);
-      return () => clearTimeout(timeoutId);
+      copyTriggeredRef.current.copyImages = false;
     } else if (!copyNotes) {
-      copyNotesTriggeredRef.current = false;
+      copyTriggeredRef.current.copyNotes = false;
     }
-    // Only depend on copyNotes to prevent re-triggering when other dependencies change
+    // Only depend on copyImages and copyNotes to prevent re-triggering
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copyNotes]);
+  }, [copyImages, copyNotes]);
 
   // Calculate progress (memoized to prevent recalculation on every render)
   const { totalFields, completedFields, progress } = useMemo(() => {
@@ -438,33 +460,116 @@ export default function InspectionCaptureScreen() {
     }
   }, [sections.length]); // Only depend on sections.length to prevent infinite loop
 
-  const handleFieldChange = (sectionRef: string, fieldKey: string, value: any, note?: string, photos?: string[]) => {
-    const key = `${sectionRef}-${fieldKey}`;
-    const existingEntry = entries[key];
-    
-    const newEntry: InspectionEntry = {
-      ...existingEntry,
-      inspectionId,
-      sectionRef,
-      fieldKey,
-      fieldType: currentSection?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type || 'text',
-      valueJson: value,
-      note,
-      photos,
-    };
+  // Track tab scroll position for fade indicator
+  const [showRightFade, setShowRightFade] = useState(sections.length > 0);
+  const tabsScrollViewRef = useRef<ScrollView>(null);
 
-    setEntries(prev => ({ ...prev, [key]: newEntry }));
-    
-    // Auto-save
-    updateEntry.mutate(newEntry);
+  const handleTabsScroll = (event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const isScrolledToEnd = contentOffset.x + layoutMeasurement.width >= contentSize.width - 10;
+    setShowRightFade(!isScrolledToEnd);
   };
 
+  // Update fade indicator when sections change
+  useEffect(() => {
+    // Check if there are more tabs to scroll (approximate)
+    setShowRightFade(sections.length > 2); // Show fade if more than 2 tabs (rough estimate)
+  }, [sections.length]);
+
+  const handleFieldChange = React.useCallback((sectionRef: string, fieldKey: string, value: any, note?: string, photos?: string[]) => {
+    const key = `${sectionRef}-${fieldKey}`;
+
+    setEntries(prev => {
+      const existingEntry = prev[key];
+      const fieldType = sections.find(s => s.id === sectionRef)?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type || 'text';
+
+      const newEntry: InspectionEntry = {
+        ...existingEntry,
+        inspectionId,
+        sectionRef,
+        fieldKey,
+        fieldType,
+        valueJson: value,
+        note,
+        photos: photos || existingEntry?.photos || [],
+      };
+
+      // Auto-save using mutation
+      updateEntry.mutate(newEntry);
+
+      return { ...prev, [key]: newEntry };
+    });
+  }, [inspectionId, sections, updateEntry]);
+
   const handleComplete = async () => {
-    try {
-      await updateStatusMutation.mutateAsync({ status: 'completed' });
-      navigation.navigate('InspectionReview', { inspectionId });
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to complete inspection');
+    // Check if progress is less than 100%
+    const progressPercentage = Math.round(progress);
+    const isIncomplete = progressPercentage < 100;
+
+    if (isIncomplete) {
+      // Show confirmation dialog for incomplete inspections
+      Alert.alert(
+        'Complete Inspection?',
+        `This inspection is only ${progressPercentage}% complete. ${totalFields - completedFields} field(s) are still missing. Do you want to mark it as complete anyway?`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Complete Anyway',
+            style: 'default',
+            onPress: async () => {
+              try {
+                const now = new Date().toISOString();
+                await updateStatusMutation.mutateAsync({
+                  status: 'completed',
+                  completedDate: now,
+                  submittedAt: now,
+                });
+                Alert.alert(
+                  'Success',
+                  'Inspection marked as completed.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => {
+                        navigation.navigate('InspectionReview', { inspectionId });
+                      },
+                    },
+                  ]
+                );
+              } catch (error: any) {
+                Alert.alert('Error', error.message || 'Failed to complete inspection');
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      // Complete without confirmation if 100% complete
+      try {
+        const now = new Date().toISOString();
+        await updateStatusMutation.mutateAsync({
+          status: 'completed',
+          completedDate: now,
+          submittedAt: now,
+        });
+        Alert.alert(
+          'Success',
+          'Inspection completed successfully!',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                navigation.navigate('InspectionReview', { inspectionId });
+              },
+            },
+          ]
+        );
+      } catch (error: any) {
+        Alert.alert('Error', error.message || 'Failed to complete inspection');
+      }
     }
   };
 
@@ -540,64 +645,6 @@ export default function InspectionCaptureScreen() {
   }, [isOnline, pendingCount]);
   */
 
-  // Generate PDF
-  const handleGeneratePDF = async () => {
-    if (!inspection || !isOnline) {
-      Alert.alert('Offline', 'PDF generation requires an internet connection');
-      return;
-    }
-
-    setIsGeneratingPDF(true);
-    try {
-      const response = await fetch(`${API_URL}/api/inspections/${inspectionId}/pdf`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate PDF');
-      }
-
-      // Get response as blob
-      const blob = await response.blob();
-      
-      // Convert blob to base64
-      const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          const base64String = result.includes(',') ? result.split(',')[1] : result;
-          resolve(base64String);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
-      // Save to file system
-      const fileName = `${inspection.propertyId ? 'property' : 'block'}_inspection_${inspectionId}_${new Date().toISOString().split('T')[0]}.pdf`;
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-      await FileSystem.writeAsStringAsync(fileUri, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Share the file
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save Inspection PDF',
-        });
-        Alert.alert('PDF Generated', 'Your inspection report has been saved and is ready to share.');
-      } else {
-        Alert.alert('PDF Generated', `PDF saved to: ${fileUri}`);
-      }
-    } catch (error: any) {
-      console.error('Error generating PDF:', error);
-      Alert.alert('Error', error.message || 'Failed to generate PDF report. Please try again.');
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
-
   if (inspectionLoading) {
     return (
       <View style={styles.container}>
@@ -654,358 +701,441 @@ export default function InspectionCaptureScreen() {
   return (
     <ErrorBoundary>
       <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <ChevronLeft size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-          <View style={styles.headerInfo}>
-            <Text style={styles.headerTitle}>Inspection Capture</Text>
-            <Text style={styles.headerSubtitle}>
-              {inspection.propertyId ? 'Property' : 'Block'} Inspection
-            </Text>
+        {/* Fixed Header - Only Back Button and Title */}
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, spacing[3]) }]}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity 
+              onPress={() => navigation.goBack()}
+              style={styles.backButton}
+              activeOpacity={0.7}
+            >
+              <ChevronLeft size={24} color={colors.text.primary} />
+            </TouchableOpacity>
+            <View style={styles.headerInfo}>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {property?.name || block?.name || 'Inspection Capture'}
+              </Text>
+              <Text style={styles.headerSubtitle} numberOfLines={2}>
+                {property?.address || block?.address || (inspection.propertyId ? 'Property' : 'Block') + ' Inspection'}
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Header Actions Row */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.headerActions}
-          contentContainerStyle={styles.headerActionsContent}
-        >
-          {/* Online/Offline Badge */}
-          <Badge variant={isOnline ? 'default' : 'secondary'} size="sm">
-            {isOnline ? <Wifi size={14} color={isOnline ? colors.primary.foreground : colors.text.secondary} /> : <WifiOff size={14} color={colors.text.secondary} />}
-            <Text style={styles.badgeText}>{isOnline ? 'Online' : 'Offline'}</Text>
-          </Badge>
-
-          {/* Pending Sync Badge */}
-          {pendingCount > 0 && (
-            <Badge variant="outline" size="sm">
-              <Cloud size={14} color={colors.text.secondary} />
-              <Text style={styles.badgeText}>{pendingCount} pending</Text>
-            </Badge>
-          )}
-
-          {/* Manual Sync Button */}
-          {isOnline && pendingCount > 0 && (
-            <Button
-              title={isSyncing ? 'Syncing...' : 'Sync'}
-              onPress={handleSync}
-              disabled={!!isSyncing}
-              variant="outline"
-              size="sm"
-              style={styles.syncButton}
-            />
-          )}
-
-          {/* Progress Badge */}
-          <Badge variant="secondary" size="sm">
-            <Text style={styles.badgeText}>{completedFields} / {totalFields} fields</Text>
-          </Badge>
-
-          {/* AI Analysis Status */}
-          {aiAnalysisStatus?.status === 'processing' ? (
-            <Badge variant="outline" size="sm">
-              <ActivityIndicator size="small" color={colors.primary.DEFAULT} />
-              <Text style={styles.badgeText}>
-                Analysing ({aiAnalysisStatus.progress}/{aiAnalysisStatus.totalFields})
-              </Text>
-            </Badge>
-          ) : aiAnalysisStatus?.status === 'completed' ? (
-            <Badge variant="default" size="sm" style={styles.aiCompleteBadge}>
-              <CheckCircle2 size={14} color="#fff" />
-              <Text style={[styles.badgeText, { color: '#fff' }]}>AI Analysis Complete</Text>
-            </Badge>
-          ) : (
-            <Button
-              title="AI Analyse"
-              onPress={() => startAIAnalysis.mutate()}
-              disabled={!!(startAIAnalysis.isPending || !isOnline)}
-              variant="default"
-              size="sm"
-              icon={<Sparkles size={16} color={colors.primary.foreground} />}
-              style={styles.aiButton}
-            />
-          )}
-
-          {/* Generate PDF Button */}
-          <Button
-            title="PDF"
-            onPress={handleGeneratePDF}
-            disabled={!!(isGeneratingPDF || !isOnline)}
-            variant="outline"
-            size="sm"
-            icon={<FileText size={16} color={colors.text.primary} />}
-            loading={isGeneratingPDF}
-            style={styles.pdfButton}
-          />
-
-          {/* Complete Inspection Button */}
-          <Button
-            title="Complete"
-            onPress={handleComplete}
-            disabled={!!(updateStatusMutation.isPending || progress < 100)}
-            variant="default"
-            size="sm"
-            icon={<CheckCircle2 size={16} color={colors.primary.foreground} />}
-            loading={updateStatusMutation.isPending}
-            style={styles.completeButton}
-          />
-        </ScrollView>
-
-        {/* Progress Bar */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Progress</Text>
-            <Text style={styles.progressPercent}>{Math.round(progress)}%</Text>
-          </View>
-          <Progress value={progress} height={8} />
-        </View>
-
-        {/* Section Tabs */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.tabsContainer}
-          contentContainerStyle={styles.tabsContent}
-        >
-          {sections.map((section, index) => (
-            <Button
-              key={section.id}
-              title={section.title}
-              onPress={() => setCurrentSectionIndex(index)}
-              variant={index === currentSectionIndex ? 'default' : 'outline'}
-              size="sm"
-              style={styles.tabButton}
-            />
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Copy from Previous Check-In (only for check-out inspections) */}
-      {inspection?.type === 'check_out' && (
-        <Card style={styles.copyCard}>
-          <Text style={styles.copyCardTitle}>Copy from Previous Check-In</Text>
-          {checkInData ? (
-            <>
-              <Text style={styles.copyCardSubtext}>
-                Copy data from the most recent check-in inspection ({checkInData.inspection.scheduledDate ? new Date(checkInData.inspection.scheduledDate).toLocaleDateString() : 'N/A'})
-              </Text>
-              <View style={styles.copyOptions}>
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={() => setCopyImages(!copyImages)}
-                  disabled={!!copyFromCheckIn.isPending}
-                >
-                  <View style={[styles.checkbox, copyImages && styles.checkboxChecked]}>
-                    {copyImages && <Check size={16} color="#fff" />}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Copy Images</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={() => setCopyNotes(!copyNotes)}
-                  disabled={!!copyFromCheckIn.isPending}
-                >
-                  <View style={[styles.checkbox, copyNotes && styles.checkboxChecked]}>
-                    {copyNotes && <Check size={16} color="#fff" />}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Copy Notes</Text>
-                </TouchableOpacity>
+        {/* AI Analysis Progress */}
+        {aiAnalysisStatus?.status === 'processing' && (
+          <Card style={styles.aiProgressCard}>
+            <View style={styles.aiProgressHeader}>
+              <View style={styles.aiProgressHeaderLeft}>
+                <Sparkles size={16} color={colors.primary.DEFAULT} />
+                <Text style={styles.aiProgressTitle}>AI Analysis in Progress</Text>
               </View>
-              {(copyImages || copyNotes) && (
-                <View style={styles.copySuccess}>
-                  <CheckCircle2 size={16} color="#34C759" />
-                  <Text style={styles.copySuccessText}>
-                    {copyImages && copyNotes
-                      ? 'Images and notes copied from check-in inspection'
-                      : copyImages
-                        ? 'Images copied from check-in inspection'
-                        : 'Notes copied from check-in inspection'}
-                  </Text>
-                </View>
-              )}
-            </>
-          ) : (
-            <Text style={styles.copyCardSubtext}>
-              No previous check-in inspection found for this property.
+              <Text style={styles.aiProgressCount}>
+                {aiAnalysisStatus.progress} / {aiAnalysisStatus.totalFields} fields
+              </Text>
+            </View>
+            <Progress value={(aiAnalysisStatus.progress / (aiAnalysisStatus.totalFields || 1)) * 100} height={8} />
+            <Text style={styles.aiProgressDescription}>
+              You can continue working while the AI analyzes your inspection photos in the background.
             </Text>
-          )}
-        </Card>
-      )}
+          </Card>
+        )}
 
-      {/* Content */}
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {currentSection && currentSection.fields && (
-          <>
-            {currentSection.description && (
-              <Text style={styles.sectionDescription}>{currentSection.description}</Text>
+        {/* AI Analysis Error */}
+        {aiAnalysisStatus?.status === 'failed' && aiAnalysisStatus.error && (
+          <Card style={styles.aiErrorCard}>
+            <View style={styles.aiErrorHeader}>
+              <AlertCircle size={16} color={colors.destructive.DEFAULT} />
+              <Text style={styles.aiErrorTitle}>AI Analysis Failed</Text>
+            </View>
+            <Text style={styles.aiErrorMessage}>{aiAnalysisStatus.error}</Text>
+          </Card>
+        )}
+
+        {/* Copy from Previous Check-In (only for check-out inspections) */}
+        {inspection?.type === 'check_out' && (
+          <Card style={styles.copyCard}>
+            <Text style={styles.copyCardTitle}>Copy from Previous Check-In</Text>
+            {checkInData ? (
+              <>
+                <Text style={styles.copyCardSubtext}>
+                  Copy data from the most recent check-in inspection ({checkInData.inspection.scheduledDate ? new Date(checkInData.inspection.scheduledDate).toLocaleDateString() : 'N/A'})
+                </Text>
+                <View style={styles.copyOptions}>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setCopyImages(!copyImages)}
+                    disabled={!!copyFromCheckIn.isPending}
+                  >
+                    <View style={[styles.checkbox, copyImages && styles.checkboxChecked]}>
+                      {copyImages && <Check size={16} color="#fff" />}
+                    </View>
+                    <Text style={styles.checkboxLabel}>Copy Images</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setCopyNotes(!copyNotes)}
+                    disabled={!!copyFromCheckIn.isPending}
+                  >
+                    <View style={[styles.checkbox, copyNotes && styles.checkboxChecked]}>
+                      {copyNotes && <Check size={16} color="#fff" />}
+                    </View>
+                    <Text style={styles.checkboxLabel}>Copy Notes</Text>
+                  </TouchableOpacity>
+                </View>
+                {(copyImages || copyNotes) && (
+                  <View style={styles.copySuccess}>
+                    <CheckCircle2 size={16} color="#34C759" />
+                    <Text style={styles.copySuccessText}>
+                      {copyImages && copyNotes
+                        ? 'Images and notes copied from check-in inspection'
+                        : copyImages
+                          ? 'Images copied from check-in inspection'
+                          : 'Notes copied from check-in inspection'}
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <Text style={styles.copyCardSubtext}>
+                No previous check-in inspection found for this property.
+              </Text>
             )}
-            
-            {currentSection.fields.map((field) => {
-              if (!field || !field.id && !field.key) {
-                console.warn('Invalid field found:', field);
-                return null;
-              }
-              
-              try {
-                const key = `${currentSection.id}-${field.id || field.key}`;
-                const entry = entries[key];
-                
-                return (
-                <FieldWidget
-                  key={field.id || field.key || `field-${Math.random()}`}
-                  field={field}
-                  value={entry?.valueJson}
-                  note={entry?.note}
-                  photos={entry?.photos}
-                  inspectionId={inspectionId}
-                  entryId={entry?.id}
-                  sectionName={currentSection.title}
-                  isCheckOut={inspection?.type === 'check_out'}
-                  markedForReview={entry?.markedForReview || false}
-                  autoContext={{
-                    inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
-                    address: property 
-                      ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
-                      : block 
-                        ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
-                        : '',
-                    tenantNames: Array.isArray(tenants) 
-                      ? tenants
-                          .filter((t: any) => t.status === 'active')
-                          .map((t: any) => t.tenantName || t.name || `${t?.firstName || ''} ${t?.lastName || ''}`)
-                          .filter(Boolean)
-                          .join(', ')
-                      : '',
-                    inspectionDate: inspection?.scheduledDate 
-                      ? new Date(inspection.scheduledDate).toISOString().split('T')[0]
-                      : new Date().toISOString().split('T')[0],
-                  }}
-                  onChange={(value, note, photos) =>
-                    handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
-                  }
-                  onMarkedForReviewChange={async (marked) => {
-                    const key = `${currentSection.id}-${field.id || field.key || ''}`;
-                    const existingEntry = entries[key];
-                    
-                    // Update local state optimistically
-                    setEntries(prev => ({
-                      ...prev,
-                      [key]: {
-                        ...prev[key],
-                        markedForReview: marked,
-                      }
-                    }));
-
-                    if (existingEntry?.id) {
-                      // Update on server
-                      try {
-                        await inspectionsService.updateInspectionEntry(existingEntry.id, { markedForReview: marked });
-                        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-                      } catch (error: any) {
-                        Alert.alert('Error', 'Failed to update mark for review');
-                        // Revert optimistic update
-                        setEntries(prev => ({
-                          ...prev,
-                          [key]: {
-                            ...prev[key],
-                            markedForReview: !marked,
-                          }
-                        }));
-                      }
-                    }
-                  }}
-                  onLogMaintenance={(fieldLabel, photos) => {
-                    // Navigate to maintenance creation with context
-                    navigation.navigate('CreateMaintenance', {
-                      inspectionId,
-                      fieldLabel,
-                      photos,
-                    } as any);
-                  }}
-                />
-                );
-              } catch (error) {
-                console.error('Error rendering field:', field, error);
-                return (
-                  <Card key={`error-${field.id || field.key || Math.random()}`}>
-                    <Text style={styles.errorText}>Error rendering field: {field.label || field.id || field.key}</Text>
-                  </Card>
-                );
-              }
-            })}
-          </>
+          </Card>
         )}
-        {!currentSection && (
-          <View style={styles.centerContent}>
-            <Text style={styles.errorText}>No section selected</Text>
+
+        {/* Content */}
+        <ScrollView 
+          style={styles.content} 
+          contentContainerStyle={[
+            styles.contentContainer,
+            { 
+              paddingTop: Math.max(insets.top + spacing[4], spacing[8]),
+              paddingBottom: Math.max(insets.bottom + 80, spacing[8]) 
+            }
+          ]}
+        >
+          {/* Quick Actions Row */}
+          <View style={styles.quickActionsRow}>
+            {/* Online/Offline Badge */}
+            <View style={styles.statusBadge}>
+              <Badge variant={isOnline ? 'default' : 'secondary'} size="sm">
+                {isOnline ? <Wifi size={12} color={isOnline ? colors.primary.foreground : colors.text.secondary} /> : <WifiOff size={12} color={colors.text.secondary} />}
+                <Text style={styles.badgeText}>{isOnline ? 'Online' : 'Offline'}</Text>
+              </Badge>
+            </View>
+
+            {/* Pending Sync Badge */}
+            {pendingCount > 0 && (
+              <View style={styles.statusBadge}>
+                <Badge variant="outline" size="sm">
+                  <Cloud size={12} color={colors.text.secondary} />
+                  <Text style={styles.badgeText}>{pendingCount} pending</Text>
+                </Badge>
+              </View>
+            )}
+
+            {/* Manual Sync Button */}
+            {isOnline && pendingCount > 0 && (
+              <Button
+                title={isSyncing ? 'Syncing...' : 'Sync'}
+                onPress={handleSync}
+                disabled={!!isSyncing}
+                variant="outline"
+                size="sm"
+                style={styles.actionButton}
+              />
+            )}
+
+            {/* Progress Badge */}
+            <View style={styles.statusBadge}>
+              <Badge variant="secondary" size="sm">
+                <Text style={styles.badgeText}>{completedFields}/{totalFields}</Text>
+              </Badge>
+            </View>
           </View>
-        )}
-      </ScrollView>
 
-      {/* Footer Navigation */}
-      <View style={styles.footer}>
-        <View style={styles.footerActions}>
-          <Button
-            title="Previous"
-            onPress={() => {
-              const newIndex = Math.max(0, currentSectionIndex - 1);
-              setCurrentSectionIndex(newIndex);
-            }}
-            disabled={!!(currentSectionIndex === 0 || sections.length === 0)}
-            variant="outline"
-            icon={<ChevronLeft size={16} color={colors.text.primary} />}
-          />
-          
-          <Button
-            title="Next"
-            onPress={() => {
-              const newIndex = Math.min(sections.length - 1, currentSectionIndex + 1);
-              setCurrentSectionIndex(newIndex);
-            }}
-            disabled={!!(currentSectionIndex >= sections.length - 1 || sections.length === 0)}
-            variant="outline"
-            icon={<ChevronRight size={16} color={colors.text.primary} />}
-          />
+          {/* Main Action Buttons */}
+          <View style={styles.mainActionsRow}>
+            {/* AI Analysis Button */}
+            {aiAnalysisStatus?.status === 'processing' ? (
+              <View style={styles.actionButtonContainer}>
+                <Badge variant="outline" size="sm" style={styles.aiProgressBadge}>
+                  <ActivityIndicator size="small" color={colors.primary.DEFAULT} />
+                  <Text style={styles.badgeText}>
+                    Analysing ({aiAnalysisStatus.progress}/{aiAnalysisStatus.totalFields})
+                  </Text>
+                </Badge>
+              </View>
+            ) : aiAnalysisStatus?.status === 'completed' ? (
+              <View style={styles.actionButtonContainer}>
+                <Badge variant="default" size="sm" style={styles.aiCompleteBadge}>
+                  <CheckCircle2 size={14} color="#fff" />
+                  <Text style={[styles.badgeText, { color: '#fff' }]}>AI Complete</Text>
+                </Badge>
+              </View>
+            ) : (
+              <View style={styles.actionButtonContainer}>
+                <Button
+                  title="AI Analyse"
+                  onPress={() => startAIAnalysis.mutate()}
+                  disabled={!!(startAIAnalysis.isPending || !isOnline)}
+                  variant="default"
+                  size="sm"
+                  icon={<Sparkles size={14} color={colors.primary.foreground} />}
+                  style={styles.actionButton}
+                  textStyle={styles.actionButtonText}
+                />
+              </View>
+            )}
+
+            {/* Complete Inspection Button */}
+            <View style={styles.actionButtonContainer}>
+                <Button
+                  title="Complete"
+                  onPress={handleComplete}
+                  disabled={!!updateStatusMutation.isPending}
+                  variant="default"
+                  size="sm"
+                  icon={<CheckCircle2 size={14} color={colors.primary.foreground} />}
+                  loading={updateStatusMutation.isPending}
+                  style={styles.actionButton}
+                  textStyle={styles.actionButtonText}
+                />
+            </View>
+          </View>
+
+          {/* Progress Bar */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressLabel}>Progress</Text>
+              <Text style={styles.progressPercent}>{Math.round(progress)}%</Text>
+            </View>
+            <Progress value={progress} height={10} style={styles.progressBar} />
+          </View>
+
+          {/* Section Tabs */}
+          <View style={styles.tabsContainerWrapper}>
+            <View style={styles.tabsContainerInner}>
+              <ScrollView
+                ref={tabsScrollViewRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tabsContainer}
+                contentContainerStyle={styles.tabsContent}
+                onScroll={handleTabsScroll}
+                scrollEventThrottle={16}
+                onContentSizeChange={() => {
+                  // Check initial scroll position
+                  tabsScrollViewRef.current?.scrollTo({ x: 0, animated: false });
+                }}
+              >
+                {sections.map((section, index) => (
+                  <TouchableOpacity
+                    key={section.id}
+                    onPress={() => {
+                      setCurrentSectionIndex(index);
+                      // Scroll the tab into view
+                      const tabWidth = 120; // Approximate tab width
+                      const scrollPosition = index * (tabWidth + spacing[2]);
+                      tabsScrollViewRef.current?.scrollTo({ x: scrollPosition, animated: true });
+                    }}
+                    style={[
+                      styles.tabButton,
+                      index === currentSectionIndex && styles.tabButtonActive
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.tabButtonText,
+                        index === currentSectionIndex && styles.tabButtonTextActive
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {section.title}
+                    </Text>
+                    {index === currentSectionIndex && <View style={styles.tabIndicator} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              {/* Right Fade Indicator */}
+              {showRightFade && <View style={styles.tabsFadeRight} pointerEvents="none" />}
+            </View>
+          </View>
+
+          {currentSection && currentSection.fields && (
+            <>
+              {currentSection.description && (
+                <Card style={styles.sectionDescriptionCard}>
+                  <Text style={styles.sectionDescription}>{currentSection.description}</Text>
+                </Card>
+              )}
+
+              {currentSection.fields.map((field, fieldIndex) => {
+                if (!field || !field.id && !field.key) {
+                  console.warn('Invalid field found:', field);
+                  return null;
+                }
+
+                try {
+                  const key = `${currentSection.id}-${field.id || field.key}`;
+                  const entry = entries[key];
+
+                  return (
+                    <View key={field.id || field.key || `field-${Math.random()}`} style={styles.fieldContainer}>
+                      <FieldWidget
+                        field={field}
+                        value={entry?.valueJson}
+                        note={entry?.note}
+                        photos={entry?.photos}
+                        inspectionId={inspectionId}
+                        entryId={entry?.id}
+                        sectionName={currentSection.title}
+                        isCheckOut={inspection?.type === 'check_out'}
+                        markedForReview={entry?.markedForReview || false}
+                        autoContext={{
+                          inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
+                          address: property
+                            ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                            : block
+                              ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                              : '',
+                          tenantNames: Array.isArray(tenants)
+                            ? tenants
+                              .filter((t: any) => t.status === 'active')
+                              .map((t: any) => t.tenantName || t.name || `${t?.firstName || ''} ${t?.lastName || ''}`)
+                              .filter(Boolean)
+                              .join(', ')
+                            : '',
+                          inspectionDate: new Date(inspection?.scheduledDate || (inspection as any).startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                        }}
+                        onChange={(value, note, photos) =>
+                          handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
+                        }
+                        onMarkedForReviewChange={async (marked) => {
+                          const key = `${currentSection.id}-${field.id || field.key || ''}`;
+                          const existingEntry = entries[key];
+
+                          // Update local state optimistically
+                          setEntries(prev => ({
+                            ...prev,
+                            [key]: {
+                              ...prev[key],
+                              markedForReview: marked,
+                            }
+                          }));
+
+                          if (existingEntry?.id) {
+                            // Update on server
+                            try {
+                              await inspectionsService.updateInspectionEntry(existingEntry.id, { markedForReview: marked });
+                              queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+                            } catch (error: any) {
+                              Alert.alert('Error', 'Failed to update mark for review');
+                              // Revert optimistic update
+                              setEntries(prev => ({
+                                ...prev,
+                                [key]: {
+                                  ...prev[key],
+                                  markedForReview: !marked,
+                                }
+                              }));
+                            }
+                          }
+                        }}
+                        onLogMaintenance={(fieldLabel, photos) => {
+                          // Navigate to maintenance creation with context
+                          (navigation as any).navigate('CreateMaintenance', {
+                            inspectionId,
+                            fieldLabel,
+                            photos,
+                          } as any);
+                        }}
+                      />
+                    </View>
+                  );
+                } catch (error) {
+                  console.error('Error rendering field:', field, error);
+                  return (
+                    <Card key={`error-${field.id || field.key || Math.random()}`} style={styles.fieldContainer}>
+                      <Text style={styles.errorText}>Error rendering field: {field.label || field.id || field.key}</Text>
+                    </Card>
+                  );
+                }
+              })}
+            </>
+          )}
+          {!currentSection && (
+            <View style={styles.centerContent}>
+              <Text style={styles.errorText}>No section selected</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Footer Navigation */}
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing[3]) }]}>
+          <View style={styles.footerActions}>
+            <Button
+              title="Previous"
+              onPress={() => {
+                const newIndex = Math.max(0, currentSectionIndex - 1);
+                setCurrentSectionIndex(newIndex);
+              }}
+              disabled={!!(currentSectionIndex === 0 || sections.length === 0)}
+              variant="outline"
+              size="md"
+              icon={<ChevronLeft size={18} color={colors.text.primary} />}
+              style={styles.footerButton}
+            />
+
+            <Button
+              title="Next"
+              onPress={() => {
+                const newIndex = Math.min(sections.length - 1, currentSectionIndex + 1);
+                setCurrentSectionIndex(newIndex);
+              }}
+              disabled={!!(currentSectionIndex >= sections.length - 1 || sections.length === 0)}
+              variant="outline"
+              size="md"
+              icon={<ChevronRight size={18} color={colors.text.primary} />}
+              style={styles.footerButton}
+            />
+          </View>
         </View>
-      </View>
 
-      {/* Quick Actions FAB */}
-      <InspectionQuickActions
-        inspectionId={inspectionId}
-        propertyId={inspection?.propertyId}
-        blockId={inspection?.blockId}
-        onAddAsset={() => {
-          // Navigate to add asset screen
-          navigation.navigate('AssetDetail', { 
-            inspectionId,
-            propertyId: inspection?.propertyId,
-            blockId: inspection?.blockId,
-            mode: 'create',
-          } as any);
-        }}
-        onUpdateAsset={() => {
-          // Navigate to asset list to select asset to update
-          navigation.navigate('AssetInventory', {
-            inspectionId,
-            propertyId: inspection?.propertyId,
-            blockId: inspection?.blockId,
-            mode: 'select',
-          } as any);
-        }}
-        onLogMaintenance={() => {
-          navigation.navigate('CreateMaintenance', {
-            inspectionId,
-            propertyId: inspection?.propertyId,
-            blockId: inspection?.blockId,
-          } as any);
-        }}
-      />
-    </View>
+        {/* Quick Actions FAB */}
+        <InspectionQuickActions
+          inspectionId={inspectionId}
+          propertyId={inspection?.propertyId}
+          blockId={inspection?.blockId}
+          onAddAsset={() => {
+            // Navigate to add asset screen
+            (navigation as any).navigate('AssetDetail', {
+              inspectionId,
+              propertyId: inspection?.propertyId,
+              blockId: inspection?.blockId,
+              mode: 'create',
+            } as any);
+          }}
+          onUpdateAsset={() => {
+            // Navigate to asset list to select asset to update
+            (navigation as any).navigate('AssetInventory', {
+              inspectionId,
+              propertyId: inspection?.propertyId,
+              blockId: inspection?.blockId,
+              mode: 'select',
+            } as any);
+          }}
+          onLogMaintenance={() => {
+            (navigation as any).navigate('CreateMaintenance', {
+              inspectionId,
+              propertyId: inspection?.propertyId,
+              blockId: inspection?.blockId,
+            } as any);
+          }}
+        />
+      </View>
     </ErrorBoundary>
   );
 }
@@ -1018,116 +1148,218 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.card.DEFAULT,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border.DEFAULT,
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
-    paddingBottom: spacing[3],
+    borderBottomColor: colors.border.light,
+    paddingBottom: spacing[4],
+    ...shadows.sm,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing[4],
-    marginBottom: spacing[3],
   },
   headerInfo: {
     flex: 1,
     marginLeft: spacing[3],
   },
   headerTitle: {
-    fontSize: typography.fontSize.xl,
-    fontWeight: typography.fontWeight.semibold,
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
     color: colors.text.primary,
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
     fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
     marginTop: spacing[1],
+    lineHeight: typography.lineHeight.relaxed * typography.fontSize.sm,
   },
-  headerActions: {
-    marginBottom: spacing[2],
+  backButton: {
+    padding: spacing[2],
+    marginLeft: -spacing[2],
+    borderRadius: borderRadius.md,
   },
-  headerActionsContent: {
-    paddingHorizontal: spacing[4],
-    gap: spacing[2],
+  quickActionsRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: spacing[4],
+    marginBottom: spacing[3],
+    marginTop: spacing[4],
+    gap: spacing[2],
+    flexWrap: 'wrap',
+  },
+  statusBadge: {
+    marginRight: spacing[1],
+  },
+  mainActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing[4],
+    marginBottom: spacing[4],
+    gap: spacing[2],
+  },
+  actionButtonContainer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  actionButton: {
+    width: '100%',
+    paddingVertical: spacing[2],
+    minHeight: 36,
+  },
+  actionButtonText: {
+    fontSize: typography.fontSize.xs,
   },
   badgeText: {
     fontSize: typography.fontSize.xs,
     marginLeft: spacing[1],
+    fontWeight: typography.fontWeight.medium,
   },
-  syncButton: {
-    marginLeft: spacing[1],
-  },
-  aiButton: {
-    marginLeft: spacing[1],
+  aiProgressBadge: {
+    backgroundColor: colors.primary.light,
+    borderColor: colors.primary.DEFAULT,
   },
   aiCompleteBadge: {
-    backgroundColor: colors.success,
-  },
-  pdfButton: {
-    marginLeft: spacing[1],
-  },
-  completeButton: {
-    marginLeft: spacing[1],
+    backgroundColor: colors.success || '#10B981',
   },
   progressContainer: {
     paddingHorizontal: spacing[4],
-    marginBottom: spacing[2],
+    marginBottom: spacing[4],
+    paddingVertical: spacing[3],
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.lg,
+    marginHorizontal: spacing[4],
   },
   progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing[1],
+    marginBottom: spacing[3],
   },
   progressLabel: {
     fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  progressPercent: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary.DEFAULT,
+  },
+  progressBar: {
+    borderRadius: borderRadius.full,
+  },
+  tabsContainerWrapper: {
+    marginBottom: spacing[5],
+    marginTop: spacing[3],
+    position: 'relative',
+  },
+  tabsContainerInner: {
+    position: 'relative',
+  },
+  tabsContainer: {
+    maxHeight: 60,
+  },
+  tabsContent: {
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
+    gap: spacing[2],
+    alignItems: 'center',
+  },
+  tabButton: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border.DEFAULT,
+    marginRight: spacing[2],
+    minHeight: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: colors.primary.DEFAULT,
+    borderColor: colors.primary.DEFAULT,
+    ...shadows.xs,
+  },
+  tabButtonText: {
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium,
     color: colors.text.secondary,
   },
-  progressPercent: {
-    fontSize: typography.fontSize.sm,
+  tabButtonTextActive: {
+    color: colors.primary.foreground || '#ffffff',
     fontWeight: typography.fontWeight.semibold,
-    color: colors.text.primary,
   },
-  tabsContainer: {
-    maxHeight: 50,
+  tabIndicator: {
+    display: 'none',
   },
-  tabsContent: {
-    paddingHorizontal: spacing[4],
-    gap: spacing[2],
-  },
-  tabButton: {
-    marginRight: spacing[2],
+  tabsFadeRight: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 30,
+    backgroundColor: colors.card.DEFAULT,
+    opacity: 0.8,
+    pointerEvents: 'none',
+    zIndex: 1,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
+    paddingTop: spacing[2],
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[4],
+  },
+  sectionDescriptionCard: {
+    marginBottom: spacing[5],
+    marginTop: spacing[3],
+    backgroundColor: colors.primary.light || '#E0F7FA',
+    borderWidth: 1.5,
+    borderColor: colors.primary.DEFAULT + '40',
+    borderRadius: borderRadius.xl,
     padding: spacing[4],
+    ...shadows.sm,
   },
   sectionDescription: {
     fontSize: typography.fontSize.sm,
-    color: colors.text.secondary,
-    marginBottom: spacing[4],
+    color: colors.text.primary,
     lineHeight: typography.lineHeight.relaxed * typography.fontSize.sm,
+  },
+  fieldContainer: {
+    marginBottom: spacing[5],
   },
   footer: {
     backgroundColor: colors.card.DEFAULT,
     borderTopWidth: 1,
-    borderTopColor: colors.border.DEFAULT,
-    padding: spacing[4],
+    borderTopColor: colors.border.light,
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[4],
+    paddingBottom: spacing[2],
+    ...shadows.lg,
   },
   footerActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing[2],
+    gap: spacing[3],
+    marginBottom: spacing[2],
+  },
+  footerButton: {
+    flex: 1,
   },
   aiProgressCard: {
+    padding: spacing[4],
     marginBottom: spacing[4],
-    backgroundColor: colors.primary.light,
+    backgroundColor: colors.primary.light || `${colors.primary.DEFAULT}0D`,
     borderWidth: 1,
-    borderColor: colors.primary.DEFAULT,
+    borderColor: colors.primary.DEFAULT + '33',
+    borderRadius: borderRadius.lg,
   },
   aiProgressHeader: {
     flexDirection: 'row',
@@ -1250,5 +1482,20 @@ const styles = StyleSheet.create({
   copySuccessText: {
     fontSize: 12,
     color: '#34C759',
+  },
+  aiProgressHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  aiProgressDescription: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.muted || colors.text.secondary,
+    marginTop: spacing[2],
+  },
+  aiErrorMessage: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    marginTop: spacing[1],
   },
 });

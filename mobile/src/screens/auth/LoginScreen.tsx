@@ -33,7 +33,8 @@ export default function LoginScreen() {
     try {
       await login(email.trim().toLowerCase(), password);
     } catch (err: any) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      // Display generic error message for any login failure (wrong credentials or wrong role)
+      setError('Invalid credentials. Please try again.');
     }
   };
 

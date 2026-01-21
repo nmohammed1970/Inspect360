@@ -4,7 +4,7 @@ import { colors, spacing, typography, borderRadius } from '../../theme';
 
 interface BadgeProps {
   children: React.ReactNode;
-  variant?: 'default' | 'secondary' | 'outline' | 'destructive' | 'success';
+  variant?: 'default' | 'secondary' | 'outline' | 'destructive' | 'success' | 'warning' | 'primary';
   size?: 'sm' | 'md' | 'lg';
   style?: ViewStyle;
   textStyle?: TextStyle;
@@ -19,21 +19,30 @@ export default function Badge({
 }: BadgeProps) {
   const badgeStyle = [
     styles.badge,
-    styles[variant],
+    styles[variant === 'default' || variant === 'primary' ? 'variantDefault' : variant] || styles.variantDefault,
     styles[`size_${size}`],
     style,
   ];
 
   const badgeTextStyle = [
     styles.text,
-    styles[`${variant}Text`],
+    styles[`${variant}Text`] || styles.defaultText,
     styles[`text_${size}`],
     textStyle,
   ];
 
+  const renderChildren = () => {
+    return React.Children.map(children, child => {
+      if (typeof child === 'string' || typeof child === 'number') {
+        return <Text style={badgeTextStyle}>{child}</Text>;
+      }
+      return child;
+    });
+  };
+
   return (
     <View style={badgeStyle}>
-      <Text style={badgeTextStyle}>{children}</Text>
+      {renderChildren()}
     </View>
   );
 }
@@ -47,7 +56,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[2],
     paddingVertical: spacing[1],
   },
-  default: {
+  variantDefault: {
     backgroundColor: colors.primary.DEFAULT,
   },
   secondary: {
@@ -64,6 +73,13 @@ const styles = StyleSheet.create({
   success: {
     backgroundColor: colors.success,
   },
+  warning: {
+    backgroundColor: colors.warning,
+    opacity: 0.9, // Slightly lighter appearance
+  },
+  primary: {
+    backgroundColor: colors.primary.DEFAULT,
+  },
   size_sm: {
     paddingHorizontal: spacing[1],
     paddingVertical: 2,
@@ -77,10 +93,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[2],
   },
   text: {
-    fontWeight: typography.fontWeight.medium,
+    fontWeight: typography.fontWeight.semibold, // Bolder for better visibility
+    fontFamily: typography.fontFamily.sans,
+    letterSpacing: 0.2,
   },
   defaultText: {
-    color: colors.primary.foreground,
+    color: colors.primary.foreground || '#ffffff',
+  },
+  primaryText: {
+    color: colors.primary.foreground || '#ffffff',
   },
   secondaryText: {
     color: colors.secondary.foreground,
@@ -94,6 +115,9 @@ const styles = StyleSheet.create({
   successText: {
     color: '#ffffff',
   },
+  warningText: {
+    color: '#ffffff',
+  },
   text_sm: {
     fontSize: typography.fontSize.xs,
   },
@@ -104,4 +128,3 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
   },
 });
-

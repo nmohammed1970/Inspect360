@@ -6,14 +6,15 @@ import colors from './colors';
 import spacing from './spacing';
 import typography from './typography';
 
-// Border radius matching web app (lg: 9px, md: 6px, sm: 3px)
+// Border radius - enhanced for modern, rounded UI
 export const borderRadius = {
   none: 0,
-  sm: 3,   // 0.1875rem
-  md: 6,   // 0.375rem
-  lg: 9,   // 0.5625rem
-  xl: 12,  // 0.75rem
-  '2xl': 16, // 1rem
+  sm: 4,   // Slightly larger for modern look
+  md: 8,   // More rounded
+  lg: 12,  // More rounded
+  xl: 16,  // More rounded
+  '2xl': 20, // More rounded
+  '3xl': 24, // Extra rounded
   full: 9999,
 };
 
@@ -36,22 +37,22 @@ export const shadows = {
   sm: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowOpacity: 0.08, // Slightly lighter
+    shadowRadius: 4, // Softer
     elevation: 2,
   },
   md: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    shadowOpacity: 0.12, // Softer
+    shadowRadius: 8, // Softer, more modern
     elevation: 4,
   },
   lg: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowRadius: 16, // Softer, more modern
     elevation: 8,
   },
   // Hover elevation (slightly raised)

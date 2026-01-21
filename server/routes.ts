@@ -11454,6 +11454,61 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   });
 
+  // IMPORTANT: Route order matters in Express!
+  // More specific routes MUST come before less specific ones
+  // 1. /api/maintenance/:requestId/tags (most specific - has /tags suffix)
+  // 2. /api/maintenance/:id (less specific - just ID)
+  // 3. /api/maintenance (least specific - no ID)
+  
+  // Get single maintenance request by ID - comes AFTER /tags route but BEFORE /maintenance route
+  console.log('[Routes] About to register GET /api/maintenance/:id route');
+  app.get("/api/maintenance/:id", isAuthenticated, async (req: any, res) => {
+    console.log(`[GET /api/maintenance/:id] Route handler called! URL: ${req.originalUrl}, ID param: ${req.params.id}`);
+    
+    // IMPORTANT: Check if this is actually a /tags route - Express will match /api/maintenance/:id
+    // for /api/maintenance/123/tags because :id can be "123/tags"
+    // So we need to explicitly check and reject if it contains /tags
+    if (req.originalUrl.includes('/tags')) {
+      // This should be handled by /api/maintenance/:requestId/tags route
+      console.log(`[GET /api/maintenance/:id] Rejecting because URL contains /tags`);
+      return res.status(404).json({ message: "Not found" });
+    }
+    
+    try {
+      const { id } = req.params;
+      console.log(`[GET /api/maintenance/:id] Route matched - Fetching maintenance request: ${id}`);
+      
+      const user = await storage.getUser(req.user.id);
+
+      if (!user?.organizationId) {
+        console.log(`[GET /api/maintenance/:id] No organization ID for user`);
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      // Fetch all requests for the organization and find the one with matching ID
+      const requests = await storage.getMaintenanceByOrganization(user.organizationId);
+      const request = requests.find(r => r.id === id);
+
+      if (!request) {
+        console.log(`[GET /api/maintenance/:id] Request not found: ${id}`);
+        return res.status(404).json({ message: "Maintenance request not found" });
+      }
+
+      // Verify organization ownership
+      if (request.organizationId !== user.organizationId) {
+        console.log(`[GET /api/maintenance/:id] Organization mismatch`);
+        return res.status(403).json({ message: "Unauthorized to access this request" });
+      }
+
+      console.log(`[GET /api/maintenance/:id] Successfully fetched request: ${id}`);
+      res.json(request);
+    } catch (error: any) {
+      console.error("[GET /api/maintenance/:id] Error fetching maintenance request:", error);
+      res.status(500).json({ message: "Failed to fetch maintenance request", error: error.message });
+    }
+  });
+
+  // Get all maintenance requests - MUST come AFTER /api/maintenance/:id route
   app.get("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -15764,6 +15819,35 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         type: error?.type,
       });
       res.status(500).json({ message: "Failed to create AI analysis" });
+    }
+  });
+
+  // ==================== DEFAULT LOGO ROUTE ====================
+  // Serve the default Inspect360 logo for mobile app (matching web app's @assets import)
+  app.get("/default-logo.png", async (req, res) => {
+    try {
+      const path = require("path");
+      const fs = require("fs");
+      const logoPath = path.resolve(import.meta.dirname, "..", "attached_assets", "Inspect360 Logo_1761302629835.png");
+      
+      if (fs.existsSync(logoPath)) {
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.sendFile(logoPath);
+      } else {
+        // Fallback to logo.png in client/public if attached_assets logo doesn't exist
+        const fallbackPath = path.resolve(import.meta.dirname, "..", "client", "public", "logo.png");
+        if (fs.existsSync(fallbackPath)) {
+          res.setHeader("Content-Type", "image/png");
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          res.sendFile(fallbackPath);
+        } else {
+          res.sendStatus(404);
+        }
+      }
+    } catch (error) {
+      console.error("Error serving default logo:", error);
+      res.sendStatus(500);
     }
   });
 

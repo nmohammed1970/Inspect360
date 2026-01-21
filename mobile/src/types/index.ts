@@ -12,6 +12,8 @@ export interface User {
   role: UserRole;
   organizationId: string;
   profileImageUrl?: string;
+  fullName?: string;
+  username?: string;
   skills?: string[];
   qualifications?: string[];
   isActive: boolean;
@@ -26,6 +28,13 @@ export interface Inspection {
   scheduledDate?: string;
   status: 'scheduled' | 'in_progress' | 'completed' | 'reviewed';
   type: string;
+  property?: Property;
+  block?: Block;
+  clerk?: User;
+  tenantApprovalStatus?: string;
+  tenantApprovedAt?: string;
+  tenantApprovalDeadline?: string;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,6 +49,9 @@ export interface MaintenanceRequest {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   reportedById?: string;
   assignedToId?: string;
+  dueDate?: string;
+  photoUrls?: string[];
+  aiSuggestedFixes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,6 +61,9 @@ export interface Property {
   blockId?: string;
   name: string;
   address: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   unitRef?: string;
   bedrooms?: number;
   bathrooms?: number;
@@ -61,6 +76,9 @@ export interface Block {
   id: string;
   name: string;
   address: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
   organizationId: string;
 }
 

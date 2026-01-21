@@ -1,6 +1,6 @@
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -151,49 +151,123 @@ export default function InspectionReport() {
     setExpandedPhotos(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const getConditionColor = (condition: string | null | undefined) => {
-    if (!condition) return 'bg-gray-400';
-    const lower = condition.toLowerCase();
-    if (lower === 'new' || lower === 'excellent') return 'bg-green-500';
-    if (lower === 'good') return 'bg-green-500';
-    if (lower === 'fair') return 'bg-yellow-500';
-    if (lower === 'poor') return 'bg-orange-500';
-    if (lower === 'very poor') return 'bg-red-500';
-    if (lower === 'missing') return 'bg-red-600';
+  const getConditionColor = (condition: string | number | null | undefined) => {
+    if (condition === null || condition === undefined) return 'bg-gray-400';
+    
+    // Convert number to string if needed
+    const conditionStr = typeof condition === 'number' ? String(condition) : String(condition);
+    const lower = conditionStr.toLowerCase();
+    
+    // Handle numeric ratings (1-5)
+    if (typeof condition === 'number') {
+      if (condition >= 4) return 'bg-green-500';
+      if (condition === 3) return 'bg-yellow-500';
+      if (condition === 2) return 'bg-orange-500';
+      if (condition <= 1) return 'bg-red-500';
+    }
+    
+    // Handle string values
+    if (lower === 'new' || lower === 'excellent' || lower === '5') return 'bg-green-500';
+    if (lower === 'good' || lower === '4') return 'bg-green-500';
+    if (lower === 'fair' || lower === '3') return 'bg-yellow-500';
+    if (lower === 'poor' || lower === '2') return 'bg-orange-500';
+    if (lower === 'very poor' || lower === '1') return 'bg-red-500';
+    if (lower === 'missing' || lower === '0') return 'bg-red-600';
     return 'bg-gray-400';
   };
 
-  const getCleanlinessColor = (cleanliness: string | null | undefined) => {
-    if (!cleanliness) return 'bg-gray-400';
-    const lower = cleanliness.toLowerCase();
-    if (lower === 'excellent') return 'bg-green-500';
-    if (lower === 'good') return 'bg-green-500';
-    if (lower === 'fair') return 'bg-yellow-500';
-    if (lower === 'poor') return 'bg-orange-500';
-    if (lower === 'very poor') return 'bg-red-500';
+  const getCleanlinessColor = (cleanliness: string | number | null | undefined) => {
+    if (cleanliness === null || cleanliness === undefined) return 'bg-gray-400';
+    
+    // Convert number to string if needed
+    const cleanlinessStr = typeof cleanliness === 'number' ? String(cleanliness) : String(cleanliness);
+    const lower = cleanlinessStr.toLowerCase();
+    
+    // Handle numeric ratings (1-5)
+    if (typeof cleanliness === 'number') {
+      if (cleanliness >= 4) return 'bg-green-500';
+      if (cleanliness === 3) return 'bg-yellow-500';
+      if (cleanliness === 2) return 'bg-orange-500';
+      if (cleanliness <= 1) return 'bg-red-500';
+    }
+    
+    // Handle string values
+    if (lower === 'excellent' || lower === '5') return 'bg-green-500';
+    if (lower === 'good' || lower === '4') return 'bg-green-500';
+    if (lower === 'fair' || lower === '3') return 'bg-yellow-500';
+    if (lower === 'poor' || lower === '2') return 'bg-orange-500';
+    if (lower === 'very poor' || lower === '1') return 'bg-red-500';
     return 'bg-gray-400';
   };
 
-  const getConditionScore = (condition: string | null | undefined): number | null => {
-    if (!condition) return null;
-    const lower = condition.toLowerCase();
-    if (lower === 'new' || lower === 'excellent') return 5;
-    if (lower === 'good') return 4;
-    if (lower === 'fair') return 3;
-    if (lower === 'poor') return 2;
-    if (lower === 'very poor') return 1;
+  const getConditionScore = (condition: string | number | null | undefined): number | null => {
+    if (condition === null || condition === undefined) return null;
+    
+    // If it's already a number, return it (assuming it's 1-5)
+    if (typeof condition === 'number') {
+      return condition >= 1 && condition <= 5 ? condition : null;
+    }
+    
+    // Convert to string and check
+    const conditionStr = String(condition);
+    const lower = conditionStr.toLowerCase();
+    if (lower === 'new' || lower === 'excellent' || lower === '5') return 5;
+    if (lower === 'good' || lower === '4') return 4;
+    if (lower === 'fair' || lower === '3') return 3;
+    if (lower === 'poor' || lower === '2') return 2;
+    if (lower === 'very poor' || lower === '1') return 1;
     return null;
   };
 
-  const getCleanlinessScore = (cleanliness: string | null | undefined): number | null => {
-    if (!cleanliness) return null;
-    const lower = cleanliness.toLowerCase();
-    if (lower === 'excellent') return 5;
-    if (lower === 'good') return 4;
-    if (lower === 'fair') return 3;
-    if (lower === 'poor') return 2;
-    if (lower === 'very poor') return 1;
+  const getCleanlinessScore = (cleanliness: string | number | null | undefined): number | null => {
+    if (cleanliness === null || cleanliness === undefined) return null;
+    
+    // If it's already a number, return it (assuming it's 1-5)
+    if (typeof cleanliness === 'number') {
+      return cleanliness >= 1 && cleanliness <= 5 ? cleanliness : null;
+    }
+    
+    // Convert to string and check
+    const cleanlinessStr = String(cleanliness);
+    const lower = cleanlinessStr.toLowerCase();
+    if (lower === 'excellent' || lower === '5') return 5;
+    if (lower === 'good' || lower === '4') return 4;
+    if (lower === 'fair' || lower === '3') return 3;
+    if (lower === 'poor' || lower === '2') return 2;
+    if (lower === 'very poor' || lower === '1') return 1;
     return null;
+  };
+
+  // Convert numeric condition to readable string
+  const formatCondition = (condition: string | number | null | undefined): string => {
+    if (condition === null || condition === undefined) return '';
+    if (typeof condition === 'number') {
+      const mapping: Record<number, string> = {
+        5: 'Excellent',
+        4: 'Good',
+        3: 'Fair',
+        2: 'Poor',
+        1: 'Very Poor',
+      };
+      return mapping[condition] || String(condition);
+    }
+    return String(condition);
+  };
+
+  // Convert numeric cleanliness to readable string
+  const formatCleanliness = (cleanliness: string | number | null | undefined): string => {
+    if (cleanliness === null || cleanliness === undefined) return '';
+    if (typeof cleanliness === 'number') {
+      const mapping: Record<number, string> = {
+        5: 'Excellent',
+        4: 'Good',
+        3: 'Fair',
+        2: 'Poor',
+        1: 'Very Poor',
+      };
+      return mapping[cleanliness] || String(cleanliness);
+    }
+    return String(cleanliness);
   };
 
   // Fetch inspection data - refetch on mount to ensure fresh data
@@ -464,17 +538,37 @@ export default function InspectionReport() {
   const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
 
-  // Initialize edited notes from entries - update when entries change
-  useEffect(() => {
-    const initialNotes: Record<string, string> = {};
+  // Track the last serialized notes to prevent unnecessary updates
+  const lastNotesSerializedRef = useRef<string>('');
+  
+  // Create a stable serialized version of notes from entries for comparison
+  const entriesNotesSerialized = useMemo(() => {
+    const notes: Record<string, string> = {};
     entries.forEach((entry: any) => {
       const key = `${entry.sectionRef}-${entry.fieldKey}`;
       if (entry.note) {
-        initialNotes[key] = entry.note;
+        notes[key] = entry.note;
       }
     });
-    setEditedNotes(initialNotes);
+    return JSON.stringify(notes);
   }, [entries]);
+
+  // Initialize edited notes from entries - only update when actual note values change
+  useEffect(() => {
+    // Don't update if we're in edit mode - user might be editing
+    if (editMode) {
+      return;
+    }
+
+    // Only update if the notes have actually changed (prevent infinite loops)
+    if (lastNotesSerializedRef.current !== entriesNotesSerialized) {
+      // Parse the serialized notes back to object
+      const initialNotes = JSON.parse(entriesNotesSerialized);
+      
+      setEditedNotes(initialNotes);
+      lastNotesSerializedRef.current = entriesNotesSerialized;
+    }
+  }, [entriesNotesSerialized, editMode]); // Use serialized string instead of entries array to prevent infinite loops
 
   // Save edited notes mutation
   const saveNotesMutation = useMutation({
@@ -1589,10 +1683,10 @@ export default function InspectionReport() {
                               </div>
                               {sectionHasCondition && (
                                 <div className="col-span-2 flex items-center justify-center gap-1">
-                                  {field.includeCondition && condition ? (
+                                  {field.includeCondition && condition !== null && condition !== undefined ? (
                                     <>
                                       <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
-                                      <span className="text-xs">{condition}</span>
+                                      <span className="text-xs">{formatCondition(condition)}</span>
                                       <span className="text-xs text-muted-foreground">({getConditionScore(condition)})</span>
                                     </>
                                   ) : <span className="text-muted-foreground text-xs">-</span>}
@@ -1600,10 +1694,10 @@ export default function InspectionReport() {
                               )}
                               {sectionHasCleanliness && (
                                 <div className="col-span-2 flex items-center justify-center gap-1">
-                                  {field.includeCleanliness && cleanliness ? (
+                                  {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
                                     <>
                                       <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
-                                      <span className="text-xs">{cleanliness}</span>
+                                      <span className="text-xs">{formatCleanliness(cleanliness)}</span>
                                       <span className="text-xs text-muted-foreground">({getCleanlinessScore(cleanliness)})</span>
                                     </>
                                   ) : <span className="text-muted-foreground text-xs">-</span>}

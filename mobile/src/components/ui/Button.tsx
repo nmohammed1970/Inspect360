@@ -5,7 +5,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost';
+  variant?: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' | 'primary';
   size?: 'sm' | 'md' | 'lg' | 'icon';
   disabled?: boolean;
   loading?: boolean;
@@ -28,25 +28,26 @@ export default function Button({
   // Ensure disabled and loading are actual booleans (not strings)
   const safeDisabled = typeof disabled === 'boolean' ? disabled : disabled === true || disabled === 'true';
   const safeLoading = typeof loading === 'boolean' ? loading : loading === true || loading === 'true';
+
   const buttonStyle = [
     styles.button,
-    styles[variant],
+    styles[variant] || styles.default,
     styles[`size_${size}`],
     safeDisabled && styles.disabled,
-    !safeDisabled && variant !== 'ghost' && shadows.sm,
+    !safeDisabled && variant !== 'ghost' && variant !== 'outline' && shadows.sm,
     style,
   ];
 
   const buttonTextStyle = [
     styles.text,
-    styles[`${variant}Text`],
+    styles[`${variant}Text`] || styles.defaultText,
     styles[`text_${size}`],
     textStyle,
   ];
 
   const getIndicatorColor = () => {
-    if (variant === 'default' || variant === 'destructive') {
-      return colors.primary.foreground;
+    if (variant === 'default' || variant === 'destructive' || variant === 'primary') {
+      return colors.primary.foreground || '#ffffff';
     }
     return colors.primary.DEFAULT;
   };
@@ -75,9 +76,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    minHeight: 36,
+    borderRadius: borderRadius.xl, // More rounded for modern look
+    borderWidth: 1.5, // Slightly thicker
+    minHeight: 44, // Better touch targets
   },
   content: {
     flexDirection: 'row',
@@ -92,13 +93,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary.DEFAULT,
     borderColor: colors.primary.border,
   },
+  primary: {
+    backgroundColor: colors.primary.DEFAULT,
+    borderColor: colors.primary.border,
+  },
   secondary: {
     backgroundColor: colors.secondary.DEFAULT,
     borderColor: colors.secondary.border,
+    borderWidth: 1,
   },
   outline: {
     backgroundColor: 'transparent',
-    borderColor: colors.border.DEFAULT,
+    borderColor: colors.border.dark || '#d4d4d4',
+    borderWidth: 1.5,
   },
   destructive: {
     backgroundColor: colors.destructive.DEFAULT,
@@ -134,15 +141,21 @@ const styles = StyleSheet.create({
   },
   text: {
     fontWeight: typography.fontWeight.semibold,
+    fontFamily: typography.fontFamily.sans,
+    letterSpacing: 0.3, // Better letter spacing for modern look
   },
   defaultText: {
-    color: colors.primary.foreground,
+    color: colors.primary.foreground || '#ffffff',
+  },
+  primaryText: {
+    color: colors.primary.foreground || '#ffffff',
   },
   secondaryText: {
     color: colors.secondary.foreground,
   },
   outlineText: {
     color: colors.text.primary,
+    fontWeight: typography.fontWeight.medium,
   },
   destructiveText: {
     color: colors.destructive.foreground,
@@ -163,4 +176,3 @@ const styles = StyleSheet.create({
     fontSize: 0,
   },
 });
-

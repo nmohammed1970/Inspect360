@@ -58,7 +58,7 @@ export const colors = {
   // Status colors
   status: {
     online: '#22c55e', // green-500
-    away: '#f59e0b', // amber-500
+    away: '#fbbf24', // lighter amber-400
     busy: '#ef4444', // red-500
     offline: '#9ca3af', // gray-400
   },
@@ -66,8 +66,8 @@ export const colors = {
   // Success color
   success: '#22c55e',
   
-  // Warning color
-  warning: '#f59e0b',
+  // Warning color - lighter orange/amber for better UI
+  warning: '#fbbf24', // Lighter amber-400 instead of amber-500
   
   // Text colors
   text: {

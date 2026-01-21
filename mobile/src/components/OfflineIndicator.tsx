@@ -24,7 +24,7 @@ export default function OfflineIndicator() {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#FF9500',
+    backgroundColor: '#fbbf24', // Lighter amber-400
     paddingVertical: 8,
     paddingHorizontal: 16,
     alignItems: 'center',

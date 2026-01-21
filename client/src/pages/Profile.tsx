@@ -611,7 +611,16 @@ export default function Profile() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => window.open(doc.fileUrl, "_blank")}
+                      onClick={() => {
+                        // Construct full URL for document
+                        let documentUrl = doc.fileUrl;
+                        if (!documentUrl.startsWith('http://') && !documentUrl.startsWith('https://')) {
+                          // If it's a relative path, make it absolute
+                          const cleanUrl = documentUrl.startsWith('/') ? documentUrl : `/${documentUrl}`;
+                          documentUrl = `${window.location.origin}${cleanUrl}`;
+                        }
+                        window.open(documentUrl, "_blank");
+                      }}
                       data-testid={`button-view-doc-${doc.id}`}
                     >
                       <FileText className="w-4 h-4" />

@@ -1,3 +1,4 @@
+// App entry point
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { QueryClientProvider } from '@tanstack/react-query';

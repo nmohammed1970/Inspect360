@@ -83,6 +83,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (currentUser) {
+      // Verify the user from server is still a clerk
+      if (currentUser.role !== 'clerk') {
+        // Clear invalid session if role changed
+        setUser(null);
+        deleteStorageItem(USER_STORAGE_KEY);
+        queryClient.clear();
+        return;
+      }
+      
       setUser(currentUser);
       setStorageItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
     }
@@ -93,6 +102,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedUser = await getStorageItem(USER_STORAGE_KEY);
       if (storedUser) {
         const parsedUser = JSON.parse(storedUser);
+        
+        // Verify the stored user is still a clerk
+        if (parsedUser.role !== 'clerk') {
+          // Clear invalid session
+          await deleteStorageItem(USER_STORAGE_KEY);
+          setUser(null);
+          return;
+        }
+        
         setUser(parsedUser);
         // Verify session is still valid
         refetch();
@@ -106,7 +124,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: async ({ email, password }: { email: string; password: string }) => {
       const response = await authService.login({ email, password });
       // Backend returns user directly, but authService wraps it in { user }
-      return response.user;
+      const userData = response.user;
+      
+      // Check if user is a clerk (inspector)
+      if (userData.role !== 'clerk') {
+        // Clear any stored data
+        await deleteStorageItem(USER_STORAGE_KEY);
+        queryClient.clear();
+        throw new Error('Invalid credentials');
+      }
+      
+      return userData;
     },
     onSuccess: async (userData) => {
       setUser(userData);
@@ -114,8 +142,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(['/api/auth/user'], userData);
     },
     onError: (error: Error) => {
-      console.error('Login error:', error);
-      throw error;
+      // Don't log or re-throw - just let the error propagate to LoginScreen
+      // LoginScreen will display a generic message
     },
   });
 

@@ -20,11 +20,10 @@ import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import * as FileSystem from 'expo-file-system';
 import SignatureCanvas from 'react-native-signature-canvas';
-import { colors, spacing, typography, borderRadius } from '../../theme';
+import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import Badge from '../ui/Badge';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { apiRequestJson } from '../../services/api';
-import Constants from 'expo-constants';
+import { apiRequestJson, API_URL } from '../../services/api';
 
 interface TemplateField {
   id: string;
@@ -61,24 +60,25 @@ interface FieldWidgetProps {
   onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
 }
 
-export function FieldWidget({
-  field,
-  value,
-  note,
-  photos = [],
-  inspectionId,
-  entryId,
-  sectionName,
-  isCheckOut = false,
-  markedForReview = false,
-  autoContext,
-  onChange,
-  onMarkedForReviewChange,
-  onLogMaintenance,
-}: FieldWidgetProps) {
+function FieldWidgetComponent(props: FieldWidgetProps) {
+  const {
+    field,
+    value,
+    note,
+    photos = [],
+    inspectionId,
+    entryId,
+    sectionName,
+    isCheckOut = false,
+    markedForReview = false,
+    autoContext,
+    onChange,
+    onMarkedForReviewChange,
+    onLogMaintenance,
+  } = props;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
-  
+
   // Normalize field object to ensure all boolean properties are actual booleans
   const safeField = useMemo(() => {
     const normalized: TemplateField = { ...field };
@@ -100,7 +100,7 @@ export function FieldWidget({
     }
     return normalized;
   }, [field]);
-  
+
   // Parse value and ensure boolean fields are actual booleans
   const parseValue = (val: any) => {
     if (val === null || val === undefined) return val;
@@ -131,8 +131,7 @@ export function FieldWidget({
   const [showSignature, setShowSignature] = useState(false);
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const autoSaveTriggeredRef = useRef(false);
-
-  const API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5005';
+  const signatureRef = useRef<any>(null);
 
   // Fetch check-in reference for check-out inspections
   const { data: checkInReference } = useQuery({
@@ -167,7 +166,8 @@ export function FieldWidget({
   // Rehydrate local state when props change (e.g., when existing entries load)
   useEffect(() => {
     if (value && typeof value === 'object' && (!!safeField.includeCondition || !!safeField.includeCleanliness)) {
-      setLocalValue(parseValue(value.value));
+      const parsedValue = parseValue(value.value);
+      setLocalValue(parsedValue);
       setLocalCondition(value.condition);
       setLocalCleanliness(value.cleanliness);
     } else {
@@ -176,11 +176,16 @@ export function FieldWidget({
   }, [value, safeField.includeCondition, safeField.includeCleanliness]);
 
   useEffect(() => {
-    setLocalNote(note || '');
+    if (note !== undefined && localNote !== note) {
+      setLocalNote(note || '');
+    }
   }, [note]);
 
   useEffect(() => {
-    setLocalPhotos(photos);
+    // Only update if the prop has changed and is different from local state
+    if (photos && JSON.stringify(localPhotos) !== JSON.stringify(photos)) {
+      setLocalPhotos(photos);
+    }
   }, [photos]);
 
   useEffect(() => {
@@ -191,10 +196,10 @@ export function FieldWidget({
   useEffect(() => {
     if (!autoContext) return;
     if (autoSaveTriggeredRef.current) return;
-    
+
     const isAutoField = safeField.type.startsWith('auto_');
     if (!isAutoField) return;
-    
+
     let autoValue = '';
     switch (safeField.type) {
       case 'auto_inspector':
@@ -210,7 +215,7 @@ export function FieldWidget({
         autoValue = autoContext.inspectionDate || '';
         break;
     }
-    
+
     if (!value && autoValue) {
       autoSaveTriggeredRef.current = true;
       setLocalValue(autoValue);
@@ -309,27 +314,31 @@ export function FieldWidget({
 
   // Request media library permissions
   const requestMediaLibraryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Media library permission is required to select photos');
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Denied',
+          'Media library permission is required to select photos. Please grant permission in your device settings.'
+        );
+        return false;
+      }
+      return true;
+    } catch (error: any) {
+      console.error('Error requesting media library permission:', error);
+      Alert.alert('Permission Error', error.message || 'Failed to request media library permission');
       return false;
     }
-    return true;
   };
 
   // Upload photo to server
   const uploadPhoto = async (uri: string): Promise<string> => {
     try {
-      // Read file as base64
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Get file extension
-      const extension = uri.split('.').pop() || 'jpg';
+      // Read file extension
+      const extension = uri.split('.').pop()?.toLowerCase() || 'jpg';
       const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
 
-      // Upload to server using the direct upload endpoint
+      // Create FormData for React Native
       const formData = new FormData();
       formData.append('file', {
         uri,
@@ -337,48 +346,176 @@ export function FieldWidget({
         name: `photo.${extension}`,
       } as any);
 
-      const response = await fetch(`${API_URL}/api/objects/upload-direct`, {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      });
+      // Construct full URL (API_URL should already be a full URL)
+      const uploadUrl = API_URL.startsWith('http') 
+        ? `${API_URL}/api/objects/upload-direct`
+        : `/api/objects/upload-direct`; // Fallback - but API_URL should always have http
 
-      if (!response.ok) {
-        throw new Error('Failed to upload photo');
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for file uploads
+
+      try {
+        // For FormData, React Native automatically sets Content-Type with boundary
+        // DO NOT set Content-Type manually - it will break the upload
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            // Only set non-content-type headers
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+          body: formData,
+          credentials: 'include',
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = 'Failed to upload photo';
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          } catch {
+            errorMessage = errorText || `Server error: ${response.status} ${response.statusText}`;
+          }
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        // The endpoint returns { url, uploadURL } - use url or uploadURL
+        return data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        
+        // Handle abort (timeout)
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Upload timeout. Please check your internet connection and try again.');
+        }
+
+        // Handle network errors
+        if (fetchError.message?.includes('Network request failed') || 
+            fetchError.message?.includes('Failed to fetch') ||
+            fetchError.message?.includes('ERR_CONNECTION_REFUSED')) {
+          throw new Error(
+            `Cannot connect to server at ${API_URL}. ` +
+            `Please check your internet connection and ensure the backend server is running.`
+          );
+        }
+
+        throw fetchError;
       }
-
-      const data = await response.json();
-      // The endpoint returns { url, uploadURL } - use url or uploadURL
-      return data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading photo:', error);
-      throw error;
+      // Re-throw with more context if it's not already a proper error
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(error?.message || 'Failed to upload photo');
     }
   };
 
   const handleTakePhoto = async () => {
-    const hasPermission = await requestCameraPermission();
-    if (!hasPermission) return;
-
     try {
+      const hasPermission = await requestCameraPermission();
+      if (!hasPermission) {
+        setShowPhotoPicker(false);
+        return;
+      }
+
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: 'images' as any,
         allowsEditing: true,
         quality: 0.8,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        const uri = result.assets[0].uri;
+      if (result.canceled) {
+        setShowPhotoPicker(false);
+        return;
+      }
+
+      if (!result.assets || result.assets.length === 0) {
+        Alert.alert('No Photo', 'No photo was captured');
+        setShowPhotoPicker(false);
+        return;
+      }
+
+      const uri = result.assets[0].uri;
+      setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
+
+      try {
+        const uploadedUrl = await uploadPhoto(uri);
+        const newPhotos = [...localPhotos, uploadedUrl];
+        setLocalPhotos(newPhotos);
+        const composedValue = composeValue(localValue, localCondition, localCleanliness);
+        onChange(composedValue, localNote, newPhotos);
+      } catch (uploadError: any) {
+        console.error('Error uploading photo:', uploadError);
+        Alert.alert(
+          'Upload Failed',
+          uploadError.message || 'Failed to upload photo. Please check your internet connection and try again.'
+        );
+      } finally {
+        setUploadingPhotos(prev => {
+          const newState = { ...prev };
+          delete newState[uri];
+          return newState;
+        });
+      }
+    } catch (error: any) {
+      console.error('Error taking photo:', error);
+      const errorMessage = error?.message || error?.toString() || 'Unknown error occurred';
+      Alert.alert(
+        'Failed to Take Photo',
+        `An error occurred while taking photo: ${errorMessage}. Please try again.`
+      );
+    } finally {
+      setShowPhotoPicker(false);
+    }
+  };
+
+  const handlePickPhoto = async () => {
+    try {
+      const hasPermission = await requestMediaLibraryPermission();
+      if (!hasPermission) {
+        setShowPhotoPicker(false);
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images' as any,
+        quality: 0.8,
+        allowsMultipleSelection: true,
+        selectionLimit: 0, // 0 means no limit
+      });
+
+      if (result.canceled) {
+        setShowPhotoPicker(false);
+        return;
+      }
+
+      if (!result.assets || result.assets.length === 0) {
+        Alert.alert('No Photos Selected', 'Please select at least one photo');
+        setShowPhotoPicker(false);
+        return;
+      }
+
+      const uris = result.assets.map(asset => asset.uri);
+      const newPhotos: string[] = [];
+      let hasUploadError = false;
+
+      for (const uri of uris) {
         setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
-        
         try {
           const uploadedUrl = await uploadPhoto(uri);
-          const newPhotos = [...localPhotos, uploadedUrl];
-          setLocalPhotos(newPhotos);
-          const composedValue = composeValue(localValue, localCondition, localCleanliness);
-          onChange(composedValue, localNote, newPhotos);
-        } catch (error) {
-          Alert.alert('Error', 'Failed to upload photo');
+          newPhotos.push(uploadedUrl);
+        } catch (uploadError: any) {
+          hasUploadError = true;
+          console.error('Error uploading photo:', uploadError);
+          // Don't show alert for each photo, just log it
+          // The error will be shown at the end if no photos were uploaded
         } finally {
           setUploadingPhotos(prev => {
             const newState = { ...prev };
@@ -387,53 +524,32 @@ export function FieldWidget({
           });
         }
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to take photo');
-    }
-    setShowPhotoPicker(false);
-  };
 
-  const handlePickPhoto = async () => {
-    const hasPermission = await requestMediaLibraryPermission();
-    if (!hasPermission) return;
-
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-        allowsMultipleSelection: true,
-      });
-
-      if (!result.canceled && result.assets) {
-        const uris = result.assets.map(asset => asset.uri);
-        const newPhotos: string[] = [];
-        
-        for (const uri of uris) {
-          setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
-          try {
-            const uploadedUrl = await uploadPhoto(uri);
-            newPhotos.push(uploadedUrl);
-          } catch (error) {
-            Alert.alert('Error', `Failed to upload photo: ${uri}`);
-          } finally {
-            setUploadingPhotos(prev => {
-              const newState = { ...prev };
-              delete newState[uri];
-              return newState;
-            });
-          }
-        }
-
+      if (newPhotos.length > 0) {
         const updatedPhotos = [...localPhotos, ...newPhotos];
         setLocalPhotos(updatedPhotos);
         const composedValue = composeValue(localValue, localCondition, localCleanliness);
         onChange(composedValue, localNote, updatedPhotos);
+        
+        if (hasUploadError && newPhotos.length < uris.length) {
+          Alert.alert(
+            'Partial Success',
+            `Successfully uploaded ${newPhotos.length} of ${uris.length} photos. Some photos failed to upload.`
+          );
+        }
+      } else if (hasUploadError) {
+        Alert.alert('Upload Failed', 'Failed to upload photos. Please check your internet connection and try again.');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick photo');
+    } catch (error: any) {
+      console.error('Error picking photo:', error);
+      const errorMessage = error?.message || error?.toString() || 'Unknown error occurred';
+      Alert.alert(
+        'Failed to Pick Photo',
+        `An error occurred while selecting photos: ${errorMessage}. Please try again.`
+      );
+    } finally {
+      setShowPhotoPicker(false);
     }
-    setShowPhotoPicker(false);
   };
 
   const handleRemovePhoto = (photoUrl: string) => {
@@ -485,7 +601,7 @@ export function FieldWidget({
         return (
           <Input
             label={safeField.label}
-            value={localValue || ''}
+            value={localValue !== null && localValue !== undefined ? String(localValue) : ''}
             onChangeText={handleValueChange}
             placeholder={safeField.placeholder || `Enter ${safeField.label.toLowerCase()}`}
             required={!!safeField.required}
@@ -497,7 +613,7 @@ export function FieldWidget({
         return (
           <Input
             label={safeField.label}
-            value={localValue || ''}
+            value={localValue !== null && localValue !== undefined ? String(localValue) : ''}
             onChangeText={handleValueChange}
             placeholder={safeField.placeholder || `Enter ${safeField.label.toLowerCase()}`}
             multiline={true}
@@ -597,7 +713,7 @@ export function FieldWidget({
         return (
           <Input
             label={safeField.label}
-            value={localValue || ''}
+            value={localValue !== null && localValue !== undefined ? String(localValue) : ''}
             onChangeText={handleValueChange}
             placeholder="YYYY-MM-DDTHH:MM"
             required={!!safeField.required}
@@ -639,11 +755,11 @@ export function FieldWidget({
       case 'auto_address':
       case 'auto_tenant_names':
       case 'auto_inspection_date':
-        const autoValue = localValue || 
+        const autoValue = localValue ||
           (safeField.type === 'auto_inspector' ? autoContext?.inspectorName :
-           safeField.type === 'auto_address' ? autoContext?.address :
-           safeField.type === 'auto_tenant_names' ? autoContext?.tenantNames :
-           autoContext?.inspectionDate) || '';
+            safeField.type === 'auto_address' ? autoContext?.address :
+              safeField.type === 'auto_tenant_names' ? autoContext?.tenantNames :
+                autoContext?.inspectionDate) || '';
         return (
           <View style={styles.autoFieldContainer}>
             <Input
@@ -690,10 +806,10 @@ export function FieldWidget({
               {checkInPhotos.map((photoUrl: string, index: number) => (
                 <Image
                   key={index}
-                  source={{ 
-                    uri: photoUrl.startsWith('http') 
-                      ? photoUrl 
-                      : photoUrl.startsWith('/') 
+                  source={{
+                    uri: photoUrl.startsWith('http')
+                      ? photoUrl
+                      : photoUrl.startsWith('/')
                         ? `${API_URL}${photoUrl}`
                         : `${API_URL}/objects/${photoUrl}`
                   }}
@@ -714,8 +830,9 @@ export function FieldWidget({
             <TouchableOpacity
               style={styles.photoButton}
               onPress={() => setShowPhotoPicker(true)}
+              activeOpacity={0.8}
             >
-              <CameraIcon size={20} color={colors.primary.DEFAULT} />
+              <CameraIcon size={18} color={colors.primary.foreground || '#ffffff'} />
               <Text style={styles.photoButtonText}>Add Photo</Text>
             </TouchableOpacity>
           </View>
@@ -726,7 +843,7 @@ export function FieldWidget({
                 const photoUrl = photo.startsWith('http') ? photo : `${API_URL}${photo}`;
                 const hasAnalysis = aiAnalyses[photo];
                 const isAnalyzing = analyzingPhoto === photo;
-                
+
                 return (
                   <View key={index} style={styles.photoItem}>
                     <TouchableOpacity
@@ -736,29 +853,13 @@ export function FieldWidget({
                       }}
                     >
                       <Image source={{ uri: photoUrl }} style={styles.photoThumbnail} />
-                      {hasAnalysis && (
-                        <View style={styles.analysisBadge}>
-                          <Sparkles size={12} color="#fff" />
-                        </View>
-                      )}
                     </TouchableOpacity>
                     <View style={styles.photoActions}>
-                      <TouchableOpacity
-                        style={styles.photoActionButton}
-                        onPress={() => handleAnalyzePhoto(photo)}
-                        disabled={!!isAnalyzing}
-                      >
-                        {isAnalyzing ? (
-                          <ActivityIndicator size="small" color={colors.primary.DEFAULT} />
-                        ) : (
-                          <Sparkles size={16} color={colors.primary.DEFAULT} />
-                        )}
-                      </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.removePhotoButton}
                         onPress={() => handleRemovePhoto(photo)}
                       >
-                        <X size={16} color="#fff" />
+                        <X size={12} color="#fff" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -767,22 +868,6 @@ export function FieldWidget({
             </ScrollView>
           )}
 
-          {localPhotos.length > 0 && (
-            <TouchableOpacity
-              style={styles.aiButton}
-              onPress={handleAnalyzeField}
-              disabled={!!analyzingField}
-            >
-              {analyzingField ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Sparkles size={16} color="#fff" />
-              )}
-              <Text style={styles.aiButtonText}>
-                {analyzingField ? 'Analyzing...' : 'Analyze Field with AI'}
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     );
@@ -823,7 +908,7 @@ export function FieldWidget({
                 style={styles.starButton}
               >
                 <Star
-                  size={32}
+                  size={24}
                   color={rating <= (localCondition || 0) ? '#FFD700' : colors.text.muted}
                   fill={rating <= (localCondition || 0) ? '#FFD700' : 'transparent'}
                 />
@@ -848,7 +933,7 @@ export function FieldWidget({
                 style={styles.starButton}
               >
                 <Star
-                  size={32}
+                  size={24}
                   color={rating <= (localCleanliness || 0) ? '#FFD700' : colors.text.muted}
                   fill={rating <= (localCleanliness || 0) ? '#FFD700' : 'transparent'}
                 />
@@ -861,16 +946,50 @@ export function FieldWidget({
         </View>
       )}
 
-      {/* Notes - only show if not a photo field (photo fields have notes in their section) */}
-      {safeField.type !== 'photo' && safeField.type !== 'photo_array' && (
+      {/* AI Analysis Button - for photo fields */}
+      {inspectionId && (safeField.type === 'photo' || safeField.type === 'photo_array') && localPhotos.length > 0 && (
+        <Card style={styles.aiButtonCard}>
+          <TouchableOpacity
+            style={styles.aiButton}
+            onPress={handleAnalyzeField}
+            disabled={!!(analyzingField || !isOnline)}
+          >
+            {analyzingField ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Sparkles size={16} color="#fff" />
+            )}
+            <Text style={styles.aiButtonText}>
+              {analyzingField ? 'Analyzing...' : 'Analyze Field with AI'}
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.aiButtonDescription}>
+            {analyzingField 
+              ? 'Analyzing images with AI...'
+              : 'Use AI to analyze all photos and generate a detailed inspection report'}
+          </Text>
+        </Card>
+      )}
+
+      {/* Notes - now shown for ALL field types including photo fields */}
+      <View style={styles.notesContainer}>
+        <Text style={styles.notesLabel}>Notes (optional)</Text>
         <Input
-          label="Notes (optional)"
           value={localNote}
           onChangeText={handleNoteChange}
           placeholder="Add any observations or notes..."
           multiline={true}
+          style={styles.notesInput}
         />
-      )}
+        {localNote && localNote.length > 0 && (
+          <View style={styles.notesIndicator}>
+            <Sparkles size={12} color={colors.primary.DEFAULT} />
+            <Text style={styles.notesIndicatorText}>
+              {localNote.includes('AI') || localNote.length > 200 ? 'AI Analysis added' : ''}
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* Maintenance Logging */}
       {localPhotos.length > 0 && onLogMaintenance && (
@@ -896,21 +1015,27 @@ export function FieldWidget({
               <Text style={styles.signatureModalTitle}>Sign Here</Text>
               <View style={styles.signatureCanvasContainer}>
                 <SignatureCanvas
+                  ref={(ref: any) => {
+                    signatureRef.current = ref;
+                  }}
                   onOK={(signature) => {
                     handleValueChange(signature);
                     setShowSignature(false);
                   }}
                   onClear={() => {
-                    handleValueChange('');
+                    // Clear the signature when user taps Clear
                   }}
                   descriptionText=""
                   clearText="Clear"
-                  confirmText="Save"
+                  confirmText=""
                   webStyle={`
                     .m-signature-pad {
                       box-shadow: none;
                       border: 1px solid ${colors.border.DEFAULT};
                       border-radius: ${borderRadius.md}px;
+                    }
+                    .m-signature-pad--footer {
+                      display: none;
                     }
                   `}
                 />
@@ -919,7 +1044,19 @@ export function FieldWidget({
                 <Button
                   title="Cancel"
                   onPress={() => setShowSignature(false)}
-                  variant="secondary"
+                  variant="outline"
+                  style={styles.signatureCancelButton}
+                />
+                <Button
+                  title="Save"
+                  onPress={() => {
+                    if (signatureRef.current) {
+                      // Get signature data from the canvas
+                      signatureRef.current.readSignature();
+                    }
+                  }}
+                  variant="default"
+                  style={styles.signatureSaveButton}
                 />
               </View>
             </View>
@@ -940,7 +1077,7 @@ export function FieldWidget({
             <Button
               title="Take Photo"
               onPress={handleTakePhoto}
-              variant="primary"
+              variant="default"
             />
             <Button
               title="Choose from Library"
@@ -950,7 +1087,7 @@ export function FieldWidget({
             <Button
               title="Cancel"
               onPress={() => setShowPhotoPicker(false)}
-              variant="secondary"
+              variant="outline"
             />
           </View>
         </View>
@@ -1162,8 +1299,15 @@ const styles = StyleSheet.create({
   },
   signatureModalActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing[2],
+    justifyContent: 'space-between',
+    gap: spacing[3],
+    marginTop: spacing[2],
+  },
+  signatureCancelButton: {
+    flex: 1,
+  },
+  signatureSaveButton: {
+    flex: 1,
   },
   autoFieldContainer: {
     flexDirection: 'row',
@@ -1210,12 +1354,20 @@ const styles = StyleSheet.create({
   },
   photoSection: {
     marginBottom: spacing[4],
+    padding: spacing[3],
+    backgroundColor: colors.card.DEFAULT,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.DEFAULT,
   },
   photoHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing[3],
+    paddingBottom: spacing[2],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.DEFAULT,
   },
   photoLabel: {
     fontSize: typography.fontSize.sm,
@@ -1225,81 +1377,134 @@ const styles = StyleSheet.create({
   photoButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing[1],
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1],
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.secondary.DEFAULT,
-    borderWidth: 1,
-    borderColor: colors.border.DEFAULT,
+    gap: spacing[2],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.primary.DEFAULT,
+    ...shadows.sm,
   },
   photoButtonText: {
     fontSize: typography.fontSize.sm,
-    color: colors.primary.DEFAULT,
-    fontWeight: typography.fontWeight.medium,
+    color: colors.primary.foreground || '#ffffff',
+    fontWeight: typography.fontWeight.semibold,
   },
   photosContainer: {
     marginBottom: spacing[3],
+    paddingVertical: spacing[2],
   },
   photoItem: {
     position: 'relative',
     marginRight: spacing[3],
+    marginBottom: spacing[2],
+    padding: spacing[2],
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    ...shadows.xs,
   },
   photoThumbnail: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
     borderRadius: borderRadius.md,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border.DEFAULT,
+    backgroundColor: colors.muted.DEFAULT,
   },
   photoActions: {
     position: 'absolute',
-    top: -8,
-    right: -8,
+    top: spacing[1],
+    right: spacing[1],
     flexDirection: 'row',
     gap: spacing[1],
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: borderRadius.md,
+    padding: spacing[1] / 2,
+    ...shadows.sm,
   },
   photoActionButton: {
     backgroundColor: colors.primary.DEFAULT,
     borderRadius: borderRadius.full,
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadows.xs,
   },
   removePhotoButton: {
     backgroundColor: colors.destructive.DEFAULT,
     borderRadius: borderRadius.full,
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadows.xs,
   },
   analysisBadge: {
     position: 'absolute',
-    bottom: 4,
-    right: 4,
+    bottom: spacing[1],
+    left: spacing[1],
     backgroundColor: colors.primary.DEFAULT,
     borderRadius: borderRadius.full,
-    width: 20,
-    height: 20,
+    width: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+    ...shadows.xs,
+  },
+  aiButtonCard: {
+    marginBottom: spacing[4],
+    backgroundColor: colors.primary.light || `${colors.primary.DEFAULT}15`,
+    borderWidth: 1,
+    borderColor: colors.primary.DEFAULT + '33',
+    padding: spacing[3],
   },
   aiButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.primary.DEFAULT,
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.md,
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.lg,
     gap: spacing[2],
-    marginTop: spacing[2],
+    marginBottom: spacing[2],
   },
   aiButtonText: {
-    color: colors.primary.foreground,
+    color: colors.primary.foreground || '#ffffff',
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
+  },
+  aiButtonDescription: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
+    paddingHorizontal: spacing[1],
+  },
+  notesContainer: {
+    marginTop: spacing[3],
+    marginBottom: spacing[4],
+  },
+  notesLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.secondary,
+    marginBottom: spacing[2],
+  },
+  notesInput: {
+    minHeight: 80,
+  },
+  notesIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    marginTop: spacing[2],
+    paddingHorizontal: spacing[2],
+  },
+  notesIndicatorText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.primary.DEFAULT,
+    fontWeight: typography.fontWeight.medium,
   },
   maintenanceButton: {
     flexDirection: 'row',
@@ -1358,3 +1563,4 @@ const styles = StyleSheet.create({
   },
 });
 
+export const FieldWidget = React.memo(FieldWidgetComponent);

@@ -1,21 +1,13 @@
 import React from 'react';
-import { Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { ClipboardList, Wrench, Package, User } from 'lucide-react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts/AuthContext';
-import LoginScreen from '../screens/auth/LoginScreen';
-import InspectionsListScreen from '../screens/inspections/InspectionsListScreen';
-import InspectionCaptureScreen from '../screens/inspections/InspectionCaptureScreen';
-import InspectionReviewScreen from '../screens/inspections/InspectionReviewScreen';
-import MaintenanceListScreen from '../screens/maintenance/MaintenanceListScreen';
-import MaintenanceDetailScreen from '../screens/maintenance/MaintenanceDetailScreen';
-import CreateMaintenanceScreen from '../screens/maintenance/CreateMaintenanceScreen';
-import ProfileScreen from '../screens/profile/ProfileScreen';
-import AssetInventoryListScreen from '../screens/assets/AssetInventoryListScreen';
-import type {
-  RootStackParamList,
-  AuthStackParamList,
+import type { 
+  RootStackParamList, 
+  AuthStackParamList, 
   MainTabParamList,
   InspectionsStackParamList,
   MaintenanceStackParamList,
@@ -23,144 +15,34 @@ import type {
   AssetsStackParamList,
 } from './types';
 
-// Using simple text icons for now - can be replaced with lucide-react-native or react-native-vector-icons
-const ClipboardCheck = ({ size, color }: { size: number; color: string }) => (
-  <Text style={{ fontSize: size, color }}>📋</Text>
-);
-const Wrench = ({ size, color }: { size: number; color: string }) => (
-  <Text style={{ fontSize: size, color }}>🔧</Text>
-);
-const User = ({ size, color }: { size: number; color: string }) => (
-  <Text style={{ fontSize: size, color }}>👤</Text>
-);
-const Package = ({ size, color }: { size: number; color: string }) => (
-  <Text style={{ fontSize: size, color }}>📦</Text>
-);
+// Auth Stack
+import LoginScreen from '../screens/auth/LoginScreen';
 
-const RootStack = createStackNavigator<RootStackParamList>();
-const AuthStack = createStackNavigator<AuthStackParamList>();
+// Inspections Stack
+import InspectionsListScreen from '../screens/inspections/InspectionsListScreen';
+import CreateInspectionScreen from '../screens/inspections/CreateInspectionScreen';
+import InspectionCaptureScreen from '../screens/inspections/InspectionCaptureScreen';
+import InspectionReviewScreen from '../screens/inspections/InspectionReviewScreen';
+import InspectionReportScreen from '../screens/inspections/InspectionReportScreen';
+
+// Maintenance Stack
+import MaintenanceListScreen from '../screens/maintenance/MaintenanceListScreen';
+import MaintenanceDetailScreen from '../screens/maintenance/MaintenanceDetailScreen';
+import CreateMaintenanceScreen from '../screens/maintenance/CreateMaintenanceScreen';
+
+// Profile Stack
+import ProfileScreen from '../screens/profile/ProfileScreen';
+
+// Assets Stack
+import AssetInventoryListScreen from '../screens/assets/AssetInventoryListScreen';
+
+const RootStack = createNativeStackNavigator<RootStackParamList>();
+const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+const InspectionsStack = createNativeStackNavigator<InspectionsStackParamList>();
+const MaintenanceStack = createNativeStackNavigator<MaintenanceStackParamList>();
+const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
+const AssetsStack = createNativeStackNavigator<AssetsStackParamList>();
 const MainTabs = createBottomTabNavigator<MainTabParamList>();
-const InspectionsStack = createStackNavigator<InspectionsStackParamList>();
-const MaintenanceStack = createStackNavigator<MaintenanceStackParamList>();
-const ProfileStack = createStackNavigator<ProfileStackParamList>();
-const AssetsStack = createStackNavigator<AssetsStackParamList>();
-
-function InspectionsNavigator() {
-  return (
-    <InspectionsStack.Navigator screenOptions={{ headerShown: true }}>
-      <InspectionsStack.Screen
-        name="InspectionsList"
-        component={InspectionsListScreen}
-        options={{ title: 'Inspections' }}
-      />
-      <InspectionsStack.Screen
-        name="InspectionCapture"
-        component={InspectionCaptureScreen}
-        options={{ title: 'Capture Inspection' }}
-      />
-      <InspectionsStack.Screen
-        name="InspectionReview"
-        component={InspectionReviewScreen}
-        options={{ title: 'Review Inspection' }}
-      />
-    </InspectionsStack.Navigator>
-  );
-}
-
-function MaintenanceNavigator() {
-  return (
-    <MaintenanceStack.Navigator screenOptions={{ headerShown: true }}>
-      <MaintenanceStack.Screen
-        name="MaintenanceList"
-        component={MaintenanceListScreen}
-        options={{ title: 'Maintenance' }}
-      />
-      <MaintenanceStack.Screen
-        name="MaintenanceDetail"
-        component={MaintenanceDetailScreen}
-        options={{ title: 'Maintenance Details' }}
-      />
-      <MaintenanceStack.Screen
-        name="CreateMaintenance"
-        component={CreateMaintenanceScreen}
-        options={{ title: 'Create Maintenance' }}
-      />
-    </MaintenanceStack.Navigator>
-  );
-}
-
-function ProfileNavigator() {
-  return (
-    <ProfileStack.Navigator screenOptions={{ headerShown: true }}>
-      <ProfileStack.Screen
-        name="ProfileHome"
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
-      />
-    </ProfileStack.Navigator>
-  );
-}
-
-function AssetsNavigator() {
-  return (
-    <AssetsStack.Navigator screenOptions={{ headerShown: true }}>
-      <AssetsStack.Screen
-        name="AssetInventoryList"
-        component={AssetInventoryListScreen}
-        options={{ title: 'Asset Inventory' }}
-      />
-    </AssetsStack.Navigator>
-  );
-}
-
-function MainNavigator() {
-  return (
-    <MainTabs.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#999',
-      }}
-    >
-      <MainTabs.Screen
-        name="Inspections"
-        component={InspectionsNavigator}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <ClipboardCheck size={size} color={color} />
-          ),
-        }}
-      />
-      <MainTabs.Screen
-        name="Maintenance"
-        component={MaintenanceNavigator}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Wrench size={size} color={color} />
-          ),
-        }}
-      />
-      <MainTabs.Screen
-        name="Assets"
-        component={AssetsNavigator}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Package size={size} color={color} />
-          ),
-        }}
-      />
-      <MainTabs.Screen
-        name="Profile"
-        component={ProfileNavigator}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <User size={size} color={color} />
-          ),
-        }}
-      />
-    </MainTabs.Navigator>
-  );
-}
 
 function AuthNavigator() {
   return (
@@ -170,23 +52,131 @@ function AuthNavigator() {
   );
 }
 
-export default function AppNavigator() {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return null; // Or a loading screen
-  }
-
+function InspectionsNavigator() {
   return (
-    <NavigationContainer>
-      <RootStack.Navigator screenOptions={{ headerShown: false }}>
-        {isAuthenticated ? (
-          <RootStack.Screen name="Main" component={MainNavigator} />
-        ) : (
-          <RootStack.Screen name="Auth" component={AuthNavigator} />
-        )}
-      </RootStack.Navigator>
-    </NavigationContainer>
+    <InspectionsStack.Navigator screenOptions={{ headerShown: false }}>
+      <InspectionsStack.Screen name="InspectionsList" component={InspectionsListScreen} />
+      <InspectionsStack.Screen 
+        name="CreateInspection" 
+        component={CreateInspectionScreen}
+        options={{ headerShown: false }}
+      />
+      <InspectionsStack.Screen 
+        name="InspectionCapture" 
+        component={InspectionCaptureScreen}
+        options={{ headerShown: false }}
+      />
+      <InspectionsStack.Screen 
+        name="InspectionReview" 
+        component={InspectionReviewScreen}
+        options={{ headerShown: false }}
+      />
+      <InspectionsStack.Screen 
+        name="InspectionReport" 
+        component={InspectionReportScreen}
+        options={{ headerShown: false }}
+      />
+    </InspectionsStack.Navigator>
   );
 }
 
+function MaintenanceNavigator() {
+  return (
+    <MaintenanceStack.Navigator screenOptions={{ headerShown: false }}>
+      <MaintenanceStack.Screen name="MaintenanceList" component={MaintenanceListScreen} />
+      <MaintenanceStack.Screen 
+        name="MaintenanceDetail" 
+        component={MaintenanceDetailScreen}
+        options={{ headerShown: false }}
+      />
+      <MaintenanceStack.Screen 
+        name="CreateMaintenance" 
+        component={CreateMaintenanceScreen}
+        options={{ headerShown: false }}
+      />
+    </MaintenanceStack.Navigator>
+  );
+}
+
+function ProfileNavigator() {
+  return (
+    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
+    </ProfileStack.Navigator>
+  );
+}
+
+function AssetsNavigator() {
+  return (
+    <AssetsStack.Navigator screenOptions={{ headerShown: false }}>
+      <AssetsStack.Screen name="AssetInventoryList" component={AssetInventoryListScreen} />
+    </AssetsStack.Navigator>
+  );
+}
+
+function MainTabNavigator() {
+  const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
+  
+  return (
+    <MainTabs.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#00D5CC',
+        tabBarInactiveTintColor: '#8E8E93',
+        tabBarStyle: {
+          paddingBottom: Math.max(insets.bottom, 8),
+          height: 60 + Math.max(insets.bottom, 8),
+        },
+      }}
+    >
+      <MainTabs.Screen 
+        name="Inspections" 
+        component={InspectionsNavigator}
+        options={{
+          tabBarIcon: ({ color, size }) => <ClipboardList size={size} color={color} />,
+        }}
+      />
+      <MainTabs.Screen 
+        name="Maintenance" 
+        component={MaintenanceNavigator}
+        options={{
+          tabBarIcon: ({ color, size }) => <Wrench size={size} color={color} />,
+        }}
+      />
+      <MainTabs.Screen 
+        name="Assets" 
+        component={AssetsNavigator}
+        options={{
+          tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+        }}
+      />
+      <MainTabs.Screen 
+        name="Profile" 
+        component={ProfileNavigator}
+        options={{
+          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+        }}
+      />
+    </MainTabs.Navigator>
+  );
+}
+
+export default function AppNavigator() {
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  if (isLoading) return null;
+
+  return (
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <RootStack.Navigator screenOptions={{ headerShown: false }}>
+          {isAuthenticated ? (
+            <RootStack.Screen name="Main" component={MainTabNavigator} />
+          ) : (
+            <RootStack.Screen name="Auth" component={AuthNavigator} />
+          )}
+        </RootStack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
+  );
+}

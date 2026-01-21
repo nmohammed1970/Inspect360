@@ -148,5 +148,45 @@ export const inspectionsService = {
       `/api/properties/${propertyId}/most-recent-checkin`
     );
   },
+
+  async duplicateInspection(id: string, data: { type: string; scheduledDate: string; copyImages?: boolean; copyText?: boolean }): Promise<Inspection> {
+    return apiRequestJson<Inspection>('POST', `/api/inspections/${id}/copy`, data);
+  },
+
+  async createInspection(data: {
+    targetType: 'property' | 'block';
+    propertyId?: string;
+    blockId?: string;
+    tenantId?: string;
+    type: string;
+    scheduledDate: string;
+    templateId?: string;
+    clerkId?: string;
+    notes?: string;
+  }): Promise<Inspection> {
+    const payload: any = {
+      type: data.type,
+      scheduledDate: data.scheduledDate,
+    };
+    if (data.targetType === 'property' && data.propertyId) {
+      payload.propertyId = data.propertyId;
+    }
+    if (data.targetType === 'block' && data.blockId) {
+      payload.blockId = data.blockId;
+    }
+    if (data.tenantId && data.tenantId !== '__none__') {
+      payload.tenantId = data.tenantId;
+    }
+    if (data.templateId && data.templateId !== '__none__') {
+      payload.templateId = data.templateId;
+    }
+    if (data.clerkId) {
+      payload.clerkId = data.clerkId;
+    }
+    if (data.notes) {
+      payload.notes = data.notes;
+    }
+    return apiRequestJson<Inspection>('POST', '/api/inspections', payload);
+  },
 };
 

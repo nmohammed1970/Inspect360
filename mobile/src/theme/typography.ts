@@ -3,9 +3,10 @@
  */
 
 export const typography = {
-  // Font families
+  // Font families - using system fonts for modern look
+  // iOS: SF Pro (automatically used), Android: Roboto (automatically used)
   fontFamily: {
-    sans: 'System', // iOS: San Francisco, Android: Roboto
+    sans: 'System', // Modern system fonts - SF Pro on iOS, Roboto on Android
     serif: 'System',
     mono: 'Courier',
   },
@@ -22,12 +23,15 @@ export const typography = {
     '4xl': 36, // 2.25rem
   },
   
-  // Font weights
+  // Font weights - refined for modern look
   fontWeight: {
     normal: '400' as const,
     medium: '500' as const,
     semibold: '600' as const,
     bold: '700' as const,
+    // Additional weights for flexibility
+    light: '300' as const,
+    extrabold: '800' as const,
   },
   
   // Line heights
