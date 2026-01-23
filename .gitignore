@@ -9,6 +9,15 @@ vite.config.ts.*
 .env
 .env.local
 .env.*.local
+.env.*
+*.env
+env
+mobile/.env
+mobile/.env.*
+server/.env
+server/.env.*
+client/.env
+client/.env.*
 
 # Storage directory (contains uploaded files)
 storage/
