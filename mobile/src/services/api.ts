@@ -27,10 +27,15 @@ const getBaseUrl = (): string => {
     });
   }
   
-  // Require API URL to be set - no hardcoded fallbacks
+  // Require API URL to be set - but provide a fallback for production builds
   if (!apiUrl) {
     const errorMsg = '[API] ERROR: EXPO_PUBLIC_API_URL is not set in .env file. Please set it in mobile/.env';
     console.error(errorMsg);
+    // In production builds, use production URL as fallback instead of crashing
+    if (Constants.executionEnvironment === 'standalone' || Constants.executionEnvironment === 'storeClient') {
+      console.warn('[API] Using production fallback URL: https://portal.inspect360.ai');
+      return 'https://portal.inspect360.ai';
+    }
     throw new Error(errorMsg);
   }
 

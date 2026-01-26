@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
 import type { RouteProp, NavigationProp } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -24,6 +24,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionReview'>;
 type NavProp = NavigationProp<InspectionsStackParamList>;
@@ -65,14 +66,29 @@ export default function InspectionReviewScreen() {
 
   const completeInspection = useMutation({
     mutationFn: async () => {
-      return await apiRequestJson('PATCH', `/api/inspections/${inspectionId}/status`, {
-        status: 'completed',
-      });
+      try {
+        return await apiRequestJson('PATCH', `/api/inspections/${inspectionId}/status`, {
+          status: 'completed',
+        });
+      } catch (error: any) {
+        console.error('[InspectionReview] Error completing inspection:', error);
+        throw error;
+      }
     },
     onSuccess: () => {
-      navigation.navigate('InspectionsList');
+      // Navigate after a small delay to ensure state is updated
+      setTimeout(() => {
+        try {
+          navigation.navigate('InspectionsList');
+        } catch (navError: any) {
+          console.error('[InspectionReview] Navigation error:', navError);
+          // Fallback: just go back
+          navigation.goBack();
+        }
+      }, 100);
     },
     onError: (error: any) => {
+      console.error('[InspectionReview] Complete inspection error:', error);
       Alert.alert('Error', error.message || 'Failed to update inspection status');
     },
   });
@@ -218,7 +234,7 @@ export default function InspectionReviewScreen() {
                 {getStatusBadge(inspection.status)}
               </View>
               <View style={styles.cardInfoRow}>
-                <Text style={styles.cardLabel}>Type:</Text>
+                <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>Type:</Text>
                 {getTypeBadge(inspection.type)}
               </View>
               <View style={styles.cardInfoRow}>
@@ -257,7 +273,7 @@ export default function InspectionReviewScreen() {
                 <View style={styles.clerkSection}>
                   <View style={styles.cardInfoRow}>
                     <User size={16} color={themeColors.text.secondary} />
-                    <Text style={styles.cardLabel}>Assigned Clerk:</Text>
+                    <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>Assigned Clerk:</Text>
                   </View>
                   <Text style={[styles.clerkEmail, { color: themeColors.text.primary }]}>{clerk.email}</Text>
                 </View>
@@ -289,17 +305,74 @@ export default function InspectionReviewScreen() {
               <Button
                 title="Add Item"
                 onPress={() => {
+                  if (!inspection) {
+                    Alert.alert('Error', 'Inspection data not loaded yet');
+                    return;
+                  }
+                  
                   // Navigate to Asset Inventory with auto-open and pre-filled property/block
-                  // Navigate to Assets tab with AssetInventoryList screen and params
-                  (navigation.getParent()?.getParent() as any)?.navigate('Assets', {
-                    screen: 'AssetInventoryList',
-                    params: {
-                      propertyId: inspection?.propertyId,
-                      blockId: inspection?.blockId,
-                      autoOpen: true,
-                      inspectionId: inspectionId,
-                    },
-                  });
+                  // Navigate from RootStack -> Main -> Assets -> AssetInventoryList
+                  try {
+                    const rootNavigator = navigation.getParent()?.getParent();
+                    if (rootNavigator) {
+                      rootNavigator.dispatch(
+                        CommonActions.navigate({
+                          name: 'Main',
+                          params: {
+                            screen: 'Assets',
+                            params: {
+                              screen: 'AssetInventoryList',
+                              params: {
+                                propertyId: inspection.propertyId || undefined,
+                                blockId: inspection.blockId || undefined,
+                                autoOpen: true,
+                                inspectionId: inspectionId,
+                              },
+                            },
+                          },
+                        })
+                      );
+                    } else {
+                      // Fallback: try tab navigator directly
+                      const tabNavigator = navigation.getParent();
+                      if (tabNavigator) {
+                        (tabNavigator as any).navigate('Assets', {
+                          screen: 'AssetInventoryList',
+                          params: {
+                            propertyId: inspection.propertyId || undefined,
+                            blockId: inspection.blockId || undefined,
+                            autoOpen: true,
+                            inspectionId: inspectionId,
+                          },
+                        });
+                      } else {
+                        console.error('[InspectionReview] Could not find navigator');
+                        Alert.alert('Error', 'Could not navigate to Assets screen');
+                      }
+                    }
+                  } catch (error: any) {
+                    console.error('[InspectionReview] Navigation error:', error);
+                    // Try alternative navigation method
+                    try {
+                      const tabNavigator = navigation.getParent();
+                      if (tabNavigator) {
+                        (tabNavigator as any).navigate('Assets', {
+                          screen: 'AssetInventoryList',
+                          params: {
+                            propertyId: inspection.propertyId || undefined,
+                            blockId: inspection.blockId || undefined,
+                            autoOpen: true,
+                            inspectionId: inspectionId,
+                          },
+                        });
+                      } else {
+                        Alert.alert('Error', 'Failed to navigate to Assets screen');
+                      }
+                    } catch (fallbackError) {
+                      console.error('[InspectionReview] Fallback navigation error:', fallbackError);
+                      Alert.alert('Error', 'Failed to navigate to Assets screen');
+                    }
+                  }
                 }}
                 variant="default"
                 size="sm"

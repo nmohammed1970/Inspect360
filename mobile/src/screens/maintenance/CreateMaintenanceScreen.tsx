@@ -183,15 +183,58 @@ export default function CreateMaintenanceScreen() {
     });
   }, [existingRequest, isEditMode, requestId]);
 
-  // Auto-populate from inspection context
+  // Auto-populate from inspection context - use ref to track initialization per inspection
+  const inspectionInitializedRef = useRef<string | null>(null);
+  
   useEffect(() => {
-    if (params?.fieldLabel && !isEditMode) {
-      setTitle(`Maintenance: ${params.fieldLabel}`);
-      setDescription(`Maintenance request created from inspection field: ${params.fieldLabel}`);
-      setPriority('high');
-      setUploadedImages(params.photos || []);
+    // Only initialize from inspection context if not in edit mode
+    if (isEditMode) {
+      return;
     }
-  }, [params, isEditMode]);
+    
+    // Reset initialization if inspectionId changed
+    const currentInspectionId = params?.inspectionId || 'new';
+    if (inspectionInitializedRef.current !== currentInspectionId) {
+      inspectionInitializedRef.current = null;
+    }
+    
+    // Skip if already initialized for this inspection
+    if (inspectionInitializedRef.current === currentInspectionId) {
+      return;
+    }
+    
+    let hasChanges = false;
+    
+    // Pre-fill property and block from inspection context
+    if (params?.propertyId && !propertyId) {
+      setPropertyId(params.propertyId);
+      hasChanges = true;
+    }
+    
+    // Set block filter if blockId is provided
+    if (params?.blockId && !blockId) {
+      setBlockId(params.blockId);
+      setFormBlockFilter(params.blockId);
+      hasChanges = true;
+    }
+    
+    // Pre-fill title, description, and photos from field context
+    if (params?.fieldLabel) {
+      const sectionInfo = params.sectionTitle ? ` in ${params.sectionTitle}` : '';
+      setTitle(`Maintenance: ${params.fieldLabel}${sectionInfo}`);
+      setDescription(`Maintenance request created from inspection field: ${params.fieldLabel}${sectionInfo}`);
+      setPriority('high');
+      if (params.photos && params.photos.length > 0) {
+        setUploadedImages(params.photos);
+      }
+      hasChanges = true;
+    }
+    
+    // Mark as initialized if we made any changes
+    if (hasChanges) {
+      inspectionInitializedRef.current = currentInspectionId;
+    }
+  }, [params, isEditMode, propertyId, blockId]);
 
   // Reset dueDate when switching requests
   useEffect(() => {
@@ -537,7 +580,7 @@ export default function CreateMaintenanceScreen() {
               />
               <DatePicker
                 label="Due Date (Optional)"
-                value={dueDate}
+                    value={dueDate}
                 onChange={setDueDate}
                 placeholder="Select due date"
               />
@@ -887,7 +930,7 @@ export default function CreateMaintenanceScreen() {
           {/* Due Date */}
           <DatePicker
             label="Due Date (Optional)"
-            value={dueDate}
+                value={dueDate}
             onChange={setDueDate}
             placeholder="Select due date"
           />

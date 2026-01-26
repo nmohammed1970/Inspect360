@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { inspectionsService, type InspectionEntry } from '../../services/inspections';
@@ -31,12 +31,13 @@ import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
 import Constants from 'expo-constants';
-import InspectionQuickActions from '../../components/inspections/InspectionQuickActions';
 import { localDatabase } from '../../services/localDatabase';
 import { photoStorage } from '../../services/photoStorage';
 import { syncManager } from '../../services/syncManager';
 import { ConflictResolutionDialog } from '../../components/inspections/ConflictResolutionDialog';
+import * as FileSystem from 'expo-file-system/legacy';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
@@ -250,7 +251,10 @@ export default function InspectionCaptureScreen() {
     }
   };
 
-  // Load from local DB when offline
+  // Load from local DB (always available, used when offline or as fallback)
+  // Works for ALL inspection types: check_in, check_out, routine, maintenance, 
+  // esg_sustainability_inspection, fire_hazard_assessment, maintenance_inspection, 
+  // damage, emergency, safety_compliance, compliance_regulatory, pre_purchase, specialized, etc.
   const { data: localInspection } = useQuery({
     queryKey: ['local-inspection', inspectionId],
     queryFn: async () => {
@@ -264,7 +268,7 @@ export default function InspectionCaptureScreen() {
           assignedToId: local.assigned_to_id || undefined,
           scheduledDate: local.scheduled_date || undefined,
           status: local.status as any,
-          type: local.type,
+          type: local.type, // All types are supported (no filtering)
           notes: local.notes || undefined,
           createdAt: local.created_at,
           updatedAt: local.updated_at,
@@ -273,10 +277,12 @@ export default function InspectionCaptureScreen() {
       }
       return null;
     },
-    enabled: !isOnline && !!inspectionId,
+    enabled: !!inspectionId, // Always load local inspection (both online and offline) - ALL types
+    staleTime: 0, // Always refetch to get latest local data
+    refetchOnMount: true,
   });
 
-  // Load local entries when offline
+  // Load local entries (always available, used when offline or as fallback)
   const { data: localEntries = [] } = useQuery({
     queryKey: ['local-entries', inspectionId],
     queryFn: async () => {
@@ -284,12 +290,35 @@ export default function InspectionCaptureScreen() {
       const entriesWithPhotos = await Promise.all(entries.map(async (entry) => {
         // Load photos for this entry
         const photos = await localDatabase.getPhotos(entry.id);
-        const photoUrls = photos.map(photo => {
-          // Use server URL if uploaded, otherwise use local path
-          return photo.upload_status === 'uploaded' && photo.server_url 
-            ? photo.server_url 
-            : photo.local_path;
-        });
+        const photoUrls = await Promise.all(photos.map(async (photo) => {
+          // Check if local file exists first
+          if (photo.local_path) {
+            try {
+              const fileInfo = await FileSystem.getInfoAsync(photo.local_path);
+              if (fileInfo.exists) {
+                // Local file exists - use it (works offline and online)
+                return photo.local_path;
+              }
+            } catch (error) {
+              console.warn('[InspectionCapture] Error checking local photo file:', error);
+            }
+          }
+          
+          // If local file doesn't exist or we're online, use server URL if available
+          if (photo.upload_status === 'uploaded' && photo.server_url) {
+            // Construct full URL if it's a relative path
+            if (photo.server_url.startsWith('/')) {
+              return `${getAPI_URL()}${photo.server_url}`;
+            } else if (photo.server_url.startsWith('http://') || photo.server_url.startsWith('https://')) {
+              return photo.server_url;
+            } else {
+              return `${getAPI_URL()}/objects/${photo.server_url}`;
+            }
+          }
+          
+          // Fallback to local path even if file might not exist
+          return photo.local_path;
+        }));
         
         return {
           id: entry.id,
@@ -307,15 +336,26 @@ export default function InspectionCaptureScreen() {
       
       return entriesWithPhotos;
     },
-    enabled: !isOnline && !!inspectionId,
+    enabled: !!inspectionId, // Always load local entries (both online and offline)
+    staleTime: 0, // Always refetch to get latest local data
+    refetchOnMount: true,
   });
 
-  // Fetch inspection with template snapshot
+  // Fetch inspection with template snapshot (only when online)
   const { data: inspection, isLoading: inspectionLoading, error: inspectionError } = useQuery({
     queryKey: [`/api/inspections/${inspectionId}`],
     queryFn: async () => {
       try {
-        return await inspectionsService.getInspection(inspectionId);
+        const serverInspection = await inspectionsService.getInspection(inspectionId);
+        
+        // Save to local DB when online
+        try {
+          await localDatabase.saveInspection(serverInspection);
+        } catch (saveError) {
+          console.error('[InspectionCapture] Failed to save inspection to local DB:', saveError);
+        }
+        
+        return serverInspection;
       } catch (error: any) {
         // Check if inspection was deleted (404 error)
         if (error.status === 404 || error.message?.includes('not found') || error.message?.includes('404')) {
@@ -335,51 +375,64 @@ export default function InspectionCaptureScreen() {
         throw error;
       }
     },
+    enabled: isOnline && !!inspectionId, // Only fetch when online
     retry: 1,
     retryDelay: 1000,
     staleTime: 30000,
   });
 
-  // Use local inspection when offline
-  const effectiveInspection = isOnline ? inspection : (localInspection || inspection);
+  // Use local inspection when offline, fallback to server inspection when online
+  const effectiveInspection = (!isOnline && localInspection) ? localInspection : (inspection || localInspection);
   
   // Check if inspection is deleted
   const isDeleted = effectiveInspection?.status === 'deleted' || 
                     (inspectionError as any)?.isDeleted ||
                     (inspectionError as any)?.status === 404;
 
-  // Fetch property details
+  // Fetch property details (only when online and inspection exists)
   const { data: property } = useQuery({
-    queryKey: [`/api/properties/${inspection?.propertyId}`],
-    queryFn: () => propertiesService.getProperty(inspection!.propertyId!),
-    enabled: !!inspection?.propertyId,
+    queryKey: [`/api/properties/${effectiveInspection?.propertyId}`],
+    queryFn: () => {
+      if (!effectiveInspection?.propertyId) throw new Error('Property ID not available');
+      return propertiesService.getProperty(effectiveInspection.propertyId);
+    },
+    enabled: !!effectiveInspection?.propertyId && isOnline,
     retry: 1,
     staleTime: 60000,
   });
 
-  // Fetch block details
+  // Fetch block details (only when online and inspection exists)
   const { data: block } = useQuery({
-    queryKey: [`/api/blocks/${inspection?.blockId}`],
-    queryFn: () => propertiesService.getBlock(inspection!.blockId!),
-    enabled: !!inspection?.blockId,
+    queryKey: [`/api/blocks/${effectiveInspection?.blockId}`],
+    queryFn: () => {
+      if (!effectiveInspection?.blockId) throw new Error('Block ID not available');
+      return propertiesService.getBlock(effectiveInspection.blockId);
+    },
+    enabled: !!effectiveInspection?.blockId && isOnline,
     retry: 1,
     staleTime: 60000,
   });
 
-  // Fetch inspector details
+  // Fetch inspector details (only when online and inspection exists)
   const { data: inspector } = useQuery({
-    queryKey: [`/api/users/${inspection?.assignedToId}`],
-    queryFn: () => authService.getUser(inspection!.assignedToId!),
-    enabled: !!inspection?.assignedToId,
+    queryKey: [`/api/users/${effectiveInspection?.assignedToId}`],
+    queryFn: () => {
+      if (!effectiveInspection?.assignedToId) throw new Error('Assigned To ID not available');
+      return authService.getUser(effectiveInspection.assignedToId);
+    },
+    enabled: !!effectiveInspection?.assignedToId && isOnline,
     retry: 1,
     staleTime: 60000,
   });
 
-  // Fetch tenants
+  // Fetch tenants (only when online and inspection exists)
   const { data: tenants = [] } = useQuery({
-    queryKey: [`/api/properties/${inspection?.propertyId}/tenants`],
-    queryFn: () => propertiesService.getPropertyTenants(inspection!.propertyId!),
-    enabled: !!inspection?.propertyId,
+    queryKey: [`/api/properties/${effectiveInspection?.propertyId}/tenants`],
+    queryFn: () => {
+      if (!effectiveInspection?.propertyId) throw new Error('Property ID not available');
+      return propertiesService.getPropertyTenants(effectiveInspection.propertyId);
+    },
+    enabled: !!effectiveInspection?.propertyId && isOnline,
     retry: 1,
     staleTime: 60000,
   });
@@ -391,9 +444,9 @@ export default function InspectionCaptureScreen() {
       const entries = await inspectionsService.getInspectionEntries(inspectionId);
       
       // Save to local DB when online
-      if (isOnline && inspection) {
+      if (isOnline && effectiveInspection) {
         try {
-          await localDatabase.saveInspection(inspection);
+          await localDatabase.saveInspection(effectiveInspection);
           for (const entry of entries) {
             if (entry.id) {
               await localDatabase.saveEntry({ ...entry, id: entry.id });
@@ -413,14 +466,17 @@ export default function InspectionCaptureScreen() {
     refetchOnReconnect: false,
   });
 
-  // Use local entries when offline
-  const effectiveEntries = isOnline ? existingEntries : localEntries;
+  // Use local entries when offline, otherwise use server entries
+  const effectiveEntries = (!isOnline && localEntries.length > 0) ? localEntries : (existingEntries || localEntries);
 
-  // Fetch most recent check-in for check-out inspections
+  // Fetch most recent check-in for check-out inspections (only when online)
   const { data: checkInData } = useQuery({
-    queryKey: [`/api/properties/${inspection?.propertyId}/most-recent-checkin`],
-    queryFn: () => inspectionsService.getMostRecentCheckIn(inspection!.propertyId!),
-    enabled: !!inspection?.propertyId && inspection?.type === 'check_out',
+    queryKey: [`/api/properties/${effectiveInspection?.propertyId}/most-recent-checkin`],
+    queryFn: () => {
+      if (!effectiveInspection?.propertyId) throw new Error('Property ID not available');
+      return inspectionsService.getMostRecentCheckIn(effectiveInspection.propertyId);
+    },
+    enabled: !!effectiveInspection?.propertyId && effectiveInspection?.type === 'check_out' && isOnline,
     retry: false,
   });
 
@@ -442,7 +498,7 @@ export default function InspectionCaptureScreen() {
     if (aiAnalysisStatus?.status === 'completed') {
       queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
       queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      Alert.alert('AI Analysis Complete', 'All inspection fields have been analyzed.');
+      // Alert removed - user can see AI Complete button status instead
     }
   }, [aiAnalysisStatus?.status, inspectionId, queryClient]);
 
@@ -726,21 +782,21 @@ export default function InspectionCaptureScreen() {
   // Auto-start inspection on first visit (only once)
   const [hasAutoStarted, setHasAutoStarted] = useState(false);
   useEffect(() => {
-    if (inspection && inspection.status === 'scheduled' && !(inspection as any).startedAt && !hasAutoStarted) {
+    if (effectiveInspection && effectiveInspection.status === 'scheduled' && !(effectiveInspection as any).startedAt && !hasAutoStarted && isOnline) {
       setHasAutoStarted(true);
       updateStatusMutation.mutate({
         status: 'in_progress',
         startedAt: new Date().toISOString(),
       });
     }
-  }, [inspection, hasAutoStarted]);
+  }, [effectiveInspection, hasAutoStarted, isOnline]);
 
   // Track if copy has been triggered to prevent re-triggering
   const copyTriggeredRef = useRef<{ copyImages: boolean; copyNotes: boolean }>({ copyImages: false, copyNotes: false });
 
   // Copy from check-in when checkboxes are checked (debounced to prevent rapid firing)
   useEffect(() => {
-    if (!checkInData || !checkInData.entries || !inspection || inspection.type !== 'check_out') {
+    if (!checkInData || !checkInData.entries || !effectiveInspection || effectiveInspection.type !== 'check_out') {
       copyTriggeredRef.current = { copyImages: false, copyNotes: false };
       return;
     }
@@ -1034,9 +1090,9 @@ export default function InspectionCaptureScreen() {
         return;
       }
 
-      const now = Date.now();
-      const timeSinceLastSync = now - lastSyncTimeRef.current;
-      
+    const now = Date.now();
+    const timeSinceLastSync = now - lastSyncTimeRef.current;
+    
       // Only auto-sync if:
       // 1. We're online
       // 2. There are pending items
@@ -1045,9 +1101,9 @@ export default function InspectionCaptureScreen() {
       // 5. Haven't already auto-synced for this online session
       if (isOnline && pendingCount > 0 && !isSyncing && !hasAutoSyncedRef.current && timeSinceLastSync > 5000) {
         syncInProgressRef.current = true;
-        hasAutoSyncedRef.current = true;
-        lastSyncTimeRef.current = now;
-        
+      hasAutoSyncedRef.current = true;
+      lastSyncTimeRef.current = now;
+      
         try {
           // Use syncManager directly to avoid UI blocking
           const result = await syncManager.startSync();
@@ -1067,20 +1123,21 @@ export default function InspectionCaptureScreen() {
         } finally {
           syncInProgressRef.current = false;
           // Reset auto-sync flag after 30 seconds to allow re-sync if needed
-          setTimeout(() => {
-            hasAutoSyncedRef.current = false;
-          }, 30000);
+        setTimeout(() => {
+          hasAutoSyncedRef.current = false;
+        }, 30000);
         }
-      } else if (!isOnline) {
+    } else if (!isOnline) {
         // Reset when going offline
-        hasAutoSyncedRef.current = false;
-      }
+      hasAutoSyncedRef.current = false;
+    }
     };
 
     autoSync();
   }, [isOnline, pendingCount, isSyncing, inspectionId, queryClient]);
 
-  if (inspectionLoading) {
+  // Show loading only if we're online and loading, or if we're offline and don't have local data yet
+  if (inspectionLoading && isOnline && !localInspection) {
     return (
       <View style={styles.container}>
         <LoadingSpinner />
@@ -1088,7 +1145,8 @@ export default function InspectionCaptureScreen() {
     );
   }
 
-  if (inspectionError) {
+  // Check for errors only if online and we have an error, and no local fallback
+  if (inspectionError && isOnline && !localInspection) {
     const error = inspectionError as any;
     const isDeleted = error.status === 404 || error.isDeleted || error.message?.includes('deleted');
     
@@ -1111,10 +1169,16 @@ export default function InspectionCaptureScreen() {
     );
   }
 
-  if (!inspection) {
+  // If no inspection (neither server nor local), show error
+  if (!effectiveInspection) {
     return (
       <View style={[styles.container, styles.centerContent]}>
         <Text style={[styles.errorText, { color: themeColors.text.primary }]}>Inspection not found</Text>
+        <Text style={[styles.errorSubtext, { color: themeColors.text.secondary }]}>
+          {isOnline 
+            ? 'This inspection could not be found. It may have been deleted.'
+            : 'This inspection is not available offline. Please connect to the internet to load it.'}
+        </Text>
         <Button
           title="Go Back"
           onPress={() => navigation.goBack()}
@@ -1179,7 +1243,7 @@ export default function InspectionCaptureScreen() {
                 {property?.name || block?.name || 'Inspection Capture'}
               </Text>
               <Text style={[styles.headerSubtitle, { color: themeColors.text.secondary }]} numberOfLines={2}>
-                {property?.address || block?.address || (inspection.propertyId ? 'Property' : 'Block') + ' Inspection'}
+                {property?.address || block?.address || (effectiveInspection?.propertyId ? 'Property' : 'Block') + ' Inspection'}
               </Text>
             </View>
             </View>
@@ -1340,7 +1404,7 @@ export default function InspectionCaptureScreen() {
         )}
 
         {/* Copy from Previous Check-In (only for check-out inspections) */}
-        {inspection?.type === 'check_out' && (
+        {effectiveInspection?.type === 'check_out' && (
           <Card style={[
             styles.copyCard,
             {
@@ -1421,8 +1485,8 @@ export default function InspectionCaptureScreen() {
             {/* Online/Offline Badge */}
             <View style={styles.statusBadge}>
             <Badge variant={isOnline ? 'default' : 'secondary'} size="sm">
-                {isOnline ? <Wifi size={12} color={isOnline ? themeColors.primary.foreground : themeColors.text.secondary} /> : <WifiOff size={12} color={themeColors.text.secondary} />}
-              <Text style={styles.badgeText}>{isOnline ? 'Online' : 'Offline'}</Text>
+                {isOnline ? <Wifi size={12} color={isOnline ? themeColors.primary.foreground : themeColors.text.primary} /> : <WifiOff size={12} color={themeColors.text.primary} />}
+              <Text style={[styles.badgeText, { color: isOnline ? (themeColors.primary.foreground || '#ffffff') : themeColors.text.primary }]}>{isOnline ? 'Online' : 'Offline'}</Text>
             </Badge>
             </View>
 
@@ -1430,8 +1494,8 @@ export default function InspectionCaptureScreen() {
             {pendingCount > 0 && (
               <View style={styles.statusBadge}>
               <Badge variant="outline" size="sm">
-                  <Cloud size={12} color={themeColors.text.secondary} />
-                <Text style={styles.badgeText}>{pendingCount} pending</Text>
+                  <Cloud size={12} color={themeColors.text.primary} />
+                <Text style={[styles.badgeText, { color: themeColors.text.primary }]}>{pendingCount} pending</Text>
               </Badge>
               </View>
             )}
@@ -1451,7 +1515,7 @@ export default function InspectionCaptureScreen() {
             {/* Progress Badge */}
             <View style={styles.statusBadge}>
             <Badge variant="secondary" size="sm">
-                <Text style={styles.badgeText}>{completedFields}/{totalFields}</Text>
+                <Text style={[styles.badgeText, { color: themeColors.text.primary }]}>{completedFields}/{totalFields}</Text>
             </Badge>
             </View>
           </View>
@@ -1469,17 +1533,29 @@ export default function InspectionCaptureScreen() {
                   }
                 ]}>
                 <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} />
-                <Text style={styles.badgeText}>
+                <Text style={[styles.badgeText, { color: themeColors.text.primary }]}>
                   Analysing ({aiAnalysisStatus.progress}/{aiAnalysisStatus.totalFields})
                 </Text>
               </Badge>
               </View>
             ) : aiAnalysisStatus?.status === 'completed' ? (
               <View style={styles.actionButtonContainer}>
-              <Badge variant="default" size="sm" style={[styles.aiCompleteBadge, { backgroundColor: themeColors.success || '#10B981' }]}>
-                <CheckCircle2 size={14} color={themeColors.primary.foreground || '#fff'} />
-                  <Text style={[styles.badgeText, { color: themeColors.primary.foreground || '#fff' }]}>AI Complete</Text>
-              </Badge>
+                <Button
+                  title="AI Complete"
+                  onPress={() => {}}
+                  disabled={true}
+                  variant="default"
+                  size="sm"
+                  icon={<CheckCircle2 size={14} color="#ffffff" />}
+                  style={[
+                    styles.actionButton,
+                    {
+                      backgroundColor: themeColors.success || '#22c55e',
+                      borderColor: themeColors.success || '#22c55e',
+                    }
+                  ]}
+                  textStyle={{ color: '#ffffff' }}
+                />
               </View>
             ) : (
               <View style={styles.actionButtonContainer}>
@@ -1550,13 +1626,9 @@ export default function InspectionCaptureScreen() {
                     style={[
                       styles.tabButton,
                       { 
-                        backgroundColor: themeColors.background,
-                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: index === currentSectionIndex ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+                        borderColor: index === currentSectionIndex ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
                       },
-                      index === currentSectionIndex && {
-                        backgroundColor: themeColors.primary.DEFAULT,
-                        borderColor: themeColors.primary.DEFAULT,
-                      }
                     ]}
                     activeOpacity={0.7}
                   >
@@ -1566,7 +1638,7 @@ export default function InspectionCaptureScreen() {
                         { 
                           color: index === currentSectionIndex 
                             ? (themeColors.primary.foreground || '#ffffff')
-                            : themeColors.text.secondary 
+                            : themeColors.text.primary 
                         },
                         index === currentSectionIndex && styles.tabButtonTextActive
                       ]}
@@ -1625,7 +1697,7 @@ export default function InspectionCaptureScreen() {
                       inspectionId={inspectionId}
                       entryId={entry?.id}
                       sectionName={currentSection.title}
-                      isCheckOut={inspection?.type === 'check_out'}
+                      isCheckOut={effectiveInspection?.type === 'check_out'}
                       markedForReview={entry?.markedForReview || false}
                         disabled={effectiveInspection?.status === 'completed' || isDeleted}
                       autoContext={{
@@ -1642,7 +1714,7 @@ export default function InspectionCaptureScreen() {
                             .filter(Boolean)
                             .join(', ')
                           : '',
-                        inspectionDate: new Date(inspection?.scheduledDate || (inspection as any).startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                        inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
                       }}
                       onChange={(value, note, photos) =>
                         handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
@@ -1679,12 +1751,55 @@ export default function InspectionCaptureScreen() {
                         }
                       }}
                       onLogMaintenance={(fieldLabel, photos) => {
-                        // Navigate to maintenance creation with context
-                        (navigation as any).navigate('CreateMaintenance', {
+                        // Navigate to maintenance creation with context from inspection
+                        // Navigate from RootStack -> Main -> Maintenance -> CreateMaintenance
+                        try {
+                          // Get the root navigator (RootStack)
+                          const rootNavigator = navigation.getParent()?.getParent();
+                          if (rootNavigator) {
+                            rootNavigator.dispatch(
+                              CommonActions.navigate({
+                                name: 'Main',
+                                params: {
+                                  screen: 'Maintenance',
+                                  params: {
+                                    screen: 'CreateMaintenance',
+                                    params: {
                           inspectionId,
+                                      propertyId: effectiveInspection?.propertyId,
+                                      blockId: effectiveInspection?.blockId,
                           fieldLabel,
                           photos,
-                        } as any);
+                                      entryId: entry?.id,
+                                      sectionTitle: currentSection?.title,
+                                    },
+                                  },
+                                },
+                              })
+                            );
+                          } else {
+                            // Fallback: try tab navigator directly
+                            const tabNavigator = navigation.getParent();
+                            if (tabNavigator) {
+                              (tabNavigator as any).navigate('Maintenance', {
+                                screen: 'CreateMaintenance',
+                                params: {
+                                  inspectionId,
+                                  propertyId: inspection?.propertyId,
+                                  blockId: inspection?.blockId,
+                                  fieldLabel,
+                                  photos,
+                                  entryId: entry?.id,
+                                  sectionTitle: currentSection?.title,
+                                },
+                              });
+                            } else {
+                              console.error('[InspectionCapture] Could not find navigator');
+                            }
+                          }
+                        } catch (error) {
+                          console.error('[InspectionCapture] Navigation error:', error);
+                        }
                       }}
                     />
                     </View>
@@ -1745,37 +1860,6 @@ export default function InspectionCaptureScreen() {
           </View>
         </View>
 
-        {/* Quick Actions FAB */}
-        <InspectionQuickActions
-          inspectionId={inspectionId}
-          propertyId={inspection?.propertyId}
-          blockId={inspection?.blockId}
-          onAddAsset={() => {
-            // Navigate to add asset screen
-            (navigation as any).navigate('AssetDetail', {
-              inspectionId,
-              propertyId: inspection?.propertyId,
-              blockId: inspection?.blockId,
-              mode: 'create',
-            } as any);
-          }}
-          onUpdateAsset={() => {
-            // Navigate to asset list to select asset to update
-            (navigation as any).navigate('AssetInventory', {
-              inspectionId,
-              propertyId: inspection?.propertyId,
-              blockId: inspection?.blockId,
-              mode: 'select',
-            } as any);
-          }}
-          onLogMaintenance={() => {
-            (navigation as any).navigate('CreateMaintenance', {
-              inspectionId,
-              propertyId: inspection?.propertyId,
-              blockId: inspection?.blockId,
-            } as any);
-          }}
-        />
       </View>
     </ErrorBoundary>
   );
@@ -1787,7 +1871,7 @@ const styles = StyleSheet.create({
   },
   header: {
     borderBottomWidth: 1,
-    paddingBottom: spacing[4],
+    paddingBottom: 0,
     ...shadows.sm,
   },
   headerTop: {
@@ -1806,7 +1890,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: typography.fontSize.sm,
-    marginTop: spacing[1],
+    marginTop: 2,
     lineHeight: typography.lineHeight.relaxed * typography.fontSize.sm,
   },
   backButton: {
@@ -1819,7 +1903,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing[4],
     marginBottom: spacing[3],
-    marginTop: spacing[4],
+    marginTop: 0,
     gap: spacing[2],
     flexWrap: 'wrap',
   },
@@ -1840,16 +1924,17 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     width: '100%',
-    paddingVertical: spacing[2],
-    minHeight: 36,
+    paddingVertical: moderateScale(spacing[2], 0.3),
+    minHeight: getButtonHeight('sm'),
   },
   actionButtonText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: getFontSize(typography.fontSize.xs),
   },
   badgeText: {
     fontSize: typography.fontSize.xs,
     marginLeft: spacing[1],
     fontWeight: typography.fontWeight.medium,
+    // Color applied dynamically via Badge component
   },
   aiProgressBadge: {
     // Colors applied dynamically via themeColors
@@ -1903,12 +1988,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabButton: {
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.full,
+    paddingHorizontal: moderateScale(spacing[3], 0.3),
+    paddingVertical: moderateScale(spacing[2], 0.3),
+    borderRadius: moderateScale(borderRadius.full, 0.2),
     borderWidth: 1,
-    marginRight: spacing[2],
-    minHeight: 32,
+    marginRight: moderateScale(spacing[2], 0.3),
+    minHeight: moderateScale(36, 0.2),
     justifyContent: 'center',
     alignItems: 'center',
     // Colors applied dynamically via themeColors
@@ -1918,7 +2003,7 @@ const styles = StyleSheet.create({
     // Colors applied dynamically via themeColors
   },
   tabButtonText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: getFontSize(typography.fontSize.xs),
     fontWeight: typography.fontWeight.medium,
     // Color applied dynamically via themeColors
   },
@@ -1982,6 +2067,7 @@ const styles = StyleSheet.create({
   },
   footerButton: {
     flex: 1,
+    minHeight: moderateScale(44, 0.2),
   },
   aiProgressCard: {
     padding: spacing[4],

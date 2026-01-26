@@ -7,6 +7,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { colors } from '../theme';
+import { moderateScale } from '../utils/responsive';
 import type { 
   RootStackParamList, 
   AuthStackParamList, 
@@ -22,7 +23,6 @@ import LoginScreen from '../screens/auth/LoginScreen';
 
 // Inspections Stack
 import InspectionsListScreen from '../screens/inspections/InspectionsListScreen';
-import CreateInspectionScreen from '../screens/inspections/CreateInspectionScreen';
 import InspectionCaptureScreen from '../screens/inspections/InspectionCaptureScreen';
 import InspectionReviewScreen from '../screens/inspections/InspectionReviewScreen';
 import InspectionReportScreen from '../screens/inspections/InspectionReportScreen';
@@ -58,11 +58,6 @@ function InspectionsNavigator() {
   return (
     <InspectionsStack.Navigator screenOptions={{ headerShown: false }}>
       <InspectionsStack.Screen name="InspectionsList" component={InspectionsListScreen} />
-      <InspectionsStack.Screen 
-        name="CreateInspection" 
-        component={CreateInspectionScreen}
-        options={{ headerShown: false }}
-      />
       <InspectionsStack.Screen 
         name="InspectionCapture" 
         component={InspectionCaptureScreen}
@@ -131,8 +126,9 @@ function MainTabNavigator() {
         tabBarStyle: {
           backgroundColor: themeColors.card.DEFAULT,
           borderTopColor: themeColors.border.DEFAULT,
-          paddingBottom: Math.max(insets.bottom, 8),
-          height: 60 + Math.max(insets.bottom, 8),
+          paddingBottom: Math.max(insets.bottom, moderateScale(8, 0.3)),
+          height: moderateScale(60, 0.2) + Math.max(insets.bottom, moderateScale(8, 0.3)),
+          paddingTop: moderateScale(8, 0.3),
         },
       }}
     >
@@ -140,28 +136,28 @@ function MainTabNavigator() {
         name="Inspections" 
         component={InspectionsNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <ClipboardList size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <ClipboardList size={moderateScale(size || 24, 0.2)} color={color} />,
         }}
       />
       <MainTabs.Screen 
         name="Maintenance" 
         component={MaintenanceNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <Wrench size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Wrench size={moderateScale(size || 24, 0.2)} color={color} />,
         }}
       />
       <MainTabs.Screen 
         name="Assets" 
         component={AssetsNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Package size={moderateScale(size || 24, 0.2)} color={color} />,
         }}
       />
       <MainTabs.Screen 
         name="Profile" 
         component={ProfileNavigator}
         options={{
-          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <User size={moderateScale(size || 24, 0.2)} color={color} />,
         }}
       />
     </MainTabs.Navigator>

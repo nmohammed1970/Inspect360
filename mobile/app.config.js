@@ -45,8 +45,8 @@ export default {
     },
     extra: {
       // API URL - Must be set in .env file as EXPO_PUBLIC_API_URL
-      // No hardcoded fallback - must be explicitly configured
-      apiUrl: process.env.EXPO_PUBLIC_API_URL,
+      // Fallback to production URL for standalone builds if not set
+      apiUrl: process.env.EXPO_PUBLIC_API_URL || 'https://portal.inspect360.ai',
       eas: {
         projectId: "e8d871f6-af78-4846-a1c0-7a55edc54312"
       }

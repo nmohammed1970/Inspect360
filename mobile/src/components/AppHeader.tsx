@@ -35,7 +35,8 @@ export default function AppHeader({ onMenuPress }: AppHeaderProps) {
   });
 
   const companyName = organization?.brandingName || organization?.name || 'Inspect360';
-  const primaryColor = organization?.brandingPrimaryColor || colors.primary.DEFAULT;
+  // Use theme-aware primary color - ensure it's visible in dark mode
+  const primaryColor = organization?.brandingPrimaryColor || themeColors.primary.DEFAULT;
 
   // Default logo URL - matching web app logic exactly
   // Web app uses: import defaultLogoUrl from "@assets/Inspect360 Logo_1761302629835.png";
@@ -70,7 +71,14 @@ export default function AppHeader({ onMenuPress }: AppHeaderProps) {
   const logoSrc = getLogoSrc();
 
   return (
-    <View style={[styles.header, { paddingTop: insets.top }]}>
+    <View style={[
+      styles.header, 
+      { 
+        paddingTop: insets.top,
+        backgroundColor: themeColors.background,
+        borderBottomColor: themeColors.border.DEFAULT,
+      }
+    ]}>
       <View style={styles.headerContent}>
         {/* Logo and Company Name */}
         <View style={styles.logoSection}>
@@ -89,7 +97,7 @@ export default function AppHeader({ onMenuPress }: AppHeaderProps) {
               }
             }}
           />
-          <Text style={[styles.companyName, { color: primaryColor }]} numberOfLines={1}>
+          <Text style={[styles.companyName, { color: themeColors.text.primary }]} numberOfLines={1}>
             {companyName}
           </Text>
         </View>
@@ -101,7 +109,7 @@ export default function AppHeader({ onMenuPress }: AppHeaderProps) {
             onPress={onMenuPress}
             activeOpacity={0.7}
           >
-            <Menu size={24} color={colors.text.primary} />
+            <Menu size={24} color={themeColors.text.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -111,9 +119,8 @@ export default function AppHeader({ onMenuPress }: AppHeaderProps) {
 
 const styles = StyleSheet.create({
   header: {
-    backgroundColor: colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border.DEFAULT,
+    // backgroundColor and borderBottomColor applied dynamically via themeColors
     ...shadows.sm,
   },
   headerContent: {

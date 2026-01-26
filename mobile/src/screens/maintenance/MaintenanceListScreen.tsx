@@ -9,12 +9,13 @@ import {
   Modal,
   ScrollView,
   Alert,
+  TextInput,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Wrench, Plus, Filter, X, Pencil, Clipboard, Calendar, User, Clock, CheckCircle2, AlertCircle } from 'lucide-react-native';
+import { Wrench, Plus, Filter, X, Pencil, Clipboard, Calendar, User, Clock, CheckCircle2, AlertCircle, Search } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { maintenanceService, type MaintenanceRequestWithDetails, type WorkOrder } from '../../services/maintenance';
 import { propertiesService } from '../../services/properties';
@@ -26,8 +27,9 @@ import EmptyState from '../../components/ui/EmptyState';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Input from '../../components/ui/Input';
-import { colors, spacing, typography, borderRadius } from '../../theme';
+import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { moderateScale, getFontSize } from '../../utils/responsive';
 import { format, formatDistanceToNow } from 'date-fns';
 
 type NavigationProp = StackNavigationProp<MaintenanceStackParamList, 'MaintenanceList'>;
@@ -63,11 +65,17 @@ export default function MaintenanceListScreen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'requests' | 'work-orders'>('requests');
+  const [searchTerm, setSearchTerm] = useState('');
+  // Tabs removed - always show requests
+  const activeTab = 'requests';
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [filterProperty, setFilterProperty] = useState<string>('all');
   const [filterBlock, setFilterBlock] = useState<string>('all');
-  const [showFiltersModal, setShowFiltersModal] = useState(false);
+  const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [showStatusFilter, setShowStatusFilter] = useState(false);
+  const [showBlockFilter, setShowBlockFilter] = useState(false);
+  const [showPropertyFilter, setShowPropertyFilter] = useState(false);
+  const [showPriorityFilter, setShowPriorityFilter] = useState(false);
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderTeamId, setWorkOrderTeamId] = useState<string>('');
@@ -176,6 +184,26 @@ export default function MaintenanceListScreen() {
   const filteredRequests = useMemo(() => {
     let filtered = requests;
 
+    // Search filter - search by title, description, property name, block name, status
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(r => {
+        const title = r.title?.toLowerCase() || '';
+        const description = r.description?.toLowerCase() || '';
+        const propertyName = r.property?.name?.toLowerCase() || r.property?.address?.toLowerCase() || '';
+        const blockName = r.block?.name?.toLowerCase() || '';
+        const status = r.status?.toLowerCase() || '';
+        const priority = r.priority?.toLowerCase() || '';
+        
+        return title.includes(searchLower) ||
+               description.includes(searchLower) ||
+               propertyName.includes(searchLower) ||
+               blockName.includes(searchLower) ||
+               status.includes(searchLower) ||
+               priority.includes(searchLower);
+      });
+    }
+
     // Filter by status
     if (selectedStatus !== 'all') {
       filtered = filtered.filter(r => r.status === selectedStatus);
@@ -192,13 +220,18 @@ export default function MaintenanceListScreen() {
       filtered = filtered.filter(r => r.propertyId && blockPropertyIds.includes(r.propertyId));
     }
 
+    // Filter by priority
+    if (filterPriority !== 'all') {
+      filtered = filtered.filter(r => r.priority === filterPriority);
+    }
+
     // Tenants should only see their own requests
     if (user?.role === 'tenant') {
       filtered = filtered.filter(r => r.reportedBy === user.id);
     }
 
     return filtered;
-  }, [requests, selectedStatus, filterProperty, filterBlock, properties, user]);
+  }, [requests, searchTerm, selectedStatus, filterProperty, filterBlock, filterPriority, properties, user]);
 
   const handleEdit = (request: MaintenanceRequestWithDetails) => {
     navigation.navigate('CreateMaintenance', { requestId: request.id });
@@ -485,124 +518,142 @@ export default function MaintenanceListScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]}>
-      <View style={[styles.header, { 
+      {/* Fixed Header */}
+      <View style={[styles.fixedHeader, { 
         paddingTop: Math.max(insets.top + spacing[2], spacing[6]),
         backgroundColor: themeColors.card.DEFAULT,
-        borderBottomColor: themeColors.border.DEFAULT
       }]}>
         <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>Maintenance</Text>
-          <Button
-            title="New Request"
-            onPress={() => navigation.navigate('CreateMaintenance')}
-            variant="primary"
-            size="sm"
-          />
+          <View style={styles.headerText}>
+            <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>Maintenance</Text>
+            <Text style={[styles.headerSubtitle, { color: themeColors.text.secondary }]}>Track and manage maintenance requests</Text>
+          </View>
+          <View style={styles.headerButton}>
+            <Button
+              title="New Request"
+              onPress={() => navigation.navigate('CreateMaintenance')}
+              variant="primary"
+              size="sm"
+            />
+          </View>
         </View>
-      </View>
-
-      {/* Tabs */}
-      <View style={[styles.tabsContainer, { 
-        backgroundColor: themeColors.card.DEFAULT,
-        borderBottomColor: themeColors.border.DEFAULT
-      }]}>
-        <TouchableOpacity
-          style={[
-            styles.tab, 
-            activeTab === 'requests' && { borderBottomColor: themeColors.primary.DEFAULT }
-          ]}
-          onPress={() => setActiveTab('requests')}
-        >
-          <Wrench size={16} color={activeTab === 'requests' ? themeColors.primary.DEFAULT : themeColors.text.secondary} />
-          <Text style={[
-            styles.tabText, 
-            { color: activeTab === 'requests' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+        
+        {/* Fixed Search Bar */}
+        {activeTab === 'requests' && user?.role !== 'tenant' && (
+          <View style={[
+            styles.searchContainer,
+            {
+              borderColor: themeColors.border.DEFAULT,
+            }
           ]}>
-            Requests
-          </Text>
-        </TouchableOpacity>
-        {(user?.role === 'owner' || user?.role === 'contractor') && (
-          <TouchableOpacity
-            style={[
-              styles.tab, 
-              activeTab === 'work-orders' && { borderBottomColor: themeColors.primary.DEFAULT }
-            ]}
-            onPress={() => setActiveTab('work-orders')}
-          >
-            <Clipboard size={16} color={activeTab === 'work-orders' ? themeColors.primary.DEFAULT : themeColors.text.secondary} />
-            <Text style={[
-              styles.tabText, 
-              { color: activeTab === 'work-orders' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
-            ]}>
-              Work Orders
-            </Text>
-          </TouchableOpacity>
+            <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
+            <TextInput
+              style={[styles.searchInput, { color: themeColors.text.primary }]}
+              placeholder="Search maintenance requests by title, description, property, or status..."
+              placeholderTextColor={themeColors.text.secondary}
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+            />
+          </View>
         )}
       </View>
 
-      {/* Filters (only for requests tab, hidden for tenants) */}
+      {/* Scrollable Content */}
       {activeTab === 'requests' && user?.role !== 'tenant' && (
-        <View style={[styles.filtersContainer, { backgroundColor: themeColors.background }]}>
-          <TouchableOpacity
-            style={[
-              styles.filterButton, 
-              { 
-                backgroundColor: themeColors.card.DEFAULT,
-                borderColor: themeColors.border.light,
-              }
-            ]}
-            onPress={() => setShowFiltersModal(true)}
-          >
-            <Filter size={16} color={themeColors.text.primary} />
-            <Text style={[styles.filterButtonText, { color: themeColors.text.primary }]}>Filters</Text>
-            {(selectedStatus !== 'all' || filterBlock !== 'all' || filterProperty !== 'all') && (
-              <View style={[styles.filterIndicator, { backgroundColor: themeColors.primary.DEFAULT }]} />
-            )}
-          </TouchableOpacity>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statusFilters}>
-            {['all', 'open', 'in_progress', 'completed', 'closed'].map((status) => (
-              <TouchableOpacity
-                key={status}
-                style={[
-                  styles.statusFilterButton,
-                  {
-                    backgroundColor: selectedStatus === status ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
-                    borderColor: selectedStatus === status ? themeColors.primary.DEFAULT : themeColors.border.light,
-                  },
-                ]}
-                onPress={() => setSelectedStatus(status)}
-              >
-                <Text
-                  style={[
-                    styles.statusFilterText,
-                    {
-                      color: selectedStatus === status ? themeColors.primary.foreground : themeColors.text.secondary,
-                    },
-                  ]}
-                >
-                  {status === 'all' ? 'All' : status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Content */}
-      {activeTab === 'requests' ? (
-        <FlatList
-          data={filteredRequests}
-          renderItem={renderMaintenanceItem}
-          keyExtractor={(item) => item.id}
+        <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={[
-            styles.listContent,
+            styles.contentContainer,
             { paddingBottom: Math.max(insets.bottom + 80, 32) }
           ]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          ListEmptyComponent={
+        >
+          {/* Filters */}
+          <View style={[styles.filtersContainer, { backgroundColor: themeColors.background }]}>
+            <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Filter by:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: selectedStatus !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                selectedStatus !== 'all' && { borderColor: themeColors.primary.DEFAULT }
+              ]}
+              onPress={() => setShowStatusFilter(true)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: selectedStatus !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+              ]}>
+                Status: {selectedStatus === 'all' ? 'All' : selectedStatus === 'in_progress' ? 'In Progress' : selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterBlock !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterBlock !== 'all' && { borderColor: themeColors.primary.DEFAULT }
+              ]}
+              onPress={() => setShowBlockFilter(true)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: filterBlock !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+              ]}>
+                Block: {filterBlock !== 'all' ? blocks.find(b => b.id === filterBlock)?.name || 'All' : 'All'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterProperty !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterProperty !== 'all' && { borderColor: themeColors.primary.DEFAULT }
+              ]}
+              onPress={() => setShowPropertyFilter(true)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: filterProperty !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+              ]}>
+                Property: {filterProperty !== 'all' ? properties.find(p => p.id === filterProperty)?.name || 'All' : 'All'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterPriority !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterPriority !== 'all' && { borderColor: themeColors.primary.DEFAULT }
+              ]}
+              onPress={() => setShowPriorityFilter(true)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: filterPriority !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+              ]}>
+                Priority: {filterPriority === 'all' ? 'All' : filterPriority.charAt(0).toUpperCase() + filterPriority.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+          </View>
+          
+          {/* Content List */}
+          {filteredRequests.length === 0 ? (
             <EmptyState
               title="No Maintenance Requests"
               message={
@@ -611,9 +662,20 @@ export default function MaintenanceListScreen() {
                   : `No ${selectedStatus.replace('-', ' ')} requests found`
               }
             />
-          }
-        />
-      ) : (
+          ) : (
+            <View style={styles.listContent}>
+              {filteredRequests.map((item) => (
+                <View key={item.id} style={styles.requestCardWrapper}>
+                  {renderMaintenanceItem({ item })}
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* Content for work orders */}
+      {activeTab !== 'requests' && (
         <FlatList
           data={workOrders}
           renderItem={renderWorkOrderItem}
@@ -638,130 +700,246 @@ export default function MaintenanceListScreen() {
         />
       )}
 
-      {/* Filters Modal */}
+      {/* Status Filter Modal */}
       <Modal
-        visible={showFiltersModal}
-        animationType="slide"
+        visible={showStatusFilter}
         transparent={true}
-        onRequestClose={() => setShowFiltersModal(false)}
+        animationType="slide"
+        onRequestClose={() => setShowStatusFilter(false)}
       >
-        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-          <View style={[styles.modalContent, { backgroundColor: themeColors.card.DEFAULT }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.DEFAULT }]}>
-              <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Filters</Text>
-              <TouchableOpacity onPress={() => setShowFiltersModal(false)}>
-                <X size={24} color={themeColors.text.primary} />
+        <View style={styles.modalOverlay}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: themeColors.background,
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4] 
+            }
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
+              <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Filter by Status</Text>
+              <TouchableOpacity 
+                onPress={() => setShowStatusFilter(false)}
+                style={[styles.modalCloseButton, { backgroundColor: themeColors.card.DEFAULT }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modalClose, { color: themeColors.text.secondary }]}>✕</Text>
               </TouchableOpacity>
             </View>
-
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={true}>
-              <View style={styles.filterSection}>
-                <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Status</Text>
-                <View style={styles.filterOptions}>
-                  {['all', 'open', 'in_progress', 'completed', 'closed'].map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      style={[
-                        styles.filterOptionButton,
-                        {
-                          backgroundColor: selectedStatus === status ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
-                          borderColor: selectedStatus === status ? themeColors.primary.DEFAULT : themeColors.border.light,
-                        },
-                        selectedStatus === status && styles.filterOptionButtonActive,
-                      ]}
-                      onPress={() => setSelectedStatus(status)}
-                    >
-                      <Text
-                        style={[
-                          styles.filterOptionText,
-                          {
-                            color: selectedStatus === status ? themeColors.primary.foreground : themeColors.text.secondary,
-                          },
-                          selectedStatus === status && styles.filterOptionTextActive,
-                        ]}
-                      >
-                        {status === 'all' ? 'All' : status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.filterSection}>
-                <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Block</Text>
-                <ScrollView style={styles.filterSelectContainer} showsVerticalScrollIndicator={true}>
-                  {['all', ...blocks.map(b => b.id)].map((blockId) => {
-                    const block = blockId === 'all' ? null : blocks.find(b => b.id === blockId);
-                    return (
-                      <TouchableOpacity
-                        key={blockId}
-                        style={[
-                          styles.filterSelectOption,
-                          filterBlock === blockId && styles.filterSelectOptionActive,
-                        ]}
-                        onPress={() => setFilterBlock(blockId)}
-                      >
-                        <Text
-                          style={[
-                            styles.filterSelectText,
-                            filterBlock === blockId && styles.filterSelectTextActive,
-                          ]}
-                        >
-                          {block ? block.name : 'All Blocks'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.filterSection}>
-                <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Property</Text>
-                <ScrollView style={styles.filterSelectContainer} showsVerticalScrollIndicator={true}>
-                  {['all', ...properties.filter(p => filterBlock === 'all' || p.blockId === filterBlock).map(p => p.id)].map((propertyId) => {
-                    const property = propertyId === 'all' ? null : properties.find(p => p.id === propertyId);
-                    return (
-                      <TouchableOpacity
-                        key={propertyId}
-                        style={[
-                          styles.filterSelectOption,
-                          {
-                            backgroundColor: filterProperty === propertyId ? themeColors.primary.light : themeColors.card.DEFAULT,
-                            borderColor: filterProperty === propertyId ? themeColors.primary.DEFAULT : themeColors.border.light,
-                          },
-                        ]}
-                        onPress={() => setFilterProperty(propertyId)}
-                      >
-                        <Text
-                          style={[
-                            styles.filterSelectText,
-                            {
-                              color: filterProperty === propertyId ? themeColors.primary.DEFAULT : themeColors.text.primary,
-                              fontWeight: filterProperty === propertyId ? '600' : '400',
-                            },
-                          ]}
-                        >
-                          {property ? property.name : 'All Properties'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              {(selectedStatus !== 'all' || filterBlock !== 'all' || filterProperty !== 'all') && (
-                <Button
-                  title="Clear All Filters"
+            <FlatList
+              data={['all', 'open', 'in_progress', 'completed', 'closed']}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    { 
+                      backgroundColor: selectedStatus === item ? themeColors.primary.light : themeColors.card.DEFAULT,
+                      borderColor: selectedStatus === item ? themeColors.primary.DEFAULT : 'transparent',
+                      borderWidth: selectedStatus === item ? 1 : 0,
+                    },
+                  ]}
                   onPress={() => {
-                    setSelectedStatus('all');
-                    setFilterBlock('all');
-                    setFilterProperty('all');
+                    setSelectedStatus(item);
+                    setShowStatusFilter(false);
                   }}
-                  variant="outline"
-                  style={styles.clearFiltersButton}
-                />
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      { color: selectedStatus === item ? themeColors.primary.DEFAULT : themeColors.text.primary }
+                    ]}
+                  >
+                    {item === 'all' ? 'All' : item === 'in_progress' ? 'In Progress' : item.charAt(0).toUpperCase() + item.slice(1)}
+                  </Text>
+                  {selectedStatus === item && (
+                    <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
+                  )}
+                </TouchableOpacity>
               )}
-            </ScrollView>
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Block Filter Modal */}
+      <Modal
+        visible={showBlockFilter}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowBlockFilter(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: themeColors.background,
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4] 
+            }
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
+              <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Filter by Block</Text>
+              <TouchableOpacity 
+                onPress={() => setShowBlockFilter(false)}
+                style={[styles.modalCloseButton, { backgroundColor: themeColors.card.DEFAULT }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modalClose, { color: themeColors.text.secondary }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={[{ id: 'all', name: 'All Blocks' }, ...blocks]}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    { 
+                      backgroundColor: filterBlock === item.id ? themeColors.primary.light : themeColors.card.DEFAULT,
+                      borderColor: filterBlock === item.id ? themeColors.primary.DEFAULT : 'transparent',
+                      borderWidth: filterBlock === item.id ? 1 : 0,
+                    },
+                  ]}
+                  onPress={() => {
+                    setFilterBlock(item.id);
+                    setShowBlockFilter(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      { color: filterBlock === item.id ? themeColors.primary.DEFAULT : themeColors.text.primary }
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+                  {filterBlock === item.id && (
+                    <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Property Filter Modal */}
+      <Modal
+        visible={showPropertyFilter}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowPropertyFilter(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: themeColors.background,
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4] 
+            }
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
+              <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Filter by Property</Text>
+              <TouchableOpacity 
+                onPress={() => setShowPropertyFilter(false)}
+                style={[styles.modalCloseButton, { backgroundColor: themeColors.card.DEFAULT }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modalClose, { color: themeColors.text.secondary }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={[{ id: 'all', name: 'All Properties' }, ...properties.filter(p => filterBlock === 'all' || p.blockId === filterBlock)]}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    { 
+                      backgroundColor: filterProperty === item.id ? themeColors.primary.light : themeColors.card.DEFAULT,
+                      borderColor: filterProperty === item.id ? themeColors.primary.DEFAULT : 'transparent',
+                      borderWidth: filterProperty === item.id ? 1 : 0,
+                    },
+                  ]}
+                  onPress={() => {
+                    setFilterProperty(item.id);
+                    setShowPropertyFilter(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      { color: filterProperty === item.id ? themeColors.primary.DEFAULT : themeColors.text.primary }
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+                  {filterProperty === item.id && (
+                    <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Priority Filter Modal */}
+      <Modal
+        visible={showPriorityFilter}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowPriorityFilter(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: themeColors.background,
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4] 
+            }
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
+              <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Filter by Priority</Text>
+              <TouchableOpacity 
+                onPress={() => setShowPriorityFilter(false)}
+                style={[styles.modalCloseButton, { backgroundColor: themeColors.card.DEFAULT }]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modalClose, { color: themeColors.text.secondary }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={['all', 'low', 'medium', 'high']}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    { 
+                      backgroundColor: filterPriority === item ? themeColors.primary.light : themeColors.card.DEFAULT,
+                      borderColor: filterPriority === item ? themeColors.primary.DEFAULT : 'transparent',
+                      borderWidth: filterPriority === item ? 1 : 0,
+                    },
+                  ]}
+                  onPress={() => {
+                    setFilterPriority(item);
+                    setShowPriorityFilter(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modalItemText,
+                      { color: filterPriority === item ? themeColors.primary.DEFAULT : themeColors.text.primary }
+                    ]}
+                  >
+                    {item === 'all' ? 'All' : item.charAt(0).toUpperCase() + item.slice(1)}
+                  </Text>
+                  {filterPriority === item && (
+                    <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
           </View>
         </View>
       </Modal>
@@ -914,97 +1092,92 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
+  fixedHeader: {
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[3],
     borderBottomWidth: 1,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    borderBottomColor: 'transparent',
+    zIndex: 10,
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: spacing[3],
+    gap: spacing[2],
+    width: '100%',
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: spacing[2],
+    flexShrink: 1,
+  },
+  headerButton: {
+    flexShrink: 0,
+    alignSelf: 'flex-start',
+    maxWidth: '45%',
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
+    marginBottom: spacing[1],
   },
-  tabsContainer: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    paddingHorizontal: 16,
+  headerSubtitle: {
+    fontSize: typography.fontSize.sm,
   },
-  tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  tabActive: {
-    // borderBottomColor will be set dynamically
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
-  },
-  tabTextActive: {
-    // color will be set dynamically
-  },
-  filtersContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginRight: 8,
-    position: 'relative',
-  },
-  filterButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
-  },
-  filterIndicator: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusFilters: {
+  scrollView: {
     flex: 1,
   },
-  statusFilterButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+  contentContainer: {
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[4],
+    paddingTop: spacing[2],
+  },
+  filtersContainer: {
+    paddingHorizontal: 0,
+    paddingVertical: spacing[2],
+    borderBottomWidth: 0,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: borderRadius.xl,
     borderWidth: 1,
-    marginRight: 8,
+    paddingHorizontal: spacing[3],
+    minHeight: 44,
   },
-  statusFilterButtonActive: {
-    // Colors set dynamically
+  searchIcon: {
+    marginRight: spacing[2],
   },
-  statusFilterText: {
-    fontSize: 12,
-    fontWeight: '600',
+  searchInput: {
+    flex: 1,
+    fontSize: typography.fontSize.base,
   },
-  statusFilterTextActive: {
-    // Color set dynamically
+  filterLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing[2],
+  },
+  filterRow: {
+    flexDirection: 'row',
+  },
+  filterChip: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    marginRight: spacing[2],
+  },
+  filterChipText: {
+    fontSize: typography.fontSize.sm,
   },
   listContent: {
-    padding: 16,
+    paddingHorizontal: spacing[2],
+    paddingVertical: 0,
+  },
+  requestCardWrapper: {
+    marginBottom: 16,
   },
   requestCard: {
     marginBottom: 16,
@@ -1152,75 +1325,86 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     maxHeight: '90%',
     paddingBottom: 32,
+    ...shadows.lg,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     borderBottomWidth: 1,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
+    letterSpacing: -0.5,
   },
   modalBody: {
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
   },
   filterSection: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   filterLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing[2],
   },
   filterOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: moderateScale(spacing[2], 0.3),
   },
   filterOptionButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: moderateScale(spacing[3], 0.3),
+    paddingVertical: moderateScale(spacing[2], 0.3),
+    borderRadius: moderateScale(borderRadius.full, 0.2),
     borderWidth: 1,
-    minWidth: 100,
+    marginRight: moderateScale(spacing[2], 0.3),
+    minHeight: moderateScale(36, 0.2),
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: moderateScale(90, 0.3),
   },
   filterOptionButtonActive: {
-    // Colors set dynamically
+    ...shadows.xs,
   },
   filterOptionText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: getFontSize(typography.fontSize.xs),
+    fontWeight: typography.fontWeight.medium,
     textAlign: 'center',
   },
   filterOptionTextActive: {
-    // Color set dynamically
+    fontWeight: typography.fontWeight.semibold,
   },
   filterSelectContainer: {
     maxHeight: 200,
   },
   filterSelectOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingHorizontal: moderateScale(spacing[3], 0.3),
+    paddingVertical: moderateScale(spacing[3], 0.3),
+    borderRadius: moderateScale(borderRadius.full, 0.2),
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: moderateScale(spacing[2], 0.3),
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: moderateScale(44, 0.2),
   },
   filterSelectOptionActive: {
     // Colors set dynamically
   },
   filterSelectText: {
-    fontSize: 14,
+    fontSize: getFontSize(typography.fontSize.sm),
   },
   filterSelectTextActive: {
     // Color set dynamically
@@ -1248,5 +1432,56 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: borderRadius.xl || 24,
+    borderTopRightRadius: borderRadius.xl || 24,
+    maxHeight: '85%',
+    paddingTop: spacing[4],
+    paddingHorizontal: spacing[4],
+    ...shadows.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: spacing[3],
+    marginBottom: spacing[2],
+  },
+  modalTitle: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
+  },
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.full,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalClose: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    borderRadius: borderRadius.md,
+    marginBottom: spacing[2],
+  },
+  modalItemSelected: {
+    // borderColor applied dynamically via themeColors
+  },
+  modalItemText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
   },
 });

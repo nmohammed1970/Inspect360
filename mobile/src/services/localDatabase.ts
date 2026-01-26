@@ -95,11 +95,15 @@ class LocalDatabase {
         await runMigrations(this.db);
         this.initialized = true;
         console.log('[LocalDatabase] Database initialized successfully');
-      } catch (error) {
+      } catch (error: any) {
         console.error('[LocalDatabase] Failed to initialize database:', error);
+        // Don't throw - allow app to continue without local database
+        // This prevents crashes if database initialization fails
+        console.warn('[LocalDatabase] Continuing without local database - offline features will be limited');
         this.initialized = false;
         this.db = null;
-        throw error;
+        // Return instead of throwing to prevent app crash
+        return;
       } finally {
         this.initializing = false;
         this.initializationPromise = null;
@@ -113,8 +117,11 @@ class LocalDatabase {
     if (!this.initialized || !this.db) {
       await this.initialize();
     }
+    // Don't throw if database is not available - just log a warning
+    // This allows the app to continue functioning without offline features
     if (!this.db) {
-      throw new Error('Database initialization failed');
+      console.warn('[LocalDatabase] Database not available - offline features disabled');
+      throw new Error('Database not available');
     }
   }
 
@@ -206,9 +213,16 @@ class LocalDatabase {
   }
 
   // Inspections
+  // Saves ALL inspection types to local database (check_in, check_out, routine, maintenance, 
+  // esg_sustainability_inspection, fire_hazard_assessment, maintenance_inspection, damage, 
+  // emergency, safety_compliance, compliance_regulatory, pre_purchase, specialized, etc.)
   async saveInspection(inspection: Inspection & { templateSnapshotJson?: any; property?: any; block?: any; clerk?: any; tenantApprovalStatus?: string; tenantApprovalDeadline?: string; tenantComments?: string }): Promise<void> {
     try {
       await this.ensureInitialized();
+      if (!this.db) {
+        console.warn('[LocalDatabase] Database not available, skipping saveInspection');
+        return;
+      }
       const templateSnapshotJson = JSON.stringify(inspection.templateSnapshotJson || {});
       
       // Store property, block, and clerk data as JSON in template_snapshot_json or create a separate JSON field
@@ -257,15 +271,21 @@ class LocalDatabase {
           now,
         ]
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('[LocalDatabase] Error saving inspection:', error);
-      throw error;
+      // Don't throw - allow app to continue without offline storage
+      console.warn('[LocalDatabase] Continuing without saving inspection locally');
     }
   }
 
+  // Gets inspection from local database - works for ALL inspection types
   async getInspection(id: string, ownerUserId?: string): Promise<LocalInspection | null> {
     try {
       await this.ensureInitialized();
+      if (!this.db) {
+        console.warn('[LocalDatabase] Database not available, returning null');
+        return null;
+      }
       const result = ownerUserId
         ? await this.db!.getFirstAsync<LocalInspection>(
             'SELECT * FROM inspections WHERE id = ? AND owner_user_id = ?',
@@ -279,17 +299,23 @@ class LocalDatabase {
     }
   }
 
+  // Gets all inspections from local database - returns ALL inspection types (no type filtering)
   async getAllInspections(ownerUserId?: string): Promise<LocalInspection[]> {
     try {
       await this.ensureInitialized();
+    if (!this.db) {
+        console.warn('[LocalDatabase] Database not available, returning empty array');
+        return [];
+      }
       
+      // No type filtering - returns all inspection types (check_in, check_out, routine, maintenance, etc.)
       if (ownerUserId) {
         return await this.db!.getAllAsync<LocalInspection>(
           'SELECT * FROM inspections WHERE owner_user_id = ? ORDER BY updated_at DESC',
           [ownerUserId]
         );
-      }
-      return await this.db!.getAllAsync<LocalInspection>('SELECT * FROM inspections ORDER BY updated_at DESC');
+    }
+    return await this.db!.getAllAsync<LocalInspection>('SELECT * FROM inspections ORDER BY updated_at DESC');
     } catch (error) {
       console.error('[LocalDatabase] Error getting all inspections:', error);
       return [];

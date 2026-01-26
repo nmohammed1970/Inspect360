@@ -49,6 +49,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import DatePicker from '../../components/ui/DatePicker';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { moderateScale, getFontSize } from '../../utils/responsive';
 import type { AssetsStackParamList } from '../../navigation/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -153,6 +154,7 @@ export default function AssetInventoryListScreen() {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showConditionPicker, setShowConditionPicker] = useState(false);
+  const [showCleanlinessPicker, setShowCleanlinessPicker] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [showPropertyPicker, setShowPropertyPicker] = useState(false);
   const [showBlockPicker, setShowBlockPicker] = useState(false);
@@ -199,22 +201,25 @@ export default function AssetInventoryListScreen() {
 
   // Auto-open dialog and pre-populate form when navigated from inspection
   useEffect(() => {
-    if (autoOpen && (propertyIdFromRoute || blockIdFromRoute)) {
-      const initialFormData: Partial<AssetInventory> = {};
-      if (propertyIdFromRoute) {
-        initialFormData.propertyId = propertyIdFromRoute;
-      } else if (blockIdFromRoute) {
-        initialFormData.blockId = blockIdFromRoute;
-      }
-      setFormData(initialFormData);
-      setIsDialogOpen(true);
-      
-      // Clear route params after opening to prevent re-opening on re-render
-      if (navigation) {
-        (navigation as any).setParams({ autoOpen: false });
+    if (autoOpen) {
+      // Wait for properties/blocks to load before setting form data
+      if ((propertyIdFromRoute && properties.length > 0) || (blockIdFromRoute && blocks.length > 0) || (!propertyIdFromRoute && !blockIdFromRoute)) {
+        const initialFormData: Partial<AssetInventory> = {};
+        if (propertyIdFromRoute) {
+          initialFormData.propertyId = propertyIdFromRoute;
+        } else if (blockIdFromRoute) {
+          initialFormData.blockId = blockIdFromRoute;
+        }
+        setFormData(initialFormData);
+        setIsDialogOpen(true);
+        
+        // Clear route params after opening to prevent re-opening on re-render
+        if (navigation) {
+          (navigation as any).setParams({ autoOpen: false });
+        }
       }
     }
-  }, [autoOpen, propertyIdFromRoute, blockIdFromRoute, navigation]);
+  }, [autoOpen, propertyIdFromRoute, blockIdFromRoute, navigation, properties, blocks]);
 
   // Filter assets
   const filteredAssets = useMemo(() => {
@@ -491,11 +496,11 @@ export default function AssetInventoryListScreen() {
     );
   };
 
-  const selectedCategoryLabel = filterCategory === 'all' ? 'All Categories' : filterCategory;
-  const selectedConditionLabel = filterCondition === 'all' ? 'All Conditions' : conditionLabels[filterCondition] || filterCondition;
-  const selectedLocationLabel = filterLocation === 'all' ? 'All Locations' : (() => {
+  const selectedCategoryLabel = filterCategory === 'all' ? 'All' : filterCategory;
+  const selectedConditionLabel = filterCondition === 'all' ? 'All' : conditionLabels[filterCondition] || filterCondition;
+  const selectedLocationLabel = filterLocation === 'all' ? 'All' : (() => {
     const loc = locations.find(l => l.id === filterLocation);
-    return loc ? `${loc.type === 'property' ? '🏠' : '🏢'} ${loc.name}` : 'All Locations';
+    return loc ? `${loc.type === 'property' ? '🏠' : '🏢'} ${loc.name}` : 'All';
   })();
 
   if (isLoading) {
@@ -504,18 +509,11 @@ export default function AssetInventoryListScreen() {
 
     return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.contentContainer,
-          {
-            paddingTop: Math.max(insets.top + spacing[4], spacing[8]),
-            paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
-          },
-        ]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-      >
-        {/* Header */}
+      {/* Fixed Header */}
+      <View style={[styles.fixedHeader, { 
+        paddingTop: Math.max(insets.top + spacing[2], spacing[6]),
+        backgroundColor: themeColors.card.DEFAULT,
+      }]}>
         <View style={[styles.header, { backgroundColor: themeColors.card.DEFAULT }]}>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: themeColors.text.primary }]}>Asset Inventory</Text>
@@ -529,34 +527,48 @@ export default function AssetInventoryListScreen() {
             icon={<Plus size={16} color="#ffffff" />}
           />
         </View>
+        
+        {/* Fixed Search Bar */}
+        <View style={[
+          styles.searchContainer,
+          {
+            borderColor: themeColors.border.DEFAULT,
+          }
+        ]}>
+          <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, { color: themeColors.text.primary }]}
+            placeholder="Search assets by name, description, or location..."
+            placeholderTextColor={themeColors.text.secondary}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+          />
+        </View>
+      </View>
 
+      {/* Scrollable Content */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.contentContainer,
+          {
+            paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
+          },
+        ]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         {/* Filters */}
         <View style={styles.filters}>
-          <View style={[
-            styles.searchContainer,
-            {
-              backgroundColor: themeColors.card.DEFAULT,
-              borderColor: themeColors.border.DEFAULT,
-            }
-          ]}>
-            <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
-            <TextInput
-              style={[styles.searchInput, { color: themeColors.text.primary }]}
-              placeholder="Search assets by name, description, or location..."
-              placeholderTextColor={themeColors.text.secondary}
-              value={searchTerm}
-              onChangeText={setSearchTerm}
-            />
-          </View>
-
+          <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Filter by:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
             <TouchableOpacity
               style={[
                 styles.filterChip,
                 {
-                  borderColor: filterCategory !== 'all' ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
-                  backgroundColor: filterCategory !== 'all' ? (themeColors.primary.light || `${themeColors.primary.DEFAULT}20`) : themeColors.background,
-                }
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterCategory !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterCategory !== 'all' && { borderColor: themeColors.primary.DEFAULT }
               ]}
               onPress={() => setShowCategoryPicker(true)}
             >
@@ -571,9 +583,10 @@ export default function AssetInventoryListScreen() {
               style={[
                 styles.filterChip,
                 {
-                  borderColor: filterCondition !== 'all' ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
-                  backgroundColor: filterCondition !== 'all' ? (themeColors.primary.light || `${themeColors.primary.DEFAULT}20`) : themeColors.background,
-                }
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterCondition !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterCondition !== 'all' && { borderColor: themeColors.primary.DEFAULT }
               ]}
               onPress={() => setShowConditionPicker(true)}
             >
@@ -588,9 +601,10 @@ export default function AssetInventoryListScreen() {
               style={[
                 styles.filterChip,
                 {
-                  borderColor: filterLocation !== 'all' ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
-                  backgroundColor: filterLocation !== 'all' ? (themeColors.primary.light || `${themeColors.primary.DEFAULT}20`) : themeColors.background,
-                }
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterLocation !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterLocation !== 'all' && { borderColor: themeColors.primary.DEFAULT }
               ]}
               onPress={() => setShowLocationPicker(true)}
             >
@@ -868,20 +882,38 @@ export default function AssetInventoryListScreen() {
               <View style={styles.pickerRow}>
                 <View style={styles.pickerHalf}>
                   <TouchableOpacity
-                    style={styles.dropdownButton}
+                    style={[
+                      styles.dropdownButton,
+                      {
+                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: themeColors.input,
+                      }
+                    ]}
                     onPress={() => setShowCategoryPicker(true)}
                   >
-                    <Text style={[styles.dropdownText, !formData.category && styles.dropdownTextPlaceholder]}>
+                    <Text style={[
+                      styles.dropdownText,
+                      { color: formData.category ? themeColors.text.primary : themeColors.text.muted }
+                    ]}>
                       {formData.category || 'Category'}
                     </Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.pickerHalf}>
                   <TouchableOpacity
-                    style={styles.dropdownButton}
+                    style={[
+                      styles.dropdownButton,
+                      {
+                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: themeColors.input,
+                      }
+                    ]}
                     onPress={() => setShowConditionPicker(true)}
                   >
-                    <Text style={[styles.dropdownText, !formData.condition && styles.dropdownTextPlaceholder]}>
+                    <Text style={[
+                      styles.dropdownText,
+                      { color: formData.condition ? themeColors.text.primary : themeColors.text.muted }
+                    ]}>
                       {formData.condition ? conditionLabels[formData.condition] : 'Condition *'}
                     </Text>
                   </TouchableOpacity>
@@ -890,10 +922,19 @@ export default function AssetInventoryListScreen() {
               <View style={styles.pickerRow}>
                 <View style={styles.pickerHalf}>
                   <TouchableOpacity
-                    style={styles.dropdownButton}
-                    onPress={() => setShowConditionPicker(true)}
+                    style={[
+                      styles.dropdownButton,
+                      {
+                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: themeColors.input,
+                      }
+                    ]}
+                    onPress={() => setShowCleanlinessPicker(true)}
                   >
-                    <Text style={[styles.dropdownText, !formData.cleanliness && styles.dropdownTextPlaceholder]}>
+                    <Text style={[
+                      styles.dropdownText,
+                      { color: formData.cleanliness ? themeColors.text.primary : themeColors.text.muted }
+                    ]}>
                       {formData.cleanliness ? cleanlinessLabels[formData.cleanliness] : 'Cleanliness'}
                     </Text>
                   </TouchableOpacity>
@@ -915,10 +956,19 @@ export default function AssetInventoryListScreen() {
               <View style={styles.pickerRow}>
                 <View style={styles.pickerHalf}>
                   <TouchableOpacity
-                    style={styles.dropdownButton}
+                    style={[
+                      styles.dropdownButton,
+                      {
+                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: themeColors.input,
+                      }
+                    ]}
                     onPress={() => setShowPropertyPicker(true)}
                   >
-                    <Text style={[styles.dropdownText, !formData.propertyId && styles.dropdownTextPlaceholder]}>
+                    <Text style={[
+                      styles.dropdownText,
+                      { color: formData.propertyId ? themeColors.text.primary : themeColors.text.muted }
+                    ]}>
                       {formData.propertyId
                         ? properties.find(p => p.id === formData.propertyId)?.address || 'Property'
                         : 'Property'}
@@ -927,10 +977,19 @@ export default function AssetInventoryListScreen() {
                 </View>
                 <View style={styles.pickerHalf}>
                   <TouchableOpacity
-                    style={styles.dropdownButton}
+                    style={[
+                      styles.dropdownButton,
+                      {
+                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: themeColors.input,
+                      }
+                    ]}
                     onPress={() => setShowBlockPicker(true)}
                   >
-                    <Text style={[styles.dropdownText, !formData.blockId && styles.dropdownTextPlaceholder]}>
+                    <Text style={[
+                      styles.dropdownText,
+                      { color: formData.blockId ? themeColors.text.primary : themeColors.text.muted }
+                    ]}>
                       {formData.blockId
                         ? blocks.find(b => b.id === formData.blockId)?.name || 'Block'
                         : 'Block'}
@@ -1134,22 +1193,28 @@ export default function AssetInventoryListScreen() {
       {/* Category Picker */}
       <Modal visible={showCategoryPicker} transparent animationType="fade" onRequestClose={() => setShowCategoryPicker(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.pickerModal}>
-            <Text style={styles.pickerTitle}>Select Category</Text>
+          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Category</Text>
             <FlatList
-              data={['all', ...assetCategories]}
+              data={isDialogOpen ? assetCategories : ['all', ...assetCategories]}
               showsVerticalScrollIndicator={true}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.pickerItem}
+                  style={[styles.pickerItem, { borderBottomColor: themeColors.border.light }]}
                   onPress={() => {
-                    setFilterCategory(item === 'all' ? 'all' : item);
+                    if (isDialogOpen) {
+                      // Update form data when dialog is open
+                      setFormData({ ...formData, category: item });
+                    } else {
+                      // Update filter when not in dialog
+                      setFilterCategory(item === 'all' ? 'all' : item);
+                    }
                     setShowCategoryPicker(false);
                   }}
                 >
-                  <Text style={styles.pickerItemText}>{item === 'all' ? 'All Categories' : item}</Text>
-                  {(filterCategory === item || (item === 'all' && filterCategory === 'all')) && (
+                  <Text style={[styles.pickerItemText, { color: themeColors.text.primary }]}>{item === 'all' ? 'All Categories' : item}</Text>
+                  {((isDialogOpen && formData.category === item) || (!isDialogOpen && (filterCategory === item || (item === 'all' && filterCategory === 'all')))) && (
                     <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
                   )}
                 </TouchableOpacity>
@@ -1162,15 +1227,15 @@ export default function AssetInventoryListScreen() {
       {/* Condition Picker */}
       <Modal visible={showConditionPicker} transparent animationType="fade" onRequestClose={() => setShowConditionPicker(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.pickerModal}>
-            <Text style={styles.pickerTitle}>Select Condition</Text>
+          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Condition</Text>
             <FlatList
-              data={['all', ...Object.keys(conditionLabels)]}
+              data={isDialogOpen ? Object.keys(conditionLabels) : ['all', ...Object.keys(conditionLabels)]}
               showsVerticalScrollIndicator={true}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.pickerItem}
+                  style={[styles.pickerItem, { borderBottomColor: themeColors.border.light }]}
                   onPress={() => {
                     if (item === 'all') {
                       setFilterCondition('all');
@@ -1185,7 +1250,7 @@ export default function AssetInventoryListScreen() {
                     setShowConditionPicker(false);
                   }}
                 >
-                  <Text style={styles.pickerItemText}>
+                  <Text style={[styles.pickerItemText, { color: themeColors.text.primary }]}>
                     {item === 'all' ? 'All Conditions' : conditionLabels[item]}
                   </Text>
                   {((isDialogOpen && formData.condition === item) || (!isDialogOpen && (filterCondition === item || (item === 'all' && filterCondition === 'all')))) && (
@@ -1198,25 +1263,55 @@ export default function AssetInventoryListScreen() {
         </View>
       </Modal>
 
+      {/* Cleanliness Picker */}
+      <Modal visible={showCleanlinessPicker} transparent animationType="fade" onRequestClose={() => setShowCleanlinessPicker(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Cleanliness</Text>
+            <FlatList
+              data={Object.keys(cleanlinessLabels)}
+              showsVerticalScrollIndicator={true}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.pickerItem, { borderBottomColor: themeColors.border.light }]}
+                  onPress={() => {
+                    setFormData({ ...formData, cleanliness: item as any });
+                    setShowCleanlinessPicker(false);
+                  }}
+                >
+                  <Text style={[styles.pickerItemText, { color: themeColors.text.primary }]}>
+                    {cleanlinessLabels[item]}
+                  </Text>
+                  {formData.cleanliness === item && (
+                    <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
       {/* Location Picker */}
       <Modal visible={showLocationPicker} transparent animationType="fade" onRequestClose={() => setShowLocationPicker(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.pickerModal}>
-            <Text style={styles.pickerTitle}>Select Location</Text>
+          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Location</Text>
       <FlatList
               data={[{ id: 'all', name: 'All Locations', type: 'property' as const }, ...locations]}
               showsVerticalScrollIndicator={true}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.pickerItem}
+                  style={[styles.pickerItem, { borderBottomColor: themeColors.border.light }]}
                   onPress={() => {
                     setFilterLocation(item.id === 'all' ? 'all' : item.id);
                     setShowLocationPicker(false);
                   }}
                 >
                   {item.type === 'property' ? <Home size={16} color={themeColors.text.secondary} /> : <Building2 size={16} color={themeColors.text.secondary} />}
-                  <Text style={styles.pickerItemText}>{item.name}</Text>
+                  <Text style={[styles.pickerItemText, { color: themeColors.text.primary }]}>{item.name}</Text>
                   {(filterLocation === item.id || (item.id === 'all' && filterLocation === 'all')) && (
                     <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
                   )}
@@ -1230,21 +1325,21 @@ export default function AssetInventoryListScreen() {
       {/* Property Picker (for form) */}
       <Modal visible={showPropertyPicker} transparent animationType="fade" onRequestClose={() => setShowPropertyPicker(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.pickerModal}>
-            <Text style={styles.pickerTitle}>Select Property</Text>
+          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Property</Text>
             <FlatList
               data={[{ id: '', name: 'None' }, ...properties]}
               showsVerticalScrollIndicator={true}
               keyExtractor={(item) => item.id || 'none'}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.pickerItem}
+                  style={[styles.pickerItem, { borderBottomColor: themeColors.border.light }]}
                   onPress={() => {
                     setFormData({ ...formData, propertyId: item.id || null, blockId: item.id ? undefined : formData.blockId });
                     setShowPropertyPicker(false);
                   }}
                 >
-                  <Text style={styles.pickerItemText}>{item.name || item.address || 'None'}</Text>
+                  <Text style={[styles.pickerItemText, { color: themeColors.text.primary }]}>{item.name || item.address || 'None'}</Text>
                   {formData.propertyId === item.id && <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />}
                 </TouchableOpacity>
               )}
@@ -1256,21 +1351,21 @@ export default function AssetInventoryListScreen() {
       {/* Block Picker (for form) */}
       <Modal visible={showBlockPicker} transparent animationType="fade" onRequestClose={() => setShowBlockPicker(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.pickerModal}>
-            <Text style={styles.pickerTitle}>Select Block</Text>
+          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Block</Text>
             <FlatList
               data={[{ id: '', name: 'None' }, ...blocks]}
               showsVerticalScrollIndicator={true}
               keyExtractor={(item) => item.id || 'none'}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.pickerItem}
+                  style={[styles.pickerItem, { borderBottomColor: themeColors.border.light }]}
                   onPress={() => {
                     setFormData({ ...formData, blockId: item.id || null, propertyId: item.id ? undefined : formData.propertyId });
                     setShowBlockPicker(false);
                   }}
                 >
-                  <Text style={styles.pickerItemText}>{item.name || 'None'}</Text>
+                  <Text style={[styles.pickerItemText, { color: themeColors.text.primary }]}>{item.name || 'None'}</Text>
                   {formData.blockId === item.id && <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />}
                 </TouchableOpacity>
               )}
@@ -1286,17 +1381,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  fixedHeader: {
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    zIndex: 10,
+  },
   scrollView: {
     flex: 1,
   },
   contentContainer: {
     padding: spacing[4],
+    paddingTop: spacing[3],
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: spacing[4],
+    marginBottom: spacing[3],
   },
   headerText: {
     flex: 1,
@@ -1316,10 +1419,9 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.xl,
     borderWidth: 1,
     paddingHorizontal: spacing[3],
-    marginBottom: spacing[3],
     ...shadows.sm,
   },
   searchIcon: {
@@ -1335,25 +1437,17 @@ const styles = StyleSheet.create({
     gap: spacing[2],
   },
   filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2],
     borderRadius: borderRadius.full,
     borderWidth: 1,
     marginRight: spacing[2],
-    // Colors applied dynamically via themeColors
   },
   filterChipActive: {
     // Colors set dynamically
   },
   filterChipText: {
     fontSize: typography.fontSize.sm,
-    // Color applied dynamically via themeColors
-  },
-  filterChipTextActive: {
-    fontWeight: typography.fontWeight.medium,
-    // Color applied dynamically via themeColors
   },
   assetsGrid: {
     flexDirection: 'column',
@@ -1568,7 +1662,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   pickerModal: {
-    backgroundColor: '#fff',
+    // backgroundColor applied dynamically via themeColors
     borderTopLeftRadius: borderRadius.lg,
     borderTopRightRadius: borderRadius.lg,
     maxHeight: '70%',
@@ -1579,6 +1673,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semibold,
     padding: spacing[4],
     borderBottomWidth: 1,
+    // color and borderBottomColor applied dynamically via themeColors
   },
   pickerItem: {
     flexDirection: 'row',
@@ -1588,9 +1683,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     borderBottomWidth: 1,
     gap: spacing[2],
+    // borderBottomColor applied dynamically via themeColors
   },
   pickerItemText: {
     flex: 1,
     fontSize: typography.fontSize.base,
+    // color applied dynamically via themeColors
   },
 });

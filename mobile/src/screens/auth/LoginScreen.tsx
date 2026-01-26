@@ -26,6 +26,9 @@ export default function LoginScreen() {
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  // Ensure text colors are always defined for visibility
+  const textPrimary = themeColors?.text?.primary || (theme?.theme === 'dark' ? '#fafafa' : '#0a0a0a');
+  const textSecondary = themeColors?.text?.secondary || (theme?.theme === 'dark' ? '#a3a3a3' : '#737373');
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -69,19 +72,27 @@ export default function LoginScreen() {
             {/* Logo and App Name */}
             <View style={styles.logoContainer}>
               <Logo size={80} color={themeColors.primary.DEFAULT} />
-              <Text style={[styles.appName, { color: themeColors.text.primary }]}>INSPECT 360</Text>
+              <Text style={[styles.appName, { color: textPrimary }]}>INSPECT 360</Text>
             </View>
 
             {/* Login Card */}
-            <View style={[styles.card, { backgroundColor: themeColors.card.DEFAULT }]}>
-              <Text style={[styles.welcomeTitle, { color: themeColors.text.primary }]}>Welcome back</Text>
-              <Text style={[styles.welcomeSubtitle, { color: themeColors.text.secondary }]}>
+            <View style={[
+              styles.card, 
+              { 
+                backgroundColor: themeColors.card.DEFAULT,
+                borderColor: themeColors.border.DEFAULT,
+                shadowColor: theme?.theme === 'dark' ? '#000000' : '#000000',
+                shadowOpacity: theme?.theme === 'dark' ? 0.3 : 0.1,
+              }
+            ]}>
+              <Text style={[styles.welcomeTitle, { color: textPrimary }]}>Welcome back</Text>
+              <Text style={[styles.welcomeSubtitle, { color: textSecondary }]}>
                 Enter your credentials to access your account
               </Text>
 
               <View style={styles.form}>
                 <View style={styles.inputContainer}>
-                  <Text style={[styles.label, { color: themeColors.text.primary }]}>Email Address</Text>
+                  <Text style={[styles.label, { color: textPrimary }]}>Email Address</Text>
                   <TextInput
                     style={[styles.input, { 
                       borderColor: themeColors.border.DEFAULT,
@@ -100,7 +111,7 @@ export default function LoginScreen() {
                 </View>
 
                 <View style={styles.inputContainer}>
-                  <Text style={[styles.label, { color: themeColors.text.primary }]}>Password</Text>
+                  <Text style={[styles.label, { color: textPrimary }]}>Password</Text>
                   <View style={styles.passwordContainer}>
                     <TextInput
                       style={[styles.passwordInput, { 
@@ -199,6 +210,7 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
     letterSpacing: 1,
+    // Color applied dynamically via themeColors
   },
   card: {
     borderRadius: borderRadius.xl,
@@ -211,6 +223,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
+    borderWidth: 1,
+    // Border and background colors applied dynamically via themeColors
   },
   welcomeTitle: {
     fontSize: typography.fontSize['2xl'],

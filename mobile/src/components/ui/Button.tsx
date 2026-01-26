@@ -2,6 +2,7 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View } from 'react-native';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { getButtonHeight, moderateScale, getFontSize } from '../../utils/responsive';
 
 interface ButtonProps {
   title: string;
@@ -136,61 +137,71 @@ export default function Button({
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: borderRadius.xl, // More rounded for modern look
-    minHeight: 44, // Better touch targets
-  },
-  content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing[1],
-  },
-  icon: {
-    marginRight: spacing[1],
-  },
-  size_sm: {
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[3],
-    minHeight: 32,
-  },
-  size_md: {
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[4],
-    minHeight: 36,
-  },
-  size_lg: {
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[8],
-    minHeight: 40,
-  },
-  size_icon: {
-    width: 36,
-    height: 36,
-    padding: 0,
-    minHeight: 36,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  text: {
-    fontFamily: typography.fontFamily.sans,
-    letterSpacing: 0.3, // Better letter spacing for modern look
-  },
-  text_sm: {
-    fontSize: typography.fontSize.xs,
-  },
-  text_md: {
-    fontSize: typography.fontSize.sm,
-  },
-  text_lg: {
-    fontSize: typography.fontSize.base,
-  },
-  text_icon: {
-    fontSize: 0,
-  },
-});
+// Create responsive styles function
+const createStyles = () => {
+  const smHeight = getButtonHeight('sm');
+  const mdHeight = getButtonHeight('md');
+  const lgHeight = getButtonHeight('lg');
+  const iconSize = moderateScale(36, 0.2);
+
+  return StyleSheet.create({
+    button: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: moderateScale(borderRadius.xl, 0.2),
+      minHeight: mdHeight, // Default to medium
+    },
+    content: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: moderateScale(spacing[1], 0.3),
+    },
+    icon: {
+      marginRight: moderateScale(spacing[1], 0.3),
+    },
+    size_sm: {
+      paddingVertical: moderateScale(spacing[2], 0.3),
+      paddingHorizontal: moderateScale(spacing[3], 0.3),
+      minHeight: smHeight,
+    },
+    size_md: {
+      paddingVertical: moderateScale(spacing[2], 0.3),
+      paddingHorizontal: moderateScale(spacing[4], 0.3),
+      minHeight: mdHeight,
+    },
+    size_lg: {
+      paddingVertical: moderateScale(spacing[3], 0.3),
+      paddingHorizontal: moderateScale(spacing[8], 0.3),
+      minHeight: lgHeight,
+    },
+    size_icon: {
+      width: iconSize,
+      height: iconSize,
+      padding: 0,
+      minHeight: iconSize,
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+    text: {
+      fontFamily: typography.fontFamily.sans,
+      letterSpacing: moderateScale(0.3, 0.2),
+    },
+    text_sm: {
+      fontSize: getFontSize(typography.fontSize.xs),
+    },
+    text_md: {
+      fontSize: getFontSize(typography.fontSize.sm),
+    },
+    text_lg: {
+      fontSize: getFontSize(typography.fontSize.base),
+    },
+    text_icon: {
+      fontSize: 0,
+    },
+  });
+};
+
+const styles = createStyles();

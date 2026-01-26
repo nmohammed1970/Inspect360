@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   FlatList,
+  TextInput,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,11 +23,11 @@ import {
   Play, 
   FileText, 
   Copy as CopyIcon,
-  Plus,
   Filter,
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Search,
 } from 'lucide-react-native';
 import { format } from 'date-fns';
 import { inspectionsService } from '../../services/inspections';
@@ -42,6 +43,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import EmptyState from '../../components/ui/EmptyState';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { localDatabase } from '../../services/localDatabase';
@@ -209,6 +211,7 @@ export default function InspectionsListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [searchTerm, setSearchTerm] = useState('');
   const [filterBlockId, setFilterBlockId] = useState('');
   const [filterPropertyId, setFilterPropertyId] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -303,16 +306,19 @@ export default function InspectionsListScreen() {
   });
 
   // Fetch from server when online and authenticated
+  // Saves ALL inspection types to local DB (check_in, check_out, routine, maintenance, etc.)
   const { data: serverInspections = [], isLoading: isLoadingServer, refetch: refetchServer } = useQuery({
     queryKey: ['/api/inspections/my'],
     queryFn: async () => {
       const inspections = await inspectionsService.getMyInspections();
       
-      // Always save to local DB (both online and offline scenarios)
+      // Always save ALL inspection types to local DB (both online and offline scenarios)
+      // No type filtering - all types are saved for offline access
         try {
           await localDatabase.initialize();
         for (const inspection of inspections) {
             try {
+              // Save inspection regardless of type (check_in, check_out, routine, maintenance, etc.)
               await localDatabase.saveInspection(inspection);
             } catch (saveError) {
               console.error('[InspectionsList] Failed to save inspection to local DB:', saveError);
@@ -423,6 +429,24 @@ export default function InspectionsListScreen() {
   const filteredInspections = useMemo(() => {
     let filtered = [...effectiveInspections];
 
+    // Search filter - search by property name, block name, type, status
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter((i: Inspection) => {
+        const propertyName = i.property?.name?.toLowerCase() || '';
+        const blockName = i.block?.name?.toLowerCase() || '';
+        const type = i.type?.toLowerCase() || '';
+        const status = i.status?.toLowerCase() || '';
+        const propertyAddress = i.property?.address?.toLowerCase() || '';
+        
+        return propertyName.includes(searchLower) ||
+               blockName.includes(searchLower) ||
+               type.includes(searchLower) ||
+               status.includes(searchLower) ||
+               propertyAddress.includes(searchLower);
+      });
+    }
+
     // Block filter - check both blockId and property's blockId
     if (filterBlockId) {
       filtered = filtered.filter((i: Inspection) => {
@@ -462,7 +486,7 @@ export default function InspectionsListScreen() {
     }
 
     return filtered;
-  }, [effectiveInspections, filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, properties]);
+  }, [effectiveInspections, searchTerm, filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, properties]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -532,59 +556,64 @@ export default function InspectionsListScreen() {
   }
 
   return (
+    <View style={[styles.container, { backgroundColor: themeColors.background }]}>
+      {/* Fixed Header */}
+      <View style={[styles.fixedHeader, { 
+        paddingTop: Math.max(insets.top + spacing[2], spacing[6]),
+        backgroundColor: themeColors.card.DEFAULT,
+      }]}>
+        <View style={styles.pageHeader}>
+          <View style={styles.headerText}>
+            <Text style={[styles.title, { color: themeColors.text.primary }]}>Inspections</Text>
+            <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>Manage and conduct property inspections</Text>
+          </View>
+        </View>
+        
+        {/* Fixed Search Bar */}
+        <View style={[
+          styles.searchContainer,
+          {
+            borderColor: themeColors.border.DEFAULT,
+          }
+        ]}>
+          <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, { color: themeColors.text.primary }]}
+            placeholder="Search inspections by property, block, type, or status..."
+            placeholderTextColor={themeColors.text.secondary}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+          />
+        </View>
+      </View>
+
+      {/* Scrollable Content */}
     <ScrollView
-      style={[styles.container, { backgroundColor: themeColors.background }]}
+        style={styles.scrollView}
       contentContainerStyle={[
         styles.contentContainer,
         { 
-          paddingTop: Math.max(insets.top + spacing[4], spacing[8]),
           paddingBottom: Math.max(insets.bottom + 80, spacing[8]), // Tab bar height (60) + safe area + extra padding
         },
       ]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
     >
-      {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <View style={styles.headerText}>
-          <Text style={[styles.title, { color: themeColors.text.primary }]}>Inspections</Text>
-          <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>Manage and conduct property inspections</Text>
-        </View>
-        <Button
-          title="New Inspection"
-          onPress={() => {
-            if (!isOnline) {
-              Alert.alert(
-                'Offline Mode',
-                'You cannot create new inspections while offline. Please connect to the internet to create a new inspection.',
-                [{ text: 'OK' }]
-              );
-              return;
-            }
-            navigation.navigate('CreateInspection');
-          }}
-          variant="primary"
-          size="sm"
-          icon={<Plus size={16} color="#ffffff" />}
-          disabled={!isOnline}
-        />
-      </View>
-
       {/* Offline/Sync Status Banner */}
       {!isOnline && (
-        <Card style={{
-          ...styles.offlineBanner,
-          backgroundColor: themeColors.warning + '15',
-          borderColor: themeColors.warning + '40',
-        }}>
+          <Card style={{
+            ...styles.offlineBanner,
+            backgroundColor: themeColors.warning + '15',
+            borderColor: themeColors.warning + '40',
+          }}>
           <View style={styles.offlineBannerContent}>
-            <WifiOff size={16} color={themeColors.warning} />
+              <WifiOff size={16} color={themeColors.warning} />
             <View style={styles.offlineBannerTextContainer}>
-              <Text style={[styles.offlineBannerText, { color: themeColors.warning }]}>Working Offline</Text>
-              <Text style={[styles.offlineBannerDescription, { color: themeColors.text.secondary }]}>
+                <Text style={[styles.offlineBannerText, { color: themeColors.warning }]}>Working Offline</Text>
+                <Text style={[styles.offlineBannerDescription, { color: themeColors.text.secondary }]}>
                 You can edit existing inspections (add photos, notes, conditions). Creating new inspections or completing inspections requires internet connection.
               </Text>
               {pendingCount > 0 && (
-                <Text style={[styles.offlineBannerSubtext, { color: themeColors.text.muted }]}>
+                  <Text style={[styles.offlineBannerSubtext, { color: themeColors.text.muted }]}>
                   {pendingCount} item{pendingCount !== 1 ? 's' : ''} pending sync
                 </Text>
               )}
@@ -593,19 +622,19 @@ export default function InspectionsListScreen() {
         </Card>
       )}
 
-      {/* Auto-sync is handled by useOfflineSync hook - no manual sync button needed */}
-      {isOnline && pendingCount > 0 && isSyncing && (
+        {/* Auto-sync is handled by useOfflineSync hook - no manual sync button needed */}
+        {isOnline && pendingCount > 0 && isSyncing && (
         <Card style={styles.syncBanner}>
           <View style={styles.syncBannerContent}>
-            <Cloud size={16} color={themeColors.primary.DEFAULT} />
-            <Text style={[styles.syncBannerText, { color: themeColors.text.primary }]}>
-              Syncing {pendingCount} item{pendingCount !== 1 ? 's' : ''}...
+              <Cloud size={16} color={themeColors.primary.DEFAULT} />
+              <Text style={[styles.syncBannerText, { color: themeColors.text.primary }]}>
+                Syncing {pendingCount} item{pendingCount !== 1 ? 's' : ''}...
             </Text>
           </View>
         </Card>
       )}
 
-      {/* Filters - Simplified for mobile */}
+        {/* Filters */}
       <View style={styles.filters}>
         <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Filter by:</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
@@ -856,7 +885,9 @@ export default function InspectionsListScreen() {
             message={
               effectiveInspections.length === 0
                 ? 'Create your first inspection to get started'
-                : 'Try adjusting your filters or create a new inspection'
+                : (searchTerm || filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon)
+                  ? 'Try adjusting your search or filters'
+                  : 'Try adjusting your filters'
             }
           />
         </Card>
@@ -1089,6 +1120,7 @@ export default function InspectionsListScreen() {
         </View>
       </Modal>
     </ScrollView>
+    </View>
   );
 }
 
@@ -1096,15 +1128,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  fixedHeader: {
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    zIndex: 10,
+  },
+  scrollView: {
+    flex: 1,
+  },
   contentContainer: {
     padding: spacing[4],
-    paddingBottom: spacing[8],
+    paddingTop: spacing[3],
   },
   pageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: spacing[4],
+    marginBottom: spacing[3],
   },
   headerText: {
     flex: 1,
@@ -1120,6 +1162,21 @@ const styles = StyleSheet.create({
   },
   filters: {
     marginBottom: spacing[4],
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    paddingHorizontal: spacing[3],
+    minHeight: 44,
+  },
+  searchIcon: {
+    marginRight: spacing[2],
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: typography.fontSize.base,
   },
   filterLabel: {
     fontSize: typography.fontSize.sm,
@@ -1205,7 +1262,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    minWidth: 100,
+    minWidth: moderateScale(100, 0.3),
   },
   textButton: {
     flexDirection: 'row',
@@ -1219,11 +1276,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
   },
   copyButton: {
-    padding: spacing[2],
-    borderRadius: borderRadius.md,
+    padding: moderateScale(spacing[2], 0.3),
+    borderRadius: moderateScale(borderRadius.md, 0.2),
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: moderateScale(44, 0.2),
+    minHeight: moderateScale(44, 0.2),
   },
   modalOverlay: {
     flex: 1,
@@ -1303,11 +1362,12 @@ const styles = StyleSheet.create({
   },
   typeButton: {
     flex: 1,
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[4],
-    borderRadius: borderRadius.md,
+    paddingVertical: moderateScale(spacing[3], 0.3),
+    paddingHorizontal: moderateScale(spacing[4], 0.3),
+    borderRadius: moderateScale(borderRadius.md, 0.2),
     borderWidth: 1,
     alignItems: 'center',
+    minHeight: moderateScale(44, 0.2),
   },
   typeButtonActive: {
     // Colors set dynamically

@@ -29,33 +29,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: currentUser, isLoading, refetch } = useQuery({
     queryKey: ['/api/auth/user'],
     queryFn: async () => {
-      const apiUrl = getAPI_URL();
-      console.log('[AuthContext] Fetching user from:', apiUrl);
-      // Try /api/auth/user first, fallback to /api/user
       try {
-        const res = await fetch(`${apiUrl}/api/auth/user`, {
-          credentials: 'include',
-        });
-        if (res.ok) {
-          const user = await res.json();
-          console.log('[AuthContext] User fetched successfully');
-          return user;
+        const apiUrl = getAPI_URL();
+        console.log('[AuthContext] Fetching user from:', apiUrl);
+        // Try /api/auth/user first, fallback to /api/user
+        try {
+          const res = await fetch(`${apiUrl}/api/auth/user`, {
+            credentials: 'include',
+          });
+          if (res.ok) {
+            const user = await res.json();
+            console.log('[AuthContext] User fetched successfully');
+            return user;
+          }
+          // Fallback to /api/user
+          console.log('[AuthContext] /api/auth/user failed, trying /api/user');
+          const fallbackRes = await fetch(`${apiUrl}/api/user`, {
+            credentials: 'include',
+          });
+          if (fallbackRes.ok) {
+            const user = await fallbackRes.json();
+            console.log('[AuthContext] User fetched from fallback endpoint');
+            return user;
+          }
+          throw new Error('Failed to fetch user');
+        } catch (error: any) {
+          console.error('[AuthContext] Error fetching user:', error);
+          console.error('[AuthContext] API_URL used:', apiUrl);
+          throw error;
         }
-        // Fallback to /api/user
-        console.log('[AuthContext] /api/auth/user failed, trying /api/user');
-        const fallbackRes = await fetch(`${apiUrl}/api/user`, {
-          credentials: 'include',
-        });
-        if (fallbackRes.ok) {
-          const user = await fallbackRes.json();
-          console.log('[AuthContext] User fetched from fallback endpoint');
-          return user;
-        }
-        throw new Error('Failed to fetch user');
       } catch (error: any) {
-        console.error('[AuthContext] Error fetching user:', error);
-        console.error('[AuthContext] API_URL used:', getAPI_URL());
-        throw error;
+        // If getAPI_URL() throws, catch it and return null (user not logged in)
+        console.error('[AuthContext] Error getting API URL:', error);
+        return null;
       }
     },
     enabled: false, // Don't auto-fetch, we'll trigger manually

@@ -6,7 +6,6 @@ export type AuthStackParamList = {
 
 export type InspectionsStackParamList = {
   InspectionsList: undefined;
-  CreateInspection: undefined;
   InspectionCapture: { inspectionId: string };
   InspectionReview: { inspectionId: string };
   InspectionReport: { inspectionId: string };
@@ -18,8 +17,12 @@ export type MaintenanceStackParamList = {
   CreateMaintenance: { 
     requestId?: string;
     inspectionId?: string; 
+    propertyId?: string;
+    blockId?: string;
     fieldLabel?: string; 
-    photos?: string[] 
+    photos?: string[];
+    entryId?: string;
+    sectionTitle?: string;
   } | undefined;
 };
 

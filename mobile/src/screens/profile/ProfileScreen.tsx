@@ -1114,14 +1114,14 @@ export default function ProfileScreen() {
               <View style={styles.infoTextContainer}>
                 <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Role</Text>
                 <Text style={[styles.infoValue, { color: themeColors.text.primary }]}>
-                  {displayUser?.role === 'owner'
-                    ? 'Owner'
-                    : displayUser?.role === 'clerk'
-                    ? 'Clerk'
-                    : displayUser?.role === 'compliance'
-                    ? 'Compliance'
-                    : displayUser?.role || 'N/A'}
-                </Text>
+            {displayUser?.role === 'owner'
+              ? 'Owner'
+              : displayUser?.role === 'clerk'
+              ? 'Clerk'
+              : displayUser?.role === 'compliance'
+              ? 'Compliance'
+              : displayUser?.role || 'N/A'}
+          </Text>
               </View>
             </View>
           </View>

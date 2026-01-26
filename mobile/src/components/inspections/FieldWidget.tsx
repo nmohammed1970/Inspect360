@@ -15,6 +15,7 @@ import { Camera } from 'expo-camera';
 import Input from '../ui/Input';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
+import DatePicker from '../ui/DatePicker';
 import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Trash2, Calendar, Clock, Eye, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
@@ -28,6 +29,7 @@ import { apiRequestJson, getAPI_URL } from '../../services/api';
 import { photoStorage } from '../../services/photoStorage';
 import { localDatabase } from '../../services/localDatabase';
 import { syncManager } from '../../services/syncManager';
+import { format } from 'date-fns';
 
 interface TemplateField {
   id: string;
@@ -942,7 +944,22 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           {localPhotos.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} style={styles.photosContainer}>
               {localPhotos.map((photo, index) => {
-                const photoUrl = photo.startsWith('http') ? photo : `${getAPI_URL()}${photo}`;
+                // Resolve photo URL: check if it's a local file path, server URL, or relative path
+                let photoUrl: string;
+                if (photo.startsWith('file://') || photo.startsWith(FileSystem.documentDirectory || '')) {
+                  // Local file path - use as-is
+                  photoUrl = photo;
+                } else if (photo.startsWith('http://') || photo.startsWith('https://')) {
+                  // Full server URL - use as-is
+                  photoUrl = photo;
+                } else if (photo.startsWith('/')) {
+                  // Relative server path - prepend API URL
+                  photoUrl = `${getAPI_URL()}${photo}`;
+                } else {
+                  // Assume it's a server object path
+                  photoUrl = `${getAPI_URL()}/objects/${photo}`;
+                }
+                
                 const hasAnalysis = aiAnalyses[photo];
                 const isAnalyzing = analyzingPhoto === photo;
 
