@@ -5,13 +5,10 @@ import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
 
-// CORS middleware - Allow requests from Expo dev server, mobile apps, and production domain
+// CORS middleware - Allow requests from Expo dev server and mobile apps
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
 
-  // Production domain
-  const productionDomain = 'https://portal.inspect360.ai';
-  
   // Allow requests from Expo dev server (localhost:8081) and other common dev origins
   const allowedOrigins = [
     'http://localhost:8081',
@@ -19,19 +16,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     'http://localhost:19000',
     'http://localhost:5005',
     'http://localhost:5000',
-    productionDomain,
   ];
 
   // In development, allow any localhost origin
   const isDevelopment = process.env.NODE_ENV === 'development';
   const isAllowed = isDevelopment
-    ? (origin?.includes('localhost') || origin?.includes('127.0.0.1') || origin === productionDomain || !origin)
+    ? (origin?.includes('localhost') || origin?.includes('127.0.0.1') || !origin)
     : allowedOrigins.includes(origin || '');
 
   if (isAllowed || !origin) {
-    // Set the specific origin (not *) when credentials are used
-    const allowedOrigin = isAllowed ? (origin || '*') : '*';
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma, Expires');
