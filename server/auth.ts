@@ -104,6 +104,10 @@ export function getSessionStore(): session.Store {
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const sessionStore = getSessionStore();
+  // Determine if we should use secure cookies (HTTPS in production)
+  const isProduction = process.env.NODE_ENV === 'production';
+  const useSecureCookies = isProduction || process.env.BASE_URL?.startsWith('https://');
+  
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -112,9 +116,11 @@ export function getSession() {
     rolling: true, // Reset expiration on activity
     cookie: {
       httpOnly: true,
-      secure: false, // Disable secure in development
+      secure: useSecureCookies, // Use secure cookies in production (HTTPS)
       sameSite: 'lax',
       maxAge: sessionTtl,
+      // Set domain for production if needed
+      ...(isProduction && process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
     },
     // Add error handling for session store
     name: 'inspect360.sid', // Custom session name to avoid conflicts
