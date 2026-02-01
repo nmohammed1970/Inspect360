@@ -35,7 +35,6 @@
         "ACCESS_NETWORK_STATE",
         "INTERNET"
       ],
-      "usesCleartextTraffic": true,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },

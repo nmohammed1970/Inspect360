@@ -13,9 +13,37 @@ export interface LoginResponse {
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
-    // Backend returns user directly, not wrapped in { user: ... }
-    const user = await apiRequestJson<User>('POST', '/api/login', credentials);
-    return { user };
+    try {
+      if (__DEV__) {
+        console.log('[authService] Calling login API');
+      }
+      // Backend returns user directly, not wrapped in { user: ... }
+      const user = await apiRequestJson<User>('POST', '/api/login', credentials);
+      if (__DEV__) {
+        console.log('[authService] Login API returned user:', {
+          id: user?.id,
+          role: user?.role,
+        });
+      }
+      
+      if (!user || !user.id) {
+        if (__DEV__) {
+          console.error('[authService] Login response missing user data');
+        }
+        throw new Error('Login failed. Invalid response from server.');
+      }
+      
+      return { user };
+    } catch (error: any) {
+      if (__DEV__) {
+        console.error('[authService] Login error:', {
+          message: error?.message,
+          status: error?.status,
+          name: error?.name,
+        });
+      }
+      throw error;
+    }
   },
 
   async logout(): Promise<void> {

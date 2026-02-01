@@ -61,8 +61,16 @@ export const inspectionsService = {
     await apiRequestJson('PUT', `/api/inspections/${id}`, updates);
   },
 
-  async getInspectionEntries(inspectionId: string): Promise<InspectionEntry[]> {
-    return apiRequestJson<InspectionEntry[]>('GET', `/api/inspections/${inspectionId}/entries`);
+  async getInspectionEntries(inspectionId: string, updatedAfter?: string): Promise<InspectionEntry[]> {
+    const url = updatedAfter 
+      ? `/api/inspections/${inspectionId}/entries?updated_after=${encodeURIComponent(updatedAfter)}`
+      : `/api/inspections/${inspectionId}/entries`;
+    return apiRequestJson<InspectionEntry[]>('GET', url);
+  },
+
+  // Delta sync: Get entries updated after a specific timestamp
+  async getInspectionEntriesDelta(inspectionId: string, updatedAfter: string): Promise<InspectionEntry[]> {
+    return this.getInspectionEntries(inspectionId, updatedAfter);
   },
 
   async saveInspectionEntry(entry: InspectionEntry): Promise<InspectionEntry> {

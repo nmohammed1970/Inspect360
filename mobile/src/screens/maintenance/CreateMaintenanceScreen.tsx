@@ -11,6 +11,7 @@ import {
   ImageStyle,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -31,6 +32,8 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { format, parse, isValid } from 'date-fns';
+import { moderateScale, getFontSize } from '../../utils/responsive';
+import { useWindowDimensions } from 'react-native';
 
 type RoutePropType = RouteProp<MaintenanceStackParamList, 'CreateMaintenance'>;
 
@@ -40,6 +43,8 @@ export default function CreateMaintenanceScreen() {
   const route = useRoute<RoutePropType>();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
+  const windowDimensions = useWindowDimensions();
+  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const theme = useTheme();
@@ -929,14 +934,14 @@ export default function CreateMaintenanceScreen() {
             {/* Priority Selection */}
             <View style={styles.selectContainer}>
               <Text style={[styles.label, { color: themeColors.text.primary }]}>Priority</Text>
-              <View style={styles.priorityContainer}>
+              <View style={[styles.priorityContainer, { gap: moderateScale(8, 0.3, screenWidth) }]}>
                 {(['low', 'medium', 'high'] as const).map((p) => (
                   <Button
                     key={p}
                     title={p.charAt(0).toUpperCase() + p.slice(1)}
                     onPress={() => setPriority(p)}
                     variant={priority === p ? 'primary' : 'outline'}
-                    style={styles.priorityButton}
+                    style={[styles.priorityButton, { minWidth: moderateScale(80, 0.3, screenWidth) }]}
                   />
                 ))}
               </View>
@@ -1333,12 +1338,12 @@ const styles = StyleSheet.create({
   },
   priorityContainer: {
     flexDirection: 'row',
-    gap: 8,
     flexWrap: 'wrap',
+    // gap set dynamically with screenWidth
   },
   priorityButton: {
     flex: 1,
-    minWidth: 80,
+    // minWidth set dynamically with screenWidth
   },
   photoSection: {
     marginBottom: 16,

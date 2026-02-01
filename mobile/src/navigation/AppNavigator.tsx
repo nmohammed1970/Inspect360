@@ -186,7 +186,9 @@ export default function AppNavigator() {
         setShowOnboarding(!completed);
         setOnboardingChecked(true);
         setCheckingOnboarding(false);
-        console.log(`[AppNavigator] User ${user.email} (${user.id}) onboarding status: ${completed ? 'completed' : 'not completed'}, showOnboarding: ${!completed}`);
+        if (__DEV__) {
+          console.log(`[AppNavigator] User ${user.id} onboarding status: ${completed ? 'completed' : 'not completed'}, showOnboarding: ${!completed}`);
+        }
       } catch (error) {
         console.error('[AppNavigator] Error checking onboarding:', error);
         setShowOnboarding(false);
@@ -229,7 +231,9 @@ export default function AppNavigator() {
     );
   }
 
-  console.log('[AppNavigator] Render - isAuthenticated:', isAuthenticated, 'user:', user?.email, 'showOnboarding:', showOnboarding, 'onboardingChecked:', onboardingChecked);
+  if (__DEV__) {
+    console.log('[AppNavigator] Render - isAuthenticated:', isAuthenticated, 'showOnboarding:', showOnboarding, 'onboardingChecked:', onboardingChecked);
+  }
 
   // Determine initial route based on onboarding status
   const getInitialRoute = () => {

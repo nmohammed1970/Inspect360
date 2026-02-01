@@ -17,9 +17,12 @@ import { useRoute, useNavigation, CommonActions } from '@react-navigation/native
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { inspectionsService, type InspectionEntry } from '../../services/inspections';
+import { inspectionsOffline } from '../../services/offline/inspectionsOffline';
 import { propertiesService } from '../../services/properties';
 import { authService } from '../../services/auth';
 import { getAPI_URL } from '../../services/api';
+import { getSyncStats } from '../../services/offline/database';
+import { triggerSync } from '../../services/offline/backgroundSync';
 import type { InspectionsStackParamList } from '../../navigation/types';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -34,11 +37,6 @@ import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
-import { localDatabase } from '../../services/localDatabase';
-import { photoStorage } from '../../services/photoStorage';
-import { syncManager } from '../../services/syncManager';
-import { ConflictResolutionDialog } from '../../components/inspections/ConflictResolutionDialog';
-import * as FileSystem from 'expo-file-system/legacy';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
@@ -78,357 +76,41 @@ export default function InspectionCaptureScreen() {
 
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
-  const [pendingCount, setPendingCount] = useState(0);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [copyImages, setCopyImages] = useState(false);
   const [copyNotes, setCopyNotes] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'syncing'>('synced');
-  const [conflictEntryId, setConflictEntryId] = useState<string | null>(null);
-  const [conflictData, setConflictData] = useState<{ local: any; server: any } | null>(null);
+  const [syncStats, setSyncStats] = useState({ pendingEntries: 0, pendingImages: 0, queuedOperations: 0 });
 
-  // Use a ref to store entries for access in callbacks without triggering re-renders or dependency changes
-  const entriesRef = useRef<Record<string, InspectionEntry>>(entries);
+  // Load sync stats periodically
   useEffect(() => {
-    entriesRef.current = entries;
-  }, [entries]);
-
-  // Initialize local database on mount
-  useEffect(() => {
-    const initLocalDB = async () => {
-      try {
-        await localDatabase.initialize();
-        await photoStorage.initialize();
-
-        // Load pending count
-        const count = await syncManager.getPendingCount();
-        setPendingCount(count);
-      } catch (error) {
-        console.error('[InspectionCapture] Failed to initialize local DB:', error);
-      }
+    const loadSyncStats = async () => {
+      const stats = await getSyncStats();
+      setSyncStats({
+        pendingEntries: stats.pendingEntries,
+        pendingImages: stats.pendingImages,
+        queuedOperations: stats.queuedOperations,
+      });
     };
-    initLocalDB();
+    loadSyncStats();
+    const interval = setInterval(loadSyncStats, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Monitor sync progress and trigger refreshes
-  useEffect(() => {
-    const unsubscribe = syncManager.addProgressListener((progress) => {
-      const currentlySyncing = progress.current < progress.total;
-      setIsSyncing(currentlySyncing);
-      setPendingCount(progress.pending);
-
-      // If sync just finished, refresh data to show latest server URLs/final states
-      if (!currentlySyncing && progress.current > 0) {
-        queryClient.invalidateQueries({ queryKey: ['local-entries', inspectionId] });
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      }
-    });
-    return unsubscribe;
-  }, [inspectionId, queryClient]);
-
-  // Check for conflicts, completed, or deleted inspection when coming online
-  useEffect(() => {
-    if (isOnline && inspectionId) {
-      const checkStatus = async () => {
-        try {
-          // First, check if inspection exists, was completed, or was deleted
-          let serverInspection;
-          try {
-            serverInspection = await inspectionsService.getInspection(inspectionId);
-          } catch (error: any) {
-            // Check if inspection was deleted (404 error)
-            if (error.status === 404 || error.message?.includes('not found') || error.message?.includes('404')) {
-              const localInspection = await localDatabase.getInspection(inspectionId);
-
-              if (localInspection) {
-                // Inspection was deleted on server while user was offline
-                Alert.alert(
-                  'Inspection Deleted',
-                  'This inspection has been deleted while you were offline. Your pending changes cannot be synced.',
-                  [
-                    {
-                      text: 'OK',
-                      onPress: async () => {
-                        // Mark all pending entries as conflict
-                        const entries = await localDatabase.getEntries(inspectionId);
-                        for (const entry of entries) {
-                          if (entry.sync_status === 'pending') {
-                            await localDatabase.updateEntrySyncStatus(entry.id, 'conflict');
-                          }
-                        }
-
-                        // Mark inspection as deleted locally (soft delete)
-                        await localDatabase.updateInspectionStatus(inspectionId, 'deleted');
-                        await localDatabase.updateInspectionSyncStatus(inspectionId, 'synced');
-
-                        // Clear sync queue for this inspection
-                        const entryOps = await localDatabase.getSyncQueueByEntity('entry', inspectionId);
-                        const photoOps = await localDatabase.getSyncQueueByEntity('photo', inspectionId);
-                        const inspectionOps = await localDatabase.getSyncQueueByEntity('inspection', inspectionId);
-
-                        for (const op of [...entryOps, ...photoOps, ...inspectionOps]) {
-                          await localDatabase.removeFromSyncQueue(op.id);
-                        }
-
-                        // Navigate back to list
-                        navigation.goBack();
-                      },
-                    },
-                  ]
-                );
-                return;
-              }
-            }
-            // For other errors, continue with normal flow
-            throw error;
-          }
-
-          const localInspection = await localDatabase.getInspection(inspectionId);
-
-          if (serverInspection.status === 'completed' &&
-            localInspection &&
-            localInspection.status !== 'completed') {
-            // Inspection was completed on server while user was offline
-            Alert.alert(
-              'Inspection Already Completed',
-              'This inspection has been completed while you were offline. Your pending changes cannot be synced to a completed inspection.',
-              [
-                {
-                  text: 'OK',
-                  onPress: async () => {
-                    // Update local inspection status
-                    await localDatabase.updateInspectionStatus(inspectionId, 'completed');
-                    await localDatabase.updateInspectionSyncStatus(inspectionId, 'synced');
-
-                    // Mark all pending entries as conflict
-                    const entries = await localDatabase.getEntries(inspectionId);
-                    for (const entry of entries) {
-                      if (entry.sync_status === 'pending') {
-                        await localDatabase.updateEntrySyncStatus(entry.id, 'conflict');
-                      }
-                    }
-
-                    // Refresh the screen
-                    queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
-                    queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-                    queryClient.invalidateQueries({ queryKey: ['local-inspection', inspectionId] });
-                    queryClient.invalidateQueries({ queryKey: ['local-entries', inspectionId] });
-                  },
-                },
-              ]
-            );
-            return;
-          }
-
-          // Check for entry conflicts
-          const entries = await localDatabase.getEntries(inspectionId);
-          for (const entry of entries) {
-            if (entry.sync_status === 'pending' && entry.server_id) {
-              const conflict = await syncManager.detectConflict(entry.id);
-              if (conflict) {
-                setConflictEntryId(entry.id);
-                setConflictData(conflict);
-                break; // Show one conflict at a time
-              }
-            }
-          }
-        } catch (error) {
-          console.error('[InspectionCapture] Error checking status:', error);
-        }
-      };
-      checkStatus();
-    }
-  }, [isOnline, inspectionId, queryClient]);
-
-  // Handle conflict resolution
-  const handleConflictResolve = async (choice: 'local' | 'server' | 'merge') => {
-    if (!conflictEntryId) return;
-
-    try {
-      if (choice === 'local') {
-        await syncManager.resolveConflictKeepLocal(conflictEntryId);
-      } else if (choice === 'server') {
-        await syncManager.resolveConflictKeepServer(conflictEntryId);
-      } else if (choice === 'merge') {
-        // For merge, keep local version (user's offline changes take precedence)
-        await syncManager.resolveConflictKeepLocal(conflictEntryId);
-      }
-
-      // Refresh entries
-      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      queryClient.invalidateQueries({ queryKey: ['local-entries', inspectionId] });
-
-      setConflictEntryId(null);
-      setConflictData(null);
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to resolve conflict');
-    }
-  };
-
-  // Load from local DB (always available, used when offline or as fallback)
-  // Works for ALL inspection types: check_in, check_out, routine, maintenance, 
-  // esg_sustainability_inspection, fire_hazard_assessment, maintenance_inspection, 
-  // damage, emergency, safety_compliance, compliance_regulatory, pre_purchase, specialized, etc.
-  const { data: localInspection } = useQuery({
-    queryKey: ['local-inspection', inspectionId],
-    queryFn: async () => {
-      const local = await localDatabase.getInspection(inspectionId);
-      if (local) {
-        return {
-          id: local.id,
-          propertyId: local.property_id || undefined,
-          blockId: local.block_id || undefined,
-          templateId: local.template_id,
-          assignedToId: local.assigned_to_id || undefined,
-          scheduledDate: local.scheduled_date || undefined,
-          status: local.status as any,
-          type: local.type, // All types are supported (no filtering)
-          notes: local.notes || undefined,
-          createdAt: local.created_at,
-          updatedAt: local.updated_at,
-          templateSnapshotJson: JSON.parse(local.template_snapshot_json),
-        };
-      }
-      return null;
-    },
-    enabled: !!inspectionId, // Always load local inspection (both online and offline) - ALL types
-    staleTime: 0, // Always refetch to get latest local data
-    refetchOnMount: true,
-  });
-
-  // Load local entries (always available, used when offline or as fallback)
-  const { data: localEntries = [] } = useQuery({
-    queryKey: ['local-entries', inspectionId],
-    queryFn: async () => {
-      const entries = await localDatabase.getEntries(inspectionId);
-      // Load ALL photos for this inspection in one go to be more efficient
-      const allInspectionPhotos = await localDatabase.getPhotosByInspection(inspectionId);
-
-      const entriesWithPhotos = await Promise.all(entries.map(async (entry) => {
-        // Filter photos for this specific entry
-        const entryPhotos = allInspectionPhotos.filter(p => p.entry_id === entry.id);
-
-        const photoUrls = await Promise.all(entryPhotos.map(async (photo) => {
-          // Check if local file exists first (prioritize local for offline/pending)
-          if (photo.local_path) {
-            try {
-              // Ensure we have file:// prefix for Android local paths
-              const localUri = photo.local_path.startsWith('file://') ? photo.local_path : `file://${photo.local_path}`;
-              const fileInfo = await FileSystem.getInfoAsync(localUri);
-              if (fileInfo.exists) {
-                return localUri;
-              }
-            } catch (error) {
-              console.warn('[InspectionCapture] Error checking local photo file:', error);
-            }
-          }
-
-          if (photo.server_url) {
-            // Construct full URL if it's a relative path
-            if (photo.server_url.startsWith('/')) {
-              return `${getAPI_URL()}${photo.server_url}`;
-            }
-            return photo.server_url;
-          }
-
-          return photo.local_path;
-        }));
-
-        // Parse valueJson to get any server-side photos
-        let serverPhotos: string[] = [];
-        if (entry.value_json) {
-          try {
-            const val = JSON.parse(entry.value_json);
-            if (val && Array.isArray(val.photos)) {
-              serverPhotos = val.photos.map((p: string) => {
-                if (p.startsWith('/')) return `${getAPI_URL()}${p}`;
-                if (p.startsWith('http')) return p;
-                return `${getAPI_URL()}/objects/${p}`;
-              });
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-
-        // Merge local and server photos, avoiding duplicates
-        const allPhotos = [...photoUrls];
-        serverPhotos.forEach(sp => {
-          // Add if not already present (as a server URL or local path)
-          const alreadyPresent = allPhotos.some(ap => ap === sp || ap.includes(sp.split('/').pop() || 'nothing'));
-          if (!alreadyPresent) {
-            allPhotos.push(sp);
-          }
-        });
-
-        return {
-          id: entry.id,
-          inspectionId: entry.inspection_id,
-          sectionRef: entry.section_ref,
-          fieldKey: entry.field_key,
-          fieldType: entry.field_type,
-          valueJson: entry.value_json ? JSON.parse(entry.value_json) : undefined,
-          note: entry.note || undefined,
-          photos: allPhotos,
-          maintenanceFlag: entry.maintenance_flag === 1,
-          markedForReview: entry.marked_for_review === 1,
-          syncStatus: entry.sync_status,
-        };
-      }));
-
-      return entriesWithPhotos;
-    },
-    enabled: !!inspectionId, // Always load local entries (both online and offline)
-    staleTime: 0, // Always refetch to get latest local data
-    refetchOnMount: true,
-  });
-
-  // Fetch inspection with template snapshot (only when online)
+  // Fetch inspection with template snapshot (works offline)
   const { data: inspection, isLoading: inspectionLoading, error: inspectionError } = useQuery({
     queryKey: [`/api/inspections/${inspectionId}`],
-    queryFn: async () => {
-      try {
-        const serverInspection = await inspectionsService.getInspection(inspectionId);
-
-        // Save to local DB when online
-        try {
-          await localDatabase.saveInspection(serverInspection);
-        } catch (saveError) {
-          console.error('[InspectionCapture] Failed to save inspection to local DB:', saveError);
-        }
-
-        return serverInspection;
-      } catch (error: any) {
-        // Check if inspection was deleted (404 error)
-        if (error.status === 404 || error.message?.includes('not found') || error.message?.includes('404')) {
-          // Check if we have local data
-          const localInspection = await localDatabase.getInspection(inspectionId);
-          if (localInspection) {
-            // Mark as deleted locally
-            await localDatabase.updateInspectionStatus(inspectionId, 'deleted');
-            await localDatabase.updateInspectionSyncStatus(inspectionId, 'synced');
-          }
-          // Re-throw with a more descriptive message
-          const deletedError: any = new Error('Inspection has been deleted');
-          deletedError.status = 404;
-          deletedError.isDeleted = true;
-          throw deletedError;
-        }
-        throw error;
-      }
-    },
-    enabled: isOnline && !!inspectionId, // Only fetch when online
+    queryFn: () => inspectionsOffline.getInspection(inspectionId, isOnline),
+    enabled: !!inspectionId,
     retry: 1,
     retryDelay: 1000,
     staleTime: 30000,
   });
 
-  // Use local inspection when offline, fallback to server inspection when online
-  const effectiveInspection = (!isOnline && localInspection) ? localInspection : (inspection || localInspection);
+  const effectiveInspection = inspection;
 
   // Check if inspection is deleted
-  const isDeleted = effectiveInspection?.status === 'deleted' ||
-    (inspectionError as any)?.isDeleted ||
-    (inspectionError as any)?.status === 404;
+  const isDeleted = (inspectionError as any)?.isDeleted ||
+    (inspectionError as any)?.status === 404 ||
+    (inspectionError as any)?.message?.includes('deleted');
 
   // Fetch property details (only when online and inspection exists)
   const { data: property } = useQuery({
@@ -479,78 +161,24 @@ export default function InspectionCaptureScreen() {
     staleTime: 60000,
   });
 
-  // Fetch existing entries
+  // Fetch existing entries (works offline)
   const { data: existingEntries = [], error: entriesError } = useQuery({
     queryKey: [`/api/inspections/${inspectionId}/entries`],
     queryFn: async () => {
-      const entries = await inspectionsService.getInspectionEntries(inspectionId);
-
-      // Save to local DB when online
-      if (isOnline && effectiveInspection) {
-        try {
-          await localDatabase.saveInspection(effectiveInspection);
-
-          // Get current local entries to check sync status
-          const currentLocalEntries = await localDatabase.getEntries(inspectionId);
-          const localEntriesMap = new Map(currentLocalEntries.map(e => [`${e.section_ref}-${e.field_key}`, e]));
-
-          for (const entry of entries) {
-            if (entry.id) {
-              const localKey = `${entry.sectionRef}-${entry.fieldKey}`;
-              const localEntry = localEntriesMap.get(localKey);
-
-              // Only overwrite if local entry doesn't exist or is already synced
-              if (!localEntry || localEntry.sync_status !== 'pending') {
-                await localDatabase.saveEntry({ ...entry, id: entry.id });
-              } else {
-                console.log(`[InspectionCapture] Skipping save of server entry for ${localKey} because local version is pending sync`);
-              }
-            }
-          }
-          // Invalidate local entries to trigger refetch with many potential updates from server
-          queryClient.invalidateQueries({ queryKey: ['local-entries', inspectionId] });
-        } catch (error) {
-          console.error('[InspectionCapture] Failed to save to local DB:', error);
-        }
-      }
-
+      const entries = await inspectionsOffline.getInspectionEntries(inspectionId, isOnline);
       return entries;
     },
-    enabled: !!inspectionId && isOnline,
+    enabled: !!inspectionId,
     retry: 1,
     staleTime: 60000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 
-  // Merge local entries and server entries to ensure all fields are shown while preserving local offline changes
+  // Use server entries directly - no offline functionality
   const effectiveEntries = useMemo(() => {
-    const combinedMap = new Map<string, any>();
-
-    // 1. Add server entries as base
-    if (existingEntries && existingEntries.length > 0) {
-      existingEntries.forEach(entry => {
-        const key = `${entry.sectionRef}-${entry.fieldKey}`;
-        combinedMap.set(key, entry);
-      });
-    }
-
-    // 2. Overlay local entries (source of truth for photos and pending changes)
-    if (localEntries && localEntries.length > 0) {
-      localEntries.forEach((local: any) => {
-        const key = `${local.sectionRef}-${local.fieldKey}`;
-        const existing = combinedMap.get(key);
-
-        if (existing) {
-          combinedMap.set(key, { ...existing, ...local });
-        } else {
-          combinedMap.set(key, local);
-        }
-      });
-    }
-
-    return Array.from(combinedMap.values());
-  }, [existingEntries, localEntries]);
+    return existingEntries || [];
+  }, [existingEntries]);
 
   // Fetch most recent check-in for check-out inspections (only when online)
   const { data: checkInData } = useQuery({
@@ -583,7 +211,7 @@ export default function InspectionCaptureScreen() {
       queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
       // Alert removed - user can see AI Complete button status instead
     }
-  }, [aiAnalysisStatus?.status, inspectionId, queryClient]);
+  }, [aiAnalysisStatus?.status, inspectionId]); // Removed queryClient from dependencies - it's stable from useQueryClient()
 
   // Load existing entries into state
   // Always update entries when existingEntries changes (to support copy from check-in)
@@ -607,7 +235,6 @@ export default function InspectionCaptureScreen() {
         photos: entry.photos || [],
         maintenanceFlag: entry.maintenanceFlag,
         markedForReview: entry.markedForReview,
-        syncStatus: entry.syncStatus || entry.sync_status || 'synced',
       };
     });
 
@@ -622,19 +249,20 @@ export default function InspectionCaptureScreen() {
         if (!localEntry) {
           merged[key] = serverEntry;
         } else {
-          // If entry is currently pending sync locally, be more conservative about overwriting its value
-          const isPendingLocally = localEntry.syncStatus === 'pending';
-
           // Update entry with server data (especially important after copy from check-in)
           // Merge photos and notes from server to ensure copied data is shown
           const mergedEntry: InspectionEntry = {
             ...localEntry,
             ...serverEntry,
-            // Preserve local unsaved changes for valueJson if entry is pending and has a value
-            valueJson: (isPendingLocally && localEntry.valueJson !== undefined) ? localEntry.valueJson : serverEntry.valueJson,
-            // Merge photos: prefer local/enriched ones, add server ones if not present
-            photos: Array.from(new Set([...(localEntry.photos || []), ...(serverEntry.photos || [])])),
-            note: (isPendingLocally && localEntry.note !== undefined) ? localEntry.note : (serverEntry.note !== undefined ? serverEntry.note : localEntry.note),
+            // CRITICAL: Always use server ID if available (for PATCH vs POST detection)
+            id: serverEntry.id || localEntry.id,
+            // Use server data as source of truth
+            valueJson: serverEntry.valueJson !== undefined ? serverEntry.valueJson : localEntry.valueJson,
+            // Merge photos: combine both arrays, but prioritize server photos
+            photos: serverEntry.photos && serverEntry.photos.length > 0 
+              ? serverEntry.photos 
+              : Array.from(new Set([...(localEntry.photos || []), ...(serverEntry.photos || [])])),
+            note: serverEntry.note !== undefined ? serverEntry.note : localEntry.note,
           };
           merged[key] = mergedEntry;
         }
@@ -721,64 +349,79 @@ export default function InspectionCaptureScreen() {
   // Update entry mutation with offline support
   const updateEntry = useMutation({
     mutationFn: async (entry: InspectionEntry) => {
-      // Generate ID if entry doesn't have one (for offline-created entries)
-      const entryId = entry.id || `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Use entry.id if provided, otherwise use sectionRef-fieldKey format
+      // This ensures consistency with how entries are keyed in the state
+      const entryId = entry.id || `${entry.sectionRef}-${entry.fieldKey}`;
       const entryWithId = { ...entry, id: entryId };
 
-      // Always save to local DB first
+      console.log(`[InspectionCapture] Saving entry ${entryId} (online: ${isOnline})`);
+      
       try {
-        await localDatabase.saveEntry(entryWithId);
-        setSyncStatus('pending');
-      } catch (error) {
-        console.error('[InspectionCapture] Failed to save entry to local DB:', error);
-      }
+        // Use offline layer to save entry
+        const entryData: InspectionEntry = {
+          id: entryWithId.id,
+          inspectionId: entryWithId.inspectionId || inspectionId,
+          sectionRef: entryWithId.sectionRef,
+          fieldKey: entryWithId.fieldKey,
+          fieldType: entryWithId.fieldType,
+          valueJson: entryWithId.valueJson,
+          note: entryWithId.note,
+          photos: entryWithId.photos, // Keep all photos (local and server URLs)
+          maintenanceFlag: entryWithId.maintenanceFlag,
+          markedForReview: entryWithId.markedForReview,
+        };
 
-      // If online, try to sync immediately
-      if (isOnline) {
-        try {
-          const result = await inspectionsService.saveInspectionEntry({
-            ...entryWithId,
-            inspectionId,
-          });
-
-          // Update local entry with server ID
-          if (result.id && result.id !== entryId) {
-            await localDatabase.updateEntrySyncStatus(entryId, 'synced', result.id);
-          } else {
-            await localDatabase.updateEntrySyncStatus(entryId, 'synced', result.id || entryId);
-          }
-
-          setSyncStatus('synced');
-          return result;
-        } catch (error: any) {
-          // Queue for sync when back online
-          console.log('[InspectionCapture] Failed to sync entry, queueing:', error);
-          await syncManager.queueOperation('update_entry', 'entry', entryId, entryWithId, 0);
-          setSyncStatus('pending');
-          throw error;
+        // Validate required fields
+        if (!entryData.inspectionId) {
+          throw new Error(`Entry ${entryId} is missing inspectionId`);
         }
-      } else {
-        // Queue for sync when back online
-        await syncManager.queueOperation('update_entry', 'entry', entryId, entryWithId, 0);
-        const count = await syncManager.getPendingCount();
-        setPendingCount(count);
-        setSyncStatus('pending');
+        if (!entryData.sectionRef) {
+          throw new Error(`Entry ${entryId} is missing sectionRef`);
+        }
+        if (!entryData.fieldKey) {
+          throw new Error(`Entry ${entryId} is missing fieldKey`);
+        }
 
-        // Return the entry with local ID
-        return entryWithId;
+        // Determine if it's a new entry or an update
+        const existingEntry = entries[entryId];
+        const key = `${entryData.sectionRef}-${entryData.fieldKey}`;
+        const hasServerId = existingEntry?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(existingEntry.id);
+
+        let result: InspectionEntry;
+        if (hasServerId && existingEntry.id) {
+          // Update existing entry
+          result = await inspectionsOffline.updateInspectionEntry(existingEntry.id, entryData, isOnline);
+        } else {
+          // Create new entry
+          result = await inspectionsOffline.saveInspectionEntry(entryData, isOnline);
+        }
+
+        // Update local state
+        setEntries(prev => ({
+          ...prev,
+          [key]: result,
+        }));
+
+        // Refresh sync stats
+        const stats = await getSyncStats();
+        setSyncStats({
+          pendingEntries: stats.pendingEntries,
+          pendingImages: stats.pendingImages,
+          queuedOperations: stats.queuedOperations,
+        });
+
+        return result;
+      } catch (error: any) {
+        console.error('[InspectionCapture] Failed to save entry:', error);
+        throw error;
       }
     },
     onSuccess: () => {
-      if (isOnline) {
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
-      }
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
     },
     onError: (error: any) => {
-      // Only show error if online, offline errors are expected
-      if (isOnline) {
-        Alert.alert('Error', error.message || 'Failed to save field');
-      }
+      Alert.alert('Error', error.message || 'Failed to save field');
     },
   });
 
@@ -940,7 +583,7 @@ export default function InspectionCaptureScreen() {
     setShowRightFade(sections.length > 2); // Show fade if more than 2 tabs (rough estimate)
   }, [sections.length]);
 
-  const handleFieldChange = React.useCallback((
+  const handleFieldChange = React.useCallback(async (
     sectionRef: string,
     fieldKey: string,
     value: any,
@@ -959,7 +602,7 @@ export default function InspectionCaptureScreen() {
     }
 
     // Prevent changes if inspection is deleted
-    if (isDeleted || effectiveInspection?.status === 'deleted') {
+    if (isDeleted) {
       Alert.alert(
         'Inspection Deleted',
         'You cannot make changes to a deleted inspection.',
@@ -969,12 +612,17 @@ export default function InspectionCaptureScreen() {
     }
 
     const key = `${sectionRef}-${fieldKey}`;
-    const existingEntry = entriesRef.current[key];
+    const existingEntry = entries[key];
     const fieldType = sections.find(s => s.id === sectionRef)?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type || 'text';
+
+    // CRITICAL FIX: Use the entry key (sectionRef-fieldKey) as the entry ID
+    // This ensures photos uploaded before entry creation can be associated correctly
+    // If entry doesn't exist, use the key as ID; if it exists, use its ID
+    const entryId = existingEntry?.id || key; // key is `${sectionRef}-${fieldKey}`
 
     const newEntry: InspectionEntry = {
       ...existingEntry,
-      id: existingEntry?.id,
+      id: entryId, // Always use the key format for consistency
       inspectionId,
       sectionRef,
       fieldKey,
@@ -985,6 +633,8 @@ export default function InspectionCaptureScreen() {
       markedForReview: markedForReview !== undefined ? markedForReview : (existingEntry?.markedForReview || false),
       maintenanceFlag: existingEntry?.maintenanceFlag || false,
     };
+    
+    // No offline functionality - photos are stored on server only
 
     // Update local state immediately for snappy UI
     setEntries(prev => ({ ...prev, [key]: newEntry }));
@@ -999,79 +649,36 @@ export default function InspectionCaptureScreen() {
     const isIncomplete = progressPercentage < 100;
 
     const completeInspection = async () => {
+      if (!isOnline) {
+        Alert.alert(
+          'Offline',
+          'Cannot complete inspection while offline. Please connect to the internet and sync your changes first.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       try {
         const now = new Date().toISOString();
 
-        // Update local DB
-        await localDatabase.updateInspectionStatus(inspectionId, 'completed');
+        await updateStatusMutation.mutateAsync({
+          status: 'completed',
+          completedDate: now,
+          submittedAt: now,
+        });
 
-        if (isOnline) {
-          try {
-            await updateStatusMutation.mutateAsync({
-              status: 'completed',
-              completedDate: now,
-              submittedAt: now,
-            });
-            await localDatabase.updateInspectionSyncStatus(inspectionId, 'synced');
-
-            Alert.alert(
-              'Success',
-              'Inspection marked as completed.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    navigation.navigate('InspectionReview', { inspectionId });
-                  },
-                },
-              ]
-            );
-          } catch (error: any) {
-            // Queue for sync
-            await syncManager.queueOperation('complete_inspection', 'inspection', inspectionId, {
-              status: 'completed',
-              completedDate: now,
-              submittedAt: now,
-            }, 10); // High priority
-            const count = await syncManager.getPendingCount();
-            setPendingCount(count);
-
-            Alert.alert(
-              'Saved Locally',
-              'Inspection marked as completed. It will be synced when you go online.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    navigation.navigate('InspectionReview', { inspectionId });
-                  },
-                },
-              ]
-            );
-          }
-        } else {
-          // Queue for sync when online
-          await syncManager.queueOperation('complete_inspection', 'inspection', inspectionId, {
-            status: 'completed',
-            completedDate: now,
-            submittedAt: now,
-          }, 10); // High priority
-          const count = await syncManager.getPendingCount();
-          setPendingCount(count);
-
-          Alert.alert(
-            'Saved Locally',
-            'Inspection marked as completed. It will be synced when you go online.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  navigation.navigate('InspectionReview', { inspectionId });
-                },
+        Alert.alert(
+          'Success',
+          'Inspection marked as completed.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                navigation.navigate('InspectionReview', { inspectionId });
               },
-            ]
-          );
-        }
+            },
+          ]
+        );
       } catch (error: any) {
         Alert.alert('Error', error.message || 'Failed to complete inspection');
       }
@@ -1102,122 +709,9 @@ export default function InspectionCaptureScreen() {
 
   // getAPI_URL() is imported from services/api.ts (uses EXPO_PUBLIC_API_URL from .env)
 
-  // Handle sync
-  const handleSync = async () => {
-    if (isSyncing || pendingCount === 0 || !isOnline) return;
+  // No offline functionality - app requires server connection
 
-    setIsSyncing(true);
-    try {
-      const result = await syncManager.startSync();
-      if (result.success > 0) {
-        Alert.alert('Sync Complete', `${result.success} ${result.success === 1 ? 'operation' : 'operations'} synced successfully`);
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-        queryClient.invalidateQueries({ queryKey: ['local-entries', inspectionId] });
-      }
-      if (result.failed > 0) {
-        Alert.alert('Sync Issues', `${result.failed} ${result.failed === 1 ? 'operation' : 'operations'} failed to sync`);
-      }
-      const count = await syncManager.getPendingCount();
-      setPendingCount(count);
-      setSyncStatus(count > 0 ? 'pending' : 'synced');
-    } catch (error: any) {
-      Alert.alert('Sync Failed', error.message || 'Unable to sync offline entries');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // Update pending count (less frequently to reduce re-renders)
-  useEffect(() => {
-    const updateCount = async () => {
-      try {
-        const count = await syncManager.getPendingCount();
-        setPendingCount(prev => {
-          // Only update if count actually changed to prevent unnecessary re-renders
-          if (prev !== count) {
-            return count;
-          }
-          return prev;
-        });
-      } catch (error) {
-        console.error('Error updating pending count:', error);
-      }
-    };
-    updateCount();
-    // Update every 5 seconds instead of 2 to reduce re-renders
-    const interval = setInterval(updateCount, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Auto-sync when coming online - automatically sync pending data without user intervention
-  const hasAutoSyncedRef = useRef(false);
-  const lastSyncTimeRef = useRef(0);
-  const syncInProgressRef = useRef(false);
-
-  useEffect(() => {
-    const autoSync = async () => {
-      // Prevent multiple simultaneous syncs
-      if (syncInProgressRef.current || !isOnline || pendingCount === 0 || isSyncing) {
-        return;
-      }
-
-      const now = Date.now();
-      const timeSinceLastSync = now - lastSyncTimeRef.current;
-
-      // Only auto-sync if:
-      // 1. We're online
-      // 2. There are pending items
-      // 3. Not already syncing
-      // 4. Haven't synced in the last 5 seconds (to prevent rapid re-syncing)
-      // 5. Haven't already auto-synced for this online session
-      if (isOnline && pendingCount > 0 && !isSyncing && !hasAutoSyncedRef.current && timeSinceLastSync > 5000) {
-        syncInProgressRef.current = true;
-        hasAutoSyncedRef.current = true;
-        lastSyncTimeRef.current = now;
-
-        try {
-          // Use syncManager directly to avoid UI blocking
-          const result = await syncManager.startSync();
-
-          // Update pending count after sync
-          const count = await syncManager.getPendingCount();
-          setPendingCount(count);
-          setSyncStatus(count > 0 ? 'pending' : 'synced');
-
-          // Invalidate queries to refresh data
-          if (result.success > 0) {
-            queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-          }
-        } catch (error: any) {
-          console.error('[InspectionCapture] Auto-sync error:', error);
-          // Don't show alert for auto-sync errors - just log them
-        } finally {
-          syncInProgressRef.current = false;
-          // Reset auto-sync flag after 30 seconds to allow re-sync if needed
-          setTimeout(() => {
-            hasAutoSyncedRef.current = false;
-          }, 30000);
-        }
-      } else if (!isOnline) {
-        // Reset when going offline
-        hasAutoSyncedRef.current = false;
-      }
-    };
-
-    autoSync();
-  }, [isOnline, pendingCount, isSyncing, inspectionId, queryClient]);
-
-  // Show loading only if we're online and loading, or if we're offline and don't have local data yet
-  if (inspectionLoading && isOnline && !localInspection) {
-    return (
-      <View style={styles.container}>
-        <LoadingSpinner />
-      </View>
-    );
-  }
-
-  // Check for errors only if online and we have an error, and no local fallback
-  if (inspectionError && isOnline && !localInspection) {
+  if (inspectionError && isOnline && !inspection) {
     const error = inspectionError as any;
     const isDeleted = error.status === 404 || error.isDeleted || error.message?.includes('deleted');
 
@@ -1278,19 +772,7 @@ export default function InspectionCaptureScreen() {
   return (
     <ErrorBoundary>
       <View style={[styles.container, { backgroundColor: themeColors.background }]}>
-        {/* Conflict Resolution Dialog */}
-        {conflictData && conflictEntryId && (
-          <ConflictResolutionDialog
-            visible={!!conflictData}
-            localEntry={conflictData.local}
-            serverEntry={conflictData.server}
-            onResolve={handleConflictResolve}
-            onCancel={() => {
-              setConflictEntryId(null);
-              setConflictData(null);
-            }}
-          />
-        )}
+        {/* Conflict resolution is now automatic - always keeps server version */}
 
         {/* Fixed Header - Only Back Button and Title */}
         <View style={[
@@ -1336,11 +818,6 @@ export default function InspectionCaptureScreen() {
                 <Text style={[styles.offlineBannerDescription, { color: themeColors.text.secondary }]}>
                   You can add photos, notes, and conditions. Completing this inspection requires internet connection.
                 </Text>
-                {pendingCount > 0 && (
-                  <Text style={[styles.offlineBannerSubtext, { color: themeColors.text.muted }]}>
-                    {pendingCount} item{pendingCount !== 1 ? 's' : ''} pending sync
-                  </Text>
-                )}
               </View>
             </View>
           </Card>
@@ -1388,49 +865,6 @@ export default function InspectionCaptureScreen() {
           </Card>
         )}
 
-        {isOnline && (syncStatus === 'pending' || pendingCount > 0) && (
-          <Card style={[
-            styles.syncBanner,
-            {
-              backgroundColor: themeColors.primary.light || `${themeColors.primary.DEFAULT}15`,
-              borderColor: `${themeColors.primary.DEFAULT}40`,
-            }
-          ]}>
-            <View style={styles.syncBannerContent}>
-              <Cloud size={16} color={themeColors.primary.DEFAULT} />
-              <Text style={[styles.syncBannerText, { color: themeColors.text.primary }]}>
-                {isSyncing ? 'Syncing...' : `${pendingCount} item${pendingCount !== 1 ? 's' : ''} pending sync`}
-              </Text>
-              {!isSyncing && (
-                <TouchableOpacity
-                  onPress={async () => {
-                    setIsSyncing(true);
-                    try {
-                      const result = await syncManager.startSync();
-                      const count = await syncManager.getPendingCount();
-                      setPendingCount(count);
-                      setSyncStatus(count > 0 ? 'pending' : 'synced');
-                      if (result.success > 0) {
-                        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-                        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
-                      }
-                    } catch (error) {
-                      console.error('[InspectionCapture] Sync error:', error);
-                    } finally {
-                      setIsSyncing(false);
-                    }
-                  }}
-                  style={[
-                    styles.syncButton,
-                    { backgroundColor: themeColors.primary.DEFAULT }
-                  ]}
-                >
-                  <Text style={[styles.syncButtonText, { color: themeColors.primary.foreground || '#ffffff' }]}>Sync Now</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </Card>
-        )}
 
         {/* AI Analysis Progress */}
         {aiAnalysisStatus?.status === 'processing' && (
@@ -1567,27 +1001,35 @@ export default function InspectionCaptureScreen() {
                 </Badge>
               </View>
 
-              {/* Pending Sync Badge */}
-              {pendingCount > 0 && (
-                <View style={styles.statusBadge}>
-                  <Badge variant="outline" size="sm">
-                    <Cloud size={12} color={themeColors.text.primary} />
-                    <Text style={[styles.badgeText, { color: themeColors.text.primary }]}>{pendingCount} pending</Text>
+              {/* Sync Status Badge */}
+              {(syncStats.pendingEntries > 0 || syncStats.pendingImages > 0) && (
+                <TouchableOpacity
+                  style={styles.statusBadge}
+                  onPress={async () => {
+                    if (isOnline) {
+                      try {
+                        await triggerSync();
+                        const stats = await getSyncStats();
+                        setSyncStats({
+                          pendingEntries: stats.pendingEntries,
+                          pendingImages: stats.pendingImages,
+                          queuedOperations: stats.queuedOperations,
+                        });
+                      } catch (error: any) {
+                        Alert.alert('Sync Error', error.message || 'Failed to sync');
+                      }
+                    }
+                  }}
+                >
+                  <Badge variant="warning" size="sm">
+                    <Cloud size={12} color={themeColors.warning} />
+                    <Text style={[styles.badgeText, { color: themeColors.warning }]}>
+                      {syncStats.pendingEntries + syncStats.pendingImages} pending
+                    </Text>
                   </Badge>
-                </View>
+                </TouchableOpacity>
               )}
 
-              {/* Manual Sync Button */}
-              {isOnline && pendingCount > 0 && (
-                <Button
-                  title={isSyncing ? 'Syncing...' : 'Sync'}
-                  onPress={handleSync}
-                  disabled={!!isSyncing}
-                  variant="outline"
-                  size="sm"
-                  style={styles.actionButton}
-                />
-              )}
 
               {/* Progress Badge */}
               <View style={styles.statusBadge}>
@@ -1763,6 +1205,10 @@ export default function InspectionCaptureScreen() {
                   try {
                     const key = `${currentSection.id}-${field.id || field.key}`;
                     const entry = entries[key];
+                    
+                    // CRITICAL FIX: Always use the key format (sectionRef-fieldKey) as entryId
+                    // This ensures consistency between entries and photos
+                    const properEntryId = entry?.id || key;
 
                     return (
                       <View key={field.id || field.key || `field-${Math.random()}`} style={styles.fieldContainer}>
@@ -1772,7 +1218,7 @@ export default function InspectionCaptureScreen() {
                           note={entry?.note}
                           photos={entry?.photos}
                           inspectionId={inspectionId}
-                          entryId={entry?.id}
+                          entryId={properEntryId}
                           sectionName={currentSection.title}
                           isCheckOut={effectiveInspection?.type === 'check_out'}
                           markedForReview={entry?.markedForReview || false}
@@ -2168,6 +1614,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  syncText: {
+    fontSize: getFontSize(16),
+    fontWeight: typography.fontWeight.normal,
+    textAlign: 'center',
+  },
+  syncSubtext: {
+    fontSize: getFontSize(14),
+    fontWeight: typography.fontWeight.normal,
+    textAlign: 'center',
   },
   errorText: {
     fontSize: 18,

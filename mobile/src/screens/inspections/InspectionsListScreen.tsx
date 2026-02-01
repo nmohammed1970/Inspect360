@@ -10,6 +10,7 @@ import {
   Modal,
   FlatList,
   TextInput,
+  Dimensions,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react-native';
 import { format } from 'date-fns';
 import { inspectionsService } from '../../services/inspections';
+import { inspectionsOffline } from '../../services/offline/inspectionsOffline';
 import { apiRequestJson } from '../../services/api';
 import { queryClient } from '../../services/queryClient';
 import type { InspectionsStackParamList } from '../../navigation/types';
@@ -44,11 +46,11 @@ import EmptyState from '../../components/ui/EmptyState';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
+import { useWindowDimensions } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { localDatabase } from '../../services/localDatabase';
-import { syncManager } from '../../services/syncManager';
 import { Cloud, WifiOff } from 'lucide-react-native';
+import { triggerSync } from '../../services/offline/backgroundSync';
 
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionsList'>;
 
@@ -200,6 +202,8 @@ const STATUS_OPTIONS = [
 export default function InspectionsListScreen() {
   const navigation = useNavigation<NavigationProp>();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
+  const windowDimensions = useWindowDimensions();
+  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
 
   // Get theme colors with fallback - hooks must be called unconditionally
   const theme = useTheme();
@@ -209,8 +213,6 @@ export default function InspectionsListScreen() {
   const { isAuthenticated, user } = useAuth();
   const isOnline = useOnlineStatus();
   const [refreshing, setRefreshing] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBlockId, setFilterBlockId] = useState('');
   const [filterPropertyId, setFilterPropertyId] = useState('');
@@ -231,148 +233,21 @@ export default function InspectionsListScreen() {
   const [copyImages, setCopyImages] = useState(true);
   const [copyText, setCopyText] = useState(true);
 
-  // Initialize local DB and load pending count
-  React.useEffect(() => {
-    const initLocalDB = async () => {
-      try {
-        await localDatabase.initialize();
-        const count = await syncManager.getPendingCount();
-        setPendingCount(count);
-      } catch (error) {
-        console.error('[InspectionsList] Failed to initialize local DB:', error);
-      }
-    };
-    initLocalDB();
-
-    // Refresh pending count periodically
-    const interval = setInterval(async () => {
-      const count = await syncManager.getPendingCount();
-      setPendingCount(count);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Always load from local DB first (both online and offline)
-  const { data: localInspections = [], isLoading: isLoadingLocal, refetch: refetchLocal } = useQuery({
-    queryKey: ['local-inspections', user?.id],
-    queryFn: async () => {
-      try {
-        await localDatabase.initialize();
-        const locals = await localDatabase.getAllInspections(user?.id);
-        return locals.map(local => {
-          try {
-            const templateData = JSON.parse(local.template_snapshot_json);
-            const metadata = templateData._metadata || {};
-
-            return {
-              id: local.id,
-              type: local.type,
-              status: local.status,
-              scheduledDate: local.scheduled_date || undefined,
-              property: metadata.property || undefined,
-              block: metadata.block || undefined,
-              clerk: metadata.clerk || undefined,
-              templateSnapshotJson: templateData,
-              tenantApprovalStatus: metadata.tenantApprovalStatus || undefined,
-              tenantApprovalDeadline: metadata.tenantApprovalDeadline || undefined,
-              tenantComments: metadata.tenantComments || undefined,
-              createdAt: local.created_at,
-              updatedAt: local.updated_at,
-            };
-          } catch (parseError) {
-            console.error('[InspectionsList] Error parsing inspection data:', parseError);
-            return {
-              id: local.id,
-              type: local.type,
-              status: local.status,
-              scheduledDate: local.scheduled_date || undefined,
-              property: undefined,
-              block: undefined,
-              clerk: undefined,
-              templateSnapshotJson: {},
-              createdAt: local.created_at,
-              updatedAt: local.updated_at,
-            };
-          }
-        });
-      } catch (error) {
-        console.error('[InspectionsList] Error loading local inspections:', error);
-        return [];
-      }
-    },
-    staleTime: 0, // Always refetch to get latest local data
-    refetchOnMount: true,
-    enabled: !!user?.id, // only load scoped local data once we know the user
-  });
-
-  // Fetch from server when online and authenticated
-  // Saves ALL inspection types to local DB (check_in, check_out, routine, maintenance, etc.)
+  // Fetch inspections using offline layer (works offline)
   const { data: serverInspections = [], isLoading: isLoadingServer, refetch: refetchServer } = useQuery({
     queryKey: ['/api/inspections/my'],
     queryFn: async () => {
-      const inspections = await inspectionsService.getMyInspections();
-
-      // Always save ALL inspection types to local DB (both online and offline scenarios)
-      // No type filtering - all types are saved for offline access
-      try {
-        await localDatabase.initialize();
-        for (const inspection of inspections) {
-          try {
-            // Save inspection regardless of type (check_in, check_out, routine, maintenance, etc.)
-            await localDatabase.saveInspection(inspection);
-          } catch (saveError) {
-            console.error('[InspectionsList] Failed to save inspection to local DB:', saveError);
-            // Continue with other inspections even if one fails
-          }
-        }
-        // After saving, refetch local inspections to update the UI
-        queryClient.invalidateQueries({ queryKey: ['local-inspections'] });
-      } catch (error) {
-        console.error('[InspectionsList] Failed to initialize or save to local DB:', error);
-      }
-
-      return inspections;
+      return await inspectionsOffline.getMyInspections(isOnline);
     },
-    enabled: isOnline && isAuthenticated, // Only fetch when online AND authenticated
+    enabled: isAuthenticated, // Works offline, only needs authentication
     staleTime: 30000, // Cache for 30 seconds
     refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
 
-  // Always use local inspections as the source of truth
-  // When online, server data will update local DB, and local query will refetch
-  // When offline, only local data is available
-  const effectiveInspections = localInspections;
-  const isLoading = isOnline ? (isLoadingLocal || isLoadingServer) : isLoadingLocal;
-
-  // Load sync statuses for all inspections
-  const [syncStatuses, setSyncStatuses] = React.useState<Record<string, { status: 'synced' | 'pending' | 'conflict'; pendingCount: number }>>({});
-
-  React.useEffect(() => {
-    const loadSyncStatuses = async () => {
-      const statuses: Record<string, { status: 'synced' | 'pending' | 'conflict'; pendingCount: number }> = {};
-      for (const inspection of effectiveInspections) {
-        try {
-          const local = await localDatabase.getInspection(inspection.id);
-          if (local) {
-            const count = await localDatabase.getPendingEntriesCount(inspection.id);
-            statuses[inspection.id] = {
-              status: local.sync_status,
-              pendingCount: count,
-            };
-          } else {
-            statuses[inspection.id] = { status: 'synced', pendingCount: 0 };
-          }
-        } catch (error) {
-          statuses[inspection.id] = { status: 'synced', pendingCount: 0 };
-        }
-      }
-      setSyncStatuses(statuses);
-    };
-    if (effectiveInspections.length > 0) {
-      loadSyncStatuses();
-    }
-  }, [effectiveInspections]);
+  // Use inspections from offline layer (local DB + server sync)
+  const effectiveInspections = serverInspections;
+  const isLoading = isLoadingServer;
 
   const { data: blocks = [] } = useQuery({
     queryKey: ['/api/blocks'],
@@ -491,32 +366,17 @@ export default function InspectionsListScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      // Always refetch local inspections
-      await refetchLocal();
-
-      // If online, also refetch from server and sync
+      // If online, trigger sync and refetch
       if (isOnline) {
         try {
-          setIsSyncing(true);
-          const result = await syncManager.startSync();
-          const count = await syncManager.getPendingCount();
-          setPendingCount(count);
-
-          if (result.success > 0) {
-            // Refresh inspections after successful sync
-            await refetchServer();
-            await refetchLocal();
-          } else {
-            // Still refetch server data even if sync had no pending items
-            await refetchServer();
-          }
+          await triggerSync();
         } catch (syncError) {
-          console.error('[InspectionsList] Sync error during refresh:', syncError);
-          // Still try to refetch server data
-          await refetchServer();
-        } finally {
-          setIsSyncing(false);
+          console.error('[InspectionsList] Sync error:', syncError);
         }
+        await refetchServer();
+      } else {
+        // Offline - just refetch from local DB
+        await refetchServer();
       }
     } catch (error) {
       console.error('[InspectionsList] Refresh error:', error);
@@ -610,29 +470,14 @@ export default function InspectionsListScreen() {
               <View style={styles.offlineBannerTextContainer}>
                 <Text style={[styles.offlineBannerText, { color: themeColors.warning }]}>Working Offline</Text>
                 <Text style={[styles.offlineBannerDescription, { color: themeColors.text.secondary }]}>
-                  You can edit existing inspections (add photos, notes, conditions). Creating new inspections or completing inspections requires internet connection.
+                  This app requires an internet connection to work. Please connect to the internet to view and manage inspections.
                 </Text>
-                {pendingCount > 0 && (
-                  <Text style={[styles.offlineBannerSubtext, { color: themeColors.text.muted }]}>
-                    {pendingCount} item{pendingCount !== 1 ? 's' : ''} pending sync
-                  </Text>
-                )}
               </View>
             </View>
           </Card>
         )}
 
-        {/* Auto-sync is handled by useOfflineSync hook - no manual sync button needed */}
-        {isOnline && pendingCount > 0 && isSyncing && (
-          <Card style={styles.syncBanner}>
-            <View style={styles.syncBannerContent}>
-              <Cloud size={16} color={themeColors.primary.DEFAULT} />
-              <Text style={[styles.syncBannerText, { color: themeColors.text.primary }]}>
-                Syncing {pendingCount} item{pendingCount !== 1 ? 's' : ''}...
-              </Text>
-            </View>
-          </Card>
-        )}
+        {/* No sync banner - all data is on server */}
 
         {/* Filters */}
         <View style={styles.filters}>
@@ -643,7 +488,12 @@ export default function InspectionsListScreen() {
                 styles.filterChip,
                 {
                   borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterBlockId ? themeColors.primary.light : themeColors.background
+                  backgroundColor: filterBlockId ? themeColors.primary.light : themeColors.background,
+                  paddingHorizontal: moderateScale(spacing[3], 0.3, screenWidth),
+                  paddingVertical: moderateScale(spacing[2], 0.3, screenWidth),
+                  borderRadius: moderateScale(borderRadius.full, 0.2, screenWidth),
+                  borderWidth: 1,
+                  marginRight: moderateScale(spacing[2], 0.3, screenWidth),
                 },
                 filterBlockId && { borderColor: themeColors.primary.DEFAULT }
               ]}
@@ -651,7 +501,10 @@ export default function InspectionsListScreen() {
             >
               <Text style={[
                 styles.filterChipText,
-                { color: filterBlockId ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+                { 
+                  color: filterBlockId ? themeColors.primary.DEFAULT : themeColors.text.secondary,
+                  fontSize: getFontSize(typography.fontSize.sm, screenWidth),
+                }
               ]}>
                 Block: {selectedBlock?.name || 'All'}
               </Text>
@@ -661,7 +514,12 @@ export default function InspectionsListScreen() {
                 styles.filterChip,
                 {
                   borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterPropertyId ? themeColors.primary.light : themeColors.background
+                  backgroundColor: filterPropertyId ? themeColors.primary.light : themeColors.background,
+                  paddingHorizontal: moderateScale(spacing[3], 0.3, screenWidth),
+                  paddingVertical: moderateScale(spacing[2], 0.3, screenWidth),
+                  borderRadius: moderateScale(borderRadius.full, 0.2, screenWidth),
+                  borderWidth: 1,
+                  marginRight: moderateScale(spacing[2], 0.3, screenWidth),
                 },
                 filterPropertyId && { borderColor: themeColors.primary.DEFAULT }
               ]}
@@ -669,7 +527,10 @@ export default function InspectionsListScreen() {
             >
               <Text style={[
                 styles.filterChipText,
-                { color: filterPropertyId ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+                { 
+                  color: filterPropertyId ? themeColors.primary.DEFAULT : themeColors.text.secondary,
+                  fontSize: getFontSize(typography.fontSize.sm, screenWidth),
+                }
               ]}>
                 Property: {selectedProperty?.name || 'All'}
               </Text>
@@ -679,7 +540,12 @@ export default function InspectionsListScreen() {
                 styles.filterChip,
                 {
                   borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterStatus ? themeColors.primary.light : themeColors.background
+                  backgroundColor: filterStatus ? themeColors.primary.light : themeColors.background,
+                  paddingHorizontal: moderateScale(spacing[3], 0.3, screenWidth),
+                  paddingVertical: moderateScale(spacing[2], 0.3, screenWidth),
+                  borderRadius: moderateScale(borderRadius.full, 0.2, screenWidth),
+                  borderWidth: 1,
+                  marginRight: moderateScale(spacing[2], 0.3, screenWidth),
                 },
                 filterStatus && { borderColor: themeColors.primary.DEFAULT }
               ]}
@@ -687,7 +553,10 @@ export default function InspectionsListScreen() {
             >
               <Text style={[
                 styles.filterChipText,
-                { color: filterStatus ? themeColors.primary.DEFAULT : themeColors.text.secondary }
+                { 
+                  color: filterStatus ? themeColors.primary.DEFAULT : themeColors.text.secondary,
+                  fontSize: getFontSize(typography.fontSize.sm, screenWidth),
+                }
               ]}>
                 Status: {selectedStatusLabel}
               </Text>
@@ -894,8 +763,6 @@ export default function InspectionsListScreen() {
         ) : (
           <View style={styles.inspectionsGrid}>
             {filteredInspections.map((inspection: Inspection) => {
-              const syncStatus = syncStatuses[inspection.id] || { status: 'synced' as const, pendingCount: 0 };
-
               return (
                 <Card key={inspection.id} style={styles.inspectionCard} variant="elevated">
                   <View style={styles.cardHeader}>
@@ -906,16 +773,6 @@ export default function InspectionsListScreen() {
                       <View style={styles.badgeRow}>
                         {getStatusBadge(inspection.status, themeColors)}
                         {getTenantApprovalBadge(inspection)}
-                        {syncStatus.status === 'pending' && syncStatus.pendingCount > 0 && (
-                          <Badge variant="warning" size="sm" style={styles.statusBadge}>
-                            Pending ({syncStatus.pendingCount})
-                          </Badge>
-                        )}
-                        {syncStatus.status === 'conflict' && (
-                          <Badge variant="destructive" size="sm" style={styles.statusBadge}>
-                            Conflict
-                          </Badge>
-                        )}
                       </View>
                     </View>
                   </View>
@@ -961,7 +818,7 @@ export default function InspectionsListScreen() {
                           onPress={() => navigation.navigate('InspectionCapture', { inspectionId: inspection.id })}
                           variant="primary"
                           size="sm"
-                          style={styles.actionButton}
+                          style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
                           icon={<Play size={14} color={themeColors.primary.foreground} />}
                         />
                       )}
@@ -971,7 +828,7 @@ export default function InspectionsListScreen() {
                           onPress={() => navigation.navigate('InspectionReport', { inspectionId: inspection.id })}
                           variant="outline"
                           size="sm"
-                          style={styles.actionButton}
+                          style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
                           icon={<FileText size={14} color={themeColors.text.primary} />}
                         />
                       )}
@@ -982,10 +839,19 @@ export default function InspectionsListScreen() {
                         }}
                         variant="outline"
                         size="sm"
-                        style={styles.actionButton}
+                        style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
                       />
                       <TouchableOpacity
-                        style={[styles.copyButton, { borderColor: themeColors.border.DEFAULT }]}
+                        style={[
+                          styles.copyButton, 
+                          { 
+                            borderColor: themeColors.border.DEFAULT,
+                            padding: moderateScale(spacing[2], 0.3, screenWidth),
+                            borderRadius: moderateScale(borderRadius.md, 0.2, screenWidth),
+                            minWidth: moderateScale(44, 0.2, screenWidth),
+                            minHeight: moderateScale(44, 0.2, screenWidth),
+                          }
+                        ]}
                         onPress={() => handleCopyClick(inspection)}
                       >
                         <CopyIcon size={16} color={themeColors.text.secondary} />
@@ -1187,11 +1053,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   filterChip: {
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    marginRight: spacing[2],
+    // Padding and margins set dynamically with screenWidth
   },
   filterChipActive: {
     // Colors set dynamically
@@ -1262,7 +1124,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    minWidth: moderateScale(100, 0.3),
+    // minWidth set dynamically with screenWidth in component
   },
   textButton: {
     flexDirection: 'row',
@@ -1276,13 +1138,10 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
   },
   copyButton: {
-    padding: moderateScale(spacing[2], 0.3),
-    borderRadius: moderateScale(borderRadius.md, 0.2),
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: moderateScale(44, 0.2),
-    minHeight: moderateScale(44, 0.2),
+    // Padding, borderRadius, minWidth, minHeight set dynamically with screenWidth
   },
   modalOverlay: {
     flex: 1,

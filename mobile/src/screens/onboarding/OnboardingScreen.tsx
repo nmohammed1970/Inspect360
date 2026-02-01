@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   useWindowDimensions,
+  Dimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -47,7 +48,8 @@ interface OnboardingSlide {
 export default function OnboardingScreen({ navigation }: OnboardingScreenProps) {
   const theme = useTheme();
   const { user } = useAuth();
-  const { width: screenWidth } = useWindowDimensions();
+  const windowDimensions = useWindowDimensions();
+  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
   const [currentSlide, setCurrentSlide] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   
@@ -184,7 +186,9 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
       // Last slide - complete onboarding for this user
       if (user?.id) {
         await setOnboardingCompleted(user.id);
-        console.log(`[OnboardingScreen] Marked onboarding as completed for user ${user.email} (${user.id})`);
+        if (__DEV__) {
+          console.log(`[OnboardingScreen] Marked onboarding as completed for user ${user.id}`);
+        }
       } else {
         console.warn('[OnboardingScreen] No user ID available, cannot mark onboarding as completed');
       }
@@ -200,7 +204,9 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     // Mark onboarding as completed for this user
     if (user?.id) {
       await setOnboardingCompleted(user.id);
-      console.log(`[OnboardingScreen] Skipped onboarding for user ${user.email} (${user.id})`);
+      if (__DEV__) {
+        console.log(`[OnboardingScreen] Skipped onboarding for user ${user.id}`);
+      }
     } else {
       console.warn('[OnboardingScreen] No user ID available, cannot mark onboarding as completed');
     }

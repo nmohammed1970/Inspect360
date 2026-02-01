@@ -5,7 +5,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authService } from '../services/auth';
 import { getAPI_URL } from '../services/api';
-import { localDatabase } from '../services/localDatabase';
 import type { User } from '../types';
 
 interface AuthContextType {
@@ -103,10 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (currentUser) {
-      console.log('[AuthContext] Current user updated:', currentUser.email, 'role:', currentUser.role);
+      if (__DEV__) {
+        console.log('[AuthContext] Current user updated, role:', currentUser.role);
+      }
       // Verify the user from server is still a clerk
       if (currentUser.role !== 'clerk') {
-        console.warn('[AuthContext] User from server is not a clerk, clearing session');
+        if (__DEV__) {
+          console.warn('[AuthContext] User from server is not a clerk, clearing session');
+        }
         // Clear invalid session if role changed
         setUser(null);
         deleteStorageItem(USER_STORAGE_KEY);
@@ -116,21 +119,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       setUser(currentUser);
       setStorageItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
-      console.log('[AuthContext] User state updated, isAuthenticated should be true');
+      if (__DEV__) {
+        console.log('[AuthContext] User state updated, isAuthenticated should be true');
+      }
     }
   }, [currentUser]);
 
   const checkStoredSession = async () => {
     try {
-      console.log('[AuthContext] Checking stored session...');
+      if (__DEV__) {
+        console.log('[AuthContext] Checking stored session...');
+      }
       const storedUser = await getStorageItem(USER_STORAGE_KEY);
       if (storedUser) {
         const parsedUser = JSON.parse(storedUser);
-        console.log('[AuthContext] Found stored user:', parsedUser.email, 'role:', parsedUser.role);
+        if (__DEV__) {
+          console.log('[AuthContext] Found stored user, role:', parsedUser.role);
+        }
         
         // Verify the stored user is still a clerk
         if (parsedUser.role !== 'clerk') {
-          console.warn('[AuthContext] Stored user is not a clerk, clearing session');
+          if (__DEV__) {
+            console.warn('[AuthContext] Stored user is not a clerk, clearing session');
+          }
           // Clear invalid session
           await deleteStorageItem(USER_STORAGE_KEY);
           setUser(null);
@@ -141,36 +152,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(parsedUser);
         // Verify session is still valid in background
         refetch().catch((error) => {
-          console.error('[AuthContext] Failed to verify stored session:', error);
+          if (__DEV__) {
+            console.error('[AuthContext] Failed to verify stored session:', error);
+          }
           // If verification fails, clear the stored session
           setUser(null);
           deleteStorageItem(USER_STORAGE_KEY);
         });
       } else {
-        console.log('[AuthContext] No stored session found');
+        if (__DEV__) {
+          console.log('[AuthContext] No stored session found');
+        }
       }
     } catch (error) {
-      console.error('[AuthContext] Error checking stored session:', error);
+      if (__DEV__) {
+        console.error('[AuthContext] Error checking stored session:', error);
+      }
     }
   };
 
   const loginMutation = useMutation({
     mutationFn: async ({ email, password }: { email: string; password: string }) => {
       try {
+        if (__DEV__) {
+          console.log('[AuthContext] Attempting login');
+        }
         const response = await authService.login({ email, password });
+        if (__DEV__) {
+          console.log('[AuthContext] Login response received:', {
+            hasUser: !!response.user,
+            userId: response.user?.id,
+            userRole: response.user?.role,
+          });
+        }
+        
         // Backend returns user directly, but authService wraps it in { user }
         const userData = response.user;
+        
+        if (!userData) {
+          if (__DEV__) {
+            console.error('[AuthContext] Login response missing user data');
+          }
+          throw new Error('Login failed. Please try again.');
+        }
       
         // Check if user is a clerk (inspector)
         if (userData.role !== 'clerk') {
+          if (__DEV__) {
+            console.warn('[AuthContext] User is not a clerk, role:', userData.role);
+          }
           // Clear any stored data
           await deleteStorageItem(USER_STORAGE_KEY);
           queryClient.clear();
           throw new Error('Access denied. This app is only for inspectors (clerks).');
         }
       
+        if (__DEV__) {
+          console.log('[AuthContext] Login successful, user is a clerk');
+        }
         return userData;
       } catch (error: any) {
+        if (__DEV__) {
+          console.error('[AuthContext] Login error:', {
+            message: error?.message,
+            status: error?.status,
+            name: error?.name,
+          });
+        }
+        
         // Transform authentication errors to user-friendly messages
         if (error?.status === 401 || error?.status === 403) {
           throw new Error('Email or password is incorrect. Please try again.');
@@ -180,20 +229,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     onSuccess: async (userData) => {
-      console.log('[AuthContext] Login success, setting user:', userData.email);
-      console.log('[AuthContext] User data:', JSON.stringify(userData, null, 2));
+      if (__DEV__) {
+        console.log('[AuthContext] Login success');
+      }
       setUser(userData);
       await setStorageItem(USER_STORAGE_KEY, JSON.stringify(userData));
       queryClient.setQueryData(['/api/auth/user'], userData);
-      // On shared devices, ensure offline inspections are scoped to this user only
-      try {
-        await localDatabase.initialize();
-        await localDatabase.purgeInspectionsNotOwned(userData.id);
-        queryClient.invalidateQueries({ queryKey: ['local-inspections', userData.id] });
-      } catch (e) {
-        console.warn('[AuthContext] Failed to purge other users inspections:', e);
+      // No local database - all data is stored on server only
+      if (__DEV__) {
+        console.log('[AuthContext] User state set, isAuthenticated should now be:', !!userData);
       }
-      console.log('[AuthContext] User state set, isAuthenticated should now be:', !!userData);
     },
     onError: (error: Error) => {
       // Error will propagate to LoginScreen - no need to log here

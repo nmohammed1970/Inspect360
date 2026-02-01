@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View, StyleProp, useWindowDimensions } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, View, StyleProp, useWindowDimensions, Dimensions } from 'react-native';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getButtonHeight, moderateScale, getFontSize } from '../../utils/responsive';
@@ -28,7 +28,8 @@ export default function Button({
   icon,
 }: ButtonProps) {
   const theme = useTheme();
-  const { width: screenWidth } = useWindowDimensions();
+  const windowDimensions = useWindowDimensions();
+  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
 

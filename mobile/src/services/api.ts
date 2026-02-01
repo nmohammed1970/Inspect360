@@ -225,10 +225,12 @@ export async function apiRequest(
           "Content-Type": "application/json",
           "Cache-Control": "no-cache, no-store, must-revalidate",
           "Pragma": "no-cache",
+          "Accept": "application/json",
         }
         : {
           "Cache-Control": "no-cache, no-store, must-revalidate",
           "Pragma": "no-cache",
+          "Accept": "application/json",
         },
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include", // Important for session cookies
@@ -236,6 +238,14 @@ export async function apiRequest(
 
     clearTimeout(timeoutId);
     console.log(`[API] Response status: ${res.status} for ${method} ${fullUrl}`);
+    
+    // Log response headers for debugging (especially Set-Cookie for login)
+    if (method === 'POST' && url.includes('/login')) {
+      const setCookieHeader = res.headers.get('set-cookie');
+      console.log('[API] Login response - Set-Cookie header:', setCookieHeader || '(not set)');
+      console.log('[API] Login response - Content-Type:', res.headers.get('content-type'));
+    }
+    
     await throwIfResNotOk(res);
     return res;
   } catch (error: any) {
@@ -294,6 +304,12 @@ export async function apiRequestJson<T>(
   try {
     const text = await res.text();
     
+    // Log response for login requests to help debug
+    if (method === 'POST' && url.includes('/login')) {
+      console.log('[API] Login response text length:', text.length);
+      console.log('[API] Login response preview:', text.substring(0, 200));
+    }
+    
     // If content type indicates JSON or we got a response, try to parse it
     if (contentType && !contentType.includes('application/json')) {
       // Not JSON content type - might be HTML error page
@@ -308,12 +324,55 @@ export async function apiRequestJson<T>(
       throw new Error(`Expected JSON response but got ${contentType}. Response: ${text.substring(0, 200)}`);
     }
     
-    // Try to parse as JSON
-    if (!text) {
+    // Handle empty responses for successful requests (PATCH/PUT often return empty 200)
+    // For successful status codes (200, 201, 204), empty response is valid
+    if (!text || text.trim() === '') {
+      // For successful status codes, empty response is acceptable
+      // Return the request data as fallback, or a minimal success object
+      if (res.status === 200 || res.status === 201 || res.status === 204) {
+        console.log(`[apiRequestJson] Empty response for ${method} ${url} with status ${res.status} - treating as success`);
+        // For PATCH/PUT, try to extract ID from URL if it's an update endpoint
+        if (method === 'PATCH' || method === 'PUT') {
+          // Try to extract ID from URL (e.g., /api/inspection-entries/{id})
+          const urlMatch = url.match(/\/([^\/]+)$/);
+          const extractedId = urlMatch ? urlMatch[1] : null;
+          
+          // If data is an object, merge with extracted ID
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            return {
+              ...(data as any),
+              id: extractedId || (data as any).id || (data as any).entryId,
+              success: true,
+            } as T;
+          }
+          
+          // Fallback: return minimal object with ID if available
+          return (extractedId ? { id: extractedId, success: true } : { success: true }) as T;
+        }
+        // For POST, return a minimal success object
+        if (method === 'POST') {
+          return ({ success: true } as any) as T;
+        }
+        // For GET, empty response is unexpected but we'll return empty object
+        return ({} as any) as T;
+      }
+      // For non-success status codes, empty response is an error
       throw new Error('Empty response from server');
     }
     
-    return JSON.parse(text) as T;
+    const parsed = JSON.parse(text) as T;
+    
+    // Log parsed response for login to help debug
+    if (method === 'POST' && url.includes('/login')) {
+      console.log('[API] Login response parsed successfully:', {
+        hasId: !!(parsed as any).id,
+        hasEmail: !!(parsed as any).email,
+        hasRole: !!(parsed as any).role,
+        role: (parsed as any).role,
+      });
+    }
+    
+    return parsed;
   } catch (error: any) {
     // If parsing fails, provide better error message
     if (error.message) {

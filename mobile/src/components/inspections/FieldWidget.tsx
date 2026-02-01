@@ -9,26 +9,27 @@ import {
   ScrollView,
   Modal,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Camera } from 'expo-camera';
 import Input from '../ui/Input';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import DatePicker from '../ui/DatePicker';
+import Select from '../ui/Select';
 import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Trash2, Calendar, Clock, Eye, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import * as FileSystem from 'expo-file-system/legacy';
+import { storeImageLocally, getImageSource, isLocalPath } from '../../services/offline/storage';
 import SignatureCanvas from 'react-native-signature-canvas';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import Badge from '../ui/Badge';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useTheme } from '../../contexts/ThemeContext';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
-import { photoStorage } from '../../services/photoStorage';
-import { localDatabase } from '../../services/localDatabase';
-import { syncManager } from '../../services/syncManager';
+// No offline functionality - app requires server connection
 import { format } from 'date-fns';
 
 interface TemplateField {
@@ -126,20 +127,12 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const [localValue, setLocalValue] = useState(() => parseValue(value));
   const [localNote, setLocalNote] = useState(note || '');
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
-  // Store generated entryId if it doesn't exist (for photos added before field value is saved)
-  const generatedEntryIdRef = useRef<string | null>(null);
-
-  // Update ref when entryId prop changes (when entry is created)
-  useEffect(() => {
-    if (entryId) {
-      generatedEntryIdRef.current = entryId;
-    }
-  }, [entryId]);
-  const [localCondition, setLocalCondition] = useState<number | undefined>(
-    value?.condition
+  // Condition and Cleanliness are now strings matching web app
+  const [localCondition, setLocalCondition] = useState<string | undefined>(
+    value?.condition || (typeof value === 'object' && value?.condition) ? value.condition : undefined
   );
-  const [localCleanliness, setLocalCleanliness] = useState<number | undefined>(
-    value?.cleanliness
+  const [localCleanliness, setLocalCleanliness] = useState<string | undefined>(
+    value?.cleanliness || (typeof value === 'object' && value?.cleanliness) ? value.cleanliness : undefined
   );
   const [localMarkedForReview, setLocalMarkedForReview] = useState(!!markedForReview);
   const [showPhotoPicker, setShowPhotoPicker] = useState(false);
@@ -203,7 +196,15 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
   useEffect(() => {
     // Only update if the prop has changed and is different from local state
+    // CRITICAL FIX: Don't filter out photos - keep all photos from props
+    // Photos should only be removed when user explicitly deletes them
+    // The verification was too aggressive and was removing valid photos
     if (photos && JSON.stringify(localPhotos) !== JSON.stringify(photos)) {
+      // Use photos as-is - don't filter based on database existence
+      // Photos might be:
+      // - Server URLs (not in local DB but valid)
+      // - Local paths (not yet in DB but valid)
+      // - In DB but verification might fail due to timing
       setLocalPhotos(photos);
     }
   }, [photos]);
@@ -261,19 +262,19 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     onChange(composedValue, newNote, localPhotos);
   };
 
-  const handleConditionChange = (rating: number) => {
-    setLocalCondition(rating);
-    const composedValue = composeValue(localValue, rating, localCleanliness);
+  const handleConditionChange = (conditionValue: string) => {
+    setLocalCondition(conditionValue);
+    const composedValue = composeValue(localValue, conditionValue, localCleanliness);
     onChange(composedValue, localNote, localPhotos);
   };
 
-  const handleCleanlinessChange = (rating: number) => {
-    setLocalCleanliness(rating);
-    const composedValue = composeValue(localValue, localCondition, rating);
+  const handleCleanlinessChange = (cleanlinessValue: string) => {
+    setLocalCleanliness(cleanlinessValue);
+    const composedValue = composeValue(localValue, localCondition, cleanlinessValue);
     onChange(composedValue, localNote, localPhotos);
   };
 
-  const composeValue = (val: any, condition?: number, cleanliness?: number) => {
+  const composeValue = (val: any, condition?: string, cleanliness?: string) => {
     const includeCondition = !!safeField.includeCondition;
     const includeCleanliness = !!safeField.includeCleanliness;
     if (includeCondition || includeCleanliness) {
@@ -357,142 +358,204 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
   // Upload photo to server (with offline support)
   const uploadPhoto = async (uri: string): Promise<string> => {
-    try {
-      // Always save to local storage first
-      if (!inspectionId) {
-        throw new Error('Missing inspection ID');
-      }
+    if (!inspectionId) {
+      throw new Error('Missing inspection ID');
+    }
 
-      // Generate a temporary entryId if it doesn't exist (for photos added before field value is saved)
-      // This entryId will be used when the entry is created via onChange
-      // Use stored generated ID if available, otherwise generate a new one
-      const effectiveEntryId = entryId || generatedEntryIdRef.current || `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // Store the generated ID for future use
-      if (!entryId && !generatedEntryIdRef.current) {
-        generatedEntryIdRef.current = effectiveEntryId;
-      }
-
-      const localPath = await photoStorage.savePhoto(uri, inspectionId, effectiveEntryId);
-      const fileSize = await photoStorage.getPhotoSize(localPath);
-      const mimeType = photoStorage.getMimeType(localPath);
-
-      const photo = await localDatabase.savePhoto({
-        entry_id: effectiveEntryId,
-        inspection_id: inspectionId,
-        local_path: localPath,
-        upload_status: 'pending',
-        file_size: fileSize,
-        mime_type: mimeType,
-        server_url: null,
-        uploaded_at: null,
-      });
-
-      // If online, try to upload immediately
-      if (isOnline) {
-        try {
-          // Read file extension
-          const extension = localPath.split('.').pop()?.toLowerCase() || 'jpg';
-
-          // Create FormData for React Native
-          const formData = new FormData();
-          formData.append('file', {
-            uri: localPath,
-            type: mimeType,
-            name: `photo.${extension}`,
-          } as any);
-
-          // Construct full URL (getAPI_URL() always returns a full URL)
-          const uploadUrl = `${getAPI_URL()}/api/objects/upload-direct`;
-
-          // Create abort controller for timeout
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for file uploads
-
-          try {
-            // For FormData, React Native automatically sets Content-Type with boundary
-            // DO NOT set Content-Type manually - it will break the upload
-            const response = await fetch(uploadUrl, {
-              method: 'POST',
-              headers: {
-                // Only set non-content-type headers
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache',
-              },
-              body: formData,
-              credentials: 'include',
-              signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              let errorMessage = 'Failed to upload photo';
-              try {
-                const errorData = JSON.parse(errorText);
-                errorMessage = errorData.message || errorData.error || errorMessage;
-              } catch {
-                errorMessage = errorText || `Server error: ${response.status} ${response.statusText}`;
-              }
-              throw new Error(errorMessage);
-            }
-
-            const data = await response.json();
-            // The endpoint returns { url, uploadURL } - use url or uploadURL
-            const serverUrl = data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
-
-            // Update photo with server URL
-            await localDatabase.updatePhotoUploadStatus(photo.id, 'uploaded', serverUrl);
-
-            return serverUrl;
-          } catch (fetchError: any) {
-            clearTimeout(timeoutId);
-
-            // Handle abort (timeout)
-            if (fetchError.name === 'AbortError') {
-              // Queue for later upload
-              await syncManager.queueOperation('upload_photo', 'photo', photo.id, photo, 0);
-              await localDatabase.updatePhotoUploadStatus(photo.id, 'pending');
-              return localPath; // Return local path for immediate display
-            }
-
-            // Handle network errors - queue for later upload
-            if (fetchError.message?.includes('Network request failed') ||
-              fetchError.message?.includes('Failed to fetch') ||
-              fetchError.message?.includes('ERR_CONNECTION_REFUSED')) {
-              // Queue for later upload
-              await syncManager.queueOperation('upload_photo', 'photo', photo.id, photo, 0);
-              await localDatabase.updatePhotoUploadStatus(photo.id, 'pending');
-              return localPath; // Return local path for immediate display
-            }
-
-            // Other errors - still queue for retry
-            await syncManager.queueOperation('upload_photo', 'photo', photo.id, photo, 0);
-            await localDatabase.updatePhotoUploadStatus(photo.id, 'pending');
-            throw fetchError;
-          }
-        } catch (uploadError: any) {
-          // Upload failed, but photo is saved locally - queue for sync
-          console.error('[FieldWidget] Upload failed, queueing for sync:', uploadError);
-          await syncManager.queueOperation('upload_photo', 'photo', photo.id, photo, 0);
-          await localDatabase.updatePhotoUploadStatus(photo.id, 'pending');
-          // Return local path so photo can be displayed immediately
-          return localPath;
-        }
-      } else {
-        // Offline - queue for upload when back online
-        await syncManager.queueOperation('upload_photo', 'photo', photo.id, photo, 0);
-        // Return local path so photo can be displayed immediately
+    // If offline, store locally and return local path
+    if (!isOnline) {
+      try {
+        const localPath = await storeImageLocally(uri, inspectionId, entryId);
+        console.log(`[FieldWidget] Photo stored locally: ${localPath}`);
+        
+        // Add local path to photos array
+        const composedValue = composeValue(localValue, localCondition, localCleanliness);
+        const currentPhotos = [...localPhotos, localPath];
+        onChange(composedValue, localNote, currentPhotos);
+        
         return localPath;
-      }
-    } catch (error: any) {
-      console.error('Error handling photo:', error);
-      // Re-throw with more context if it's not already a proper error
-      if (error instanceof Error) {
+      } catch (error: any) {
+        console.error('[FieldWidget] Error storing photo locally:', error);
+        Alert.alert('Error', 'Failed to save photo locally. Please try again.');
         throw error;
       }
-      throw new Error(error?.message || 'Failed to handle photo');
+    }
+
+    // Online - upload to server
+    try {
+      // Ensure URI is in correct format for React Native
+      // In Expo Go, file URIs from ImagePicker are already in the correct format
+      let fileUri = uri;
+      if (!uri.startsWith('file://') && !uri.startsWith('content://') && !uri.startsWith('ph://')) {
+        // Add file:// prefix if not present and not a content:// or ph:// URI
+        fileUri = `file://${uri}`;
+      }
+      
+      console.log('[FieldWidget] File URI format:', {
+        original: uri,
+        processed: fileUri,
+        platform: Platform.OS,
+      });
+      
+      // Verify file exists before attempting upload
+      let fileInfo;
+      try {
+        fileInfo = await FileSystem.getInfoAsync(fileUri);
+        if (!fileInfo.exists) {
+          // Try without file:// prefix if it failed
+          if (fileUri.startsWith('file://')) {
+            const altUri = fileUri.replace('file://', '');
+            const altInfo = await FileSystem.getInfoAsync(altUri);
+            if (altInfo.exists) {
+              fileUri = altUri;
+              fileInfo = altInfo;
+              console.log('[FieldWidget] Using alternative URI format:', fileUri);
+            } else {
+              throw new Error('Image file not found. Please try capturing the photo again.');
+            }
+          } else {
+            throw new Error('Image file not found. Please try capturing the photo again.');
+          }
+        }
+      } catch (fileError: any) {
+        console.error('[FieldWidget] Error checking file:', fileError);
+        // Continue anyway - the file might still be accessible for upload
+        console.warn('[FieldWidget] Continuing with upload despite file check error');
+        fileInfo = { exists: true }; // Assume file exists for upload attempt
+      }
+      
+      // Read file extension from URI
+      const extension = uri.split('.').pop()?.toLowerCase() || 'jpg';
+      const mimeType = `image/${extension === 'jpg' || extension === 'jpeg' ? 'jpeg' : extension}`;
+
+      // Construct full URL
+      const apiUrl = getAPI_URL();
+      const uploadUrl = `${apiUrl}/api/objects/upload-direct`;
+      
+      console.log('[FieldWidget] Upload configuration:', {
+        apiUrl,
+        uploadUrl,
+        fileUri,
+        mimeType,
+        extension,
+      });
+      
+      // Validate API URL
+      if (!apiUrl || apiUrl === 'undefined' || !apiUrl.startsWith('http')) {
+        const errorMsg = `Invalid API URL: ${apiUrl}. Please check your EXPO_PUBLIC_API_URL configuration.`;
+        console.error(`[FieldWidget] ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+
+      // Create FormData for React Native
+      // React Native FormData requires uri, type, and name properties
+      const formData = new FormData();
+      
+      // For React Native, use the file:// URI directly
+      formData.append('file', {
+        uri: fileUri,
+        type: mimeType,
+        name: `photo_${Date.now()}.${extension}`,
+      } as any);
+
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      try {
+        console.log('[FieldWidget] Starting upload:', {
+          url: uploadUrl,
+          uri: fileUri,
+          mimeType,
+          hasFile: fileInfo?.exists,
+          formDataKeys: Object.keys(formData),
+        });
+
+        // For FormData, React Native automatically sets Content-Type with boundary
+        // DO NOT set Content-Type header manually - it will break the upload
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            // DO NOT set 'Content-Type' - React Native sets it automatically with boundary
+          },
+          body: formData,
+          credentials: 'include',
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        console.log('[FieldWidget] Upload response:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = 'Failed to upload photo';
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          } catch {
+            errorMessage = errorText || `Server error: ${response.status} ${response.statusText}`;
+          }
+          console.error(`[FieldWidget] Upload failed: ${errorMessage}`, {
+            status: response.status,
+            statusText: response.statusText,
+            errorText,
+          });
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        console.log('[FieldWidget] Upload response data:', data);
+        
+        // The endpoint returns { url, uploadURL } - use url or uploadURL
+        const serverUrl = data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
+
+        if (!serverUrl) {
+          throw new Error('Server did not return a valid URL for the uploaded file');
+        }
+
+        console.log(`[FieldWidget] Photo uploaded successfully to server: ${serverUrl}`);
+
+        // Trigger onChange with updated photos array (server URLs only)
+        const composedValue = composeValue(localValue, localCondition, localCleanliness);
+        const currentPhotos = [...localPhotos, serverUrl];
+        onChange(composedValue, localNote, currentPhotos);
+
+        return serverUrl;
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        
+        // Log detailed error for debugging
+        console.error('[FieldWidget] Upload error:', {
+          name: fetchError.name,
+          message: fetchError.message,
+          url: uploadUrl,
+          uri: fileUri,
+          apiUrl: apiUrl,
+          isOnline: isOnline,
+          errorType: fetchError.constructor?.name,
+          stack: fetchError.stack,
+        });
+        
+        // Re-throw with user-friendly message
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Upload timeout: The server took too long to respond. Please try again.');
+        } else if (fetchError.message?.includes('Network request failed') || fetchError.message?.includes('Failed to fetch')) {
+          // Check if it's a CORS or connectivity issue
+          throw new Error('Network request failed. Please check your internet connection and ensure the server is accessible.');
+        } else {
+          throw fetchError;
+        }
+      }
+    } catch (error: any) {
+      console.error('[FieldWidget] Error in uploadPhoto:', error);
+      throw error;
     }
   };
 
@@ -530,17 +593,17 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
 
       try {
+        // Upload the photo to server
         const uploadedUrl = await uploadPhoto(uri);
+        
+        // Update UI with server URL
         const newPhotos = [...localPhotos, uploadedUrl];
         setLocalPhotos(newPhotos);
         const composedValue = composeValue(localValue, localCondition, localCleanliness);
         onChange(composedValue, localNote, newPhotos);
       } catch (uploadError: any) {
         console.error('Error uploading photo:', uploadError);
-        Alert.alert(
-          'Upload Failed',
-          uploadError.message || 'Failed to upload photo. Please check your internet connection and try again.'
-        );
+        Alert.alert('Upload Failed', uploadError.message || 'Failed to upload photo. Please try again.');
       } finally {
         setUploadingPhotos(prev => {
           const newState = { ...prev };
@@ -595,39 +658,62 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       const newPhotos: string[] = [];
       let hasUploadError = false;
 
-      for (const uri of uris) {
-        setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
-        try {
-          const uploadedUrl = await uploadPhoto(uri);
-          newPhotos.push(uploadedUrl);
-        } catch (uploadError: any) {
-          hasUploadError = true;
-          console.error('Error uploading photo:', uploadError);
-          // Don't show alert for each photo, just log it
-          // The error will be shown at the end if no photos were uploaded
-        } finally {
-          setUploadingPhotos(prev => {
-            const newState = { ...prev };
-            delete newState[uri];
-            return newState;
-          });
-        }
+      // CRITICAL FIX: Process photos in batches to handle 500+ photos efficiently
+      // Update UI immediately as photos are added to show progress
+      const BATCH_SIZE = 10; // Process 10 photos at a time
+      
+      for (let i = 0; i < uris.length; i += BATCH_SIZE) {
+        const batch = uris.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(async (uri) => {
+          setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
+          try {
+            const uploadedUrl = await uploadPhoto(uri);
+            // Update UI immediately with this photo
+            const currentPhotos = [...localPhotos, ...newPhotos, uploadedUrl];
+            setLocalPhotos(currentPhotos);
+            return uploadedUrl;
+          } catch (uploadError: any) {
+            hasUploadError = true;
+            console.error('Error uploading photo:', uploadError);
+            return null;
+          } finally {
+            setUploadingPhotos(prev => {
+              const newState = { ...prev };
+              delete newState[uri];
+              return newState;
+            });
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        newPhotos.push(...batchResults.filter(url => url !== null) as string[]);
       }
 
-      if (newPhotos.length > 0) {
-        const updatedPhotos = [...localPhotos, ...newPhotos];
-        setLocalPhotos(updatedPhotos);
-        const composedValue = composeValue(localValue, localCondition, localCleanliness);
-        onChange(composedValue, localNote, updatedPhotos);
-
-        if (hasUploadError && newPhotos.length < uris.length) {
-          Alert.alert(
-            'Partial Success',
-            `Successfully uploaded ${newPhotos.length} of ${uris.length} photos. Some photos failed to upload.`
-          );
+      // CRITICAL FIX: Update UI with all successfully processed photos
+      // Remove duplicates and ensure all photos are displayed
+      const allPhotos = [...localPhotos];
+      for (const photoUrl of newPhotos) {
+        if (photoUrl && !allPhotos.includes(photoUrl)) {
+          allPhotos.push(photoUrl);
         }
-      } else if (hasUploadError) {
-        Alert.alert('Upload Failed', 'Failed to upload photos. Please check your internet connection and try again.');
+      }
+      
+      if (allPhotos.length > localPhotos.length) {
+        setLocalPhotos(allPhotos);
+        const composedValue = composeValue(localValue, localCondition, localCleanliness);
+        onChange(composedValue, localNote, allPhotos);
+      }
+
+      if (hasUploadError && newPhotos.length < uris.length) {
+        Alert.alert(
+          'Partial Success',
+          `Successfully processed ${newPhotos.length} of ${uris.length} photos. ${uris.length - newPhotos.length} photos failed to upload.`
+        );
+      } else if (hasUploadError && newPhotos.length === 0) {
+        Alert.alert(
+          'Upload Failed',
+          'All photos failed to upload. Please check your internet connection and try again.'
+        );
       }
     } catch (error: any) {
       console.error('Error picking photo:', error);
@@ -641,15 +727,34 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  const handleRemovePhoto = (photoUrl: string) => {
+  const handleRemovePhoto = async (photoUrl: string) => {
     if (disabled) {
       Alert.alert('Inspection Completed', 'You cannot modify photos in a completed inspection.');
       return;
     }
-    const newPhotos = localPhotos.filter(p => p !== photoUrl);
-    setLocalPhotos(newPhotos);
-    const composedValue = composeValue(localValue, localCondition, localCleanliness);
-    onChange(composedValue, localNote, newPhotos);
+
+    if (!isOnline) {
+      Alert.alert('Offline', 'Cannot remove photos while offline. Please connect to the internet.');
+      return;
+    }
+
+    try {
+      // Update local state immediately
+      const newPhotos = localPhotos.filter(p => p !== photoUrl);
+      setLocalPhotos(newPhotos);
+      const composedValue = composeValue(localValue, localCondition, localCleanliness);
+      onChange(composedValue, localNote, newPhotos);
+      
+      // Entry update will be handled by onChange callback which triggers updateEntry mutation
+      // This will POST/PATCH to server with the updated photos array (without the removed photo)
+    } catch (error) {
+      console.error('[FieldWidget] Error removing photo:', error);
+      // Still update UI even if error occurs
+      const newPhotos = localPhotos.filter(p => p !== photoUrl);
+      setLocalPhotos(newPhotos);
+      const composedValue = composeValue(localValue, localCondition, localCleanliness);
+      onChange(composedValue, localNote, newPhotos);
+    }
   };
 
   const handleAnalyzeField = async () => {
@@ -946,20 +1051,26 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           {localPhotos.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} style={styles.photosContainer}>
               {localPhotos.map((photo, index) => {
-                // Resolve photo URL: check if it's a local file path, server URL, or relative path
+                // Resolve photo URL: handle both server URLs and local paths
                 let photoUrl: string;
-                if (photo.startsWith('file://') || photo.startsWith(FileSystem.documentDirectory || '')) {
-                  // Local file path - use as-is
-                  photoUrl = photo;
+                let imageSource: { uri: string };
+                
+                if (isLocalPath(photo)) {
+                  // Local offline path - use getImageSource helper
+                  imageSource = getImageSource(photo);
+                  photoUrl = imageSource.uri;
                 } else if (photo.startsWith('http://') || photo.startsWith('https://')) {
                   // Full server URL - use as-is
                   photoUrl = photo;
+                  imageSource = { uri: photoUrl };
                 } else if (photo.startsWith('/')) {
                   // Relative server path - prepend API URL
                   photoUrl = `${getAPI_URL()}${photo}`;
+                  imageSource = { uri: photoUrl };
                 } else {
                   // Assume it's a server object path
                   photoUrl = `${getAPI_URL()}/objects/${photo}`;
+                  imageSource = { uri: photoUrl };
                 }
 
                 return (
@@ -970,7 +1081,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                         setShowPhotoViewer(true);
                       }}
                     >
-                      <Image source={{ uri: photoUrl }} style={styles.photoThumbnail} />
+                      <Image source={imageSource} style={styles.photoThumbnail} />
                     </TouchableOpacity>
                     <View style={styles.photoActions}>
                       <TouchableOpacity
@@ -1014,53 +1125,46 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
       {renderFieldInput()}
 
-      {/* Condition Rating */}
+      {/* Condition Dropdown */}
       {!!safeField.includeCondition && (
-        <View style={styles.ratingContainer}>
-          <Text style={[styles.ratingLabel, { color: themeColors.text.primary }]}>Condition Rating</Text>
-          <View style={styles.starsContainer}>
-            {[1, 2, 3, 4, 5].map((rating) => (
-              <TouchableOpacity
-                key={rating}
-                onPress={() => handleConditionChange(rating)}
-                style={styles.starButton}
-              >
-                <Star
-                  size={24}
-                  color={rating <= (localCondition || 0) ? '#FFD700' : themeColors.text.muted}
-                  fill={rating <= (localCondition || 0) ? '#FFD700' : 'transparent'}
-                />
-              </TouchableOpacity>
-            ))}
-            {localCondition && (
-              <Text style={[styles.ratingText, { color: themeColors.text.secondary }]}>{localCondition} / 5</Text>
-            )}
-          </View>
+        <View style={styles.dropdownContainer}>
+          <Text style={[styles.dropdownLabel, { color: themeColors.text.primary }]}>Condition</Text>
+          <Select
+            value={localCondition}
+            options={[
+              { label: 'New', value: 'New' },
+              { label: 'Excellent', value: 'Excellent' },
+              { label: 'Good', value: 'Good' },
+              { label: 'Fair', value: 'Fair' },
+              { label: 'Poor', value: 'Poor' },
+              { label: 'Missing', value: 'Missing' },
+            ]}
+            placeholder="Select condition"
+            onValueChange={handleConditionChange}
+            disabled={disabled}
+            testID={`select-condition-${field.id || field.key}`}
+          />
         </View>
       )}
 
-      {/* Cleanliness Rating */}
+      {/* Cleanliness Dropdown */}
       {!!safeField.includeCleanliness && (
-        <View style={styles.ratingContainer}>
-          <Text style={[styles.ratingLabel, { color: themeColors.text.primary }]}>Cleanliness Rating</Text>
-          <View style={styles.starsContainer}>
-            {[1, 2, 3, 4, 5].map((rating) => (
-              <TouchableOpacity
-                key={rating}
-                onPress={() => handleCleanlinessChange(rating)}
-                style={styles.starButton}
-              >
-                <Star
-                  size={24}
-                  color={rating <= (localCleanliness || 0) ? '#FFD700' : themeColors.text.muted}
-                  fill={rating <= (localCleanliness || 0) ? '#FFD700' : 'transparent'}
-                />
-              </TouchableOpacity>
-            ))}
-            {localCleanliness && (
-              <Text style={[styles.ratingText, { color: themeColors.text.secondary }]}>{localCleanliness} / 5</Text>
-            )}
-          </View>
+        <View style={styles.dropdownContainer}>
+          <Text style={[styles.dropdownLabel, { color: themeColors.text.primary }]}>Cleanliness</Text>
+          <Select
+            value={localCleanliness}
+            options={[
+              { label: 'Excellent', value: 'Excellent' },
+              { label: 'Good', value: 'Good' },
+              { label: 'Fair', value: 'Fair' },
+              { label: 'Poor', value: 'Poor' },
+              { label: 'Very Poor', value: 'Very Poor' },
+            ]}
+            placeholder="Select cleanliness"
+            onValueChange={handleCleanlinessChange}
+            disabled={disabled}
+            testID={`select-cleanliness-${field.id || field.key}`}
+          />
         </View>
       )}
 
@@ -1226,7 +1330,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <X size={24} color="#fff" />
           </TouchableOpacity>
           {selectedPhoto && (
-            <Image source={{ uri: selectedPhoto }} style={styles.photoViewer} resizeMode="contain" />
+            <Image 
+              source={isLocalPath(selectedPhoto) ? getImageSource(selectedPhoto) : { uri: selectedPhoto }} 
+              style={styles.photoViewer} 
+              resizeMode="contain" 
+            />
           )}
         </View>
       </Modal>
@@ -1330,6 +1438,16 @@ const styles = StyleSheet.create({
   },
   checkboxLabel: {
     fontSize: typography.fontSize.base,
+    // Color applied dynamically via themeColors
+  },
+  dropdownContainer: {
+    marginTop: spacing[4],
+    marginBottom: spacing[2],
+  },
+  dropdownLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing[2],
     // Color applied dynamically via themeColors
   },
   ratingContainer: {

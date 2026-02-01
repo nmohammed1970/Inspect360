@@ -18,10 +18,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     'http://localhost:5000',
   ];
 
-  // In development, allow any localhost origin
+  // In development, allow any localhost origin, local network IPs, or requests without origin (mobile apps)
   const isDevelopment = process.env.NODE_ENV === 'development';
+  const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
+  const isLocalNetwork = isDevelopment && origin && /^http:\/\/192\.168\.\d+\.\d+/.test(origin);
   const isAllowed = isDevelopment
-    ? (origin?.includes('localhost') || origin?.includes('127.0.0.1') || !origin)
+    ? (isLocalhost || isLocalNetwork || !origin)
     : allowedOrigins.includes(origin || '');
 
   if (isAllowed || !origin) {
@@ -29,7 +31,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma, Expires');
-    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie, ETag');
   }
 
   // Handle preflight requests

@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
+  Dimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,7 +28,8 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const { login, isLoading } = useAuth();
   const theme = useTheme();
-  const { width: screenWidth } = useWindowDimensions();
+  const windowDimensions = useWindowDimensions();
+  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   // Ensure text colors are always defined for visibility
@@ -42,9 +44,18 @@ export default function LoginScreen() {
 
     setError(null);
     try {
+      console.log('[LoginScreen] Calling login function');
       await login(email.trim().toLowerCase(), password);
+      console.log('[LoginScreen] Login function completed successfully');
       // Navigation happens automatically via AppNavigator when isAuthenticated changes
     } catch (err: any) {
+      console.error('[LoginScreen] Login error caught:', {
+        message: err?.message,
+        status: err?.status,
+        name: err?.name,
+        error: err,
+      });
+      
       // Use the error message directly - it should already be user-friendly
       // from api.ts and AuthContext error handling
       let errorMessage = 'Email or password is incorrect. Please try again.';
@@ -54,8 +65,11 @@ export default function LoginScreen() {
         errorMessage = err.message;
       } else if (err?.name === 'AbortError') {
         errorMessage = 'Request timeout. Please check your internet connection.';
+      } else if (err?.message?.includes('Failed to fetch') || err?.message?.includes('Network request failed')) {
+        errorMessage = 'Cannot connect to server. Please check your internet connection.';
       }
 
+      console.log('[LoginScreen] Setting error message:', errorMessage);
       setError(errorMessage);
     }
   };

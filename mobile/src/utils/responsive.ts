@@ -24,23 +24,40 @@ const verticalScale = (size: number, screenHeight?: number): number => {
 };
 
 // Moderate scale - combines width and height scaling
-// For foldable devices, we cap the scaling to prevent buttons from becoming too large
+// For foldable devices and high-resolution devices, we cap the scaling to prevent buttons from becoming too large
 const moderateScale = (size: number, factor: number = 0.5, screenWidth?: number): number => {
   const { width } = screenWidth !== undefined ? { width: screenWidth } : getWindowDimensions();
+  const pixelRatio = PixelRatio.get();
   const scaleFactor = width / BASE_WIDTH;
+  
+  // For high-resolution devices, account for pixel ratio but cap it
+  // High-res devices (like iPhone Pro Max) have pixelRatio ~3, but we want consistent visual size
+  // So we normalize by pixel ratio for consistency
+  const normalizedScaleFactor = scaleFactor / Math.max(pixelRatio / 2, 1);
+  
   // Cap scaling factor for very large screens (foldable unfolded) to maintain consistency
-  const cappedFactor = Math.min(scaleFactor, 1.5); // Max 1.5x scaling
+  // Allow slightly more scaling for high-res devices but still cap it
+  const maxScale = pixelRatio > 2.5 ? 1.4 : 1.5; // Slightly lower cap for very high-res devices
+  const cappedFactor = Math.min(normalizedScaleFactor, maxScale);
+  
   return Math.round(size + (cappedFactor - 1) * size * factor);
 };
 
 // Font scaling with pixel ratio
+// Accounts for both screen size and system font scaling preferences
 const fontScale = (size: number, screenWidth?: number): number => {
   const { width } = screenWidth !== undefined ? { width: screenWidth } : getWindowDimensions();
+  const pixelRatio = PixelRatio.get();
+  const fontScale = PixelRatio.getFontScale();
   const scaleFactor = width / BASE_WIDTH;
-  const pixelRatio = PixelRatio.getFontScale();
-  // Cap font scaling similarly
-  const cappedFactor = Math.min(scaleFactor, 1.5);
-  return Math.round(size * cappedFactor * pixelRatio);
+  
+  // Normalize by pixel ratio for high-resolution devices
+  // System font scale (accessibility) is applied separately
+  const normalizedScaleFactor = scaleFactor / Math.max(pixelRatio / 2.5, 1);
+  const cappedFactor = Math.min(normalizedScaleFactor, 1.4); // Cap at 1.4x for fonts
+  
+  // Apply system font scale for accessibility
+  return Math.round(size * cappedFactor * fontScale);
 };
 
 // Get responsive padding
@@ -54,6 +71,7 @@ const getResponsiveMargin = (base: number, screenWidth?: number): number => {
 };
 
 // Get responsive button height - ensures consistent button sizes across devices
+// Accounts for pixel ratio to maintain visual consistency on high-resolution devices
 const getButtonHeight = (size: 'sm' | 'md' | 'lg' = 'md', screenWidth?: number): number => {
   const baseHeights = {
     sm: 32,
@@ -62,9 +80,15 @@ const getButtonHeight = (size: 'sm' | 'md' | 'lg' = 'md', screenWidth?: number):
   };
   // Use smaller scaling factor for button heights to maintain consistency
   const { width } = screenWidth !== undefined ? { width: screenWidth } : getWindowDimensions();
+  const pixelRatio = PixelRatio.get();
   const scaleFactor = width / BASE_WIDTH;
-  const cappedFactor = Math.min(scaleFactor, 1.3); // Cap at 1.3x for buttons
-  return Math.round(baseHeights[size] + (cappedFactor - 1) * baseHeights[size] * 0.2);
+  
+  // Normalize by pixel ratio for high-resolution devices
+  // This ensures buttons look the same size visually across all devices
+  const normalizedScaleFactor = scaleFactor / Math.max(pixelRatio / 2.5, 1);
+  const cappedFactor = Math.min(normalizedScaleFactor, 1.25); // Cap at 1.25x for buttons
+  
+  return Math.round(baseHeights[size] + (cappedFactor - 1) * baseHeights[size] * 0.15);
 };
 
 // Get responsive font size

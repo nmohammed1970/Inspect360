@@ -43,7 +43,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { localDatabase } from '../../services/localDatabase';
+// No local database - all data from server
 
 const { width } = Dimensions.get('window');
 
@@ -69,26 +69,8 @@ const InspectionReportScreen = () => {
             try {
                 return await inspectionsService.getInspection(inspectionId);
             } catch (error: any) {
-                // If server says "not found", try local scoped inspection (prevents showing other users' data)
+                // If server says "not found", show error message
                 if (error?.status === 404 || String(error?.message || '').toLowerCase().includes('not found')) {
-                    const local = await localDatabase.getInspection(inspectionId, user?.id);
-                    if (local) {
-                        const templateData = JSON.parse(local.template_snapshot_json);
-                        const metadata = templateData?._metadata || {};
-                        return {
-                            id: local.id,
-                            type: local.type,
-                            status: local.status,
-                            scheduledDate: local.scheduled_date || undefined,
-                            property: metadata.property || undefined,
-                            block: metadata.block || undefined,
-                            clerk: metadata.clerk || undefined,
-                            templateSnapshotJson: templateData,
-                            createdAt: local.created_at,
-                            updatedAt: local.updated_at,
-                        } as any;
-                    }
-                    // Nothing local -> show a clean message
                     Alert.alert('Inspection not found', 'This inspection is not available for your account.');
                     navigation.goBack();
                     return null as any;
