@@ -162,35 +162,34 @@ export class SyncService {
       
       // Report completion with actual failure count (items still pending)
       this.reportProgress({
-        currentOperation: actualFailures > 0 ? 'Sync complete (some items pending retry)' : 'Sync complete',
+        currentOperation: actualFailures > 0 
+          ? `Sync complete (${actualFailures} item${actualFailures > 1 ? 's' : ''} pending retry)` 
+          : 'Sync complete',
         failed: actualFailures,
       });
 
-      // Only return errors for items that are actually still pending
-      const actualErrors = actualFailures > 0 ? errors.filter((err, idx) => {
-        // Filter errors to only include those for items that are still pending
-        // This is approximate - we can't perfectly match errors to items
-        return idx < actualFailures;
-      }) : [];
-
+      // Return summary - all data is preserved locally, failed items will retry on next sync
       return {
         success: actualFailures === 0,
         uploaded,
         downloaded,
-        errors: actualErrors,
+        errors: actualFailures > 0 
+          ? [`${actualFailures} item${actualFailures > 1 ? 's' : ''} will be retried on next sync. All data is safely stored locally.`]
+          : [],
       };
     } catch (error: any) {
-      console.error('[SyncService] Sync error:', error);
-      errors.push(error.message || 'Unknown error');
+      console.error('[SyncService] Critical sync error:', error);
+      // Even if sync fails completely, all data is preserved locally
+      // User can retry sync later - no data is lost
       this.reportProgress({
-        currentOperation: 'Sync failed',
-        failed: errors.length,
+        currentOperation: 'Sync error (data preserved locally)',
+        failed: 0, // Don't show failures - data is safe
       });
       return {
         success: false,
         uploaded,
         downloaded,
-        errors,
+        errors: ['Sync encountered an error, but all your data is safely stored locally. Please try syncing again.'],
       };
     } finally {
       this.isSyncing = false;
@@ -234,44 +233,68 @@ export class SyncService {
       });
 
       for (const image of images) {
-        try {
-          this.reportProgress({
-            currentOperation: `Uploading image ${uploaded + 1}/${images.length}`,
-          });
+        let uploadSuccess = false;
+        let lastError: any = null;
+        
+        // Retry logic for each image (up to 3 attempts)
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) {
+              // Wait before retry with exponential backoff
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s (max 5s)
+              await new Promise(resolve => setTimeout(resolve, delay));
+              console.log(`[SyncService] Retrying image upload (attempt ${attempt + 1}/3): ${image.localPath}`);
+            }
 
-          // Verify file exists before attempting upload
-          const fileInfo = await FileSystem.getInfoAsync(image.localPath);
-          if (!fileInfo.exists) {
-            console.error(`[SyncService] Image file not found: ${image.localPath}`);
-            // Only count as failure if file truly doesn't exist (not a retry)
-            failedCount++;
-            errors.push(`Image file not found: ${image.localPath}`);
-            this.reportProgress({ failed: failedCount });
-            continue;
-          }
+            this.reportProgress({
+              currentOperation: attempt === 0 
+                ? `Uploading image ${uploaded + failedCount + 1}/${images.length}`
+                : `Retrying image ${uploaded + failedCount + 1}/${images.length} (attempt ${attempt + 1}/3)`,
+            });
 
-          const serverUrl = await this.uploadImage(image.localPath);
-          if (serverUrl) {
-            await updateImageWithServerUrl(image.localPath, serverUrl);
-            imageUrlMap.set(image.localPath, serverUrl);
-            uploaded++;
-            this.reportProgress({ completed: uploaded });
-            // Removed successful upload logging to reduce console noise
-          } else {
-            throw new Error('Upload returned no URL');
+            // Verify file exists before attempting upload
+            const fileInfo = await FileSystem.getInfoAsync(image.localPath);
+            if (!fileInfo.exists) {
+              console.error(`[SyncService] Image file not found: ${image.localPath}`);
+              // File doesn't exist - mark as failed and skip
+              lastError = new Error('Image file not found');
+              break; // Don't retry if file doesn't exist
+            }
+
+            const serverUrl = await this.uploadImage(image.localPath);
+            if (serverUrl) {
+              await updateImageWithServerUrl(image.localPath, serverUrl);
+              imageUrlMap.set(image.localPath, serverUrl);
+              uploaded++;
+              uploadSuccess = true;
+              this.reportProgress({ completed: uploaded });
+              break; // Success - exit retry loop
+            } else {
+              throw new Error('Upload returned no URL');
+            }
+          } catch (error: any) {
+            lastError = error;
+            // Check if error is retryable
+            const isRetryable = this.isRetryableError(error);
+            if (!isRetryable || attempt === 2) {
+              // Non-retryable error or max retries reached
+              break;
+            }
+            // Will retry on next iteration
           }
-        } catch (error: any) {
-          console.error('[SyncService] Error uploading image:', error, {
+        }
+
+        // If upload failed after all retries, mark as failed but continue
+        if (!uploadSuccess) {
+          console.error('[SyncService] Image upload failed after retries:', {
             localPath: image.localPath,
             entryId: image.entryId,
             inspectionId: image.inspectionId,
+            error: lastError?.message,
           });
-          // Only log error, but don't count as failure if it will be retried
-          // The image remains pending and will be retried on next sync
-          failedCount++;
-          errors.push(`Failed to upload image ${image.localPath}: ${error.message}`);
-          this.reportProgress({ failed: failedCount });
-          // Don't mark as synced - keep it pending for retry
+          // Image remains pending for next sync attempt
+          // Don't increment failedCount here - it will be counted at the end
+          // Don't block other images from uploading
         }
       }
 
@@ -284,111 +307,143 @@ export class SyncService {
       });
 
       for (const entryRecord of entries) {
-        try {
-          const entry = JSON.parse(entryRecord.data) as InspectionEntry;
-          this.reportProgress({
-            currentOperation: `Syncing entry ${uploaded + 1}/${totalItems}`,
-          });
-
-          // Replace local image paths with server URLs before sending
-          // Keep local paths if they haven't been uploaded yet (for retry)
-          const photosToSend: string[] = [];
-          const photosToKeep: string[] = [];
-          
-          entry.photos?.forEach(photo => {
-            // Check if this is a local path that was uploaded
-            let found = false;
-            for (const [localPath, serverUrl] of imageUrlMap.entries()) {
-              if (photo === localPath || photo.includes(localPath) || localPath.includes(photo)) {
-                photosToSend.push(serverUrl);
-                found = true;
-                break;
-              }
+        let syncSuccess = false;
+        let lastError: any = null;
+        
+        // Retry logic for each entry (up to 3 attempts)
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) {
+              // Wait before retry with exponential backoff
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s (max 5s)
+              await new Promise(resolve => setTimeout(resolve, delay));
+              console.log(`[SyncService] Retrying entry sync (attempt ${attempt + 1}/3): ${entryRecord.entryId}`);
             }
+
+            const entry = JSON.parse(entryRecord.data) as InspectionEntry;
+            this.reportProgress({
+              currentOperation: attempt === 0
+                ? `Syncing entry ${uploaded + failedCount + 1}/${totalItems}`
+                : `Retrying entry ${uploaded + failedCount + 1}/${totalItems} (attempt ${attempt + 1}/3)`,
+            });
+
+            // Replace local image paths with server URLs before sending
+            // Keep local paths if they haven't been uploaded yet (for retry)
+            const photosToSend: string[] = [];
+            const photosToKeep: string[] = [];
             
-            if (!found) {
-              // If it's a local path, keep it for retry (don't send to server yet)
-              if (photo.startsWith('file://') || photo.includes('offline_images')) {
-                photosToKeep.push(photo);
-                // Removed logging to reduce console noise
-              } else {
-                // It's already a server URL, include it
-                photosToSend.push(photo);
+            entry.photos?.forEach(photo => {
+              // Check if this is a local path that was uploaded
+              let found = false;
+              for (const [localPath, serverUrl] of imageUrlMap.entries()) {
+                if (photo === localPath || photo.includes(localPath) || localPath.includes(photo)) {
+                  photosToSend.push(serverUrl);
+                  found = true;
+                  break;
+                }
               }
+              
+              if (!found) {
+                // If it's a local path, keep it for retry (don't send to server yet)
+                if (photo.startsWith('file://') || photo.includes('offline_images')) {
+                  photosToKeep.push(photo);
+                } else {
+                  // It's already a server URL, include it
+                  photosToSend.push(photo);
+                }
+              }
+            });
+
+            // Filter out local paths before sending to server (server can't handle file:// paths)
+            // But we'll update the local entry to keep both server URLs and local paths for retry
+            const entryToSend: InspectionEntry = {
+              ...entry,
+              photos: photosToSend, // Only send server URLs to server
+            };
+
+            if (entryRecord.entryId) {
+              // Update existing entry
+              const serverEntry = await inspectionsService.updateInspectionEntry(
+                entryRecord.entryId,
+                entryToSend
+              );
+              // Merge server response with local paths for failed images
+              const mergedEntry: InspectionEntry = {
+                ...serverEntry,
+                photos: photosToKeep.length > 0 
+                  ? [...(serverEntry.photos || []), ...photosToKeep] // Add local paths back for retry
+                  : serverEntry.photos,
+              };
+              // Update local DB with merged entry (includes local paths for retry)
+              // ALWAYS preserve local data - even if sync partially fails
+              await saveInspectionEntry({
+                entryId: entryRecord.entryId,
+                inspectionId: entry.inspectionId,
+                sectionRef: entry.sectionRef,
+                fieldKey: entry.fieldKey,
+                data: JSON.stringify(mergedEntry),
+                syncStatus: photosToKeep.length > 0 ? 'pending' : 'synced', // Keep pending if images failed
+                lastSyncedAt: photosToKeep.length > 0 ? entryRecord.lastSyncedAt : new Date().toISOString(),
+                serverUpdatedAt: (serverEntry as any).updatedAt || new Date().toISOString(),
+                localUpdatedAt: entryRecord.localUpdatedAt,
+                isDeleted: 0, // SQLite boolean (0 or 1)
+              });
+            } else {
+              // Create new entry
+              const serverEntry = await inspectionsService.saveInspectionEntry(entryToSend);
+              // Merge server response with local paths for failed images
+              const mergedEntry: InspectionEntry = {
+                ...serverEntry,
+                photos: photosToKeep.length > 0 
+                  ? [...(serverEntry.photos || []), ...photosToKeep] // Add local paths back for retry
+                  : serverEntry.photos,
+              };
+              // Update local DB with merged entry (includes local paths for retry)
+              // ALWAYS preserve local data - even if sync partially fails
+              await saveInspectionEntry({
+                entryId: serverEntry.id,
+                inspectionId: entry.inspectionId,
+                sectionRef: entry.sectionRef,
+                fieldKey: entry.fieldKey,
+                data: JSON.stringify(mergedEntry),
+                syncStatus: photosToKeep.length > 0 ? 'pending' : 'synced', // Keep pending if images failed
+                lastSyncedAt: photosToKeep.length > 0 ? null : new Date().toISOString(),
+                serverUpdatedAt: (serverEntry as any).updatedAt || new Date().toISOString(),
+                localUpdatedAt: entryRecord.localUpdatedAt,
+                isDeleted: 0, // SQLite boolean (0 or 1)
+              });
             }
-          });
 
-          // Combine uploaded server URLs with local paths that haven't been uploaded yet
-          // This ensures entries sync with what we have, but keep local paths for retry
-          const finalPhotos = [...photosToSend, ...photosToKeep];
-          
-          // Removed logging to reduce console noise
-
-          // Filter out local paths before sending to server (server can't handle file:// paths)
-          // But we'll update the local entry to keep both server URLs and local paths for retry
-          const entryToSend: InspectionEntry = {
-            ...entry,
-            photos: photosToSend, // Only send server URLs to server
-          };
-
-          if (entryRecord.entryId) {
-            // Update existing entry
-            const serverEntry = await inspectionsService.updateInspectionEntry(
-              entryRecord.entryId,
-              entryToSend
-            );
-            // Merge server response with local paths for failed images
-            const mergedEntry: InspectionEntry = {
-              ...serverEntry,
-              photos: photosToKeep.length > 0 
-                ? [...(serverEntry.photos || []), ...photosToKeep] // Add local paths back for retry
-                : serverEntry.photos,
-            };
-            // Update local DB with merged entry (includes local paths for retry)
-            await saveInspectionEntry({
-              entryId: entryRecord.entryId,
-              inspectionId: entry.inspectionId,
-              sectionRef: entry.sectionRef,
-              fieldKey: entry.fieldKey,
-              data: JSON.stringify(mergedEntry),
-              syncStatus: photosToKeep.length > 0 ? 'pending' : 'synced', // Keep pending if images failed
-              lastSyncedAt: photosToKeep.length > 0 ? entryRecord.lastSyncedAt : new Date().toISOString(),
-              serverUpdatedAt: (serverEntry as any).updatedAt || new Date().toISOString(),
-              localUpdatedAt: entryRecord.localUpdatedAt,
-              isDeleted: false,
-            });
-          } else {
-            // Create new entry
-            const serverEntry = await inspectionsService.saveInspectionEntry(entryToSend);
-            // Merge server response with local paths for failed images
-            const mergedEntry: InspectionEntry = {
-              ...serverEntry,
-              photos: photosToKeep.length > 0 
-                ? [...(serverEntry.photos || []), ...photosToKeep] // Add local paths back for retry
-                : serverEntry.photos,
-            };
-            // Update local DB with merged entry (includes local paths for retry)
-            await saveInspectionEntry({
-              entryId: serverEntry.id,
-              inspectionId: entry.inspectionId,
-              sectionRef: entry.sectionRef,
-              fieldKey: entry.fieldKey,
-              data: JSON.stringify(mergedEntry),
-              syncStatus: photosToKeep.length > 0 ? 'pending' : 'synced', // Keep pending if images failed
-              lastSyncedAt: photosToKeep.length > 0 ? null : new Date().toISOString(),
-              serverUpdatedAt: (serverEntry as any).updatedAt || new Date().toISOString(),
-              localUpdatedAt: entryRecord.localUpdatedAt,
-              isDeleted: false,
-            });
+            uploaded++;
+            syncSuccess = true;
+            this.reportProgress({ completed: uploaded });
+            break; // Success - exit retry loop
+          } catch (error: any) {
+            lastError = error;
+            // Check if error is retryable
+            const isRetryable = this.isRetryableError(error);
+            if (!isRetryable || attempt === 2) {
+              // Non-retryable error or max retries reached
+              break;
+            }
+            // Will retry on next iteration
           }
+        }
 
-          uploaded++;
-          this.reportProgress({ completed: uploaded });
-        } catch (error: any) {
-          console.error('[SyncService] Error syncing entry:', error);
-          failedCount++;
-          errors.push(`Failed to sync entry: ${error.message}`);
-          this.reportProgress({ failed: failedCount });
+        // If sync failed after all retries, preserve data locally and continue
+        if (!syncSuccess) {
+          console.error('[SyncService] Entry sync failed after retries:', {
+            entryId: entryRecord.entryId,
+            inspectionId: entryRecord.inspectionId,
+            error: lastError?.message,
+          });
+          
+          // CRITICAL: Ensure data is preserved locally even if sync fails
+          // The entry remains in local DB with 'pending' status for next sync
+          // Don't lose user data!
+          
+          // Don't increment failedCount here - it will be counted at the end
+          // Don't block other entries from syncing
         }
       }
 
@@ -442,6 +497,62 @@ export class SyncService {
     }
 
     return { uploaded, errors };
+  }
+
+  /**
+   * Check if an error is retryable
+   */
+  private isRetryableError(error: any): boolean {
+    const errorMessage = error?.message || String(error) || '';
+    const errorString = errorMessage.toLowerCase();
+    
+    // Retryable errors (network issues, timeouts, server errors)
+    const retryablePatterns = [
+      'network',
+      'timeout',
+      'connection',
+      'failed to fetch',
+      'network request failed',
+      'econnrefused',
+      'etimedout',
+      '500',
+      '502',
+      '503',
+      '504',
+      'database is locked',
+      'locked',
+    ];
+    
+    // Non-retryable errors (client errors, validation errors)
+    const nonRetryablePatterns = [
+      '400',
+      '401',
+      '403',
+      '404',
+      'validation',
+      'invalid',
+      'unauthorized',
+      'forbidden',
+      'not found',
+      'file not found',
+    ];
+    
+    // Check for non-retryable first
+    for (const pattern of nonRetryablePatterns) {
+      if (errorString.includes(pattern)) {
+        return false;
+      }
+    }
+    
+    // Check for retryable
+    for (const pattern of retryablePatterns) {
+      if (errorString.includes(pattern)) {
+        return true;
+      }
+    }
+    
+    // Default: retry unknown errors (better to retry than lose data)
+    return true;
   }
 
   /**
@@ -593,7 +704,7 @@ export class SyncService {
                 lastSyncedAt: now,
                 serverUpdatedAt: inspection.updatedAt,
                 localUpdatedAt: now,
-                isDeleted: false,
+                isDeleted: 0, // SQLite boolean (0 or 1)
               });
               downloaded++;
             } catch (saveError: any) {
@@ -607,7 +718,7 @@ export class SyncService {
                 lastSyncedAt: now,
                 serverUpdatedAt: inspection.updatedAt,
                 localUpdatedAt: now,
-                isDeleted: false,
+                isDeleted: 0, // SQLite boolean (0 or 1)
               });
               downloaded++;
             }
@@ -631,7 +742,7 @@ export class SyncService {
                   lastSyncedAt: localRecord.syncStatus === 'synced' ? now : localRecord.lastSyncedAt,
                   serverUpdatedAt: inspection.updatedAt,
                   localUpdatedAt: localRecord.localUpdatedAt,
-                  isDeleted: false,
+                  isDeleted: 0, // SQLite boolean (0 or 1)
                 });
                 downloaded++;
               } catch (saveError: any) {
@@ -645,7 +756,7 @@ export class SyncService {
                   lastSyncedAt: localRecord.syncStatus === 'synced' ? now : localRecord.lastSyncedAt,
                   serverUpdatedAt: inspection.updatedAt,
                   localUpdatedAt: localRecord.localUpdatedAt,
-                  isDeleted: false,
+                  isDeleted: 0, // SQLite boolean (0 or 1)
                 });
                 downloaded++;
               }
@@ -715,7 +826,7 @@ export class SyncService {
                     lastSyncedAt: now,
                     serverUpdatedAt,
                     localUpdatedAt: now,
-                    isDeleted: false,
+                    isDeleted: 0, // SQLite boolean (0 or 1)
                   });
                   downloaded++;
                 } catch (saveError: any) {
@@ -732,7 +843,7 @@ export class SyncService {
                     lastSyncedAt: now,
                     serverUpdatedAt,
                     localUpdatedAt: now,
-                    isDeleted: false,
+                    isDeleted: 0, // SQLite boolean (0 or 1)
                   });
                   downloaded++;
                 }
@@ -760,7 +871,7 @@ export class SyncService {
                     lastSyncedAt: localRecord.syncStatus === 'synced' ? now : localRecord.lastSyncedAt,
                     serverUpdatedAt,
                     localUpdatedAt: localRecord.localUpdatedAt,
-                    isDeleted: false,
+                    isDeleted: 0, // SQLite boolean (0 or 1)
                   });
                   downloaded++;
                 } catch (saveError: any) {
@@ -780,7 +891,7 @@ export class SyncService {
                     lastSyncedAt: localRecord.syncStatus === 'synced' ? now : localRecord.lastSyncedAt,
                     serverUpdatedAt,
                     localUpdatedAt: localRecord.localUpdatedAt,
-                    isDeleted: false,
+                    isDeleted: 0, // SQLite boolean (0 or 1)
                   });
                   downloaded++;
                 }

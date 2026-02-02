@@ -178,13 +178,28 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
   // Rehydrate local state when props change (e.g., when existing entries load)
   useEffect(() => {
-    if (value && typeof value === 'object' && (!!safeField.includeCondition || !!safeField.includeCleanliness)) {
-      const parsedValue = parseValue(value.value);
-      setLocalValue(parsedValue);
-      setLocalCondition(value.condition);
-      setLocalCleanliness(value.cleanliness);
-    } else {
+    try {
+      if (value && typeof value === 'object' && (!!safeField.includeCondition || !!safeField.includeCleanliness)) {
+        const parsedValue = parseValue(value.value);
+        setLocalValue(parsedValue);
+        // Safely extract condition and cleanliness, ensuring they're valid strings
+        const condition = value.condition && typeof value.condition === 'string' && value.condition.trim() !== ''
+          ? value.condition.trim()
+          : undefined;
+        const cleanliness = value.cleanliness && typeof value.cleanliness === 'string' && value.cleanliness.trim() !== ''
+          ? value.cleanliness.trim()
+          : undefined;
+        setLocalCondition(condition);
+        setLocalCleanliness(cleanliness);
+      } else {
+        setLocalValue(parseValue(value));
+      }
+    } catch (error) {
+      console.error('[FieldWidget] Error rehydrating state from value:', error);
+      // On error, reset to safe defaults
       setLocalValue(parseValue(value));
+      setLocalCondition(undefined);
+      setLocalCleanliness(undefined);
     }
   }, [value, safeField.includeCondition, safeField.includeCleanliness]);
 
@@ -263,28 +278,60 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   };
 
   const handleConditionChange = (conditionValue: string) => {
-    setLocalCondition(conditionValue);
-    const composedValue = composeValue(localValue, conditionValue, localCleanliness);
-    onChange(composedValue, localNote, localPhotos);
+    try {
+      // Validate condition value
+      const validCondition = conditionValue && typeof conditionValue === 'string' && conditionValue.trim() !== ''
+        ? conditionValue.trim()
+        : undefined;
+      
+      setLocalCondition(validCondition);
+      const composedValue = composeValue(localValue, validCondition, localCleanliness);
+      onChange(composedValue, localNote, localPhotos);
+    } catch (error) {
+      console.error('[FieldWidget] Error handling condition change:', error);
+      // Don't update state if there's an error - keep previous value
+    }
   };
 
   const handleCleanlinessChange = (cleanlinessValue: string) => {
-    setLocalCleanliness(cleanlinessValue);
-    const composedValue = composeValue(localValue, localCondition, cleanlinessValue);
-    onChange(composedValue, localNote, localPhotos);
+    try {
+      // Validate cleanliness value
+      const validCleanliness = cleanlinessValue && typeof cleanlinessValue === 'string' && cleanlinessValue.trim() !== ''
+        ? cleanlinessValue.trim()
+        : undefined;
+      
+      setLocalCleanliness(validCleanliness);
+      const composedValue = composeValue(localValue, localCondition, validCleanliness);
+      onChange(composedValue, localNote, localPhotos);
+    } catch (error) {
+      console.error('[FieldWidget] Error handling cleanliness change:', error);
+      // Don't update state if there's an error - keep previous value
+    }
   };
 
   const composeValue = (val: any, condition?: string, cleanliness?: string) => {
     const includeCondition = !!safeField.includeCondition;
     const includeCleanliness = !!safeField.includeCleanliness;
     if (includeCondition || includeCleanliness) {
-      return {
-        value: val,
-        ...(includeCondition && { condition }),
-        ...(includeCleanliness && { cleanliness }),
+      // Ensure we only include condition/cleanliness if they have valid string values
+      // This prevents undefined/null from causing sync errors
+      const result: any = {
+        value: val !== undefined && val !== null ? val : '',
       };
+      
+      // Only add condition if it's a valid non-empty string
+      if (includeCondition && condition && typeof condition === 'string' && condition.trim() !== '') {
+        result.condition = condition.trim();
+      }
+      
+      // Only add cleanliness if it's a valid non-empty string
+      if (includeCleanliness && cleanliness && typeof cleanliness === 'string' && cleanliness.trim() !== '') {
+        result.cleanliness = cleanliness.trim();
+      }
+      
+      return result;
     }
-    return val;
+    return val !== undefined && val !== null ? val : '';
   };
 
   const handleMarkedForReviewChange = (marked: boolean) => {
@@ -758,6 +805,16 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   };
 
   const handleAnalyzeField = async () => {
+    // Check if offline - AI analysis requires internet connection
+    if (!isOnline) {
+      Alert.alert(
+        'Offline',
+        'AI analysis requires an internet connection. Please connect to the internet and try again.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     if (localPhotos.length === 0) {
       Alert.alert('No Photos', 'Please upload at least one photo to use AI analysis');
       return;
@@ -1130,7 +1187,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         <View style={styles.dropdownContainer}>
           <Text style={[styles.dropdownLabel, { color: themeColors.text.primary }]}>Condition</Text>
           <Select
-            value={localCondition}
+            value={localCondition || ''}
             options={[
               { label: 'New', value: 'New' },
               { label: 'Excellent', value: 'Excellent' },
@@ -1140,7 +1197,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               { label: 'Missing', value: 'Missing' },
             ]}
             placeholder="Select condition"
-            onValueChange={handleConditionChange}
+            onValueChange={(val) => {
+              try {
+                handleConditionChange(val || '');
+              } catch (error) {
+                console.error('[FieldWidget] Error in condition dropdown onChange:', error);
+              }
+            }}
             disabled={disabled}
             testID={`select-condition-${field.id || field.key}`}
           />
@@ -1152,7 +1215,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         <View style={styles.dropdownContainer}>
           <Text style={[styles.dropdownLabel, { color: themeColors.text.primary }]}>Cleanliness</Text>
           <Select
-            value={localCleanliness}
+            value={localCleanliness || ''}
             options={[
               { label: 'Excellent', value: 'Excellent' },
               { label: 'Good', value: 'Good' },
@@ -1161,7 +1224,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               { label: 'Very Poor', value: 'Very Poor' },
             ]}
             placeholder="Select cleanliness"
-            onValueChange={handleCleanlinessChange}
+            onValueChange={(val) => {
+              try {
+                handleCleanlinessChange(val || '');
+              } catch (error) {
+                console.error('[FieldWidget] Error in cleanliness dropdown onChange:', error);
+              }
+            }}
             disabled={disabled}
             testID={`select-cleanliness-${field.id || field.key}`}
           />
@@ -1172,9 +1241,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       {inspectionId && (safeField.type === 'photo' || safeField.type === 'photo_array') && localPhotos.length > 0 && (
         <Card style={styles.aiButtonCard}>
           <TouchableOpacity
-            style={styles.aiButton}
+            style={[
+              styles.aiButton,
+              (!isOnline || analyzingField) && styles.aiButtonDisabled
+            ]}
             onPress={handleAnalyzeField}
             disabled={!!(analyzingField || !isOnline)}
+            activeOpacity={(!isOnline || analyzingField) ? 1 : 0.7}
           >
             {analyzingField ? (
               <ActivityIndicator size="small" color="#fff" />
@@ -1188,6 +1261,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           <Text style={styles.aiButtonDescription}>
             {analyzingField
               ? 'Analyzing images with AI...'
+              : !isOnline
+              ? 'AI analysis requires an internet connection'
               : 'Use AI to analyze all photos and generate a detailed inspection report'}
           </Text>
         </Card>
@@ -1716,6 +1791,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary.DEFAULT,
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
+    borderRadius: borderRadius.md,
+  },
+  aiButtonDisabled: {
+    backgroundColor: colors.muted || '#9CA3AF',
+    opacity: 0.6,
     borderRadius: borderRadius.lg,
     gap: spacing[2],
     marginBottom: spacing[2],

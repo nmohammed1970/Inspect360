@@ -75,13 +75,39 @@ export const inspectionsService = {
 
   async saveInspectionEntry(entry: InspectionEntry): Promise<InspectionEntry> {
     // Filter out local paths (file://) from photos and valueJson before sending to server
-    const photos = entry.photos?.filter(p => !p.startsWith('file://')) || [];
+    // Also sanitize condition and cleanliness values to ensure they're valid strings
+    const photos = entry.photos?.filter(p => !p.startsWith('file://') && !p.includes('offline_images')) || [];
     let valueJson = entry.valueJson;
-    if (valueJson && typeof valueJson === 'object' && Array.isArray(valueJson.photos)) {
-      valueJson = {
-        ...valueJson,
-        photos: valueJson.photos.filter((p: string) => !p.startsWith('file://'))
-      };
+    
+    if (valueJson && typeof valueJson === 'object') {
+      const sanitized: any = { ...valueJson };
+      
+      // Remove local file paths from photos
+      if (Array.isArray(sanitized.photos)) {
+        sanitized.photos = sanitized.photos.filter((p: string) => 
+          !p.startsWith('file://') && !p.includes('offline_images')
+        );
+      }
+      
+      // Ensure condition is a valid string or remove it
+      if ('condition' in sanitized) {
+        if (sanitized.condition && typeof sanitized.condition === 'string' && sanitized.condition.trim() !== '') {
+          sanitized.condition = sanitized.condition.trim();
+        } else {
+          delete sanitized.condition;
+        }
+      }
+      
+      // Ensure cleanliness is a valid string or remove it
+      if ('cleanliness' in sanitized) {
+        if (sanitized.cleanliness && typeof sanitized.cleanliness === 'string' && sanitized.cleanliness.trim() !== '') {
+          sanitized.cleanliness = sanitized.cleanliness.trim();
+        } else {
+          delete sanitized.cleanliness;
+        }
+      }
+      
+      valueJson = sanitized;
     }
 
     return apiRequestJson<InspectionEntry>('POST', '/api/inspection-entries', {
@@ -99,13 +125,39 @@ export const inspectionsService = {
 
   async updateInspectionEntry(entryId: string, updates: Partial<InspectionEntry>): Promise<InspectionEntry> {
     // Filter out local paths from updates
-    const photos = updates.photos?.filter(p => !p.startsWith('file://'));
+    // Also sanitize condition and cleanliness values to ensure they're valid strings
+    const photos = updates.photos?.filter(p => !p.startsWith('file://') && !p.includes('offline_images'));
     let valueJson = updates.valueJson;
-    if (valueJson && typeof valueJson === 'object' && Array.isArray(valueJson.photos)) {
-      valueJson = {
-        ...valueJson,
-        photos: valueJson.photos.filter((p: string) => !p.startsWith('file://'))
-      };
+    
+    if (valueJson && typeof valueJson === 'object') {
+      const sanitized: any = { ...valueJson };
+      
+      // Remove local file paths from photos
+      if (Array.isArray(sanitized.photos)) {
+        sanitized.photos = sanitized.photos.filter((p: string) => 
+          !p.startsWith('file://') && !p.includes('offline_images')
+        );
+      }
+      
+      // Ensure condition is a valid string or remove it
+      if ('condition' in sanitized) {
+        if (sanitized.condition && typeof sanitized.condition === 'string' && sanitized.condition.trim() !== '') {
+          sanitized.condition = sanitized.condition.trim();
+        } else {
+          delete sanitized.condition;
+        }
+      }
+      
+      // Ensure cleanliness is a valid string or remove it
+      if ('cleanliness' in sanitized) {
+        if (sanitized.cleanliness && typeof sanitized.cleanliness === 'string' && sanitized.cleanliness.trim() !== '') {
+          sanitized.cleanliness = sanitized.cleanliness.trim();
+        } else {
+          delete sanitized.cleanliness;
+        }
+      }
+      
+      valueJson = sanitized;
     }
 
     return apiRequestJson<InspectionEntry>('PATCH', `/api/inspection-entries/${entryId}`, {
