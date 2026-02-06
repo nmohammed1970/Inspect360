@@ -1779,16 +1779,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use shared function that consistently prioritizes instanceSubscriptions dates
       const proRataData = await calculateProRataWithPriority(
-        fullPrice,
+          fullPrice,
         organizationId,
         billingCycle,
         storage
-      );
-
+        );
+        
       if (proRataData && proRataData.result.isProrated) {
         proRataResult = proRataData.result;
-        finalPrice = proRataResult.proratedPrice;
-        isProrated = true;
+          finalPrice = proRataResult.proratedPrice;
+          isProrated = true;
         const renewalDate = proRataData.source === "instanceSubscriptions" 
           ? instanceSub.subscriptionRenewalDate 
           : (await storage.getSubscriptionByOrganization(organizationId))?.currentPeriodEnd;
@@ -2052,7 +2052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Import pro-rata service
       const { calculateProRataWithPriority } = await import("./proRataService");
-
+      
       // Check for existing subscriptions to support pro-rata
       // IMPORTANT: Always prioritize instanceSubscriptions.subscriptionRenewalDate as source of truth
       // This ensures proration uses the CURRENT subscription state (after tier changes, etc.)
@@ -2063,16 +2063,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use shared function that consistently prioritizes instanceSubscriptions dates
       const proRataData = await calculateProRataWithPriority(
-        fullPrice,
+          fullPrice,
         organizationId,
         billingCycle,
         storage
-      );
-
+        );
+        
       if (proRataData && proRataData.result.isProrated) {
         proRataResult = proRataData.result;
-        finalPrice = proRataResult.proratedPrice;
-        isProrated = true;
+          finalPrice = proRataResult.proratedPrice;
+          isProrated = true;
         const renewalDate = proRataData.source === "instanceSubscriptions" 
           ? instanceSub.subscriptionRenewalDate 
           : (await storage.getSubscriptionByOrganization(organizationId))?.currentPeriodEnd;
@@ -2187,30 +2187,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get currency
       const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
 
-      // Calculate proration if deactivating mid-cycle
-      let proratedRefund = null;
-      let proratedRefundMinorUnits = 0;
-      let remainingDays = 0;
-
-      if (immediate && instanceSub.subscriptionRenewalDate) {
-        const now = new Date();
-        const renewalDate = new Date(instanceSub.subscriptionRenewalDate);
-        
-        if (renewalDate > now) {
-          // Calculate remaining days in billing cycle
-          const daysRemaining = Math.ceil((renewalDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          remainingDays = daysRemaining;
-
-          // Calculate prorated refund based on bundle price
-          const bundlePrice = instanceSub.billingCycle === "annual" 
-            ? activeBundle.bundlePriceAnnual 
-            : activeBundle.bundlePriceMonthly;
-
-          if (bundlePrice && bundlePrice > 0) {
-            const daysInCycle = instanceSub.billingCycle === "annual" ? 365 : 30;
-            proratedRefundMinorUnits = Math.round((bundlePrice * daysRemaining) / daysInCycle);
-            proratedRefund = proratedRefundMinorUnits / 100; // Convert to major units
+      // IMPORTANT: If bundle is in Stripe subscription, remove it
+      // Bundles can be added as subscription line items or invoice items
+      if (org.stripeCustomerId) {
+        try {
+          const { getUncachableStripeClient } = await import("./stripeClient");
+          const stripe = await getUncachableStripeClient();
+          
+          // Get all active subscriptions for this organization
+          const subscriptions = await stripe.subscriptions.list({
+            customer: org.stripeCustomerId,
+            status: "active",
+            limit: 100
+          });
+          
+          // Find and remove bundle from subscription line items
+          for (const subscription of subscriptions.data) {
+            const subscriptionItems = subscription.items.data;
+            
+            // Find line item that matches this bundle (by product name)
+            for (const item of subscriptionItems) {
+              const product = item.price?.product;
+              const productName = (typeof product === 'object' && product && 'name' in product) 
+                ? (product.name || '') 
+                : (item.price?.nickname || '');
+              
+              // Check if this line item matches the bundle name
+              if (productName && (productName === bundle.name || productName.includes(bundle.name))) {
+                console.log(`[Bundle Deactivation] Removing bundle ${bundle.name} (${bundleId}) from subscription ${subscription.id}`);
+                
+                // Remove the subscription item
+                await stripe.subscriptionItems.del(item.id);
+                console.log(`[Bundle Deactivation] Successfully removed bundle ${bundle.name} from subscription ${subscription.id}`);
+                
+                // Update subscription metadata to remove bundle name if present
+                const bundleNames = subscription.metadata?.bundleNames?.split(',').filter(Boolean) || [];
+                const updatedBundleNames = bundleNames.filter(name => name.trim() !== bundle.name).join(',');
+                
+                if (bundleNames.length > 0) {
+                  await stripe.subscriptions.update(subscription.id, {
+                    metadata: {
+                      ...subscription.metadata,
+                      bundleNames: updatedBundleNames,
+                      bundleCount: updatedBundleNames ? updatedBundleNames.split(',').length.toString() : "0"
+                    }
+                  });
+                  console.log(`[Bundle Deactivation] Updated subscription metadata - removed ${bundle.name}`);
+                }
+                break; // Found and removed, no need to check other items
+              }
+            }
           }
+          
+          // Also check for pending invoice items for this bundle
+          // These are invoice items that haven't been invoiced yet
+          try {
+            const pendingInvoiceItems = await stripe.invoiceItems.list({
+              customer: org.stripeCustomerId,
+              limit: 100
+            });
+            
+            for (const invoiceItem of pendingInvoiceItems.data) {
+              const itemBundleId = invoiceItem.metadata?.bundleId;
+              const itemType = invoiceItem.metadata?.type;
+              
+              // If this invoice item is for this bundle and hasn't been invoiced, delete it
+              if (itemBundleId === bundleId && (itemType === "bundle_renewal" || itemType === "bundle_purchase")) {
+                console.log(`[Bundle Deactivation] Removing pending invoice item ${invoiceItem.id} for bundle ${bundle.name}`);
+                await stripe.invoiceItems.del(invoiceItem.id);
+                console.log(`[Bundle Deactivation] Successfully removed pending invoice item for bundle ${bundle.name}`);
+              }
+            }
+          } catch (invoiceItemError: any) {
+            console.warn(`[Bundle Deactivation] Error checking pending invoice items:`, invoiceItemError.message);
+            // Continue with deactivation even if invoice item check fails
+          }
+        } catch (stripeError: any) {
+          console.error(`[Bundle Deactivation] Failed to remove bundle from Stripe subscription:`, stripeError.message);
+          // Don't fail the bundle deactivation if Stripe update fails - bundle is still deactivated in database
         }
       }
 
@@ -2264,34 +2318,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // If prorated refund calculated, create invoice item credit or Stripe refund
-      if (immediate && proratedRefundMinorUnits > 0 && proratedRefund && org.stripeCustomerId) {
-        try {
-          const { getUncachableStripeClient } = await import("./stripeClient");
-          const stripe = await getUncachableStripeClient();
-          
-          // Create a negative invoice item (credit) in Stripe (will be applied to next invoice)
-          await stripe.invoiceItems.create({
-            customer: org.stripeCustomerId,
-            amount: -proratedRefundMinorUnits, // Negative amount = credit
-            currency: currency.toLowerCase(),
-            description: `Prorated refund for bundle ${bundle.name} deactivation (${remainingDays} days remaining)`,
-            metadata: {
-              organizationId: organizationId,
-              bundleId: bundleId,
-              bundleName: bundle.name,
-              type: "bundle_deactivation_refund",
-              remainingDays: remainingDays.toString()
-            }
-          });
-          
-          console.log(`[Bundle Deactivation] Created prorated refund of ${proratedRefund.toFixed(2)} ${currency} for bundle ${bundle.name}`);
-        } catch (stripeError: any) {
-          console.error(`[Bundle Deactivation] Failed to create Stripe credit:`, stripeError.message);
-          // Don't fail the deactivation if credit creation fails
-          // The bundle is already deactivated, credit can be handled manually
-        }
-      }
+      // Note: No refund is provided on bundle deactivation
+      // Bundle is deactivated and modules revert to individual pricing
+      // User continues to have access to modules but will be charged individually going forward
 
       // Return response
       res.json({
@@ -2300,17 +2329,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bundleName: bundle.name,
         deactivated: true,
         immediate: immediate,
-        proratedRefund: proratedRefund,
-        remainingDays: immediate ? remainingDays : null,
         message: immediate 
-          ? (proratedRefund 
-              ? `Bundle ${bundle.name} deactivated. Prorated refund of ${currency} ${proratedRefund.toFixed(2)} will be applied to your account.`
-              : `Bundle ${bundle.name} deactivated.`)
+          ? `Bundle ${bundle.name} deactivated. Modules remain enabled but will now be charged at individual pricing.`
           : `Bundle ${bundle.name} will be deactivated at the end of your billing cycle.`,
         details: {
           modulesRemainEnabled: true,
           modulesRevertedToIndividualPricing: true,
-          note: "Modules remain enabled but will now be charged at individual pricing. You can disable them separately if needed."
+          note: "Modules remain enabled but will now be charged at individual pricing. You can disable them separately if needed.",
+          noRefund: "No refund is provided on bundle deactivation. You will continue to have access to modules but will be charged individually going forward."
         }
       });
     } catch (error: any) {
@@ -2452,6 +2478,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // IMPORTANT: If disabling, check if module is in Stripe subscription and remove it
+      // This prevents the module from being charged on renewal
+      if (!enable && org.stripeCustomerId) {
+        try {
+          const stripe = await getUncachableStripeClient();
+          
+          // Get all active subscriptions for this organization
+          const subscriptions = await stripe.subscriptions.list({
+            customer: org.stripeCustomerId,
+            status: "active",
+            limit: 100
+          });
+          
+          // Find and remove module from subscription line items
+          for (const subscription of subscriptions.data) {
+            const subscriptionItems = subscription.items.data;
+            
+            // Find line item that matches this module (by product name)
+            for (const item of subscriptionItems) {
+              const product = item.price?.product;
+              const productName = (typeof product === 'object' && product && 'name' in product) 
+                ? (product.name || '') 
+                : (item.price?.nickname || '');
+              if (productName && (productName === module.name || productName.includes(module.name))) {
+                console.log(`[Module Toggle] Removing module ${module.name} (${moduleId}) from subscription ${subscription.id}`);
+                
+                // Remove the subscription item
+                await stripe.subscriptionItems.del(item.id);
+                console.log(`[Module Toggle] Successfully removed module ${module.name} from subscription ${subscription.id}`);
+                
+                // Update subscription metadata to remove module name
+                const moduleNames = subscription.metadata?.moduleNames?.split(',').filter(Boolean) || [];
+                const updatedModuleNames = moduleNames.filter(name => name.trim() !== module.name).join(',');
+                
+                await stripe.subscriptions.update(subscription.id, {
+                  metadata: {
+                    ...subscription.metadata,
+                    moduleNames: updatedModuleNames,
+                    moduleCount: updatedModuleNames ? updatedModuleNames.split(',').length.toString() : "0"
+                  }
+                });
+                console.log(`[Module Toggle] Updated subscription metadata - removed ${module.name}`);
+                break; // Found and removed, no need to check other items
+              }
+            }
+          }
+        } catch (stripeError: any) {
+          console.error(`[Module Toggle] Failed to remove module from Stripe subscription:`, stripeError.message);
+          // Don't fail the module disable if Stripe update fails - module is still disabled in database
+        }
+      }
+      
       // Toggle module
       const updatedModule = await storage.toggleInstanceModule(instanceSub.id, moduleId, enable);
       
@@ -2704,23 +2782,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const selectedTier = pricingResult.tier;
       
-      // Use the exact total price from frontend if provided, otherwise fall back to pricing service calculation
-      let amount: number;
-      if (totalPrice !== undefined && totalPrice !== null) {
-        // Frontend sends price in minor units (pence/cents)
-        amount = Number(totalPrice);
-        console.log(`[Billing] Using frontend total price: ${amount} ${currency} (minor units)`);
+      // Calculate tier price (excluding modules, as modules will be separate line items)
+      let tierAmount: number;
+      if (tierPrice !== undefined && tierPrice !== null) {
+        // Frontend sends tier price in minor units (pence/cents), excluding modules
+        tierAmount = Number(tierPrice);
+        console.log(`[Billing] Using frontend tier price: ${tierAmount} ${currency} (minor units)`);
         console.log(`[Billing] Breakdown - Tier: ${tierPrice}, Additional: ${additionalCost}, Modules: ${moduleCost}`);
+      } else if (totalPrice !== undefined && totalPrice !== null && moduleCost !== undefined && moduleCost !== null) {
+        // If only total price is provided, subtract module cost to get tier price
+        tierAmount = Number(totalPrice) - Number(moduleCost);
+        console.log(`[Billing] Calculated tier price from total: ${tierAmount} ${currency} (Total: ${totalPrice} - Modules: ${moduleCost})`);
       } else {
-        // Fallback to pricing service calculation
-        amount = billingPeriod === "annual" ? pricingResult.calculations.totalAnnual : pricingResult.calculations.totalMonthly;
-        console.log(`[Billing] Using pricing service calculated price: ${amount} ${currency}`);
+        // Fallback to pricing service calculation (tier only, no modules)
+        tierAmount = billingPeriod === "annual" ? pricingResult.calculations.baseAnnual : pricingResult.calculations.baseMonthly;
+        console.log(`[Billing] Using pricing service calculated tier price: ${tierAmount} ${currency}`);
       }
 
       const stripe = await getUncachableStripeClient();
       const baseUrl = getBaseUrl(req);
 
-      console.log(`[Billing] Creating Stripe session for ${selectedTier.code} (${billingPeriod}) with ${inspectionCount} inspections at ${amount} ${currency}`);
+      // Check if subscription already exists - if so, we should update it instead of creating new
+      const existingInstanceSub = await storage.getInstanceSubscription(organizationId);
+      let existingStripeSubscription = null;
+      
+      if (existingInstanceSub && org.stripeCustomerId) {
+        try {
+          // Check for existing active Stripe subscriptions
+          const subscriptions = await stripe.subscriptions.list({
+            customer: org.stripeCustomerId,
+            status: "active",
+            limit: 100
+          });
+          
+          // Find subscription with matching tier (if any)
+          for (const sub of subscriptions.data) {
+            const subTierId = sub.metadata?.tierId;
+            if (subTierId === selectedTier.id) {
+              existingStripeSubscription = sub;
+              console.log(`[Billing Checkout] Found existing subscription ${sub.id} for tier ${selectedTier.id} - will update instead of creating new`);
+              break;
+            }
+          }
+        } catch (listError: any) {
+          console.warn(`[Billing Checkout] Error checking for existing subscriptions:`, listError.message);
+          // Continue with new subscription creation if check fails
+        }
+      }
+
+      console.log(`[Billing] ${existingStripeSubscription ? 'Updating' : 'Creating'} Stripe ${existingStripeSubscription ? 'subscription' : 'session'} for ${selectedTier.code} (${billingPeriod}) with ${inspectionCount} inspections at ${tierAmount} ${currency}`);
 
       // Calculate total inspections: tier included + additional
       const totalInspections = Number(inspectionCount) || selectedTier.included_inspections;
@@ -2729,6 +2839,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[Billing] Checkout - Total inspections: ${totalInspections}, Tier included: ${tierIncluded}, Additional: ${additionalInspections}`);
       
+      // Get active modules (excluding those in bundles) to include in checkout
+      // IMPORTANT: If subscription exists, check which modules are already in it to avoid duplicates
+      const instanceSub = existingInstanceSub || await storage.getInstanceSubscription(organizationId);
+      const modulesAlreadyInSubscription = new Set<string>();
+      
+      if (existingStripeSubscription) {
+        // Get modules already in the subscription to avoid adding them again
+        const subscriptionModuleNames = existingStripeSubscription.metadata?.moduleNames;
+        if (subscriptionModuleNames) {
+          const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+          const modules = await storage.getMarketplaceModules();
+          for (const moduleName of moduleNameList) {
+            const matchedModule = modules.find(m => m.name === moduleName.trim());
+            if (matchedModule) {
+              modulesAlreadyInSubscription.add(matchedModule.id);
+              console.log(`[Billing Checkout] Module ${matchedModule.name} already in subscription - will update instead of adding duplicate`);
+            }
+          }
+        }
+      }
+      let moduleLineItems: any[] = [];
+      let totalProratedCredit = 0;
+      const moduleNames: string[] = [];
+      const moduleCredits: Array<{ moduleId: string; moduleName: string; credit: number }> = [];
+      
+      if (instanceSub) {
+        const instanceModules = await storage.getInstanceModules(instanceSub.id);
+        const enabledModules = instanceModules.filter(m => m.isEnabled);
+        
+        // Get modules covered by bundles (these should not be charged separately)
+        const { pricingService } = await import("./pricingService");
+        const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
+        
+        // Filter out modules covered by bundles
+        // Also filter out modules already in subscription (if updating existing subscription)
+        const modulesToCharge = enabledModules.filter(im => 
+          !coveredModuleIds.has(im.moduleId) && 
+          !modulesAlreadyInSubscription.has(im.moduleId)
+        );
+        
+        // Get module details and calculate prorated credits
+        const modules = await storage.getMarketplaceModules();
+        const { calculateProRataWithPriority } = await import("./proRataService");
+        const billingCycle = billingPeriod === "annual" ? "annual" : "monthly";
+        const orgCurrency = currency || "GBP";
+        
+        // If updating existing subscription, also handle modules that are in subscription but disabled
+        // These should be removed from subscription
+        if (existingStripeSubscription) {
+          const subscriptionItems = existingStripeSubscription.items?.data || [];
+          for (const item of subscriptionItems) {
+            const product = item.price?.product;
+            const productName = (typeof product === 'object' && product && 'name' in product) 
+              ? (product.name || '') 
+              : (item.price?.nickname || '');
+            
+            // Check if this line item is a module (not the tier subscription)
+            if (productName && !productName.includes(selectedTier.name) && !productName.includes('Plan')) {
+              const matchedModule = modules.find(m => 
+                m.name === productName.trim() || productName.includes(m.name)
+              );
+              
+              if (matchedModule) {
+                const instanceModule = enabledModules.find(im => im.moduleId === matchedModule.id);
+                // If module is disabled or not in enabled modules, it should be removed
+                if (!instanceModule || !instanceModule.isEnabled) {
+                  console.log(`[Billing Checkout] Module ${matchedModule.name} is in subscription but disabled - will be removed on update`);
+                  // Note: This will be handled when we update the subscription
+                }
+              }
+            }
+          }
+        }
+        
+        for (const instanceModule of modulesToCharge) {
+          const module = modules.find(m => m.id === instanceModule.moduleId);
+          if (!module) continue;
+          
+          const modulePrice = billingCycle === "annual" 
+            ? (instanceModule.annualPrice || 0)
+            : (instanceModule.monthlyPrice || 0);
+          
+          if (modulePrice > 0) {
+            // Calculate prorated credit for already-paid portion
+            let moduleCredit = 0;
+            if (instanceSub.subscriptionRenewalDate) {
+              const proRataData = await calculateProRataWithPriority(
+                modulePrice,
+                organizationId,
+                instanceSub.billingCycle,
+                storage
+              );
+              
+              if (proRataData && proRataData.result.isProrated) {
+                moduleCredit = proRataData.result.proratedPrice;
+                totalProratedCredit += moduleCredit;
+                moduleCredits.push({
+                  moduleId: instanceModule.moduleId,
+                  moduleName: module.name,
+                  credit: moduleCredit
+                });
+              }
+            }
+            
+            // Add module as line item with NET price (full price - prorated credit)
+            const moduleNetPrice = Math.max(0, modulePrice - moduleCredit);
+            
+            moduleLineItems.push({
+              price_data: {
+                currency: orgCurrency.toLowerCase(),
+                product_data: {
+                  name: module.name,
+                  description: `${module.name} module (${billingPeriod} billing)${moduleCredit > 0 ? ` - Prorated credit: ${orgCurrency} ${(moduleCredit / 100).toFixed(2)} applied` : ''}`
+                },
+                recurring: {
+                  interval: billingPeriod === "annual" ? "year" : "month"
+                },
+                unit_amount: moduleNetPrice
+              },
+              quantity: 1
+            });
+            
+            moduleNames.push(module.name);
+          }
+        }
+        
+        if (totalProratedCredit > 0) {
+          console.log(`[Billing Checkout] Applied prorated credits totaling ${(totalProratedCredit / 100).toFixed(2)} ${orgCurrency} to module prices`);
+        }
+      }
+      
       // Build description
       let description = `${totalInspections} inspections per month`;
       if (additionalInspections > 0) {
@@ -2736,28 +2977,175 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         description += ` (${billingPeriod} billing)`;
       }
+      
+      // Add module information to description
+      if (moduleNames.length > 0) {
+        description += `\n\n📦 Active Modules (included below with prorated credits applied):\n${moduleNames.map((name, idx) => `${idx + 1}. ${name}`).join("\n")}`;
+        
+        if (totalProratedCredit > 0) {
+          const creditAmount = (totalProratedCredit / 100).toFixed(2);
+          description += `\n\n💰 Total Prorated Credit Applied: ${currency} ${creditAmount}`;
+          description += `\n(Credits for already-paid module subscriptions are deducted from module prices below)`;
+          
+          // Show per-module credits
+          if (moduleCredits.length > 0) {
+            description += `\n\nCredit Breakdown:`;
+            moduleCredits.forEach(mc => {
+              description += `\n  • ${mc.moduleName}: ${currency} ${(mc.credit / 100).toFixed(2)}`;
+            });
+          }
+        }
+      }
 
+      // Build line items: tier + modules (with prorated credits already applied)
+      const lineItems: any[] = [
+        {
+          price_data: {
+            currency: (currency || "GBP").toLowerCase(),
+            product_data: {
+              name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+            },
+            unit_amount: tierAmount,
+            recurring: {
+              interval: billingPeriod === "annual" ? "year" : "month",
+            },
+          },
+          quantity: 1,
+        },
+        ...moduleLineItems // Add modules with net prices (prorated credits already deducted)
+      ];
+
+      // If subscription exists, update it instead of creating new checkout
+      if (existingStripeSubscription) {
+        try {
+          console.log(`[Billing Checkout] Updating existing subscription ${existingStripeSubscription.id}`);
+          
+          // Get current subscription items
+          const currentItems = existingStripeSubscription.items.data;
+          const tierItem = currentItems.find(item => {
+            const product = item.price?.product;
+            const productName = (typeof product === 'object' && product && 'name' in product) 
+              ? (product.name || '') 
+              : (item.price?.nickname || '');
+            return productName && (productName.includes(selectedTier.name) || productName.includes('Plan'));
+          });
+          
+          // Create new price for updated tier
+          const newTierPrice = await stripe.prices.create({
+            currency: (currency || "GBP").toLowerCase(),
+            product_data: {
+              name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+            },
+            recurring: {
+              interval: billingPeriod === "annual" ? "year" : "month",
+            },
+            unit_amount: tierAmount,
+          });
+          
+          // Build items array for update
+          const updateItems: any[] = [];
+          
+          // Update tier item if found, otherwise add new
+          if (tierItem) {
+            updateItems.push({
+              id: tierItem.id,
+              price: newTierPrice.id,
+            });
+          } else {
+            updateItems.push({
+              price: newTierPrice.id,
+            });
+          }
+          
+          // Add new module line items (create prices for each)
+          for (const moduleItem of moduleLineItems) {
+            // Extract product_data without description (Stripe doesn't support description in product_data)
+            const { description, ...productDataWithoutDesc } = moduleItem.price_data.product_data as any;
+            const modulePrice = await stripe.prices.create({
+              currency: moduleItem.price_data.currency,
+              product_data: productDataWithoutDesc,
+              recurring: moduleItem.price_data.recurring,
+              unit_amount: moduleItem.price_data.unit_amount,
+            });
+            updateItems.push({ price: modulePrice.id });
+          }
+          
+          // Remove modules that are disabled but still in subscription
+          const modules = await storage.getMarketplaceModules();
+          for (const item of currentItems) {
+            const product = item.price?.product;
+            const productName = (typeof product === 'object' && product && 'name' in product) 
+              ? (product.name || '') 
+              : (item.price?.nickname || '');
+            
+            // Skip tier item
+            if (productName && (productName.includes(selectedTier.name) || productName.includes('Plan'))) {
+              continue;
+            }
+            
+            // Check if this is a module that should be removed
+            if (productName) {
+              const matchedModule = modules.find(m => 
+                m.name === productName.trim() || productName.includes(m.name)
+              );
+              
+              if (matchedModule) {
+                const instanceModules = await storage.getInstanceModules(instanceSub!.id);
+                const instanceModule = instanceModules.find(im => im.moduleId === matchedModule.id);
+                
+                // If module is disabled or not enabled, remove it
+                if (!instanceModule || !instanceModule.isEnabled) {
+                  updateItems.push({ id: item.id, deleted: true });
+                  console.log(`[Billing Checkout] Removing disabled module ${matchedModule.name} from subscription`);
+                }
+              }
+            }
+          }
+          
+          // Update subscription
+          const updatedSubscription = await stripe.subscriptions.update(
+            existingStripeSubscription.id,
+            {
+              items: updateItems,
+              metadata: {
+                ...existingStripeSubscription.metadata,
+                tierId: selectedTier.id,
+                planCode: selectedTier.code,
+                billingPeriod: billingPeriod,
+                currency: currency || "GBP",
+                requestedInspections: totalInspections.toString(),
+                moduleCount: moduleNames.length.toString(),
+                moduleNames: moduleNames.join(","),
+                totalProratedCredit: totalProratedCredit.toString()
+              },
+              proration_behavior: "create_prorations" // Apply proration for changes
+            }
+          );
+          
+          console.log(`[Billing Checkout] Successfully updated subscription ${updatedSubscription.id}`);
+          
+          // Return success - subscription updated, no checkout needed
+          return res.json({ 
+            success: true,
+            message: "Subscription updated successfully",
+            subscriptionId: updatedSubscription.id,
+            updated: true,
+            url: `${baseUrl}/billing?updated=true&subscription_id=${updatedSubscription.id}`
+          });
+        } catch (updateError: any) {
+          console.error(`[Billing Checkout] Failed to update subscription:`, updateError.message);
+          // Fall through to create new checkout if update fails
+          console.log(`[Billing Checkout] Falling back to creating new checkout session`);
+        }
+      }
+
+      // Create new checkout session (either no existing subscription or update failed)
       const session = await stripe.checkout.sessions.create({
         customer: org.stripeCustomerId || undefined,
         customer_email: org.stripeCustomerId ? undefined : user?.email,
         mode: "subscription",
         payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency: (currency || "GBP").toLowerCase(),
-              product_data: {
-                name: `Inspect360 ${selectedTier.name} Plan`,
-                description: description,
-              },
-              unit_amount: amount,
-              recurring: {
-                interval: billingPeriod === "annual" ? "year" : "month",
-              },
-            },
-            quantity: 1,
-          },
-        ],
+        line_items: lineItems,
         success_url: `${baseUrl}/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl}/billing?canceled=true`,
         metadata: {
@@ -2767,7 +3155,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           billingPeriod: billingPeriod,
           currency: currency || "GBP",
           requestedInspections: totalInspections.toString(),
-          type: "tier_subscription" // Mark as tier-based subscription for webhook handling
+          type: "tier_subscription", // Mark as tier-based subscription for webhook handling
+          moduleCount: moduleNames.length.toString(),
+          moduleNames: moduleNames.join(","),
+          totalProratedCredit: totalProratedCredit.toString()
         },
       });
 
@@ -16647,12 +17038,31 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   // Update instance (tier, credits, active status, modules)
   app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
     try {
-      const { tierId, credits, isActive, enabledModules } = req.body; // Changed from creditsRemaining to credits
+      const { tierId, credits, isActive, enabledModules, preferredCurrency } = req.body; // Changed from creditsRemaining to credits
 
       // Get organization to get currency
       const org = await storage.getOrganization(req.params.id);
       if (!org) {
         return res.status(404).json({ message: "Organization not found" });
+      }
+
+      // IMPORTANT: Prevent currency changes if there's an active subscription
+      // Currency changes mid-subscription can cause billing inconsistencies
+      if (preferredCurrency && preferredCurrency !== org.preferredCurrency) {
+        // Check if organization has an active subscription
+        const instanceSub = await storage.getInstanceSubscription(req.params.id);
+        const legacySub = await storage.getSubscriptionByOrganization(req.params.id);
+        
+        const hasActiveSubscription = 
+          (instanceSub && instanceSub.subscriptionStatus === "active") ||
+          (legacySub && legacySub.stripeSubscriptionId);
+        
+        if (hasActiveSubscription) {
+          return res.status(400).json({ 
+            message: "Cannot change currency while an active subscription exists. Please cancel the subscription first or wait until it expires.",
+            error: "CURRENCY_CHANGE_BLOCKED"
+          });
+        }
       }
 
       // If credits is being updated, grant credits via the credit batch system
@@ -17957,6 +18367,36 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           renewalDate = new Date(Date.now() + (billingCycle === "annual" ? 365 : 30) * 24 * 60 * 60 * 1000);
         }
 
+        // IMPORTANT: Cancel all existing active Stripe subscriptions for this organization
+        // This ensures only the latest plan is active, preventing double billing on renewal
+        const quotationOrg = await storage.getOrganization(user.organizationId);
+        if (quotationOrg?.stripeCustomerId) {
+          try {
+            const allSubscriptions = await stripe.subscriptions.list({
+              customer: quotationOrg.stripeCustomerId,
+              status: "active",
+              limit: 100
+            });
+
+            // Cancel all active subscriptions before creating/updating the new one
+            for (const sub of allSubscriptions.data) {
+              if (sub.status === "active" && sub.id !== (session.subscription as string)) {
+                console.log(`[Process Session] Cancelling existing subscription ${sub.id} for org ${user.organizationId} before processing quotation subscription`);
+                try {
+                  await stripe.subscriptions.cancel(sub.id);
+                  console.log(`[Process Session] Successfully cancelled existing subscription ${sub.id}`);
+                } catch (cancelError: any) {
+                  console.error(`[Process Session] Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                  // Continue with new subscription creation even if cancellation fails
+                }
+              }
+            }
+          } catch (listError: any) {
+            console.error(`[Process Session] Error listing subscriptions:`, listError.message);
+            // Continue with new subscription creation even if listing fails
+          }
+        }
+
         // Update or create instance subscription
         const existingInstanceSub = await storage.getInstanceSubscription(user.organizationId);
         if (existingInstanceSub) {
@@ -18009,8 +18449,41 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         console.log(`[Process Session] Processing module purchase for org ${user.organizationId}: ${moduleId}`);
 
         const instanceSub = await storage.getInstanceSubscription(user.organizationId);
-        if (instanceSub) {
-          await storage.toggleInstanceModule(instanceSub.id, moduleId, true);
+        if (!instanceSub) {
+          return res.status(404).json({ message: "Instance subscription not found" });
+        }
+
+        // IMPORTANT: Wrap module activation in transaction to ensure atomicity with payment
+        try {
+          const { db } = await import("./db");
+          const { instanceModules: instanceModulesTable } = await import("@shared/schema");
+          const { eq, and } = await import("drizzle-orm");
+          
+          await db.transaction(async (tx) => {
+            // Enable the module
+            await storage.toggleInstanceModule(instanceSub.id, moduleId, true);
+            
+            // Update module pricing if needed
+            const orgForPricing = await storage.getOrganization(user.organizationId!);
+            const currency = instanceSub.registrationCurrency || orgForPricing?.preferredCurrency || "GBP";
+            const modulePricing = await storage.getModulePricing(moduleId, currency);
+            
+            if (modulePricing) {
+              // Update instance module with pricing info
+              const updatedInstanceModulesList = await storage.getInstanceModules(instanceSub.id);
+              const instanceModule = updatedInstanceModulesList.find(im => im.moduleId === moduleId);
+              if (instanceModule) {
+                await tx.update(instanceModulesTable)
+                  .set({
+                    monthlyPrice: modulePricing.priceMonthly,
+                    annualPrice: modulePricing.priceAnnual,
+                    currencyCode: currency,
+                    billingStartDate: new Date()
+                  })
+                  .where(eq(instanceModulesTable.id, instanceModule.id));
+              }
+            }
+          });
           
           // Log proration information
           if (isProrated === "true" && fullPrice && proratedPrice && remainingDays) {
@@ -18024,8 +18497,13 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           }
           
           return res.json({ message: "Module activated successfully", processed: true });
-        } else {
-          return res.status(404).json({ message: "Instance subscription not found" });
+        } catch (moduleError: any) {
+          console.error(`[Process Session] Error activating module:`, moduleError);
+          return res.status(500).json({ 
+            message: "Failed to activate module", 
+            error: moduleError?.message || "Unknown error",
+            processed: false
+          });
         }
       }
 
@@ -18435,6 +18913,36 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             throw new Error(`Tier not found: ${tierId}`);
           }
 
+          // IMPORTANT: Cancel all existing active Stripe subscriptions for this organization
+          // This ensures only the latest plan is active, preventing double billing on renewal
+          const tierOrg = await storage.getOrganization(user.organizationId);
+          if (tierOrg?.stripeCustomerId) {
+            try {
+              const allSubscriptions = await stripe.subscriptions.list({
+                customer: tierOrg.stripeCustomerId,
+                status: "active",
+                limit: 100
+              });
+
+              // Cancel all active subscriptions before creating/updating the new one
+              for (const sub of allSubscriptions.data) {
+                if (sub.status === "active" && sub.id !== (session.subscription as string)) {
+                  console.log(`[Process Session] Cancelling existing subscription ${sub.id} for org ${user.organizationId} before processing tier subscription`);
+                  try {
+                    await stripe.subscriptions.cancel(sub.id);
+                    console.log(`[Process Session] Successfully cancelled existing subscription ${sub.id}`);
+                  } catch (cancelError: any) {
+                    console.error(`[Process Session] Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                    // Continue with new subscription creation even if cancellation fails
+                  }
+                }
+              }
+            } catch (listError: any) {
+              console.error(`[Process Session] Error listing subscriptions:`, listError.message);
+              // Continue with new subscription creation even if listing fails
+            }
+          }
+
           // Update Instance Subscriptions table
           const existingInstanceSub = await storage.getInstanceSubscription(user.organizationId);
           
@@ -18488,59 +18996,84 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
           console.log(`[Process Session] 2026 Tier ${tier.name} activated for org ${user.organizationId}`);
 
-          // Grant initial credits (use VERIFIED org)
+          // Update subscription metadata to include module information (if modules were included in checkout)
+          // This helps the renewal webhook identify which modules are already in the subscription
+          if (session.subscription && session.metadata?.moduleNames) {
+            try {
+              const stripeSubscriptionForMetadata = await stripe.subscriptions.retrieve(session.subscription as string);
+              await stripe.subscriptions.update(session.subscription as string, {
+                metadata: {
+                  ...stripeSubscriptionForMetadata.metadata,
+                  moduleNames: session.metadata.moduleNames,
+                  moduleCount: session.metadata.moduleCount || "0"
+                }
+              });
+              console.log(`[Process Session] Updated subscription metadata with module information: ${session.metadata.moduleNames}`);
+            } catch (metadataError: any) {
+              console.warn(`[Process Session] Failed to update subscription metadata:`, metadataError.message);
+              // Don't fail the process if metadata update fails
+            }
+          }
+
+          // IMPORTANT: Grant initial credits within transaction to ensure atomicity with subscription creation/update
           // Logic: 
           // - If subscription renewal date has passed (expired) → RESET credits (expire old, grant new)
           // - If subscription renewal date has NOT passed (still active) → APPEND credits (keep old, add new)
           try {
             const { subscriptionService: subService } = await import("./subscriptionService");
+            const { db } = await import("./db");
             
-            const now = new Date();
-            const shouldReset = existingInstanceSub 
-              ? (!existingInstanceSub.subscriptionRenewalDate || existingInstanceSub.subscriptionRenewalDate <= now)
-              : false; // New subscription, no reset needed
+            // Wrap credit granting in transaction to ensure atomicity with subscription
+            await db.transaction(async (tx) => {
+              const now = new Date();
+              const shouldReset = existingInstanceSub 
+                ? (!existingInstanceSub.subscriptionRenewalDate || existingInstanceSub.subscriptionRenewalDate <= now)
+                : false; // New subscription, no reset needed
 
-            if (shouldReset) {
-              // Subscription has expired - RESET credits (expire old, grant new)
-              console.log(`[Process Session] Subscription expired (renewal date: ${existingInstanceSub?.subscriptionRenewalDate?.toISOString()}), resetting credits for org ${user.organizationId}`);
-              
-              const existingBatches = await storage.getCreditBatchesByOrganization(user.organizationId);
-              const planBatches = existingBatches.filter(b => 
-                b.grantSource === 'plan_inclusion' && 
-                b.remainingQuantity > 0
-              );
+              if (shouldReset) {
+                // Subscription has expired - RESET credits (expire old, grant new)
+                console.log(`[Process Session] Subscription expired (renewal date: ${existingInstanceSub?.subscriptionRenewalDate?.toISOString()}), resetting credits for org ${user.organizationId}`);
+                
+                const existingBatches = await storage.getCreditBatchesByOrganization(user.organizationId!);
+                const planBatches = existingBatches.filter(b => 
+                  b.grantSource === 'plan_inclusion' && 
+                  b.remainingQuantity > 0
+                );
 
-              if (planBatches.length > 0) {
-                console.log(`[Process Session] Expiring ${planBatches.length} existing plan_inclusion batches for org ${user.organizationId} (subscription expired)`);
-                for (const batch of planBatches) {
-                  await storage.expireCreditBatch(batch.id);
-                  await storage.createCreditLedgerEntry({
-                    organizationId: user.organizationId,
-                    source: "expiry" as any,
-                    quantity: -batch.remainingQuantity,
-                    batchId: batch.id,
-                    notes: `Expired ${batch.remainingQuantity} credits due to subscription expiry (renewal date passed)`
-                  });
+                if (planBatches.length > 0) {
+                  console.log(`[Process Session] Expiring ${planBatches.length} existing plan_inclusion batches for org ${user.organizationId} (subscription expired)`);
+                  for (const batch of planBatches) {
+                    await storage.expireCreditBatch(batch.id);
+                    await storage.createCreditLedgerEntry({
+                      organizationId: user.organizationId!,
+                      source: "expiry" as any,
+                      quantity: -batch.remainingQuantity,
+                      batchId: (batch.id ?? undefined) as string | undefined,
+                      notes: `Expired ${batch.remainingQuantity} credits due to subscription expiry (renewal date passed)`
+                    });
+                  }
                 }
+              } else if (existingInstanceSub) {
+                // Subscription still active - APPEND credits (keep old, add new)
+                console.log(`[Process Session] Subscription still active (renewal date: ${existingInstanceSub.subscriptionRenewalDate?.toISOString()}), appending credits for org ${user.organizationId}`);
               }
-            } else if (existingInstanceSub) {
-              // Subscription still active - APPEND credits (keep old, add new)
-              console.log(`[Process Session] Subscription still active (renewal date: ${existingInstanceSub.subscriptionRenewalDate?.toISOString()}), appending credits for org ${user.organizationId}`);
-            }
 
-            console.log(`[Process Session] Granting ${actualInspections} credits to org ${user.organizationId} (${shouldReset ? 'RESET mode' : 'APPEND mode'})`);
+              console.log(`[Process Session] Granting ${actualInspections} credits to org ${user.organizationId} (${shouldReset ? 'RESET mode' : 'APPEND mode'})`);
 
-            await subService.grantCredits(
-              user.organizationId,
-              actualInspections,
-              "plan_inclusion",
-              renewalDate,
-              { createdBy: user.id, adminNotes: `Stripe session: ${sessionId} (Requested: ${parsedRequested || 'tier default'})` }
-            );
-            console.log(`[Process Session] Granted ${actualInspections} credits successfully for tier ${tier.name} (${shouldReset ? 'after reset' : 'appended to existing'})`);
+              // Grant credits within transaction
+              await subService.grantCredits(
+                user.organizationId!,
+                actualInspections,
+                "plan_inclusion",
+                renewalDate,
+                { createdBy: user.id, adminNotes: `Stripe session: ${sessionId ?? 'unknown'} (Requested: ${parsedRequested || 'tier default'})` }
+              );
+              console.log(`[Process Session] Granted ${actualInspections} credits successfully for tier ${tier.name} (${shouldReset ? 'after reset' : 'appended to existing'})`);
+            });
           } catch (creditError: any) {
             console.error(`[Process Session] Error granting credits for tier:`, creditError);
-            // Don't fail the whole request if credits fail - subscription is already activated
+            // Transaction will rollback automatically, but we should still throw to prevent subscription activation without credits
+            throw new Error(`Failed to grant credits: ${creditError.message}`);
           }
 
           return res.json({ message: "Tier subscription activated successfully", processed: true });
@@ -18558,6 +19091,36 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           if (existingOrgSubscription) {
             console.log(`[Process Session] Organization already has subscription, skipping duplicate`);
             return res.json({ message: "Organization already has active subscription", processed: true, alreadyProcessed: true });
+          }
+
+          // IMPORTANT: Cancel all existing active Stripe subscriptions for this organization
+          // This ensures only the latest plan is active, preventing double billing on renewal
+          const legacyOrg = await storage.getOrganization(user.organizationId);
+          if (legacyOrg?.stripeCustomerId) {
+            try {
+              const allSubscriptions = await stripe.subscriptions.list({
+                customer: legacyOrg.stripeCustomerId,
+                status: "active",
+                limit: 100
+              });
+
+              // Cancel all active subscriptions before creating the new one
+              for (const sub of allSubscriptions.data) {
+                if (sub.status === "active") {
+                  console.log(`[Process Session] Cancelling existing subscription ${sub.id} for org ${user.organizationId} before creating new subscription`);
+                  try {
+                    await stripe.subscriptions.cancel(sub.id);
+                    console.log(`[Process Session] Successfully cancelled existing subscription ${sub.id}`);
+                  } catch (cancelError: any) {
+                    console.error(`[Process Session] Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                    // Continue with new subscription creation even if cancellation fails
+                  }
+                }
+              }
+            } catch (listError: any) {
+              console.error(`[Process Session] Error listing subscriptions:`, listError.message);
+              // Continue with new subscription creation even if listing fails
+            }
           }
 
           // Handle subscription ID - might not exist in test mode
@@ -18610,12 +19173,12 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           }
 
           // Get organization for pricing
-          const org = await storage.getOrganization(user.organizationId);
+          const orgForPricing = await storage.getOrganization(user.organizationId);
           let pricing: any = null;
-          if (org) {
+          if (orgForPricing) {
             try {
               const { subscriptionService: subService } = await import("./subscriptionService");
-              pricing = await subService.getEffectivePricing(plan.id, org.countryCode || "GB");
+              pricing = await subService.getEffectivePricing(plan.id, orgForPricing.countryCode || "GB");
             } catch (error: any) {
               console.warn(`[Process Session] Could not get pricing: ${error.message}, using plan defaults`);
             }
@@ -18923,7 +19486,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                   })
                   .where(eq(instanceModulesTable.id, instanceModule.id));
               }
-
+              
               // Log proration information
               if (isProrated === "true" && fullPrice && proratedPrice && remainingDays) {
                 console.log(`[Stripe Webhook] Module ${moduleId} enabled for org ${organizationId} (PRO-RATED)`);
@@ -19005,24 +19568,24 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
             // Use transaction to ensure atomicity: bundle creation + all module enables succeed or all fail
             await db.transaction(async (tx) => {
-              // Create instance bundle record with pricing
+            // Create instance bundle record with pricing
               await tx.insert(instanceBundles).values({
-                instanceId: instanceSub.id,
-                bundleId: bundleId,
-                isActive: true,
-                startDate: new Date(),
-                purchaseDate: new Date(),
-                bundlePriceMonthly: bundlePricing.priceMonthly,
-                bundlePriceAnnual: bundlePricing.priceAnnual,
-                currencyCode: currency
-              });
+              instanceId: instanceSub.id,
+              bundleId: bundleId,
+              isActive: true,
+              startDate: new Date(),
+              purchaseDate: new Date(),
+              bundlePriceMonthly: bundlePricing.priceMonthly,
+              bundlePriceAnnual: bundlePricing.priceAnnual,
+              currencyCode: currency
+            });
 
-              // Enable all modules in the bundle and set their prices to 0 (bundle covers the cost)
+            // Enable all modules in the bundle and set their prices to 0 (bundle covers the cost)
               // All operations are done within the transaction to ensure atomicity
-              const bundleModules = await storage.getBundleModules(bundleId);
+            const bundleModules = await storage.getBundleModules(bundleId);
               const enabledModuleIds: string[] = [];
               
-              for (const bm of bundleModules) {
+            for (const bm of bundleModules) {
                 try {
                   // Check if module instance already exists (using transaction context)
                   const existingModules = await tx.select()
@@ -19038,15 +19601,15 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                   if (existingModule) {
                     // Update existing module: enable it and set price to 0 (bundle covers the cost)
                     await tx.update(instanceModulesTable)
-                      .set({
+                  .set({
                         isEnabled: true,
                         enabledDate: new Date(),
                         disabledDate: null,
-                        monthlyPrice: 0, // Bundle covers the cost
-                        annualPrice: 0,
-                        currencyCode: currency,
-                        billingStartDate: new Date()
-                      })
+                    monthlyPrice: 0, // Bundle covers the cost
+                    annualPrice: 0,
+                    currencyCode: currency,
+                    billingStartDate: new Date()
+                  })
                       .where(eq(instanceModulesTable.id, existingModule.id));
                   } else {
                     // Insert new module instance: enabled with price 0 (bundle covers the cost)
@@ -19061,7 +19624,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                         currencyCode: currency,
                         billingStartDate: new Date()
                       });
-                  }
+              }
                   
                   enabledModuleIds.push(bm.moduleId);
                 } catch (moduleError: any) {
@@ -19314,7 +19877,47 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
               console.log(`[Stripe Webhook] Processing tier-based subscription renewal for org ${organizationId}, tier ${tierId}`);
               
               const instanceSub = await storage.getInstanceSubscription(organizationId);
+              
+              // IMPORTANT: Check if subscription is cancelled - if so, don't grant credits or renew modules
+              if (subscription.cancel_at_period_end || subscription.status === "canceled") {
+                console.log(`[Stripe Webhook] Subscription is cancelled - skipping credit grant and module renewal for org ${organizationId}`);
+                
+                if (instanceSub) {
+                  // Update subscription status to inactive if not already
+                  if (instanceSub.subscriptionStatus === "active") {
+                    await storage.updateInstanceSubscription(instanceSub.id, {
+                      subscriptionStatus: "inactive" as any,
+                    });
+                    console.log(`[Stripe Webhook] Updated instance subscription status to inactive for cancelled subscription (org ${organizationId})`);
+                  }
+                  
+                  // IMPORTANT: Deactivate all modules when subscription is cancelled
+                  const instanceModules = await storage.getInstanceModules(instanceSub.id);
+                  const enabledModules = instanceModules.filter(m => m.isEnabled);
+                  
+                  if (enabledModules.length > 0) {
+                    console.log(`[Stripe Webhook] Deactivating ${enabledModules.length} modules for cancelled subscription (org ${organizationId})`);
+                    for (const instanceModule of enabledModules) {
+                      await storage.toggleInstanceModule(instanceSub.id, instanceModule.moduleId, false);
+                      console.log(`[Stripe Webhook] Deactivated module ${instanceModule.moduleId} for cancelled subscription (org ${organizationId})`);
+                    }
+                  }
+                }
+                
+                break; // Don't process renewal - subscription is cancelled
+              }
+              
               if (instanceSub && instanceSub.subscriptionStatus === "active") {
+                // IMPORTANT: Clear payment failure date if payment succeeded (recovered from failure)
+                if (instanceSub.firstPaymentFailureDate) {
+                  console.log(`[Stripe Webhook] Payment succeeded for org ${organizationId} - clearing payment failure date (recovered from grace period)`);
+                  await storage.updateInstanceSubscription(instanceSub.id, {
+                    firstPaymentFailureDate: null,
+                  });
+                  // Update local reference
+                  instanceSub.firstPaymentFailureDate = null;
+                }
+                
                 // Helper function to safely create Date from Stripe timestamp
                 const safeDateFromTimestamp = (timestamp: any, fallback: Date): Date => {
                   if (!timestamp || typeof timestamp !== 'number' || isNaN(timestamp)) {
@@ -19379,6 +19982,8 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                 );
 
                 // Add invoice items for enabled modules for NEXT billing cycle
+                // IMPORTANT: Only add invoice items for modules that are NOT already part of the subscription
+                // If modules were added as line items during checkout, Stripe will automatically charge for them on renewal
                 try {
                   const org = await storage.getOrganization(organizationId);
                   if (org?.stripeCustomerId) {
@@ -19387,10 +19992,121 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                     const modules = await storage.getMarketplaceModules();
                     const { pricingService } = await import("./pricingService");
                     // Get currency from subscription or organization, fallback to GBP
-      const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+                    const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
                     
                     // Get active bundles to exclude modules covered by bundles
                     const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
+
+                    // Check which modules are already part of the subscription
+                    // Modules can be included in two ways:
+                    // 1. As line items in the subscription (Stripe charges automatically on renewal)
+                    // 2. As invoice items (we need to add them manually each cycle)
+                    // 
+                    // IMPORTANT: Also check if modules in subscription are disabled - if so, remove them
+                    // We check subscription metadata first (if modules were added during checkout, their names are stored there)
+                    // Then we check subscription line items by matching product names
+                    const modulesInSubscription = new Set<string>();
+                    const modulesToRemoveFromSubscription: Array<{ itemId: string; moduleId: string; moduleName: string }> = [];
+                    
+                    // Method 1: Check subscription metadata for module names
+                    const subscriptionModuleNames = subscription.metadata?.moduleNames;
+                    if (subscriptionModuleNames) {
+                      const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+                      console.log(`[Stripe Webhook] Found ${moduleNameList.length} modules in subscription metadata: ${moduleNameList.join(', ')}`);
+                      
+                      // Match module names to module IDs and check if they're still enabled
+                      for (const moduleName of moduleNameList) {
+                        const matchedModule = modules.find(m => m.name === moduleName.trim());
+                        if (matchedModule) {
+                          // Check if module is still enabled
+                          const instanceModule = enabledModules.find(im => im.moduleId === matchedModule.id);
+                          if (instanceModule && instanceModule.isEnabled) {
+                            modulesInSubscription.add(matchedModule.id);
+                            console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) is in subscription metadata and still enabled - will be charged automatically on renewal`);
+                          } else {
+                            console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) is in subscription metadata but disabled - will be removed from subscription`);
+                            // Mark for removal - we'll find the subscription item below
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Method 2: Check subscription line items by matching product names
+                    // IMPORTANT: Also check if modules are disabled and remove them from subscription
+                    const subscriptionLineItems = subscription.items?.data || [];
+                    for (const item of subscriptionLineItems) {
+                      const product = item.price?.product;
+                      const productName = (typeof product === 'object' && product && 'name' in product) 
+                        ? (product.name || '') 
+                        : (item.price?.nickname || '');
+                      
+                      // Skip if this is the tier subscription (not a module)
+                      // Check if product name contains "Plan" or "Inspect360" to identify tier subscription
+                      if (productName && (productName.includes('Plan') || productName.includes('Inspect360'))) {
+                        continue;
+                      }
+                      
+                      if (productName) {
+                        // Try to match product name to module name
+                        const matchedModule = modules.find(m => 
+                          m.name === productName.trim() || 
+                          productName.includes(m.name)
+                        );
+                        
+                        if (matchedModule) {
+                          // Check if module is still enabled
+                          const instanceModule = enabledModules.find(im => im.moduleId === matchedModule.id);
+                          
+                          if (instanceModule && instanceModule.isEnabled) {
+                            // Module is enabled - add to set and will be charged automatically
+                            if (!modulesInSubscription.has(matchedModule.id)) {
+                              modulesInSubscription.add(matchedModule.id);
+                              console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) found in subscription line items and enabled - will be charged automatically on renewal`);
+                            }
+                          } else {
+                            // Module is disabled but still in subscription - mark for removal
+                            modulesToRemoveFromSubscription.push({
+                              itemId: item.id,
+                              moduleId: matchedModule.id,
+                              moduleName: matchedModule.name
+                            });
+                            console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) is in subscription but disabled - will be removed from subscription`);
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Remove disabled modules from subscription
+                    if (modulesToRemoveFromSubscription.length > 0 && org.stripeCustomerId) {
+                      try {
+                        for (const moduleToRemove of modulesToRemoveFromSubscription) {
+                          console.log(`[Stripe Webhook] Removing disabled module ${moduleToRemove.moduleName} (${moduleToRemove.moduleId}) from subscription ${subscription.id}`);
+                          await stripe.subscriptionItems.del(moduleToRemove.itemId);
+                          console.log(`[Stripe Webhook] Successfully removed disabled module ${moduleToRemove.moduleName} from subscription`);
+                        }
+                        
+                        // Update subscription metadata to remove disabled module names
+                        if (subscriptionModuleNames) {
+                          const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+                          const removedModuleNames = modulesToRemoveFromSubscription.map(m => m.moduleName);
+                          const updatedModuleNames = moduleNameList
+                            .filter(name => !removedModuleNames.includes(name.trim()))
+                            .join(',');
+                          
+                          await stripe.subscriptions.update(subscription.id, {
+                            metadata: {
+                              ...subscription.metadata,
+                              moduleNames: updatedModuleNames,
+                              moduleCount: updatedModuleNames ? updatedModuleNames.split(',').length.toString() : "0"
+                            }
+                          });
+                          console.log(`[Stripe Webhook] Updated subscription metadata - removed ${removedModuleNames.length} disabled modules`);
+                        }
+                      } catch (removeError: any) {
+                        console.error(`[Stripe Webhook] Failed to remove disabled modules from subscription:`, removeError.message);
+                        // Don't fail renewal if module removal fails
+                      }
+                    }
 
                     if (enabledModules.length > 0) {
                       const stripe = await getUncachableStripeClient();
@@ -19401,10 +20117,17 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                           continue;
                         }
 
+                        // Skip if module is already part of subscription (Stripe will charge automatically)
+                        if (modulesInSubscription.has(instanceModule.moduleId)) {
+                          console.log(`[Stripe Webhook] Skipping invoice item for ${instanceModule.moduleId} - already in subscription line items`);
+                          continue;
+                        }
+
                         const module = modules.find(m => m.id === instanceModule.moduleId);
                         if (!module) continue;
 
                         // Calculate full cycle price (not prorated) for next billing cycle
+                        // Only add invoice items for modules NOT in subscription
                         const modulePrice = await pricingService.calculateModulePrice(
                           organizationId,
                           instanceModule.moduleId,
@@ -19434,15 +20157,144 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                         }
                       }
                     }
+                    
+                    // Log summary of module handling
+                    const modulesInSubCount = modulesInSubscription.size;
+                    const modulesAsInvoiceItems = enabledModules.filter(m => 
+                      !coveredModuleIds.has(m.moduleId) && !modulesInSubscription.has(m.moduleId)
+                    ).length;
+                    console.log(`[Stripe Webhook] Renewal module summary: ${modulesInSubCount} in subscription (auto-charged), ${modulesAsInvoiceItems} as invoice items, ${enabledModules.length} total enabled`);
+
+                    // IMPORTANT: Check if bundles in subscription are deactivated and remove them
+                    // Bundles can be in subscription as line items
+                    const bundlesToRemoveFromSubscription: Array<{ itemId: string; bundleId: string; bundleName: string }> = [];
+                    const subscriptionLineItemsForBundles = subscription.items?.data || [];
+                    const bundles = await storage.getModuleBundles();
+                    const activeBundles = await storage.getInstanceBundles(instanceSub.id);
+                    
+                    for (const item of subscriptionLineItemsForBundles) {
+                      const product = item.price?.product;
+                      const productName = (typeof product === 'object' && product && 'name' in product) 
+                        ? (product.name || '') 
+                        : (item.price?.nickname || '');
+                      
+                      // Skip if this is the tier subscription (not a bundle)
+                      // Check if product name contains "Plan" or "Inspect360" to identify tier subscription
+                      if (productName && (productName.includes('Plan') || productName.includes('Inspect360'))) {
+                        continue;
+                      }
+                      
+                      // Check if this might be a bundle (contains "Bundle" in name)
+                      if (productName && productName.includes('Bundle')) {
+                        const matchedBundle = bundles.find(b => 
+                          productName.includes(b.name) || b.name === productName.trim()
+                        );
+                        
+                        if (matchedBundle) {
+                          // Check if bundle is still active
+                          const instanceBundle = activeBundles.find(ib => 
+                            ib.bundleId === matchedBundle.id && ib.isActive
+                          );
+                          
+                          if (!instanceBundle || !instanceBundle.isActive) {
+                            // Bundle is deactivated but still in subscription - mark for removal
+                            bundlesToRemoveFromSubscription.push({
+                              itemId: item.id,
+                              bundleId: matchedBundle.id,
+                              bundleName: matchedBundle.name
+                            });
+                            console.log(`[Stripe Webhook] Bundle ${matchedBundle.name} (${matchedBundle.id}) is in subscription but deactivated - will be removed from subscription`);
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Remove deactivated bundles from subscription
+                    if (bundlesToRemoveFromSubscription.length > 0 && org.stripeCustomerId) {
+                      try {
+                        const stripe = await getUncachableStripeClient();
+                        for (const bundleToRemove of bundlesToRemoveFromSubscription) {
+                          console.log(`[Stripe Webhook] Removing deactivated bundle ${bundleToRemove.bundleName} (${bundleToRemove.bundleId}) from subscription ${subscription.id}`);
+                          await stripe.subscriptionItems.del(bundleToRemove.itemId);
+                          console.log(`[Stripe Webhook] Successfully removed deactivated bundle ${bundleToRemove.bundleName} from subscription`);
+                        }
+                        
+                        // Update subscription metadata to remove bundle names if present
+                        const bundleNames = subscription.metadata?.bundleNames?.split(',').filter(Boolean) || [];
+                        if (bundleNames.length > 0) {
+                          const removedBundleNames = bundlesToRemoveFromSubscription.map(b => b.bundleName);
+                          const updatedBundleNames = bundleNames
+                            .filter(name => !removedBundleNames.includes(name.trim()))
+                            .join(',');
+                          
+                          await stripe.subscriptions.update(subscription.id, {
+                            metadata: {
+                              ...subscription.metadata,
+                              bundleNames: updatedBundleNames,
+                              bundleCount: updatedBundleNames ? updatedBundleNames.split(',').length.toString() : "0"
+                            }
+                          });
+                          console.log(`[Stripe Webhook] Updated subscription metadata - removed ${removedBundleNames.length} deactivated bundles`);
+                        }
+                      } catch (removeError: any) {
+                        console.error(`[Stripe Webhook] Failed to remove deactivated bundles from subscription:`, removeError.message);
+                        // Don't fail renewal if bundle removal fails
+                      }
+                    }
+
+                    // IMPORTANT: Check which bundles are already in subscription to prevent duplicate charges
+                    // Bundles can be in subscription as line items (Stripe charges automatically) or as invoice items (we add manually)
+                    const bundlesInSubscription = new Set<string>();
+                    const subscriptionBundleNames = subscription.metadata?.bundleNames;
+                    if (subscriptionBundleNames) {
+                      const bundleNameList = subscriptionBundleNames.split(',').filter(Boolean);
+                      for (const bundleName of bundleNameList) {
+                        const matchedBundle = bundles.find(b => b.name === bundleName.trim());
+                        if (matchedBundle) {
+                          bundlesInSubscription.add(matchedBundle.id);
+                          console.log(`[Stripe Webhook] Bundle ${matchedBundle.name} (${matchedBundle.id}) is in subscription metadata - will be charged automatically on renewal`);
+                        }
+                      }
+                    }
+                    
+                    // Also check subscription line items for bundles
+                    for (const item of subscriptionLineItemsForBundles) {
+                      const product = item.price?.product;
+                      const productName = (typeof product === 'object' && product && 'name' in product) 
+                        ? (product.name || '') 
+                        : (item.price?.nickname || '');
+                      
+                      if (productName && productName.includes('Bundle')) {
+                        const matchedBundle = bundles.find(b => 
+                          productName.includes(b.name) || b.name === productName.trim()
+                        );
+                        
+                        if (matchedBundle) {
+                          const instanceBundle = activeBundles.find(ib => 
+                            ib.bundleId === matchedBundle.id && ib.isActive
+                          );
+                          
+                          // If bundle is active and in subscription, it will be charged automatically
+                          if (instanceBundle && instanceBundle.isActive) {
+                            bundlesInSubscription.add(matchedBundle.id);
+                            console.log(`[Stripe Webhook] Bundle ${matchedBundle.name} (${matchedBundle.id}) found in subscription line items and active - will be charged automatically on renewal`);
+                          }
+                        }
+                      }
+                    }
 
                     // Add invoice items for active bundles for NEXT billing cycle
+                    // IMPORTANT: Only add invoice items for bundles NOT already in subscription
                     // Validate bundle availability and pricing before adding charges
                     try {
-                      const activeBundles = await storage.getInstanceBundles(instanceSub.id);
-                      const bundles = await storage.getModuleBundles();
                       const stripe = await getUncachableStripeClient();
                       
                       for (const activeBundle of activeBundles.filter(b => b.isActive)) {
+                        // Skip if bundle is already in subscription (Stripe will charge automatically)
+                        if (bundlesInSubscription.has(activeBundle.bundleId)) {
+                          console.log(`[Stripe Webhook] Skipping invoice item for bundle ${activeBundle.bundleId} - already in subscription line items`);
+                          continue;
+                        }
                         // Validation: Check if bundle still exists and is available
                         const bundle = bundles.find(b => b.id === activeBundle.bundleId);
                         
@@ -19510,39 +20362,52 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                             }
                           }
                           
-                          // Validation: Check if bundle pricing has changed
-                          // Use stored pricing if available, otherwise fetch current pricing
+                          // IMPORTANT: Use current pricing on renewal (pricing updates apply on next renewal)
+                          // Fetch current bundle pricing for renewal
                           let bundlePrice = 0;
                           let pricingChanged = false;
+                          const bundleCurrency = activeBundle.currencyCode || currency;
                           
-                          if (activeBundle.bundlePriceMonthly && activeBundle.bundlePriceAnnual) {
-                            // Use stored pricing (locked at purchase time) - Edge Case 6: Pricing locked at purchase
-                            bundlePrice = instanceSub.billingCycle === "annual" 
-                              ? activeBundle.bundlePriceAnnual 
-                              : activeBundle.bundlePriceMonthly;
+                          const currentBundlePricing = await storage.getBundlePricing(activeBundle.bundleId, bundleCurrency);
+                          if (currentBundlePricing) {
+                            // Use current pricing for renewal
+                            bundlePrice = instanceSub.billingCycle === "annual"
+                              ? currentBundlePricing.priceAnnual
+                              : currentBundlePricing.priceMonthly;
                             
-                            // Check if current pricing differs from stored pricing
-                            const currentBundlePricing = await storage.getBundlePricing(activeBundle.bundleId, activeBundle.currencyCode || currency);
-                            if (currentBundlePricing) {
-                              const currentPrice = instanceSub.billingCycle === "annual"
-                                ? currentBundlePricing.priceAnnual
-                                : currentBundlePricing.priceMonthly;
+                            // Check if pricing has changed from stored pricing (for logging and updating stored price)
+                            if (activeBundle.bundlePriceMonthly && activeBundle.bundlePriceAnnual) {
+                              const storedPrice = instanceSub.billingCycle === "annual" 
+                                ? activeBundle.bundlePriceAnnual 
+                                : activeBundle.bundlePriceMonthly;
                               
-                              if (currentPrice !== bundlePrice) {
+                              if (storedPrice !== bundlePrice) {
                                 pricingChanged = true;
-                                console.log(`[Stripe Webhook] Bundle ${bundle.name} pricing changed: stored ${bundlePrice/100} ${activeBundle.currencyCode || currency} → current ${currentPrice/100} ${activeBundle.currencyCode || currency}. Using stored price (locked at purchase - Edge Case 6).`);
+                                console.log(`[Stripe Webhook] Bundle ${bundle.name} pricing updated: stored ${storedPrice/100} ${bundleCurrency} → current ${bundlePrice/100} ${bundleCurrency}. Using current price for renewal.`);
+                                
+                                // Update stored pricing in instance bundle to reflect new price
+                                const { instanceBundles: instanceBundlesTable } = await import("@shared/schema");
+                                const { eq } = await import("drizzle-orm");
+                                const { db } = await import("./db");
+                                await db.update(instanceBundlesTable)
+                                  .set({
+                                    bundlePriceMonthly: currentBundlePricing.priceMonthly,
+                                    bundlePriceAnnual: currentBundlePricing.priceAnnual,
+                                    currencyCode: bundleCurrency
+                                  })
+                                  .where(eq(instanceBundlesTable.id, activeBundle.id));
+                                console.log(`[Stripe Webhook] Updated stored bundle pricing for instance bundle ${activeBundle.id} to reflect new pricing`);
                               }
                             }
                           } else {
-                            // Fallback: fetch current pricing (shouldn't happen if bundle was purchased correctly)
-                            const bundlePricing = await storage.getBundlePricing(activeBundle.bundleId, activeBundle.currencyCode || currency);
-                            if (bundlePricing) {
-                              bundlePrice = instanceSub.billingCycle === "annual"
-                                ? bundlePricing.priceAnnual
-                                : bundlePricing.priceMonthly;
-                              console.warn(`[Stripe Webhook] Bundle ${bundle.name} has no stored pricing, using current pricing: ${bundlePrice/100} ${activeBundle.currencyCode || currency}`);
+                            // Fallback: use stored pricing if current pricing not available
+                            if (activeBundle.bundlePriceMonthly && activeBundle.bundlePriceAnnual) {
+                              bundlePrice = instanceSub.billingCycle === "annual" 
+                                ? activeBundle.bundlePriceAnnual 
+                                : activeBundle.bundlePriceMonthly;
+                              console.warn(`[Stripe Webhook] Bundle ${bundle.name} has no current pricing in currency ${bundleCurrency}, using stored pricing: ${bundlePrice/100} ${bundleCurrency}`);
                             } else {
-                              console.error(`[Stripe Webhook] Bundle ${bundle.name} (${activeBundle.bundleId}) has no pricing configured in currency ${activeBundle.currencyCode || currency} - skipping renewal charge`);
+                              console.error(`[Stripe Webhook] Bundle ${bundle.name} (${activeBundle.bundleId}) has no pricing configured in currency ${bundleCurrency} - skipping renewal charge`);
                               continue;
                             }
                           }
@@ -19553,7 +20418,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                               customer: org.stripeCustomerId,
                               amount: bundlePrice, // Full cycle price in minor units
                               currency: currency.toLowerCase(),
-                              description: `${bundle.name} Bundle (${instanceSub.billingCycle} billing)${pricingChanged ? ' [Price locked at purchase]' : ''}`,
+                              description: `${bundle.name} Bundle (${instanceSub.billingCycle} billing)${pricingChanged ? ' [Price updated on renewal]' : ''}`,
                               metadata: {
                                 organizationId: organizationId,
                                 bundleId: activeBundle.bundleId,
@@ -19624,6 +20489,45 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             // Handle legacy subscription renewal
             const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
             if (dbSubscription) {
+              // IMPORTANT: Clear payment failure date if payment succeeded (recovered from failure)
+              const instanceSubForLegacy = await storage.getInstanceSubscription(dbSubscription.organizationId);
+              if (instanceSubForLegacy?.firstPaymentFailureDate) {
+                console.log(`[Stripe Webhook] Payment succeeded for org ${dbSubscription.organizationId} (legacy) - clearing payment failure date (recovered from grace period)`);
+                await storage.updateInstanceSubscription(instanceSubForLegacy.id, {
+                  firstPaymentFailureDate: null,
+                });
+              }
+              
+              // IMPORTANT: Check if subscription is cancelled - if so, don't grant credits or renew modules
+              if (subscription.cancel_at_period_end || subscription.status === "canceled") {
+                console.log(`[Stripe Webhook] Legacy subscription is cancelled - skipping credit grant and module renewal for org ${dbSubscription.organizationId}`);
+                
+                const instanceSub = await storage.getInstanceSubscription(dbSubscription.organizationId);
+                if (instanceSub) {
+                  // Update subscription status to inactive if not already
+                  if (instanceSub.subscriptionStatus === "active") {
+                    await storage.updateInstanceSubscription(instanceSub.id, {
+                      subscriptionStatus: "inactive" as any,
+                    });
+                    console.log(`[Stripe Webhook] Updated instance subscription status to inactive for cancelled legacy subscription (org ${dbSubscription.organizationId})`);
+                  }
+                  
+                  // IMPORTANT: Deactivate all modules when subscription is cancelled
+                  const instanceModules = await storage.getInstanceModules(instanceSub.id);
+                  const enabledModules = instanceModules.filter(m => m.isEnabled);
+                  
+                  if (enabledModules.length > 0) {
+                    console.log(`[Stripe Webhook] Deactivating ${enabledModules.length} modules for cancelled legacy subscription (org ${dbSubscription.organizationId})`);
+                    for (const instanceModule of enabledModules) {
+                      await storage.toggleInstanceModule(instanceSub.id, instanceModule.moduleId, false);
+                      console.log(`[Stripe Webhook] Deactivated module ${instanceModule.moduleId} for cancelled legacy subscription (org ${dbSubscription.organizationId})`);
+                    }
+                  }
+                }
+                
+                break; // Don't process renewal - subscription is cancelled
+              }
+              
               // Helper function to safely create Date from Stripe timestamp
               const safeDateFromTimestamp = (timestamp: any, fallback: Date): Date => {
                 if (!timestamp || typeof timestamp !== 'number' || isNaN(timestamp)) {
@@ -19657,7 +20561,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                 dbSubscription.organizationId,
                 new Date((subscription as any).current_period_end * 1000)
               );
-              
+
               // Expire all existing plan_inclusion batches to reset quota (including any that weren't expired by processCreditExpiry)
               const existingBatches = await storage.getCreditBatchesByOrganization(dbSubscription.organizationId);
               const planBatches = existingBatches.filter(b => 
@@ -19689,6 +20593,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
               );
 
               // Add invoice items for enabled modules for NEXT billing cycle (legacy subscription)
+              // IMPORTANT: Check which modules are already in subscription to prevent duplicate charges
               try {
                 const instanceSub = await storage.getInstanceSubscription(dbSubscription.organizationId);
                 if (instanceSub) {
@@ -19699,10 +20604,118 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                     const modules = await storage.getMarketplaceModules();
                     const { pricingService } = await import("./pricingService");
                     // Get currency from subscription or organization, fallback to GBP
-      const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+                    const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
                     
                     // Get active bundles to exclude modules covered by bundles
                     const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
+
+                    // Check which modules are already part of the subscription (legacy)
+                    // Modules can be included in two ways:
+                    // 1. As line items in the subscription (Stripe charges automatically on renewal)
+                    // 2. As invoice items (we need to add them manually each cycle)
+                    const modulesInSubscriptionLegacy = new Set<string>();
+                    const modulesToRemoveFromSubscriptionLegacy: Array<{ itemId: string; moduleId: string; moduleName: string }> = [];
+                    
+                    // Method 1: Check subscription metadata for module names
+                    const subscriptionModuleNames = subscription.metadata?.moduleNames;
+                    if (subscriptionModuleNames) {
+                      const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+                      console.log(`[Stripe Webhook] Found ${moduleNameList.length} modules in subscription metadata (legacy): ${moduleNameList.join(', ')}`);
+                      
+                      // Match module names to module IDs and check if they're still enabled
+                      for (const moduleName of moduleNameList) {
+                        const matchedModule = modules.find(m => m.name === moduleName.trim());
+                        if (matchedModule) {
+                          // Check if module is still enabled
+                          const instanceModule = enabledModules.find(im => im.moduleId === matchedModule.id);
+                          if (instanceModule && instanceModule.isEnabled) {
+                            modulesInSubscriptionLegacy.add(matchedModule.id);
+                            console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) is in subscription metadata and still enabled (legacy) - will be charged automatically on renewal`);
+                          } else {
+                            console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) is in subscription metadata but disabled (legacy) - will be removed from subscription`);
+                            // Mark for removal - we'll find the subscription item below
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Method 2: Check subscription line items by matching product names (legacy)
+                    // IMPORTANT: Also check if modules are disabled and remove them from subscription
+                    const subscriptionLineItems = subscription.items?.data || [];
+                    for (const item of subscriptionLineItems) {
+                      const product = item.price?.product;
+                      const productName = (typeof product === 'object' && product && 'name' in product) 
+                        ? (product.name || '') 
+                        : (item.price?.nickname || '');
+                      
+                      // Skip if this is the tier subscription (not a module)
+                      // Check if product name contains "Plan" or "Inspect360" to identify tier subscription
+                      if (productName && (productName.includes('Plan') || productName.includes('Inspect360'))) {
+                        continue;
+                      }
+                      
+                      if (productName) {
+                        // Try to match product name to module name
+                        const matchedModule = modules.find(m => 
+                          m.name === productName.trim() || 
+                          productName.includes(m.name)
+                        );
+                        
+                        if (matchedModule) {
+                          // Check if module is still enabled
+                          const instanceModule = enabledModules.find(im => im.moduleId === matchedModule.id);
+                          
+                          if (instanceModule && instanceModule.isEnabled) {
+                            // Module is enabled - add to set and will be charged automatically
+                            if (!modulesInSubscriptionLegacy.has(matchedModule.id)) {
+                              modulesInSubscriptionLegacy.add(matchedModule.id);
+                              console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) found in subscription line items and enabled (legacy) - will be charged automatically on renewal`);
+                            }
+                          } else {
+                            // Module is disabled but still in subscription - mark for removal
+                            modulesToRemoveFromSubscriptionLegacy.push({
+                              itemId: item.id,
+                              moduleId: matchedModule.id,
+                              moduleName: matchedModule.name
+                            });
+                            console.log(`[Stripe Webhook] Module ${matchedModule.name} (${matchedModule.id}) is in subscription but disabled (legacy) - will be removed from subscription`);
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Remove disabled modules from subscription (legacy)
+                    if (modulesToRemoveFromSubscriptionLegacy.length > 0 && org.stripeCustomerId) {
+                      try {
+                        const stripe = await getUncachableStripeClient();
+                        for (const moduleToRemove of modulesToRemoveFromSubscriptionLegacy) {
+                          console.log(`[Stripe Webhook] Removing disabled module ${moduleToRemove.moduleName} (${moduleToRemove.moduleId}) from subscription ${subscription.id} (legacy)`);
+                          await stripe.subscriptionItems.del(moduleToRemove.itemId);
+                          console.log(`[Stripe Webhook] Successfully removed disabled module ${moduleToRemove.moduleName} from subscription (legacy)`);
+                        }
+                        
+                        // Update subscription metadata to remove disabled module names
+                        if (subscriptionModuleNames) {
+                          const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+                          const removedModuleNames = modulesToRemoveFromSubscriptionLegacy.map(m => m.moduleName);
+                          const updatedModuleNames = moduleNameList
+                            .filter(name => !removedModuleNames.includes(name.trim()))
+                            .join(',');
+                          
+                          await stripe.subscriptions.update(subscription.id, {
+                            metadata: {
+                              ...subscription.metadata,
+                              moduleNames: updatedModuleNames,
+                              moduleCount: updatedModuleNames ? updatedModuleNames.split(',').length.toString() : "0"
+                            }
+                          });
+                          console.log(`[Stripe Webhook] Updated subscription metadata - removed ${removedModuleNames.length} disabled modules (legacy)`);
+                        }
+                      } catch (removeError: any) {
+                        console.error(`[Stripe Webhook] Failed to remove disabled modules from subscription (legacy):`, removeError.message);
+                        // Don't fail renewal if module removal fails
+                      }
+                    }
 
                     if (enabledModules.length > 0) {
                       const stripe = await getUncachableStripeClient();
@@ -19713,10 +20726,17 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                           continue;
                         }
 
+                        // Skip if module is already part of subscription (Stripe will charge automatically)
+                        if (modulesInSubscriptionLegacy.has(instanceModule.moduleId)) {
+                          console.log(`[Stripe Webhook] Skipping invoice item for ${instanceModule.moduleId} (legacy) - already in subscription line items`);
+                          continue;
+                        }
+
                         const module = modules.find(m => m.id === instanceModule.moduleId);
                         if (!module) continue;
 
                         // Calculate full cycle price (not prorated) for next billing cycle
+                        // Only add invoice items for modules NOT in subscription
                         const modulePrice = await pricingService.calculateModulePrice(
                           dbSubscription.organizationId,
                           instanceModule.moduleId,
@@ -19744,17 +20764,71 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                             // Don't fail renewal if module invoice item creation fails
                           }
                         }
-                        }
                       }
+                      
+                      // Log summary of module handling (legacy)
+                      const modulesInSubCount = modulesInSubscriptionLegacy.size;
+                      const modulesAsInvoiceItems = enabledModules.filter(m => 
+                        !coveredModuleIds.has(m.moduleId) && !modulesInSubscriptionLegacy.has(m.moduleId)
+                      ).length;
+                      console.log(`[Stripe Webhook] Renewal module summary (legacy): ${modulesInSubCount} in subscription (auto-charged), ${modulesAsInvoiceItems} as invoice items, ${enabledModules.length} total enabled`);
+                    }
 
                       // Add invoice items for active bundles for NEXT billing cycle (legacy subscription)
+                      // IMPORTANT: Check which bundles are already in subscription to prevent duplicate charges
                       // Validate bundle availability and pricing before adding charges
                       try {
                         const activeBundles = await storage.getInstanceBundles(instanceSub.id);
                         const bundles = await storage.getModuleBundles();
                         const stripe = await getUncachableStripeClient();
                         
+                        // IMPORTANT: Check which bundles are already in subscription to prevent duplicate charges (legacy)
+                        // Bundles can be in subscription as line items (Stripe charges automatically) or as invoice items (we add manually)
+                        const bundlesInSubscriptionLegacy = new Set<string>();
+                        const subscriptionBundleNamesLegacy = subscription.metadata?.bundleNames;
+                        if (subscriptionBundleNamesLegacy) {
+                          const bundleNameList = subscriptionBundleNamesLegacy.split(',').filter(Boolean);
+                          for (const bundleName of bundleNameList) {
+                            const matchedBundle = bundles.find(b => b.name === bundleName.trim());
+                            if (matchedBundle) {
+                              bundlesInSubscriptionLegacy.add(matchedBundle.id);
+                              console.log(`[Stripe Webhook] Bundle ${matchedBundle.name} (${matchedBundle.id}) is in subscription metadata (legacy) - will be charged automatically on renewal`);
+                            }
+                          }
+                        }
+                        
+                        // Also check subscription line items for bundles (legacy)
+                        for (const item of subscription.items?.data || []) {
+                          const product = item.price?.product;
+                          const productName = (typeof product === 'object' && product && 'name' in product) 
+                            ? (product.name || '') 
+                            : (item.price?.nickname || '');
+                          
+                          if (productName && productName.includes('Bundle')) {
+                            const matchedBundle = bundles.find(b => 
+                              productName.includes(b.name) || b.name === productName.trim()
+                            );
+                            
+                            if (matchedBundle) {
+                              const instanceBundle = activeBundles.find(ib => 
+                                ib.bundleId === matchedBundle.id && ib.isActive
+                              );
+                              
+                              // If bundle is active and in subscription, it will be charged automatically
+                              if (instanceBundle && instanceBundle.isActive) {
+                                bundlesInSubscriptionLegacy.add(matchedBundle.id);
+                                console.log(`[Stripe Webhook] Bundle ${matchedBundle.name} (${matchedBundle.id}) found in subscription line items and active (legacy) - will be charged automatically on renewal`);
+                              }
+                            }
+                          }
+                        }
+                        
                         for (const activeBundle of activeBundles.filter(b => b.isActive)) {
+                          // Skip if bundle is already in subscription (Stripe will charge automatically)
+                          if (bundlesInSubscriptionLegacy.has(activeBundle.bundleId)) {
+                            console.log(`[Stripe Webhook] Skipping invoice item for bundle ${activeBundle.bundleId} (legacy) - already in subscription line items`);
+                            continue;
+                          }
                           // Validation: Check if bundle still exists and is available
                           const bundle = bundles.find(b => b.id === activeBundle.bundleId);
                           
@@ -19822,52 +20896,65 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                             }
                           }
                           
-                          // Validation: Check if bundle pricing has changed
-                          // Use stored pricing if available, otherwise fetch current pricing
+                          // IMPORTANT: Use current pricing on renewal (pricing updates apply on next renewal)
+                          // Fetch current bundle pricing for renewal
                           let bundlePrice = 0;
                           let pricingChanged = false;
+                          const bundleCurrency = activeBundle.currencyCode || currency;
                           
-                          if (activeBundle.bundlePriceMonthly && activeBundle.bundlePriceAnnual) {
-                            // Use stored pricing (locked at purchase time) - Edge Case 6: Pricing locked at purchase
-                            bundlePrice = instanceSub.billingCycle === "annual" 
-                              ? activeBundle.bundlePriceAnnual 
-                              : activeBundle.bundlePriceMonthly;
+                          const currentBundlePricing = await storage.getBundlePricing(activeBundle.bundleId, bundleCurrency);
+                          if (currentBundlePricing) {
+                            // Use current pricing for renewal
+                            bundlePrice = instanceSub.billingCycle === "annual"
+                              ? currentBundlePricing.priceAnnual
+                              : currentBundlePricing.priceMonthly;
                             
-                            // Check if current pricing differs from stored pricing
-                            const currentBundlePricing = await storage.getBundlePricing(activeBundle.bundleId, activeBundle.currencyCode || currency);
-                            if (currentBundlePricing) {
-                              const currentPrice = instanceSub.billingCycle === "annual"
-                                ? currentBundlePricing.priceAnnual
-                                : currentBundlePricing.priceMonthly;
+                            // Check if pricing has changed from stored pricing (for logging and updating stored price)
+                            if (activeBundle.bundlePriceMonthly && activeBundle.bundlePriceAnnual) {
+                              const storedPrice = instanceSub.billingCycle === "annual" 
+                                ? activeBundle.bundlePriceAnnual 
+                                : activeBundle.bundlePriceMonthly;
                               
-                              if (currentPrice !== bundlePrice) {
+                              if (storedPrice !== bundlePrice) {
                                 pricingChanged = true;
-                                console.log(`[Stripe Webhook] Bundle ${bundle.name} pricing changed: stored ${bundlePrice/100} ${activeBundle.currencyCode || currency} → current ${currentPrice/100} ${activeBundle.currencyCode || currency}. Using stored price (locked at purchase - Edge Case 6).`);
+                                console.log(`[Stripe Webhook] Bundle ${bundle.name} pricing updated: stored ${storedPrice/100} ${bundleCurrency} → current ${bundlePrice/100} ${bundleCurrency}. Using current price for renewal (legacy).`);
+                                
+                                // Update stored pricing in instance bundle to reflect new price
+                                const { instanceBundles: instanceBundlesTable } = await import("@shared/schema");
+                                const { eq } = await import("drizzle-orm");
+                                const { db } = await import("./db");
+                                await db.update(instanceBundlesTable)
+                                  .set({
+                                    bundlePriceMonthly: currentBundlePricing.priceMonthly,
+                                    bundlePriceAnnual: currentBundlePricing.priceAnnual,
+                                    currencyCode: bundleCurrency
+                                  })
+                                  .where(eq(instanceBundlesTable.id, activeBundle.id));
+                                console.log(`[Stripe Webhook] Updated stored bundle pricing for instance bundle ${activeBundle.id} to reflect new pricing (legacy)`);
                               }
                             }
                           } else {
-                            // Fallback: fetch current pricing (shouldn't happen if bundle was purchased correctly)
-                            const bundlePricing = await storage.getBundlePricing(activeBundle.bundleId, activeBundle.currencyCode || currency);
-                            if (bundlePricing) {
-                              bundlePrice = instanceSub.billingCycle === "annual"
-                                ? bundlePricing.priceAnnual
-                                : bundlePricing.priceMonthly;
-                              console.warn(`[Stripe Webhook] Bundle ${bundle.name} has no stored pricing, using current pricing: ${bundlePrice/100} ${activeBundle.currencyCode || currency}`);
+                            // Fallback: use stored pricing if current pricing not available
+                            if (activeBundle.bundlePriceMonthly && activeBundle.bundlePriceAnnual) {
+                              bundlePrice = instanceSub.billingCycle === "annual" 
+                                ? activeBundle.bundlePriceAnnual 
+                                : activeBundle.bundlePriceMonthly;
+                              console.warn(`[Stripe Webhook] Bundle ${bundle.name} has no current pricing in currency ${bundleCurrency}, using stored pricing: ${bundlePrice/100} ${bundleCurrency} (legacy)`);
                             } else {
-                              console.error(`[Stripe Webhook] Bundle ${bundle.name} (${activeBundle.bundleId}) has no pricing configured in currency ${activeBundle.currencyCode || currency} - skipping renewal charge`);
+                              console.error(`[Stripe Webhook] Bundle ${bundle.name} (${activeBundle.bundleId}) has no pricing configured in currency ${bundleCurrency} - skipping renewal charge (legacy)`);
                               continue;
                             }
                           }
-                          
-                          if (bundlePrice > 0) {
-                            try {
-                              await stripe.invoiceItems.create({
-                                customer: org.stripeCustomerId,
-                                amount: bundlePrice, // Full cycle price in minor units
-                                currency: currency.toLowerCase(),
-                                description: `${bundle.name} Bundle (${instanceSub.billingCycle} billing)${pricingChanged ? ' [Price locked at purchase]' : ''}`,
-                                metadata: {
-                                  organizationId: dbSubscription.organizationId,
+                        
+                        if (bundlePrice > 0) {
+                          try {
+                            await stripe.invoiceItems.create({
+                              customer: org.stripeCustomerId,
+                              amount: bundlePrice, // Full cycle price in minor units
+                              currency: currency.toLowerCase(),
+                              description: `${bundle.name} Bundle (${instanceSub.billingCycle} billing)${pricingChanged ? ' [Price updated on renewal]' : ''}`,
+                              metadata: {
+                                organizationId: dbSubscription.organizationId,
                                   bundleId: activeBundle.bundleId,
                                   bundleName: bundle.name,
                                   type: "bundle_renewal",
@@ -19886,12 +20973,12 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                         console.error(`[Stripe Webhook] Error adding bundle charges for renewal (legacy):`, bundleBillingError);
                         // Don't fail renewal if bundle billing fails
                       }
-                    }
                   }
-                } catch (moduleBillingError: any) {
-                  console.error(`[Stripe Webhook] Error adding module charges for renewal (legacy):`, moduleBillingError);
-                  // Don't fail renewal if module billing fails
                 }
+              } catch (moduleBillingError: any) {
+                console.error(`[Stripe Webhook] Error adding module charges for renewal (legacy):`, moduleBillingError);
+                // Don't fail renewal if module billing fails
+              }
 
               console.log(`[Stripe Webhook] New billing cycle for org ${dbSubscription.organizationId}, granted ${quotaToGrant} credits`);
             }
@@ -19915,68 +21002,119 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
               break;
             }
 
-            console.log(`[Stripe Webhook] Payment failed for org ${organizationId}, deactivating subscription and modules`);
-
-            // Handle legacy subscription if exists
-            const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
-            if (dbSubscription) {
-              await storage.updateSubscription(dbSubscription.id, {
-                status: "inactive" as any,
-              });
-            }
-
             // Handle tier-based subscription (instanceSubscriptions)
             const instanceSub = await storage.getInstanceSubscription(organizationId);
-
-            // Send payment failed notification
-            try {
-              const org = await storage.getOrganization(organizationId);
-              const currency = instanceSub?.registrationCurrency || org?.preferredCurrency || "GBP";
-              const amount = invoice.amount_due || 0;
-              const retryDate = invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : undefined;
-              
-              const { notificationService } = await import("./notificationService");
-              await notificationService.sendPaymentFailedAlert(organizationId, amount, currency, retryDate);
-            } catch (notifError) {
-              console.error(`[Stripe Webhook] Failed to send payment failed notification:`, notifError);
-            }
+            
             if (instanceSub) {
-              // 1. Update instance subscription status to inactive
-              await storage.updateInstanceSubscription(instanceSub.id, {
-                subscriptionStatus: "inactive" as any,
-              });
-
-              // 2. Deactivate all enabled modules
-              const instanceModules = await storage.getInstanceModules(instanceSub.id);
-              const enabledModules = instanceModules.filter(m => m.isEnabled);
+              const now = new Date();
+              const GRACE_PERIOD_DAYS = 3;
               
-              for (const module of enabledModules) {
-                await storage.toggleInstanceModule(instanceSub.id, module.moduleId, false);
-                console.log(`[Stripe Webhook] Deactivated module ${module.moduleId} for org ${organizationId}`);
-              }
-
-              // 3. Expire all credit batches (zero out credits)
-              const { subscriptionService: subService } = await import("./subscriptionService");
-              const allBatches = await storage.getCreditBatchesByOrganization(organizationId);
-              const activeBatches = allBatches.filter(b => b.remainingQuantity > 0);
+              // Check if this is the first payment failure or if grace period has expired
+              const firstFailureDate = instanceSub.firstPaymentFailureDate;
+              const isFirstFailure = !firstFailureDate;
               
-              for (const batch of activeBatches) {
-                await storage.expireCreditBatch(batch.id);
-                await storage.createCreditLedgerEntry({
-                  organizationId,
-                  source: "expiry" as any,
-                  quantity: -batch.remainingQuantity,
-                  batchId: batch.id,
-                  notes: `Expired ${batch.remainingQuantity} credits due to payment failure`
+              if (isFirstFailure) {
+                // First payment failure - set the failure date and enter grace period
+                console.log(`[Stripe Webhook] First payment failure for org ${organizationId} - entering ${GRACE_PERIOD_DAYS}-day grace period`);
+                
+                await storage.updateInstanceSubscription(instanceSub.id, {
+                  firstPaymentFailureDate: now,
                 });
+                
+                // Send payment failed notification
+                try {
+                  const org = await storage.getOrganization(organizationId);
+                  const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+                  const amount = invoice.amount_due || 0;
+                  const retryDate = invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : undefined;
+                  const gracePeriodEndDate = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+                  
+                  const { notificationService } = await import("./notificationService");
+                  await notificationService.sendPaymentFailedAlert(organizationId, amount, currency, retryDate);
+                  
+                  console.log(`[Stripe Webhook] Grace period started for org ${organizationId}. Deactivation will occur on ${gracePeriodEndDate.toISOString()} if payment is not successful.`);
+                } catch (notifError) {
+                  console.error(`[Stripe Webhook] Failed to send payment failed notification:`, notifError);
+                }
+                
+                // During grace period: Keep subscription active, modules enabled, credits available
+                console.log(`[Stripe Webhook] Grace period active for org ${organizationId} - subscription, modules, and credits remain active`);
+              } else {
+                // Check if grace period has expired
+                const gracePeriodEndDate = new Date(firstFailureDate.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+                const gracePeriodExpired = now >= gracePeriodEndDate;
+                
+                if (gracePeriodExpired) {
+                  // Grace period expired - deactivate everything
+                  console.log(`[Stripe Webhook] Grace period expired for org ${organizationId} (failed on ${firstFailureDate.toISOString()}, grace period ended on ${gracePeriodEndDate.toISOString()}) - deactivating subscription and modules`);
+                  
+                  // Handle legacy subscription if exists
+                  const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
+                  if (dbSubscription) {
+                    await storage.updateSubscription(dbSubscription.id, {
+                      status: "inactive" as any,
+                    });
+                  }
+
+                  // 1. Update instance subscription status to inactive
+                  await storage.updateInstanceSubscription(instanceSub.id, {
+                    subscriptionStatus: "inactive" as any,
+                  });
+
+                  // 2. Deactivate all enabled modules
+                  const instanceModules = await storage.getInstanceModules(instanceSub.id);
+                  const enabledModules = instanceModules.filter(m => m.isEnabled);
+                  
+                  for (const module of enabledModules) {
+                    await storage.toggleInstanceModule(instanceSub.id, module.moduleId, false);
+                    console.log(`[Stripe Webhook] Deactivated module ${module.moduleId} for org ${organizationId} (grace period expired)`);
+                  }
+
+                  // 3. Expire all credit batches (zero out credits)
+                  const { subscriptionService: subService } = await import("./subscriptionService");
+                  const allBatches = await storage.getCreditBatchesByOrganization(organizationId);
+                  const activeBatches = allBatches.filter(b => b.remainingQuantity > 0);
+                  
+                  for (const batch of activeBatches) {
+                    await storage.expireCreditBatch(batch.id);
+                    await storage.createCreditLedgerEntry({
+                      organizationId,
+                      source: "expiry" as any,
+                      quantity: -batch.remainingQuantity,
+                      batchId: batch.id,
+                      notes: `Expired ${batch.remainingQuantity} credits due to payment failure (grace period expired)`
+                    });
+                  }
+
+                  console.log(`[Stripe Webhook] Payment failure handled after grace period: subscription inactive, ${enabledModules.length} modules deactivated, ${activeBatches.length} credit batches expired for org ${organizationId}`);
+                } else {
+                  // Still in grace period - log but don't deactivate
+                  const daysRemaining = Math.ceil((gracePeriodEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                  console.log(`[Stripe Webhook] Payment failed again for org ${organizationId}, but still in grace period (${daysRemaining} day(s) remaining). Subscription, modules, and credits remain active.`);
+                  
+                  // Send payment failed notification (reminder)
+                  try {
+                    const org = await storage.getOrganization(organizationId);
+                    const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+                    const amount = invoice.amount_due || 0;
+                    const retryDate = invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : undefined;
+                    
+                    const { notificationService } = await import("./notificationService");
+                    await notificationService.sendPaymentFailedAlert(organizationId, amount, currency, retryDate);
+                  } catch (notifError) {
+                    console.error(`[Stripe Webhook] Failed to send payment failed notification:`, notifError);
+                  }
+                }
               }
-
-              // 4. Credits are already handled by expiring batches above
-              // No need to update legacy creditsRemaining field as it's removed
-
-              console.log(`[Stripe Webhook] Payment failure handled: subscription inactive, ${enabledModules.length} modules deactivated, ${activeBatches.length} credit batches expired for org ${organizationId}`);
             } else {
-              console.warn(`[Stripe Webhook] Instance subscription not found for org ${organizationId}`);
+              // No instance subscription - handle legacy subscription
+              const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
+              if (dbSubscription) {
+                await storage.updateSubscription(dbSubscription.id, {
+                  status: "inactive" as any,
+                });
+                console.log(`[Stripe Webhook] Legacy subscription payment failed for org ${dbSubscription.organizationId} - status set to inactive`);
+              }
             }
           }
           break;
@@ -19998,6 +21136,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
             const now = new Date();
             const defaultPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+            // IMPORTANT: Check if subscription is cancelled
+            const isCancelled = subscription.cancel_at_period_end || 
+                               subscription.status === "canceled" ||
+                               subscription.status === "incomplete_expired";
 
             // Update subscription status and period
             await storage.updateSubscription(dbSubscription.id, {
@@ -21376,13 +22519,158 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(403).json({ message: "Access denied" });
       }
       const { bundleId, moduleId } = req.params;
+      
+      // IMPORTANT: Handle graceful removal of module from bundle
+      // Check if there are active instance bundles using this bundle
+      const { instanceBundles: instanceBundlesTable, instanceModules: instanceModulesTable } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      const { pricingService } = await import("./pricingService");
+      
+      // Get all active instance bundles for this bundle
+      const activeInstanceBundles = await db.select()
+        .from(instanceBundlesTable)
+        .where(and(
+          eq(instanceBundlesTable.bundleId, bundleId),
+          eq(instanceBundlesTable.isActive, true)
+        ));
+      
+      // Get bundle modules BEFORE removal to handle gracefully
+      const bundleModulesBeforeRemoval = await storage.getBundleModules(bundleId);
+      const willBeEmpty = bundleModulesBeforeRemoval.length === 1; // Only this module remains
+      
+      // Remove module from bundle configuration
       const { bundleModulesJunction } = await import("@shared/schema");
       await db.delete(bundleModulesJunction)
         .where(and(
           eq(bundleModulesJunction.bundleId, bundleId),
           eq(bundleModulesJunction.moduleId, moduleId)
         ));
-      res.json({ success: true });
+      
+      // Handle active instance bundles gracefully
+      if (activeInstanceBundles.length > 0) {
+        console.log(`[Bundle Module Removal] Found ${activeInstanceBundles.length} active instance bundles for bundle ${bundleId}. Handling module removal gracefully.`);
+        
+        if (willBeEmpty) {
+          // Bundle will be empty - deactivate all instance bundles
+          console.log(`[Bundle Module Removal] Bundle ${bundleId} will be empty after module removal. Deactivating all ${activeInstanceBundles.length} active instance bundles.`);
+          
+          for (const instanceBundle of activeInstanceBundles) {
+            // Get instance subscription by ID
+            const { instanceSubscriptions } = await import("@shared/schema");
+            const instanceSubs = await db.select()
+              .from(instanceSubscriptions)
+              .where(eq(instanceSubscriptions.id, instanceBundle.instanceId))
+              .limit(1);
+            const instanceSub = instanceSubs[0];
+            if (!instanceSub) continue;
+            
+            // Get organization for currency
+            const org = await storage.getOrganization(instanceSub.organizationId);
+            const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+            
+            // Get all modules that were in the bundle (before removal)
+            const allBundleModules = bundleModulesBeforeRemoval;
+            
+            // Deactivate the instance bundle
+            await db.update(instanceBundlesTable)
+              .set({
+                isActive: false,
+                endDate: new Date()
+              })
+              .where(eq(instanceBundlesTable.id, instanceBundle.id));
+            
+            // Revert all bundle modules to individual pricing
+            for (const bm of allBundleModules) {
+              const instanceModules = await storage.getInstanceModules(instanceSub.id);
+              const instanceModule = instanceModules.find(im => im.moduleId === bm.moduleId);
+              
+              if (instanceModule && instanceModule.isEnabled) {
+                // Get individual module pricing
+                const modulePricing = await storage.getModulePricing(bm.moduleId, currency);
+                
+                if (modulePricing) {
+                  // Check if module is covered by another active bundle
+                  const isInOtherBundle = await pricingService.isModuleInActiveBundle(instanceSub.id, bm.moduleId);
+                  
+                  if (!isInOtherBundle) {
+                    // Revert to individual module pricing
+                    await db.update(instanceModulesTable)
+                      .set({
+                        monthlyPrice: modulePricing.priceMonthly,
+                        annualPrice: modulePricing.priceAnnual,
+                        currencyCode: currency,
+                        billingStartDate: new Date()
+                      })
+                      .where(eq(instanceModulesTable.id, instanceModule.id));
+                    
+                    console.log(`[Bundle Module Removal] Reverted module ${bm.moduleId} to individual pricing for org ${instanceSub.organizationId}`);
+                  }
+                }
+              }
+            }
+            
+            console.log(`[Bundle Module Removal] Deactivated instance bundle ${instanceBundle.id} for org ${instanceSub.organizationId} (bundle became empty)`);
+          }
+        } else {
+          // Bundle still has modules - handle the removed module individually
+          console.log(`[Bundle Module Removal] Bundle ${bundleId} still has modules. Handling removed module ${moduleId} individually.`);
+          
+          for (const instanceBundle of activeInstanceBundles) {
+            // Get instance subscription by ID
+            const { instanceSubscriptions } = await import("@shared/schema");
+            const instanceSubs = await db.select()
+              .from(instanceSubscriptions)
+              .where(eq(instanceSubscriptions.id, instanceBundle.instanceId))
+              .limit(1);
+            const instanceSub = instanceSubs[0];
+            if (!instanceSub) continue;
+            
+            // Get organization for currency
+            const org = await storage.getOrganization(instanceSub.organizationId);
+            const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+            
+            // Get instance modules
+            const instanceModules = await storage.getInstanceModules(instanceSub.id);
+            const instanceModule = instanceModules.find(im => im.moduleId === moduleId);
+            
+            if (instanceModule && instanceModule.isEnabled) {
+              // Check if module is covered by another active bundle
+              const isInOtherBundle = await pricingService.isModuleInActiveBundle(instanceSub.id, moduleId);
+              
+              if (!isInOtherBundle) {
+                // Get individual module pricing
+                const modulePricing = await storage.getModulePricing(moduleId, currency);
+                
+                if (modulePricing) {
+                  // Revert this specific module to individual pricing
+                  await db.update(instanceModulesTable)
+                    .set({
+                      monthlyPrice: modulePricing.priceMonthly,
+                      annualPrice: modulePricing.priceAnnual,
+                      currencyCode: currency,
+                      billingStartDate: new Date()
+                    })
+                    .where(eq(instanceModulesTable.id, instanceModule.id));
+                  
+                  console.log(`[Bundle Module Removal] Reverted module ${moduleId} to individual pricing for org ${instanceSub.organizationId} (removed from bundle but bundle still active)`);
+                }
+              } else {
+                console.log(`[Bundle Module Removal] Module ${moduleId} is covered by another bundle, keeping price at 0 for org ${instanceSub.organizationId}`);
+              }
+            }
+          }
+        }
+      }
+      
+      res.json({ 
+        success: true,
+        message: willBeEmpty 
+          ? `Module removed. Bundle is now empty and ${activeInstanceBundles.length} active instance bundle(s) have been deactivated.`
+          : `Module removed. ${activeInstanceBundles.length} active instance bundle(s) updated - removed module will be charged individually.`,
+        affectedInstances: activeInstanceBundles.length,
+        bundleEmpty: willBeEmpty
+      });
     } catch (error: any) {
       console.error("Error removing module from bundle:", error);
       res.status(500).json({ message: "Failed to remove module from bundle", error: error.message });
@@ -22248,17 +23536,117 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
       const stripe = await getUncachableStripeClient();
 
-      // Create checkout session for tier change
-      const checkoutSession = await stripe.checkout.sessions.create({
-        customer: org.stripeCustomerId,
-        payment_method_types: ["card"],
-        mode: "subscription",
-        line_items: [{
+      // Get active modules (excluding those in bundles) to include in checkout
+      const instanceModules = await storage.getInstanceModules(instanceSub.id);
+      const enabledModules = instanceModules.filter(m => m.isEnabled);
+      
+      // Get modules covered by bundles (these should not be charged separately)
+      const { pricingService } = await import("./pricingService");
+      const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
+      
+      // Filter out modules covered by bundles
+      const modulesToCharge = enabledModules.filter(im => !coveredModuleIds.has(im.moduleId));
+      
+      // Get module details and calculate prorated credits
+      const modules = await storage.getMarketplaceModules();
+      const { calculateProRataWithPriority } = await import("./proRataService");
+      
+      let totalModuleCost = 0;
+      let totalProratedCredit = 0;
+      const moduleLineItems: any[] = [];
+      const moduleCredits: Array<{ moduleId: string; moduleName: string; credit: number }> = [];
+      const moduleNames: string[] = [];
+      
+      for (const instanceModule of modulesToCharge) {
+        const module = modules.find(m => m.id === instanceModule.moduleId);
+        if (!module) continue;
+        
+        const modulePrice = targetBillingCycle === "annual" 
+          ? (instanceModule.annualPrice || 0)
+          : (instanceModule.monthlyPrice || 0);
+        
+        if (modulePrice > 0) {
+          
+          // Calculate prorated credit for already-paid portion
+          let moduleCredit = 0;
+          if (instanceSub.subscriptionRenewalDate) {
+            const proRataData = await calculateProRataWithPriority(
+              modulePrice,
+              user.organizationId,
+              instanceSub.billingCycle,
+              storage
+            );
+            
+            if (proRataData && proRataData.result.isProrated) {
+              moduleCredit = proRataData.result.proratedPrice;
+              totalProratedCredit += moduleCredit;
+              moduleCredits.push({
+                moduleId: instanceModule.moduleId,
+                moduleName: module.name,
+                credit: moduleCredit
+              });
+            }
+          }
+          
+          // Add module as line item with NET price (full price - prorated credit)
+          // This shows modules in checkout with credit already applied
+          const moduleNetPrice = Math.max(0, modulePrice - moduleCredit);
+          
+          moduleLineItems.push({
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: module.name,
+                description: `${module.name} module (${targetBillingCycle} billing)${moduleCredit > 0 ? ` - Prorated credit: ${currency} ${(moduleCredit / 100).toFixed(2)}` : ''}`
+              },
+              recurring: {
+                interval: targetBillingCycle === "annual" ? "year" : "month"
+              },
+              unit_amount: moduleNetPrice
+            },
+            quantity: 1
+          });
+          
+          totalModuleCost += modulePrice;
+          moduleNames.push(module.name);
+        }
+      }
+
+      // Build description to prominently show active modules and credits
+      let tierDescription = `${isUpgrade ? 'Upgrade' : isDowngrade ? 'Downgrade' : 'Change'} to ${newTier.name} (${targetBillingCycle})`;
+      
+      if (moduleNames.length > 0) {
+        tierDescription += `\n\n📦 Active Modules (included below with prorated credits applied):\n${moduleNames.map((name, idx) => `${idx + 1}. ${name}`).join("\n")}`;
+        
+        if (totalProratedCredit > 0) {
+          const creditAmount = (totalProratedCredit / 100).toFixed(2);
+          tierDescription += `\n\n💰 Total Prorated Credit Applied: ${currency} ${creditAmount}`;
+          tierDescription += `\n(Credits for already-paid module subscriptions are deducted from module prices below)`;
+          
+          // Show per-module credits
+          if (moduleCredits.length > 0) {
+            tierDescription += `\n\nCredit Breakdown:`;
+            moduleCredits.forEach(mc => {
+              tierDescription += `\n  • ${mc.moduleName}: ${currency} ${(mc.credit / 100).toFixed(2)}`;
+            });
+          }
+        }
+      }
+
+      // Note: Prorated credits are already applied in module line item prices (net price = full price - credit)
+      // No need to create separate invoice items - the reduced price is shown directly in checkout
+      if (totalProratedCredit > 0) {
+        console.log(`[Tier Change] Applied prorated credits totaling ${(totalProratedCredit / 100).toFixed(2)} ${currency} to module prices in checkout`);
+      }
+
+      // Build line items: tier + modules (with prorated credits already applied in module prices)
+      const lineItems: any[] = [
+        {
           price_data: {
             currency: currency.toLowerCase(),
             product_data: {
               name: newTier.name,
-              description: `${isUpgrade ? 'Upgrade' : isDowngrade ? 'Downgrade' : 'Change'} to ${newTier.name} (${targetBillingCycle})`
+              description: tierDescription
             },
             recurring: {
               interval: targetBillingCycle === "annual" ? "year" : "month"
@@ -22266,7 +23654,16 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             unit_amount: priceInMinorUnits
           },
           quantity: 1
-        }],
+        },
+        ...moduleLineItems // Add modules with net prices (prorated credits already deducted)
+      ];
+
+      // Create checkout session for tier change
+      const checkoutSession = await stripe.checkout.sessions.create({
+        customer: org.stripeCustomerId,
+        payment_method_types: ["card"],
+        mode: "subscription",
+        line_items: lineItems,
         metadata: {
           organizationId: user.organizationId,
           type: "tier_change",
@@ -22274,7 +23671,10 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           newTierId: newTier.id,
           isUpgrade: isUpgrade.toString(),
           isDowngrade: (isDowngrade || false).toString(),
-          billingCycle: targetBillingCycle
+          billingCycle: targetBillingCycle,
+          moduleCount: modulesToCharge.length.toString(),
+          moduleNames: moduleNames.join(","),
+          totalProratedCredit: totalProratedCredit.toString()
         },
         success_url: `${process.env.FRONTEND_URL || "http://localhost:5173"}/billing?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL || "http://localhost:5173"}/billing`
@@ -22298,11 +23698,21 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           currency,
           billingCycle: targetBillingCycle
         },
+        modules: moduleNames.length > 0 ? {
+          count: moduleNames.length,
+          names: moduleNames,
+          totalCost: totalModuleCost / 100,
+          proratedCredit: totalProratedCredit > 0 ? totalProratedCredit / 100 : 0,
+          moduleCredits: moduleCredits.map(mc => ({
+            moduleName: mc.moduleName,
+            credit: mc.credit / 100
+          }))
+        } : null,
         message: isUpgrade 
-          ? `Upgrading to ${newTier.name} will increase your monthly inspections from ${currentTier?.includedInspections || 0} to ${newTier.includedInspections}.`
+          ? `Upgrading to ${newTier.name} will increase your monthly inspections from ${currentTier?.includedInspections || 0} to ${newTier.includedInspections}.${moduleNames.length > 0 ? ` Active modules (${moduleNames.join(", ")}) will continue with prorated credit applied.` : ""}`
           : isDowngrade
-          ? `Downgrading to ${newTier.name} will reduce your monthly inspections from ${currentTier.includedInspections} to ${newTier.includedInspections}.`
-          : `Changing to ${newTier.name}.`
+          ? `Downgrading to ${newTier.name} will reduce your monthly inspections from ${currentTier.includedInspections} to ${newTier.includedInspections}.${moduleNames.length > 0 ? ` Active modules (${moduleNames.join(", ")}) will continue with prorated credit applied.` : ""}`
+          : `Changing to ${newTier.name}.${moduleNames.length > 0 ? ` Active modules (${moduleNames.join(", ")}) will continue with prorated credit applied.` : ""}`
       });
     } catch (error: any) {
       console.error("Error processing upgrade/downgrade:", error);
@@ -22311,6 +23721,320 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   });
 
   // Upgrade or downgrade subscription
+  // Helper function to handle tier-based plan changes with modules and proration
+  async function handleTierBasedPlanChange(
+    req: any,
+    res: any,
+    user: any,
+    org: any,
+    tierId: string,
+    billingInterval: string | undefined,
+    currency: string | undefined,
+    inspectionCount: number | undefined
+  ) {
+    try {
+      const organizationId = user.organizationId;
+      const billingPeriod = billingInterval || "monthly";
+      const orgCurrency = currency || org.preferredCurrency || "GBP";
+      
+      // Get the tier
+      const tiers = await storage.getSubscriptionTiers();
+      const selectedTier = tiers.find(t => t.id === tierId);
+      if (!selectedTier) {
+        return res.status(404).json({ message: "Tier not found" });
+      }
+
+      // Get current instance subscription
+      const instanceSub = await storage.getInstanceSubscription(organizationId);
+      if (!instanceSub) {
+        return res.status(404).json({ message: "No active subscription found" });
+      }
+
+      // Get current Stripe subscription
+      const stripe = await getUncachableStripeClient();
+      let stripeSubscription = null;
+      
+      if (org.stripeCustomerId) {
+        try {
+          const subscriptions = await stripe.subscriptions.list({
+            customer: org.stripeCustomerId,
+            status: "active",
+            limit: 100
+          });
+          
+          // Find subscription with matching tier or any active subscription
+          for (const sub of subscriptions.data) {
+            const subTierId = sub.metadata?.tierId;
+            if (subTierId === tierId || subscriptions.data.length === 1) {
+              stripeSubscription = sub;
+              break;
+            }
+          }
+          
+          // If no matching subscription found, use the first active one
+          if (!stripeSubscription && subscriptions.data.length > 0) {
+            stripeSubscription = subscriptions.data[0];
+          }
+        } catch (listError: any) {
+          console.error(`[Plan Change] Error listing subscriptions:`, listError.message);
+          return res.status(500).json({ message: "Failed to retrieve subscription" });
+        }
+      }
+
+      if (!stripeSubscription) {
+        return res.status(404).json({ message: "No active Stripe subscription found" });
+      }
+
+      // Calculate tier pricing
+      const { pricingService } = await import("./pricingService");
+      const totalInspections = Number(inspectionCount) || instanceSub.inspectionQuotaIncluded || selectedTier.includedInspections;
+      const pricingResult = await pricingService.calculatePricing(
+        totalInspections,
+        orgCurrency,
+        organizationId
+      );
+
+      const tierAmount = billingPeriod === "annual" 
+        ? pricingResult.calculations.baseAnnual 
+        : pricingResult.calculations.baseMonthly;
+
+      // Get active modules (excluding those in bundles) to include in plan change
+      const instanceModules = await storage.getInstanceModules(instanceSub.id);
+      const enabledModules = instanceModules.filter(m => m.isEnabled);
+      const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
+      const modulesToInclude = enabledModules.filter(im => !coveredModuleIds.has(im.moduleId));
+
+      // Get modules already in subscription
+      const modulesAlreadyInSubscription = new Set<string>();
+      const subscriptionModuleNames = stripeSubscription.metadata?.moduleNames;
+      if (subscriptionModuleNames) {
+        const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+        const modules = await storage.getMarketplaceModules();
+        for (const moduleName of moduleNameList) {
+          const matchedModule = modules.find(m => m.name === moduleName.trim());
+          if (matchedModule) {
+            modulesAlreadyInSubscription.add(matchedModule.id);
+          }
+        }
+      }
+
+      // Calculate module proration and create line items
+      const moduleLineItems: any[] = [];
+      let totalProratedCredit = 0;
+      const moduleNames: string[] = [];
+      const { calculateProRataWithPriority } = await import("./proRataService");
+      const allModules = await storage.getMarketplaceModules();
+
+      for (const instanceModule of modulesToInclude) {
+        const module = allModules.find(m => m.id === instanceModule.moduleId);
+        if (!module) continue;
+
+        const modulePrice = billingPeriod === "annual" 
+          ? (instanceModule.annualPrice || 0)
+          : (instanceModule.monthlyPrice || 0);
+        
+        if (modulePrice > 0) {
+          // Calculate prorated credit for already-paid portion
+          let moduleCredit = 0;
+          if (instanceSub.subscriptionRenewalDate) {
+            const proRataData = await calculateProRataWithPriority(
+              modulePrice,
+              organizationId,
+              billingPeriod as "monthly" | "annual",
+              storage
+            );
+            if (proRataData && proRataData.result.isProrated) {
+              moduleCredit = proRataData.result.proratedPrice;
+              totalProratedCredit += moduleCredit;
+            }
+          }
+          
+          const moduleNetPrice = Math.max(0, modulePrice - moduleCredit);
+          
+          if (moduleNetPrice > 0 || modulesAlreadyInSubscription.has(instanceModule.moduleId)) {
+            moduleLineItems.push({
+              price_data: {
+                currency: orgCurrency.toLowerCase(),
+                product_data: {
+                  name: module.name,
+                  description: `${module.name} module (${billingPeriod} billing)${moduleCredit > 0 ? ` - Prorated credit: ${orgCurrency} ${(moduleCredit / 100).toFixed(2)} applied` : ''}`
+                },
+                recurring: {
+                  interval: billingPeriod === "annual" ? "year" : "month"
+                },
+                unit_amount: moduleNetPrice
+              }
+            });
+            moduleNames.push(module.name);
+          }
+        }
+      }
+
+      // Build subscription update items
+      const updateItems: any[] = [];
+      
+      // Update tier item
+      const tierItem = stripeSubscription.items.data.find(item => {
+        const product = item.price?.product;
+        const productName = (typeof product === 'object' && product && 'name' in product) 
+          ? (product.name || '') 
+          : (item.price?.nickname || '');
+        return productName && (productName.includes('Plan') || productName.includes('Inspect360'));
+      });
+
+      if (tierItem) {
+        // Create new price for updated tier
+        const newTierPrice = await stripe.prices.create({
+          currency: orgCurrency.toLowerCase(),
+          product_data: {
+            name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+          },
+          recurring: {
+            interval: billingPeriod === "annual" ? "year" : "month",
+          },
+          unit_amount: tierAmount,
+        });
+        
+        updateItems.push({
+          id: tierItem.id,
+          price: newTierPrice.id,
+        });
+      }
+
+      // Add/update module items
+      for (const moduleItem of moduleLineItems) {
+        const existingModuleItem = stripeSubscription.items.data.find(item => {
+          const product = item.price?.product;
+          const productName = (typeof product === 'object' && product && 'name' in product) 
+            ? (product.name || '') 
+            : (item.price?.nickname || '');
+          const matchedModule = allModules.find(m => productName === m.name || productName.includes(m.name));
+          return matchedModule && modulesToInclude.some(im => im.moduleId === matchedModule.id);
+        });
+
+        const modulePrice = await stripe.prices.create({
+          currency: moduleItem.price_data.currency,
+          product_data: {
+            name: moduleItem.price_data.product_data.name,
+          },
+          recurring: moduleItem.price_data.recurring,
+          unit_amount: moduleItem.price_data.unit_amount,
+        });
+
+        if (existingModuleItem) {
+          updateItems.push({
+            id: existingModuleItem.id,
+            price: modulePrice.id,
+          });
+        } else {
+          updateItems.push({
+            price: modulePrice.id,
+          });
+        }
+      }
+
+      // Remove modules that are disabled but still in subscription
+      for (const item of stripeSubscription.items.data) {
+        const product = item.price?.product;
+        const productName = (typeof product === 'object' && product && 'name' in product) 
+          ? (product.name || '') 
+          : (item.price?.nickname || '');
+        
+        const isModuleItem = allModules.some(m => productName === m.name || productName.includes(m.name));
+        const isTierItem = productName && (productName.includes('Plan') || productName.includes('Inspect360'));
+
+        if (isModuleItem && !isTierItem) {
+          const matchedModule = allModules.find(m => productName === m.name || productName.includes(m.name));
+          const isModuleStillEnabled = matchedModule ? enabledModules.some(im => im.moduleId === matchedModule.id) : false;
+          const isModuleCoveredByBundle = matchedModule ? coveredModuleIds.has(matchedModule.id) : false;
+
+          if (!isModuleStillEnabled || isModuleCoveredByBundle) {
+            updateItems.push({ id: item.id, deleted: true });
+          }
+        }
+      }
+
+      // Update Stripe subscription
+      await stripe.subscriptions.update(stripeSubscription.id, {
+        items: updateItems,
+        proration_behavior: "always_invoice",
+        metadata: {
+          ...stripeSubscription.metadata,
+          organizationId: organizationId,
+          tierId: selectedTier.id,
+          planCode: selectedTier.code,
+          billingPeriod: billingPeriod,
+          currency: orgCurrency,
+          requestedInspections: totalInspections.toString(),
+          type: "tier_subscription",
+          moduleCount: modulesToInclude.length.toString(),
+          moduleNames: moduleNames.join(","),
+          totalProratedCredit: totalProratedCredit.toString()
+        }
+      });
+
+      // Update instance subscription in database
+      await storage.updateInstanceSubscription(instanceSub.id, {
+        currentTierId: selectedTier.id,
+        inspectionQuotaIncluded: totalInspections,
+        billingCycle: billingPeriod as any,
+        registrationCurrency: orgCurrency as any,
+        subscriptionStatus: "active",
+      });
+
+      // Reset credits to new quota
+      const { subscriptionService: subService } = await import("./subscriptionService");
+      const existingBatches = await storage.getCreditBatchesByOrganization(organizationId);
+      const planBatches = existingBatches.filter(b => 
+        b.grantSource === 'plan_inclusion' && 
+        b.remainingQuantity > 0 &&
+        !b.rolled
+      );
+
+      if (planBatches.length > 0) {
+        console.log(`[Plan Change] Resetting ${planBatches.length} existing plan_inclusion batches for org ${organizationId}`);
+        for (const batch of planBatches) {
+          await storage.expireCreditBatch(batch.id);
+          await storage.createCreditLedgerEntry({
+            organizationId: organizationId,
+            source: "expiry" as any,
+            quantity: -batch.remainingQuantity,
+            batchId: batch.id,
+            notes: `Expired ${batch.remainingQuantity} credits due to plan change to ${selectedTier.code}`
+          });
+        }
+      }
+
+      // Grant new quota
+      const renewalDate = instanceSub.subscriptionRenewalDate || new Date(Date.now() + (billingPeriod === "annual" ? 365 : 30) * 24 * 60 * 60 * 1000);
+      await subService.grantCredits(
+        organizationId,
+        totalInspections,
+        "plan_inclusion",
+        renewalDate,
+        { adminNotes: `Plan changed to ${selectedTier.code} (${selectedTier.name})` }
+      );
+
+      console.log(`[Plan Change] Updated tier to ${selectedTier.name} with ${moduleNames.length} modules and granted ${totalInspections} credits to org ${organizationId}`);
+
+      return res.json({
+        success: true,
+        isUpgrade: totalInspections > (instanceSub.inspectionQuotaIncluded || 0),
+        newTier: {
+          id: selectedTier.id,
+          code: selectedTier.code,
+          name: selectedTier.name,
+          includedInspections: totalInspections,
+        },
+        modules: moduleNames,
+        proratedCredit: totalProratedCredit / 100,
+      });
+    } catch (error: any) {
+      console.error("Error in tier-based plan change:", error);
+      return res.status(500).json({ message: "Failed to change plan", error: error.message });
+    }
+  }
+
   app.post("/api/billing/change-plan", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -22323,11 +24047,12 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(403).json({ message: "Only organization owners can change plans" });
       }
 
-      const { newPlanCode, billingInterval, tierId, autoRecommend = false } = req.body;
+      const { newPlanCode, billingInterval, tierId, autoRecommend = false, currency, inspectionCount } = req.body;
       
-      // Support both legacy plan codes and new tier IDs
-      if (!newPlanCode && !tierId && !autoRecommend) {
-        return res.status(400).json({ message: "New plan code, tier ID, or autoRecommend is required" });
+      // PRIORITY: Tier-based subscriptions (tierId) take precedence over legacy plan codes
+      // Support both for backward compatibility, but prioritize tierId
+      if (!tierId && !newPlanCode && !autoRecommend) {
+        return res.status(400).json({ message: "Tier ID, plan code, or autoRecommend is required" });
       }
 
       const org = await storage.getOrganization(user.organizationId);
@@ -22335,6 +24060,23 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(404).json({ message: "Organization not found" });
       }
 
+      // PRIORITY 1: Handle tier-based subscription change (preferred method)
+      if (tierId) {
+        return await handleTierBasedPlanChange(req, res, user, org, tierId, billingInterval, currency, inspectionCount);
+      }
+
+      // PRIORITY 2: Handle auto-recommendation
+      if (autoRecommend) {
+        // Get current usage and recommend tier
+        // For now, use the current tier (auto-recommendation can be enhanced later)
+        const instanceSub = await storage.getInstanceSubscription(user.organizationId);
+        if (instanceSub?.currentTierId) {
+          return await handleTierBasedPlanChange(req, res, user, org, instanceSub.currentTierId, billingInterval, currency, inspectionCount);
+        }
+        return res.status(400).json({ message: "Could not determine current tier for recommendation" });
+      }
+
+      // PRIORITY 3: Legacy plan code support (for backward compatibility)
       const subscription = await storage.getSubscriptionByOrganization(user.organizationId);
       if (!subscription?.stripeSubscriptionId) {
         return res.status(400).json({ message: "No active Stripe subscription to change" });
@@ -22353,14 +24095,43 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       const stripe = await getUncachableStripeClient();
       const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
 
+      // IMPORTANT: Cancel all other active Stripe subscriptions for this organization
+      // This ensures only the latest plan is renewed, preventing double billing
+      if (org.stripeCustomerId) {
+        try {
+          const allSubscriptions = await stripe.subscriptions.list({
+            customer: org.stripeCustomerId,
+            status: "active",
+            limit: 100
+          });
+
+          // Cancel all subscriptions except the one we're updating
+          for (const sub of allSubscriptions.data) {
+            if (sub.id !== subscription.stripeSubscriptionId && sub.status === "active") {
+              console.log(`[Plan Change] Cancelling old subscription ${sub.id} for org ${user.organizationId} (keeping ${subscription.stripeSubscriptionId})`);
+              try {
+                await stripe.subscriptions.cancel(sub.id);
+                console.log(`[Plan Change] Successfully cancelled old subscription ${sub.id}`);
+              } catch (cancelError: any) {
+                console.error(`[Plan Change] Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                // Continue with plan change even if cancellation fails
+              }
+            }
+          }
+        } catch (listError: any) {
+          console.error(`[Plan Change] Error listing subscriptions:`, listError.message);
+          // Continue with plan change even if listing fails
+        }
+      }
+
       // Determine pricing based on currency and interval
-      const currency = org.preferredCurrency || "GBP";
+      const orgCurrency = org.preferredCurrency || "GBP";
       const isAnnual = billingInterval === "annual";
 
       let unitAmount: number;
-      if (currency === "USD") {
+      if (orgCurrency === "USD") {
         unitAmount = isAnnual ? (newPlan.annualPriceUsd || newPlan.monthlyPriceUsd! * 12) : newPlan.monthlyPriceUsd!;
-      } else if (currency === "AED") {
+      } else if (orgCurrency === "AED") {
         unitAmount = isAnnual ? (newPlan.annualPriceAed || newPlan.monthlyPriceAed! * 12) : newPlan.monthlyPriceAed!;
       } else {
         unitAmount = isAnnual ? (newPlan.annualPriceGbp || newPlan.monthlyPriceGbp * 12) : newPlan.monthlyPriceGbp;
@@ -22375,11 +24146,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       // Create a Stripe Price first (required for subscription updates)
       // First create or get the product
       const product = await stripe.products.create({
-        name: newPlan.name,
+              name: newPlan.name,
       });
       
       const stripePrice = await stripe.prices.create({
-        currency: currency.toLowerCase(),
+        currency: orgCurrency.toLowerCase(),
         product: product.id,
             recurring: {
               interval: isAnnual ? "year" : "month",
@@ -22387,14 +24158,156 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             unit_amount: unitAmount,
       });
 
-      // Update the subscription with proration using the created price
-      await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-        items: [{
-          id: subscriptionItemId,
-          price: stripePrice.id,
-        }],
-        proration_behavior: isUpgrade ? "create_prorations" : "none",
-      });
+      // IMPORTANT: Handle modules in legacy plan change
+      // Get active modules (excluding those in bundles) to include in plan change
+      const instanceSub = await storage.getInstanceSubscription(user.organizationId);
+      const updateItems: any[] = [{
+        id: subscriptionItemId,
+        price: stripePrice.id,
+      }];
+
+      if (instanceSub) {
+        const instanceModules = await storage.getInstanceModules(instanceSub.id);
+        const enabledModules = instanceModules.filter(m => m.isEnabled);
+        const { pricingService } = await import("./pricingService");
+        const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
+        const modulesToInclude = enabledModules.filter(im => !coveredModuleIds.has(im.moduleId));
+
+        // Get modules already in subscription
+        const modulesAlreadyInSubscription = new Set<string>();
+        const subscriptionModuleNames = stripeSubscription.metadata?.moduleNames;
+        if (subscriptionModuleNames) {
+          const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
+          const allModules = await storage.getMarketplaceModules();
+          for (const moduleName of moduleNameList) {
+            const matchedModule = allModules.find(m => m.name === moduleName.trim());
+            if (matchedModule) {
+              modulesAlreadyInSubscription.add(matchedModule.id);
+            }
+          }
+        }
+
+        // Calculate module proration and create line items
+        const { calculateProRataWithPriority } = await import("./proRataService");
+        const allModules = await storage.getMarketplaceModules();
+        const moduleNames: string[] = [];
+
+        for (const instanceModule of modulesToInclude) {
+          const module = allModules.find(m => m.id === instanceModule.moduleId);
+          if (!module) continue;
+
+          const modulePrice = isAnnual 
+            ? (instanceModule.annualPrice || 0)
+            : (instanceModule.monthlyPrice || 0);
+          
+          if (modulePrice > 0) {
+            // Calculate prorated credit for already-paid portion
+            let moduleCredit = 0;
+            if (instanceSub.subscriptionRenewalDate) {
+              const proRataData = await calculateProRataWithPriority(
+                modulePrice,
+                user.organizationId,
+                isAnnual ? "annual" : "monthly",
+                storage
+              );
+              if (proRataData && proRataData.result.isProrated) {
+                moduleCredit = proRataData.result.proratedPrice;
+              }
+            }
+            
+            const moduleNetPrice = Math.max(0, modulePrice - moduleCredit);
+            
+            // Check if module is already in subscription
+            const existingModuleItem = stripeSubscription.items.data.find(item => {
+              const product = item.price?.product;
+              const productName = (typeof product === 'object' && product && 'name' in product) 
+                ? (product.name || '') 
+                : (item.price?.nickname || '');
+              return productName === module.name || productName.includes(module.name);
+            });
+
+            if (existingModuleItem) {
+              // Update existing module item
+              const moduleStripePrice = await stripe.prices.create({
+                currency: orgCurrency.toLowerCase(),
+                product_data: {
+                  name: module.name,
+                },
+                recurring: {
+                  interval: isAnnual ? "year" : "month"
+                },
+                unit_amount: moduleNetPrice
+              });
+              
+              updateItems.push({
+                id: existingModuleItem.id,
+                price: moduleStripePrice.id,
+              });
+            } else if (moduleNetPrice > 0) {
+              // Add new module item
+              const moduleStripePrice = await stripe.prices.create({
+                currency: orgCurrency.toLowerCase(),
+                product_data: {
+                  name: module.name,
+                },
+                recurring: {
+                  interval: isAnnual ? "year" : "month"
+                },
+                unit_amount: moduleNetPrice
+              });
+              
+              updateItems.push({
+                price: moduleStripePrice.id,
+              });
+            }
+            
+            if (moduleNetPrice > 0 || modulesAlreadyInSubscription.has(instanceModule.moduleId)) {
+              moduleNames.push(module.name);
+            }
+          }
+        }
+
+        // Remove modules that are disabled but still in subscription
+        for (const item of stripeSubscription.items.data) {
+          const product = item.price?.product;
+          const productName = (typeof product === 'object' && product && 'name' in product) 
+            ? (product.name || '') 
+            : (item.price?.nickname || '');
+          
+          // Skip the main tier subscription item
+          if (item.id === subscriptionItemId) {
+            continue;
+          }
+          
+          const isModuleItem = allModules.some(m => productName === m.name || productName.includes(m.name));
+          if (isModuleItem) {
+            const matchedModule = allModules.find(m => productName === m.name || productName.includes(m.name));
+            const isModuleStillEnabled = matchedModule ? enabledModules.some(im => im.moduleId === matchedModule.id) : false;
+            const isModuleCoveredByBundle = matchedModule ? coveredModuleIds.has(matchedModule.id) : false;
+
+            if (!isModuleStillEnabled || isModuleCoveredByBundle) {
+              updateItems.push({ id: item.id, deleted: true });
+            }
+          }
+        }
+
+        // Update subscription metadata with module information
+        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+          items: updateItems,
+          proration_behavior: isUpgrade ? "create_prorations" : "none",
+          metadata: {
+            ...stripeSubscription.metadata,
+            moduleCount: moduleNames.length.toString(),
+            moduleNames: moduleNames.join(","),
+          }
+        });
+      } else {
+        // No instance subscription, just update tier
+        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+          items: updateItems,
+          proration_behavior: isUpgrade ? "create_prorations" : "none",
+        });
+      }
 
       // Update subscription in database
       await storage.updateSubscription(subscription.id, {
@@ -22406,7 +24319,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           annualPrice: newPlan.annualPriceGbp || undefined,
           includedCredits: newPlan.includedCredits,
           includedInspections: newPlan.includedInspections || newPlan.includedCredits,
-          currency,
+          currency: orgCurrency,
         },
         billingInterval: isAnnual ? "annual" : "monthly",
       } as any);
@@ -22419,8 +24332,9 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       });
 
       // Handle tier-based subscriptions: update instanceSubscriptions and reset credits
-      const instanceSub = await storage.getInstanceSubscription(user.organizationId);
-      if (instanceSub) {
+      // Reuse instanceSub from module handling above, or get it if not already retrieved
+      const instanceSubForTier = instanceSub || await storage.getInstanceSubscription(user.organizationId);
+      if (instanceSubForTier) {
         // Find tier by plan code
         const tiers = await storage.getSubscriptionTiers();
         const newTier = tiers.find(t => t.code === newPlanCode);
@@ -22429,7 +24343,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           const newQuota = newPlan.includedInspections || newPlan.includedCredits;
           
           // Update instance subscription
-          await storage.updateInstanceSubscription(instanceSub.id, {
+          await storage.updateInstanceSubscription(instanceSubForTier.id, {
             currentTierId: newTier.id,
             inspectionQuotaIncluded: newQuota,
             billingCycle: isAnnual ? "annual" : "monthly" as any,
@@ -22459,7 +24373,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           }
 
           // Grant new quota
-          const renewalDate = instanceSub.subscriptionRenewalDate || new Date(Date.now() + (isAnnual ? 365 : 30) * 24 * 60 * 60 * 1000);
+          const renewalDate = instanceSubForTier.subscriptionRenewalDate || new Date(Date.now() + (isAnnual ? 365 : 30) * 24 * 60 * 60 * 1000);
           await subService.grantCredits(
             user.organizationId,
             newQuota,

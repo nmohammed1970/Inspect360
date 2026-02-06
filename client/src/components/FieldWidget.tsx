@@ -1326,35 +1326,35 @@ export function FieldWidget({
       case "auto_inspector":
         const inspectorValue = localValue || autoContext?.inspectorName || "";
         return (
-          <Input
-            value={inspectorValue}
-            readOnly
-            className="bg-muted cursor-not-allowed"
-            data-testid={`input-auto-inspector-${field.id}`}
-          />
+            <Input
+              value={inspectorValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              data-testid={`input-auto-inspector-${field.id}`}
+            />
         );
 
       case "auto_address":
         const addressValue = localValue || autoContext?.address || "";
         return (
-          <Input
-            value={addressValue}
-            readOnly
-            className="bg-muted cursor-not-allowed"
-            data-testid={`input-auto-address-${field.id}`}
-          />
+            <Input
+              value={addressValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              data-testid={`input-auto-address-${field.id}`}
+            />
         );
 
       case "auto_tenant_names":
         const tenantValue = localValue || autoContext?.tenantNames || "";
         return (
-          <Input
-            value={tenantValue}
-            readOnly
-            className="bg-muted cursor-not-allowed"
-            placeholder="No tenant assigned"
-            data-testid={`input-auto-tenant-${field.id}`}
-          />
+            <Input
+              value={tenantValue}
+              readOnly
+              className="bg-muted cursor-not-allowed"
+              placeholder="No tenant assigned"
+              data-testid={`input-auto-tenant-${field.id}`}
+            />
         );
 
       case "auto_inspection_date":

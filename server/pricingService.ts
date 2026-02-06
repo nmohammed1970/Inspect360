@@ -510,7 +510,7 @@ export class PricingService {
         // 2. Check if part of active bundle (bundle price takes precedence)
         const isInBundle = await this.isModuleInActiveBundle(instanceSub.id, moduleId);
         if (isInBundle) {
-            return 0; // Module cost covered by bundle
+                return 0; // Module cost covered by bundle
         }
 
         // 3. Fall back to standard module pricing

@@ -2678,6 +2678,7 @@ export const instanceSubscriptions = pgTable("instance_subscriptions", {
   subscriptionStartDate: timestamp("subscription_start_date").defaultNow(),
   subscriptionRenewalDate: timestamp("subscription_renewal_date"),
   subscriptionStatus: varchar("subscription_status", { length: 20 }).default("active"),
+  firstPaymentFailureDate: timestamp("first_payment_failure_date"), // Track first payment failure for grace period
   // Pricing overrides
   overrideMonthlyFee: integer("override_monthly_fee"),
   overrideAnnualFee: integer("override_annual_fee"),
