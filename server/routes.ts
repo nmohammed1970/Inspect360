@@ -1793,6 +1793,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage
         );
         
+      // Get tier subscription renewal date to align module billing cycle
+      let tierRenewalDate: Date | null = null;
+      if (instanceSub?.subscriptionRenewalDate && instanceSub?.billingCycle === billingCycle) {
+        tierRenewalDate = typeof instanceSub.subscriptionRenewalDate === 'string' 
+          ? new Date(instanceSub.subscriptionRenewalDate)
+          : instanceSub.subscriptionRenewalDate;
+      } else {
+        // Fallback to legacy subscription
+        const legacySub = await storage.getSubscriptionByOrganization(organizationId);
+        if (legacySub?.currentPeriodEnd && legacySub.billingInterval === billingCycle) {
+          tierRenewalDate = typeof legacySub.currentPeriodEnd === 'string'
+            ? new Date(legacySub.currentPeriodEnd)
+            : legacySub.currentPeriodEnd;
+        }
+      }
+        
       if (proRataData && proRataData.result.isProrated) {
         proRataResult = proRataData.result;
           finalPrice = proRataResult.proratedPrice;
@@ -1840,7 +1856,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fullPrice: fullPrice.toString(),
           proratedPrice: finalPrice.toString(),
           isProrated: isProrated.toString(),
-          remainingDays: proRataResult?.remainingDays?.toString() || "0"
+          remainingDays: proRataResult?.remainingDays?.toString() || "0",
+          tierRenewalDate: tierRenewalDate ? tierRenewalDate.toISOString() : ""
         },
       });
 
@@ -18668,7 +18685,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
       // Handle module purchase processing
       if (session.metadata?.type === "module_purchase") {
-        const { moduleId, isProrated, fullPrice, proratedPrice, remainingDays } = session.metadata;
+        const { moduleId, isProrated, fullPrice, proratedPrice, remainingDays, billingCycle } = session.metadata;
         console.log(`[Process Session] Processing module purchase for org ${user.organizationId}: ${moduleId}`);
 
         const instanceSub = await storage.getInstanceSubscription(user.organizationId);
@@ -18708,24 +18725,63 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             }
           });
           
-          // CRITICAL: Update subscription metadata from checkout session metadata
+          // CRITICAL: Update subscription metadata and align billing cycle with tier subscription
           // Stripe doesn't automatically transfer checkout session metadata to subscription metadata
           if (session.subscription) {
             try {
-              console.log(`[Process Session] Updating module subscription ${session.subscription} metadata from checkout session`);
+              console.log(`[Process Session] Updating module subscription ${session.subscription} metadata and aligning billing cycle`);
               const stripe = await getUncachableStripeClient();
-              await stripe.subscriptions.update(session.subscription as string, {
+              
+              // Get tier subscription renewal date from metadata or instance subscription
+              let tierRenewalDate: Date | null = null;
+              if (session.metadata?.tierRenewalDate) {
+                tierRenewalDate = new Date(session.metadata.tierRenewalDate);
+              } else {
+                // Fallback: get from instance subscription
+                if (instanceSub?.subscriptionRenewalDate && instanceSub?.billingCycle === billingCycle) {
+                  tierRenewalDate = typeof instanceSub.subscriptionRenewalDate === 'string'
+                    ? new Date(instanceSub.subscriptionRenewalDate)
+                    : instanceSub.subscriptionRenewalDate;
+                }
+              }
+              
+              // Prepare update data
+              const updateData: any = {
                 metadata: {
                   ...session.metadata,
                   // Ensure type and moduleId are set for identification
                   type: "module_purchase",
                   moduleId: moduleId,
                 }
-              });
-              console.log(`[Process Session] ✅ Successfully updated module subscription metadata`);
+              };
+              
+              // Try to align billing cycle anchor with tier subscription if renewal date is available
+              // Note: Stripe allows billing_cycle_anchor update only if it's within the next billing period
+              if (tierRenewalDate) {
+                const now = new Date();
+                const anchorTimestamp = Math.floor(tierRenewalDate.getTime() / 1000);
+                const nowTimestamp = Math.floor(now.getTime() / 1000);
+                const daysUntilRenewal = Math.ceil((tierRenewalDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                
+                // Stripe allows billing_cycle_anchor if it's:
+                // 1. In the future (after now)
+                // 2. Within the next billing period (for monthly: within 30 days, for annual: within 365 days)
+                const maxDays = billingCycle === "annual" ? 365 : 30;
+                
+                if (anchorTimestamp > nowTimestamp && daysUntilRenewal <= maxDays) {
+                  updateData.billing_cycle_anchor = anchorTimestamp;
+                  console.log(`[Process Session] Aligning module subscription billing cycle with tier subscription renewal date: ${tierRenewalDate.toISOString()} (${daysUntilRenewal} days away)`);
+                } else {
+                  console.log(`[Process Session] Tier renewal date ${tierRenewalDate.toISOString()} (${daysUntilRenewal} days away) is outside allowed range for billing_cycle_anchor, skipping alignment`);
+                  console.log(`[Process Session] Module subscription will renew on its natural date, but proration was calculated correctly`);
+                }
+              }
+              
+              await stripe.subscriptions.update(session.subscription as string, updateData);
+              console.log(`[Process Session] ✅ Successfully updated module subscription metadata and billing cycle`);
             } catch (metadataError: any) {
-              console.error(`[Process Session] ⚠️  Failed to update module subscription metadata:`, metadataError.message);
-              // Continue even if metadata update fails
+              console.error(`[Process Session] ⚠️  Failed to update module subscription:`, metadataError.message);
+              // Continue even if update fails - proration was already charged correctly
             }
           }
           
