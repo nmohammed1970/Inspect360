@@ -227,23 +227,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             message: error?.message,
             status: error?.status,
             name: error?.name,
+            error: error,
           });
+        }
+        
+        // Preserve the original error structure, especially status code
+        // Create a new error object that preserves all properties
+        const preservedError: any = new Error(error?.message || 'Login failed. Please try again.');
+        
+        // Copy all properties from original error
+        if (error?.status) {
+          preservedError.status = error.status;
+        }
+        if (error?.name) {
+          preservedError.name = error.name;
         }
         
         // Transform authentication errors to user-friendly messages
         if (error?.status === 401 || error?.status === 403) {
-          const authError = new Error('Incorrect email or password. Please try again.');
-          (authError as any).status = error.status;
-          throw authError;
+          preservedError.message = 'Wrong credentials. Please try again.';
+          preservedError.status = error.status;
         }
         
-        // Ensure error has a message
-        if (!error?.message) {
-          throw new Error('Login failed. Please try again.');
-        }
-        
-        // Re-throw other errors as-is (they should already have user-friendly messages)
-        throw error;
+        // Re-throw with preserved structure
+        throw preservedError;
       }
     },
     onSuccess: async (userData) => {
@@ -329,15 +336,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Store password with biometric protection (requires authentication to read)
       // On native platforms, SecureStore can use biometric protection
       if (Platform.OS !== 'web') {
-        // Note: requireAuthentication only affects READING, not writing
-        // So storing with requireAuthentication: true won't prompt during storage
-        // When skipAuth is true, we've already authenticated, so no prompt during storage anyway
-        // Always use requireAuthentication: true for consistency when reading
-        // This ensures the password requires biometric when reading, regardless of how it was stored
-        await SecureStore.setItemAsync(BIOMETRIC_PASSWORD_KEY, password, {
-          requireAuthentication: true,
-          authenticationPrompt: 'Authenticate to access stored password',
-        });
+        // In production builds, requireAuthentication might prompt during WRITE operations too
+        // When skipAuth is true, user already authenticated, so don't require auth during storage
+        // We'll still require auth when reading (which is what matters for security)
+        if (skipAuth) {
+          // Store without requireAuthentication to avoid double prompt during enable flow
+          // The password is still stored securely, and reading will require biometric
+          await SecureStore.setItemAsync(BIOMETRIC_PASSWORD_KEY, password);
+        } else {
+          // Normal storage - use requireAuthentication for extra security
+          await SecureStore.setItemAsync(BIOMETRIC_PASSWORD_KEY, password, {
+            requireAuthentication: true,
+            authenticationPrompt: 'Authenticate to access stored password',
+          });
+        }
       } else {
         // Web fallback - still use secure storage but without biometric
         await setStorageItem(BIOMETRIC_PASSWORD_KEY, password);

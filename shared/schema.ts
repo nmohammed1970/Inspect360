@@ -79,6 +79,7 @@ export const users = pgTable("users", {
   organizationId: varchar("organization_id"),
   isActive: boolean("is_active").notNull().default(true),
   onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
+  biometricEnabled: boolean("biometric_enabled").notNull().default(false),
   resetToken: varchar("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1642,6 +1643,7 @@ export const updateUserStatusSchema = z.object({
 });
 
 export const updateSelfProfileSchema = z.object({
+  biometricEnabled: z.boolean().optional(),
   firstName: z.string().min(1).max(255).optional(),
   lastName: z.string().min(1).max(255).optional(),
   phone: z.string().max(50).optional(),

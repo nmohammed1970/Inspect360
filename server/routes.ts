@@ -1291,16 +1291,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
 
+      // Log the incoming request for debugging
+      console.log('[PATCH /api/auth/profile] Request body:', JSON.stringify(req.body));
+      
       // Validate request body using the self-profile update schema
       const validation = updateSelfProfileSchema.safeParse(req.body);
       if (!validation.success) {
+        console.error('[PATCH /api/auth/profile] Validation failed:', validation.error.errors);
         return res.status(400).json({
           message: "Invalid request data",
           errors: validation.error.errors
         });
       }
 
+      console.log('[PATCH /api/auth/profile] Validated data:', JSON.stringify(validation.data));
+      console.log('[PATCH /api/auth/profile] Validated data keys:', Object.keys(validation.data));
+
       if (Object.keys(validation.data).length === 0) {
+        console.error('[PATCH /api/auth/profile] No valid fields after validation. Original body:', JSON.stringify(req.body));
         return res.status(400).json({ message: "No valid fields to update" });
       }
 
@@ -2529,7 +2537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Don't fail the module disable if Stripe update fails - module is still disabled in database
         }
       }
-      
+
       // Toggle module
       const updatedModule = await storage.toggleInstanceModule(instanceSub.id, moduleId, enable);
       
@@ -2923,12 +2931,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (modulePrice > 0) {
             // Calculate prorated credit for already-paid portion
+            // IMPORTANT: Use the billing cycle from the request, not from instanceSub, as user may be changing billing period
             let moduleCredit = 0;
             if (instanceSub.subscriptionRenewalDate) {
+              // Use the billing cycle from the request (billingPeriod) for proration calculation
               const proRataData = await calculateProRataWithPriority(
                 modulePrice,
                 organizationId,
-                instanceSub.billingCycle,
+                billingCycle, // Use billingCycle from request, not instanceSub.billingCycle
                 storage
               );
               
@@ -2940,7 +2950,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   moduleName: module.name,
                   credit: moduleCredit
                 });
+                console.log(`[Billing Checkout] Module ${module.name}: Prorated credit of ${(moduleCredit / 100).toFixed(2)} ${orgCurrency} applied (${proRataData.result.remainingDays} days remaining)`);
+              } else {
+                console.log(`[Billing Checkout] Module ${module.name}: No proration applied (not prorated or renewal date missing)`);
               }
+            } else {
+              console.log(`[Billing Checkout] Module ${module.name}: No proration applied (no renewal date)`);
             }
             
             // Add module as line item with NET price (full price - prorated credit)
@@ -2977,7 +2992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         description += ` (${billingPeriod} billing)`;
       }
-      
+
       // Add module information to description
       if (moduleNames.length > 0) {
         description += `\n\n📦 Active Modules (included below with prorated credits applied):\n${moduleNames.map((name, idx) => `${idx + 1}. ${name}`).join("\n")}`;
@@ -2997,23 +3012,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Build line items: tier + modules (with prorated credits already applied)
+      // Build line items: tier + additional inspections (if any) + modules (with prorated credits already applied)
       const lineItems: any[] = [
-        {
+          {
+            price_data: {
+              currency: (currency || "GBP").toLowerCase(),
+              product_data: {
+              name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+              },
+            unit_amount: tierAmount,
+              recurring: {
+                interval: billingPeriod === "annual" ? "year" : "month",
+              },
+            },
+            quantity: 1,
+          },
+      ];
+
+      // Add additional inspections as a separate line item if there are any
+      if (additionalInspections > 0 && additionalCost !== undefined && additionalCost !== null && Number(additionalCost) > 0) {
+        const additionalCostAmount = Number(additionalCost);
+        console.log(`[Billing Checkout] Adding ${additionalInspections} additional inspections as separate line item: ${additionalCostAmount} ${currency} (minor units)`);
+        
+        lineItems.push({
           price_data: {
             currency: (currency || "GBP").toLowerCase(),
             product_data: {
-              name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+              name: `Additional Inspections (${additionalInspections} × ${(additionalCostAmount / additionalInspections / 100).toFixed(2)} ${currency} per inspection)`,
+              description: `${additionalInspections} additional inspections beyond ${tierIncluded} included in ${selectedTier.name} tier`,
             },
-            unit_amount: tierAmount,
+            unit_amount: additionalCostAmount,
             recurring: {
               interval: billingPeriod === "annual" ? "year" : "month",
             },
           },
           quantity: 1,
-        },
-        ...moduleLineItems // Add modules with net prices (prorated credits already deducted)
-      ];
+        });
+      } else if (additionalInspections > 0) {
+        console.warn(`[Billing Checkout] Warning: ${additionalInspections} additional inspections detected but additionalCost is missing or zero. Additional inspections will not be charged.`);
+      }
+
+      // Add modules with net prices (prorated credits already deducted)
+      lineItems.push(...moduleLineItems);
 
       // If subscription exists, update it instead of creating new checkout
       if (existingStripeSubscription) {
@@ -3057,6 +3097,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
           
+          // Add additional inspections line item if there are any
+          if (additionalInspections > 0 && additionalCost !== undefined && additionalCost !== null && Number(additionalCost) > 0) {
+            const additionalCostAmount = Number(additionalCost);
+            // Check if additional inspections item already exists in subscription
+            const existingAdditionalItem = currentItems.find(item => {
+              const product = item.price?.product;
+              const productName = (typeof product === 'object' && product && 'name' in product) 
+                ? (product.name || '') 
+                : (item.price?.nickname || '');
+              return productName && productName.includes('Additional Inspections');
+            });
+            
+            if (existingAdditionalItem) {
+              // Update existing additional inspections item
+              const additionalPrice = await stripe.prices.create({
+                currency: (currency || "GBP").toLowerCase(),
+                product_data: {
+                  name: `Additional Inspections (${additionalInspections} × ${(additionalCostAmount / additionalInspections / 100).toFixed(2)} ${currency} per inspection)`,
+                },
+                recurring: {
+                  interval: billingPeriod === "annual" ? "year" : "month",
+                },
+                unit_amount: additionalCostAmount,
+              });
+              updateItems.push({
+                id: existingAdditionalItem.id,
+                price: additionalPrice.id,
+              });
+              console.log(`[Billing Checkout] Updating existing additional inspections item: ${additionalInspections} inspections for ${additionalCostAmount} ${currency}`);
+            } else {
+              // Add new additional inspections item
+              const additionalPrice = await stripe.prices.create({
+                currency: (currency || "GBP").toLowerCase(),
+                product_data: {
+                  name: `Additional Inspections (${additionalInspections} × ${(additionalCostAmount / additionalInspections / 100).toFixed(2)} ${currency} per inspection)`,
+                },
+                recurring: {
+                  interval: billingPeriod === "annual" ? "year" : "month",
+                },
+                unit_amount: additionalCostAmount,
+              });
+              updateItems.push({ price: additionalPrice.id });
+              console.log(`[Billing Checkout] Adding new additional inspections item: ${additionalInspections} inspections for ${additionalCostAmount} ${currency}`);
+            }
+          } else if (additionalInspections > 0) {
+            console.warn(`[Billing Checkout] Warning: ${additionalInspections} additional inspections detected but additionalCost is missing or zero. Additional inspections will not be charged.`);
+          } else {
+            // Remove additional inspections item if no longer needed
+            const existingAdditionalItem = currentItems.find(item => {
+              const product = item.price?.product;
+              const productName = (typeof product === 'object' && product && 'name' in product) 
+                ? (product.name || '') 
+                : (item.price?.nickname || '');
+              return productName && productName.includes('Additional Inspections');
+            });
+            
+            if (existingAdditionalItem) {
+              updateItems.push({ id: existingAdditionalItem.id, deleted: true });
+              console.log(`[Billing Checkout] Removing additional inspections item as no longer needed`);
+            }
+          }
+
           // Add new module line items (create prices for each)
           for (const moduleItem of moduleLineItems) {
             // Extract product_data without description (Stripe doesn't support description in product_data)
@@ -3114,6 +3216,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 billingPeriod: billingPeriod,
                 currency: currency || "GBP",
                 requestedInspections: totalInspections.toString(),
+                additionalInspections: additionalInspections.toString(),
+                tierIncluded: tierIncluded.toString(),
+                additionalCost: (additionalCost !== undefined && additionalCost !== null) ? additionalCost.toString() : "0",
                 moduleCount: moduleNames.length.toString(),
                 moduleNames: moduleNames.join(","),
                 totalProratedCredit: totalProratedCredit.toString()
@@ -3155,6 +3260,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           billingPeriod: billingPeriod,
           currency: currency || "GBP",
           requestedInspections: totalInspections.toString(),
+          additionalInspections: additionalInspections.toString(),
+          tierIncluded: tierIncluded.toString(),
+          additionalCost: (additionalCost !== undefined && additionalCost !== null) ? additionalCost.toString() : "0",
           type: "tier_subscription", // Mark as tier-based subscription for webhook handling
           moduleCount: moduleNames.length.toString(),
           moduleNames: moduleNames.join(","),
@@ -18461,7 +18569,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           
           await db.transaction(async (tx) => {
             // Enable the module
-            await storage.toggleInstanceModule(instanceSub.id, moduleId, true);
+          await storage.toggleInstanceModule(instanceSub.id, moduleId, true);
             
             // Update module pricing if needed
             const orgForPricing = await storage.getOrganization(user.organizationId!);
@@ -18522,7 +18630,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           const instanceSub = await storage.getInstanceSubscription(user.organizationId);
           if (!instanceSub) {
             console.error(`[Process Session] Instance subscription not found for org ${user.organizationId}`);
-            return res.status(404).json({ message: "Instance subscription not found" });
+          return res.status(404).json({ message: "Instance subscription not found" });
           }
 
           // Check if bundle already exists
@@ -19025,50 +19133,50 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             
             // Wrap credit granting in transaction to ensure atomicity with subscription
             await db.transaction(async (tx) => {
-              const now = new Date();
-              const shouldReset = existingInstanceSub 
-                ? (!existingInstanceSub.subscriptionRenewalDate || existingInstanceSub.subscriptionRenewalDate <= now)
-                : false; // New subscription, no reset needed
+            const now = new Date();
+            const shouldReset = existingInstanceSub 
+              ? (!existingInstanceSub.subscriptionRenewalDate || existingInstanceSub.subscriptionRenewalDate <= now)
+              : false; // New subscription, no reset needed
 
-              if (shouldReset) {
-                // Subscription has expired - RESET credits (expire old, grant new)
-                console.log(`[Process Session] Subscription expired (renewal date: ${existingInstanceSub?.subscriptionRenewalDate?.toISOString()}), resetting credits for org ${user.organizationId}`);
-                
+            if (shouldReset) {
+              // Subscription has expired - RESET credits (expire old, grant new)
+              console.log(`[Process Session] Subscription expired (renewal date: ${existingInstanceSub?.subscriptionRenewalDate?.toISOString()}), resetting credits for org ${user.organizationId}`);
+              
                 const existingBatches = await storage.getCreditBatchesByOrganization(user.organizationId!);
-                const planBatches = existingBatches.filter(b => 
-                  b.grantSource === 'plan_inclusion' && 
-                  b.remainingQuantity > 0
-                );
+              const planBatches = existingBatches.filter(b => 
+                b.grantSource === 'plan_inclusion' && 
+                b.remainingQuantity > 0
+              );
 
-                if (planBatches.length > 0) {
-                  console.log(`[Process Session] Expiring ${planBatches.length} existing plan_inclusion batches for org ${user.organizationId} (subscription expired)`);
-                  for (const batch of planBatches) {
-                    await storage.expireCreditBatch(batch.id);
-                    await storage.createCreditLedgerEntry({
+              if (planBatches.length > 0) {
+                console.log(`[Process Session] Expiring ${planBatches.length} existing plan_inclusion batches for org ${user.organizationId} (subscription expired)`);
+                for (const batch of planBatches) {
+                  await storage.expireCreditBatch(batch.id);
+                  await storage.createCreditLedgerEntry({
                       organizationId: user.organizationId!,
-                      source: "expiry" as any,
-                      quantity: -batch.remainingQuantity,
+                    source: "expiry" as any,
+                    quantity: -batch.remainingQuantity,
                       batchId: (batch.id ?? undefined) as string | undefined,
-                      notes: `Expired ${batch.remainingQuantity} credits due to subscription expiry (renewal date passed)`
-                    });
-                  }
+                    notes: `Expired ${batch.remainingQuantity} credits due to subscription expiry (renewal date passed)`
+                  });
                 }
-              } else if (existingInstanceSub) {
-                // Subscription still active - APPEND credits (keep old, add new)
-                console.log(`[Process Session] Subscription still active (renewal date: ${existingInstanceSub.subscriptionRenewalDate?.toISOString()}), appending credits for org ${user.organizationId}`);
               }
+            } else if (existingInstanceSub) {
+              // Subscription still active - APPEND credits (keep old, add new)
+              console.log(`[Process Session] Subscription still active (renewal date: ${existingInstanceSub.subscriptionRenewalDate?.toISOString()}), appending credits for org ${user.organizationId}`);
+            }
 
-              console.log(`[Process Session] Granting ${actualInspections} credits to org ${user.organizationId} (${shouldReset ? 'RESET mode' : 'APPEND mode'})`);
+            console.log(`[Process Session] Granting ${actualInspections} credits to org ${user.organizationId} (${shouldReset ? 'RESET mode' : 'APPEND mode'})`);
 
               // Grant credits within transaction
-              await subService.grantCredits(
+            await subService.grantCredits(
                 user.organizationId!,
-                actualInspections,
-                "plan_inclusion",
-                renewalDate,
+              actualInspections,
+              "plan_inclusion",
+              renewalDate,
                 { createdBy: user.id, adminNotes: `Stripe session: ${sessionId ?? 'unknown'} (Requested: ${parsedRequested || 'tier default'})` }
-              );
-              console.log(`[Process Session] Granted ${actualInspections} credits successfully for tier ${tier.name} (${shouldReset ? 'after reset' : 'appended to existing'})`);
+            );
+            console.log(`[Process Session] Granted ${actualInspections} credits successfully for tier ${tier.name} (${shouldReset ? 'after reset' : 'appended to existing'})`);
             });
           } catch (creditError: any) {
             console.error(`[Process Session] Error granting credits for tier:`, creditError);
@@ -19992,7 +20100,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                     const modules = await storage.getMarketplaceModules();
                     const { pricingService } = await import("./pricingService");
                     // Get currency from subscription or organization, fallback to GBP
-                    const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+      const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
                     
                     // Get active bundles to exclude modules covered by bundles
                     const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
@@ -20604,7 +20712,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                     const modules = await storage.getMarketplaceModules();
                     const { pricingService } = await import("./pricingService");
                     // Get currency from subscription or organization, fallback to GBP
-                    const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
+      const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
                     
                     // Get active bundles to exclude modules covered by bundles
                     const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
@@ -20972,7 +21080,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                       } catch (bundleBillingError: any) {
                         console.error(`[Stripe Webhook] Error adding bundle charges for renewal (legacy):`, bundleBillingError);
                         // Don't fail renewal if bundle billing fails
-                      }
+                    }
                   }
                 }
               } catch (moduleBillingError: any) {
@@ -21047,41 +21155,41 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                 if (gracePeriodExpired) {
                   // Grace period expired - deactivate everything
                   console.log(`[Stripe Webhook] Grace period expired for org ${organizationId} (failed on ${firstFailureDate.toISOString()}, grace period ended on ${gracePeriodEndDate.toISOString()}) - deactivating subscription and modules`);
-                  
-                  // Handle legacy subscription if exists
-                  const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
-                  if (dbSubscription) {
-                    await storage.updateSubscription(dbSubscription.id, {
-                      status: "inactive" as any,
-                    });
-                  }
 
-                  // 1. Update instance subscription status to inactive
-                  await storage.updateInstanceSubscription(instanceSub.id, {
-                    subscriptionStatus: "inactive" as any,
-                  });
+            // Handle legacy subscription if exists
+            const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
+            if (dbSubscription) {
+              await storage.updateSubscription(dbSubscription.id, {
+                status: "inactive" as any,
+              });
+            }
 
-                  // 2. Deactivate all enabled modules
-                  const instanceModules = await storage.getInstanceModules(instanceSub.id);
-                  const enabledModules = instanceModules.filter(m => m.isEnabled);
-                  
-                  for (const module of enabledModules) {
-                    await storage.toggleInstanceModule(instanceSub.id, module.moduleId, false);
+              // 1. Update instance subscription status to inactive
+              await storage.updateInstanceSubscription(instanceSub.id, {
+                subscriptionStatus: "inactive" as any,
+              });
+
+              // 2. Deactivate all enabled modules
+              const instanceModules = await storage.getInstanceModules(instanceSub.id);
+              const enabledModules = instanceModules.filter(m => m.isEnabled);
+              
+              for (const module of enabledModules) {
+                await storage.toggleInstanceModule(instanceSub.id, module.moduleId, false);
                     console.log(`[Stripe Webhook] Deactivated module ${module.moduleId} for org ${organizationId} (grace period expired)`);
-                  }
+              }
 
-                  // 3. Expire all credit batches (zero out credits)
-                  const { subscriptionService: subService } = await import("./subscriptionService");
-                  const allBatches = await storage.getCreditBatchesByOrganization(organizationId);
-                  const activeBatches = allBatches.filter(b => b.remainingQuantity > 0);
-                  
-                  for (const batch of activeBatches) {
-                    await storage.expireCreditBatch(batch.id);
-                    await storage.createCreditLedgerEntry({
-                      organizationId,
-                      source: "expiry" as any,
-                      quantity: -batch.remainingQuantity,
-                      batchId: batch.id,
+              // 3. Expire all credit batches (zero out credits)
+              const { subscriptionService: subService } = await import("./subscriptionService");
+              const allBatches = await storage.getCreditBatchesByOrganization(organizationId);
+              const activeBatches = allBatches.filter(b => b.remainingQuantity > 0);
+              
+              for (const batch of activeBatches) {
+                await storage.expireCreditBatch(batch.id);
+                await storage.createCreditLedgerEntry({
+                  organizationId,
+                  source: "expiry" as any,
+                  quantity: -batch.remainingQuantity,
+                  batchId: batch.id,
                       notes: `Expired ${batch.remainingQuantity} credits due to payment failure (grace period expired)`
                     });
                   }
@@ -24162,8 +24270,8 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       // Get active modules (excluding those in bundles) to include in plan change
       const instanceSub = await storage.getInstanceSubscription(user.organizationId);
       const updateItems: any[] = [{
-        id: subscriptionItemId,
-        price: stripePrice.id,
+          id: subscriptionItemId,
+          price: stripePrice.id,
       }];
 
       if (instanceSub) {
@@ -24294,7 +24402,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         // Update subscription metadata with module information
         await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
           items: updateItems,
-          proration_behavior: isUpgrade ? "create_prorations" : "none",
+        proration_behavior: isUpgrade ? "create_prorations" : "none",
           metadata: {
             ...stripeSubscription.metadata,
             moduleCount: moduleNames.length.toString(),

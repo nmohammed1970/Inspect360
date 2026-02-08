@@ -1357,14 +1357,33 @@ export default function ProfileScreen() {
                           // skipAuth=true prevents the second biometric prompt when storing
                           await storeBiometricCredentials(storedEmail, biometricPassword, true);
                           
-                          // Update profile
-                          await updateMutation.mutateAsync({ biometricEnabled: true });
+                          // Update profile - ensure biometricEnabled is explicitly set to true
+                          // Use a small delay to ensure credentials are stored first
+                          await new Promise<void>((resolve) => setTimeout(() => resolve(), 100));
+                          
+                          // Ensure the update data is properly formatted
+                          const updateData: UpdateProfileData = { 
+                            biometricEnabled: true 
+                          };
+                          console.log('[ProfileScreen] Updating profile with:', JSON.stringify(updateData));
+                          
+                          // Verify the data before sending
+                          if (!updateData.biometricEnabled) {
+                            throw new Error('Invalid update data: biometricEnabled is not set');
+                          }
+                          
+                          await updateMutation.mutateAsync(updateData);
+                          console.log('[ProfileScreen] Profile update successful');
+                          
                           setBiometricEnabled(true);
                           setShowPasswordModal(false);
                           setBiometricPassword('');
                           Alert.alert('Success', 'Biometric login has been enabled');
                         } catch (error: any) {
-                          Alert.alert('Error', error.message || 'Failed to enable biometric login');
+                          console.error('[ProfileScreen] Error enabling biometric:', error);
+                          const errorMessage = error?.message || error?.response?.data?.message || 'Failed to enable biometric login';
+                          Alert.alert('Error', errorMessage);
+                          // Don't clear the modal on error so user can try again
                         }
                       }}
                       disabled={updateMutation.isPending}

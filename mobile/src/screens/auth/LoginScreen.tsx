@@ -39,6 +39,9 @@ export default function LoginScreen() {
   const [errorModalMessage, setErrorModalMessage] = useState<string>('');
   const [errorModalTitle, setErrorModalTitle] = useState<string>('Can\'t find account');
   const passwordInputRef = useRef<TextInput>(null);
+  // Use refs to persist error state across remounts
+  const errorStateRef = useRef<{ message: string; title: string; showModal: boolean } | null>(null);
+  const isSettingErrorRef = useRef(false);
   const { 
     login, 
     isLoading, 
@@ -176,10 +179,54 @@ export default function LoginScreen() {
     } catch (err: any) {
       console.error('[LoginScreen] Biometric login error:', err);
       setIsBiometricPromptActive(false);
-      // If biometric login fails, allow manual password entry
-      const errorMessage = 'Biometric authentication failed. Please enter your password.';
+      
+      // Determine error message based on error type
+      let errorMessage = 'Biometric authentication failed. Please enter your password.';
+      let modalTitle = 'Authentication failed';
+      
+      // Check if it's a server/connection error
+      if (err?.message?.includes('Server problem') || 
+          err?.message?.includes('Cannot connect to server') ||
+          err?.message?.includes('Network request failed')) {
+        errorMessage = err.message || 'Server problem. Cannot connect to server. Please check your internet connection and try again later.';
+        modalTitle = 'Connection error';
+      } else if (err?.status === 401 || err?.status === 403) {
+        errorMessage = 'Wrong credentials. Please try again.';
+        modalTitle = 'Wrong credentials';
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
+      // Store in ref FIRST to persist across remounts
+      errorStateRef.current = {
+        message: errorMessage,
+        title: modalTitle,
+        showModal: true,
+      };
+      isSettingErrorRef.current = true;
+      
+      // Set both inline error and modal
+      console.log('[LoginScreen] 🔴 SETTING BIOMETRIC ERROR:', errorMessage);
       setError(errorMessage);
       setErrorModalMessage(errorMessage);
+      setErrorModalTitle(modalTitle);
+      
+      // Show Alert as immediate fallback
+      Alert.alert(
+        modalTitle,
+        errorMessage,
+        [{ text: 'OK', onPress: () => console.log('[LoginScreen] Alert dismissed') }],
+        { cancelable: true }
+      );
+      
+      // Use setTimeout to ensure state persists
+      setTimeout(() => {
+        setShowErrorModal(true);
+        isSettingErrorRef.current = false;
+        console.log('[LoginScreen] Biometric error - Modal should show:', { errorMessage, modalTitle });
+      }, 0);
+      
+      // Also set immediately
       setShowErrorModal(true);
     }
   };
@@ -240,8 +287,12 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    // Clear previous errors
+    // Clear previous errors and modal
     setError(null);
+    setShowErrorModal(false);
+    setErrorModalMessage('');
+    errorStateRef.current = null; // Clear ref as well
+    isSettingErrorRef.current = false;
 
     // Validate email format
     if (!email.trim()) {
@@ -267,7 +318,11 @@ export default function LoginScreen() {
     try {
       console.log('[LoginScreen] Calling login function');
       const loginEmail = email.trim().toLowerCase();
-      await login(loginEmail, password);
+      await login(loginEmail, password).catch((loginError) => {
+        console.error('[LoginScreen] Login promise rejected:', loginError);
+        // Re-throw to be caught by outer catch
+        throw loginError;
+      });
       console.log('[LoginScreen] Login function completed successfully');
       
       // After successful login, check if user has biometricEnabled in profile
@@ -297,14 +352,28 @@ export default function LoginScreen() {
         status: err?.status,
         name: err?.name,
         error: err,
+        errorString: JSON.stringify(err),
       });
       
       // Determine user-friendly error message based on error type
+      // Check network/connection errors FIRST (they often have undefined status)
       let errorMessage = 'Wrong credentials. Please try again.';
+      let errorStatus = err?.status;
 
+      // Handle network connection errors FIRST (status might be undefined)
+      if (err?.message?.includes('Failed to fetch') || 
+          err?.message?.includes('Network request failed') ||
+          err?.message?.includes('ERR_CONNECTION_REFUSED') ||
+          err?.message?.includes('NetworkError') ||
+          err?.message?.includes('No network connection') ||
+          err?.message?.includes('Cannot connect to server') ||
+          err?.message?.includes('Server problem')) {
+        errorMessage = err.message || 'Server problem. Cannot connect to server. Please check your internet connection and try again later.';
+      }
       // Handle authentication errors (wrong password/email)
-      if (err?.status === 401 || err?.status === 403) {
+      else if (err?.status === 401 || err?.status === 403 || errorStatus === 401 || errorStatus === 403) {
         errorMessage = 'Wrong credentials. Please try again.';
+        errorStatus = err?.status || errorStatus || 401;
       } 
       // Handle bad request errors
       else if (err?.status === 400) {
@@ -317,16 +386,6 @@ export default function LoginScreen() {
       // Handle timeout errors
       else if (err?.name === 'AbortError' || err?.message?.includes('timeout') || err?.message?.includes('Timeout')) {
         errorMessage = 'Request timeout. Server is taking too long to respond. Please try again later.';
-      } 
-      // Handle network connection errors
-      else if (err?.message?.includes('Failed to fetch') || 
-               err?.message?.includes('Network request failed') ||
-               err?.message?.includes('ERR_CONNECTION_REFUSED') ||
-               err?.message?.includes('NetworkError') ||
-               err?.message?.includes('Network request failed') ||
-               err?.message?.includes('No network connection') ||
-               err?.message?.includes('Cannot connect to server')) {
-        errorMessage = 'Server problem. Cannot connect to server. Please check your internet connection and try again later.';
       } 
       // Handle SSL/Certificate errors
       else if (err?.message?.includes('SSL') || err?.message?.includes('certificate') || err?.message?.includes('CERT')) {
@@ -358,14 +417,24 @@ export default function LoginScreen() {
         error: err,
       });
       
-      // Ensure error is set and visible
+      // Ensure error is set and visible - use multiple methods to guarantee it shows
+      console.log('[LoginScreen] 🔴 SETTING ERROR STATE:', errorMessage);
       setError(errorMessage);
+      
+      // Also show Alert as immediate fallback (always works)
+      Alert.alert(
+        modalTitle,
+        errorMessage,
+        [{ text: 'OK', onPress: () => console.log('[LoginScreen] Alert dismissed') }],
+        { cancelable: true }
+      );
       
       // Determine modal title based on error type
       let modalTitle = 'Can\'t find account';
-      if (err?.status === 401 || err?.status === 403) {
+      const finalStatus = err?.status || errorStatus;
+      if (finalStatus === 401 || finalStatus === 403) {
         modalTitle = 'Wrong credentials';
-      } else if (err?.status === 500 || err?.status === 502 || err?.status === 503 || err?.status === 504) {
+      } else if (finalStatus === 500 || finalStatus === 502 || finalStatus === 503 || finalStatus === 504) {
         modalTitle = 'Server error';
       } else if (err?.message?.includes('Failed to fetch') || 
                  err?.message?.includes('Network request failed') ||
@@ -377,6 +446,13 @@ export default function LoginScreen() {
         modalTitle = 'Connection timeout';
       }
       
+      // ALWAYS show modal for any login error - this is critical for user feedback
+      console.log('[LoginScreen] ⚠️ FORCING MODAL TO SHOW - Error detected:', {
+        errorMessage,
+        modalTitle,
+        errorStatus: finalStatus,
+      });
+      
       // Show error in modal for ALL login errors (wrong credentials, server errors, network issues, etc.)
       // This ensures users always see a clear modal for login failures
       console.log('[LoginScreen] Setting modal state:', {
@@ -385,11 +461,38 @@ export default function LoginScreen() {
         showModal: true,
       });
       
-      // Set modal state immediately
+      // Store in ref FIRST to persist across remounts
+      errorStateRef.current = {
+        message: errorMessage,
+        title: modalTitle,
+        showModal: true,
+      };
+      isSettingErrorRef.current = true;
+      
+      // Set modal state immediately - use multiple approaches to ensure it sticks
+      console.log('[LoginScreen] 🔴 SETTING ERROR STATE:', errorMessage);
       setErrorModalMessage(errorMessage);
       setErrorModalTitle(modalTitle);
+      setError(errorMessage);
+      
+      // Show Alert as immediate fallback (always works, even if component remounts)
+      Alert.alert(
+        modalTitle,
+        errorMessage,
+        [{ text: 'OK', onPress: () => console.log('[LoginScreen] Alert dismissed') }],
+        { cancelable: true }
+      );
+      
+      // Use setTimeout to ensure state persists even if component tries to remount
+      setTimeout(() => {
+        setShowErrorModal(true);
+        isSettingErrorRef.current = false;
+        console.log('[LoginScreen] ✅ Modal state set via setTimeout, showErrorModal should be true');
+      }, 0);
+      
+      // Also set immediately as primary method
       setShowErrorModal(true);
-      console.log('[LoginScreen] Modal state set, showErrorModal should be true');
+      console.log('[LoginScreen] ✅ Modal state set immediately, showErrorModal should be true');
       
       // Clear password field for security (but keep email)
       setPassword('');
@@ -523,14 +626,17 @@ export default function LoginScreen() {
                   <Text style={[styles.forgotPasswordText, { color: themeColors.primary.DEFAULT }]}>Forgot password?</Text>
                 </TouchableOpacity>
 
-                {error && (
+                {/* Error Message Display - Always visible when error exists */}
+                {(error || errorStateRef.current?.message) && (
                   <View style={[styles.errorContainer, {
-                    backgroundColor: themeColors.destructive.DEFAULT + '15',
-                    borderColor: themeColors.destructive.DEFAULT + '30'
+                    backgroundColor: themeColors.destructive.DEFAULT + '20',
+                    borderColor: themeColors.destructive.DEFAULT,
                   }]}>
                     <View style={styles.errorContent}>
-                      <AlertCircle size={16} color={themeColors.destructive.DEFAULT} style={styles.errorIcon} />
-                    <Text style={[styles.errorText, { color: themeColors.destructive.DEFAULT }]}>{error}</Text>
+                      <AlertCircle size={18} color={themeColors.destructive.DEFAULT} style={styles.errorIcon} />
+                      <Text style={[styles.errorText, { color: themeColors.destructive.DEFAULT }]}>
+                        {error || errorStateRef.current?.message || 'An error occurred. Please try again.'}
+                      </Text>
                     </View>
                   </View>
                 )}
@@ -593,7 +699,9 @@ export default function LoginScreen() {
               setError(null);
             }}
           />
-          <View
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
             style={[styles.modalContainer, {
               backgroundColor: themeColors.card.DEFAULT,
               borderColor: themeColors.border.DEFAULT,
@@ -621,7 +729,7 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
       </Modal>
     </SafeAreaView>
@@ -736,24 +844,28 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     marginBottom: spacing[4],
-    padding: spacing[3],
-    borderRadius: borderRadius.md,
+    marginTop: spacing[2],
+    padding: moderateScale(spacing[3], 0.3, Dimensions.get('window').width),
+    borderRadius: moderateScale(borderRadius.md, 0.2, Dimensions.get('window').width),
     borderWidth: 1,
+    minHeight: moderateScale(44, 0.3, Dimensions.get('window').width),
   },
   errorContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: spacing[2],
   },
   errorIcon: {
     marginRight: spacing[1],
+    flexShrink: 0,
   },
   errorText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: moderateScale(typography.fontSize.sm, 0.3, Dimensions.get('window').width),
     flex: 1,
     textAlign: 'left',
     fontWeight: typography.fontWeight.medium,
+    lineHeight: moderateScale(20, 0.3, Dimensions.get('window').width),
   },
   modalOverlay: {
     flex: 1,
