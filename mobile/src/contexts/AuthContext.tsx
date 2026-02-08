@@ -17,7 +17,7 @@ interface AuthContextType {
   refetchUser: () => void;
   // Biometric credential storage
   storeBiometricCredentials: (email: string, password: string, skipAuth?: boolean) => Promise<void>;
-  getBiometricCredentials: () => Promise<{ email: string; password: string } | null>;
+  getBiometricCredentials: (skipAuth?: boolean) => Promise<{ email: string; password: string } | null>;
   clearBiometricCredentials: () => Promise<void>;
   getStoredEmail: () => Promise<string | null>;
   hasBiometricCredentials: () => Promise<boolean>;
@@ -364,7 +364,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const getBiometricCredentials = async (): Promise<{ email: string; password: string } | null> => {
+  const getBiometricCredentials = async (skipAuth: boolean = false): Promise<{ email: string; password: string } | null> => {
     try {
       // Get email (doesn't require biometric)
       const email = await getStorageItem(BIOMETRIC_EMAIL_KEY);
@@ -373,12 +373,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Get password (requires biometric on native)
+      // Note: Even if skipAuth is true, SecureStore will still prompt if the item was stored with requireAuthentication: true
+      // This is expected behavior - the user will see a brief prompt, but it should be quick since they just authenticated
       let password: string | null = null;
       if (Platform.OS !== 'web') {
         try {
+          // Always require authentication for security
+          // If skipAuth is true, the user has already authenticated via biometricService,
+          // but SecureStore will still show a brief prompt (this is normal and expected)
           password = await SecureStore.getItemAsync(BIOMETRIC_PASSWORD_KEY, {
             requireAuthentication: true,
-            authenticationPrompt: 'Authenticate to login',
+            authenticationPrompt: skipAuth ? 'Retrieving credentials...' : 'Authenticate to login',
           });
         } catch (error: any) {
           // If biometric authentication fails, return null

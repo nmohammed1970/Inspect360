@@ -127,6 +127,7 @@ export default function LoginScreen() {
   const handleBiometricLogin = async () => {
     // Prevent multiple simultaneous biometric prompts
     if (isBiometricPromptActive) {
+      console.log('[LoginScreen] Biometric prompt already active, ignoring duplicate call');
       return;
     }
 
@@ -157,12 +158,37 @@ export default function LoginScreen() {
         return;
       }
 
-      // Get stored credentials (this will trigger biometric prompt)
-      const credentials = await getBiometricCredentials();
+      // IMPORTANT: First authenticate with biometric service to show the prompt
+      // This ensures the biometric prompt ALWAYS appears before attempting to get credentials
+      console.log('[LoginScreen] Showing biometric authentication prompt...');
+      const biometricResult = await biometricService.authenticateWithBiometric(
+        'Authenticate to login'
+      );
+
+      if (!biometricResult.success) {
+        // Biometric authentication failed or was cancelled
+        console.log('[LoginScreen] Biometric authentication failed or cancelled:', biometricResult.error);
+        setIsBiometricPromptActive(false);
+        
+        // Only show error if it wasn't a user cancellation
+        if (biometricResult.error && !biometricResult.error.includes('cancelled') && !biometricResult.error.includes('cancel')) {
+          setError(biometricResult.error || 'Biometric authentication failed. Please enter your password.');
+        }
+        // If cancelled, just return silently to allow manual password entry
+        return;
+      }
+
+      // Biometric authentication succeeded, now get credentials
+      // Pass skipAuth=true since we've already authenticated via biometricService
+      // Note: SecureStore may still prompt briefly, but it should be quick since user just authenticated
+      console.log('[LoginScreen] Biometric authentication succeeded, retrieving credentials...');
+      const credentials = await getBiometricCredentials(true);
       
       if (!credentials) {
-        // Biometric was cancelled or failed - allow manual entry
+        // Credentials retrieval failed - allow manual entry
+        console.log('[LoginScreen] Failed to retrieve credentials after biometric auth');
         setIsBiometricPromptActive(false);
+        setError('Failed to retrieve credentials. Please enter your password.');
         return;
       }
 
@@ -173,7 +199,8 @@ export default function LoginScreen() {
         return;
       }
 
-      // Auto-login with stored credentials (email already verified)
+      // Auto-login with stored credentials (email already verified, biometric already authenticated)
+      console.log('[LoginScreen] Logging in with biometric credentials...');
       await login(credentials.email, credentials.password);
       setIsBiometricPromptActive(false);
     } catch (err: any) {
@@ -243,15 +270,18 @@ export default function LoginScreen() {
       return; // Don't trigger biometric if no email entered
     }
 
-    // If biometric is enabled and credentials are stored, trigger biometric
+    // If biometric is enabled and credentials are stored, trigger biometric PROMPT
+    // IMPORTANT: Always show the biometric prompt - don't auto-login
     if (biometricEnabled && isBiometricAvailable) {
       const storedEmail = await getStoredEmail();
       // Only trigger if email matches stored email
       if (storedEmail && enteredEmail === storedEmail.toLowerCase()) {
         const hasCredentials = await hasBiometricCredentials();
         if (hasCredentials) {
-          // Small delay to allow field to focus first
+          // Small delay to allow field to focus first, then show biometric prompt
           setTimeout(() => {
+            // Explicitly trigger biometric authentication prompt
+            // This will show the biometric prompt and wait for user authentication
             handleBiometricLogin();
           }, 300);
         }

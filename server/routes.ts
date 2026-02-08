@@ -1293,7 +1293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Log the incoming request for debugging
       console.log('[PATCH /api/auth/profile] Request body:', JSON.stringify(req.body));
-      
+
       // Validate request body using the self-profile update schema
       const validation = updateSelfProfileSchema.safeParse(req.body);
       if (!validation.success) {
@@ -2486,54 +2486,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // IMPORTANT: If disabling, check if module is in Stripe subscription and remove it
-      // This prevents the module from being charged on renewal
+      // IMPORTANT: If disabling, cancel the module's Stripe subscription
+      // This prevents the module from being charged on renewal (cancels at end of billing period)
       if (!enable && org.stripeCustomerId) {
         try {
           const stripe = await getUncachableStripeClient();
           
-          // Get all active subscriptions for this organization
+          console.log(`[Module Toggle] 🔍 Looking for module subscription to cancel for module: ${module.name} (${moduleId})`);
+          console.log(`[Module Toggle] Customer ID: ${org.stripeCustomerId}`);
+          
+          // Get all active subscriptions with expanded product data
           const subscriptions = await stripe.subscriptions.list({
             customer: org.stripeCustomerId,
             status: "active",
-            limit: 100
+            limit: 100,
+            expand: ['data.items.data.price.product'] // Expand product data for better matching
           });
           
-          // Find and remove module from subscription line items
+          console.log(`[Module Toggle] Found ${subscriptions.data.length} active subscriptions to check`);
+          
+          let foundAndCanceled = false;
+          
+          // Find the module subscription by checking metadata AND product names
           for (const subscription of subscriptions.data) {
-            const subscriptionItems = subscription.items.data;
+            const subMetadata = subscription.metadata || {};
             
-            // Find line item that matches this module (by product name)
-            for (const item of subscriptionItems) {
+            // Method 1: Check metadata
+            const isModuleSubscriptionByMetadata = subMetadata.type === "module_purchase" && 
+                                                  subMetadata.moduleId === moduleId;
+            
+            // Method 2: Check product names (fallback if metadata is missing)
+            let isModuleSubscriptionByProductName = false;
+            const items = subscription.items?.data || [];
+            const foundProductNames: string[] = [];
+            
+            for (const item of items) {
+              // Try multiple ways to get product name
+              let productName = '';
               const product = item.price?.product;
-              const productName = (typeof product === 'object' && product && 'name' in product) 
-                ? (product.name || '') 
-                : (item.price?.nickname || '');
-              if (productName && (productName === module.name || productName.includes(module.name))) {
-                console.log(`[Module Toggle] Removing module ${module.name} (${moduleId}) from subscription ${subscription.id}`);
+              
+              if (typeof product === 'object' && product && 'name' in product) {
+                productName = product.name || '';
+              }
+              
+              if (!productName && item.price?.nickname) {
+                productName = item.price.nickname;
+              }
+              
+              if (productName) {
+                foundProductNames.push(productName);
+                const nameLower = productName.toLowerCase();
+                const moduleNameLower = module.name.toLowerCase();
                 
-                // Remove the subscription item
-                await stripe.subscriptionItems.del(item.id);
-                console.log(`[Module Toggle] Successfully removed module ${module.name} from subscription ${subscription.id}`);
-                
-                // Update subscription metadata to remove module name
-                const moduleNames = subscription.metadata?.moduleNames?.split(',').filter(Boolean) || [];
-                const updatedModuleNames = moduleNames.filter(name => name.trim() !== module.name).join(',');
-                
-                await stripe.subscriptions.update(subscription.id, {
-                  metadata: {
-                    ...subscription.metadata,
-                    moduleNames: updatedModuleNames,
-                    moduleCount: updatedModuleNames ? updatedModuleNames.split(',').length.toString() : "0"
+                // Match if product name exactly matches module name or contains it
+                if (nameLower === moduleNameLower || nameLower.includes(moduleNameLower)) {
+                  // Make sure it's NOT a tier subscription
+                  const isTierSubscription = subMetadata.tierId || subMetadata.planCode || 
+                                           (subMetadata.type === "tier_subscription") ||
+                                           (nameLower.includes('inspect360') && nameLower.includes('plan'));
+                  
+                  if (!isTierSubscription) {
+                    isModuleSubscriptionByProductName = true;
+                    console.log(`[Module Toggle] ✅ Matched module subscription by product name: "${productName}"`);
+                    break;
                   }
+                }
+              }
+            }
+            
+            const isModuleSubscription = isModuleSubscriptionByMetadata || isModuleSubscriptionByProductName;
+            
+            // Log what we found
+            console.log(`[Module Toggle] 📋 Checking subscription ${subscription.id}:`);
+            console.log(`   - Metadata: ${JSON.stringify(subMetadata)}`);
+            console.log(`   - Products: [${foundProductNames.join(', ')}]`);
+            console.log(`   - Matched by metadata: ${isModuleSubscriptionByMetadata}`);
+            console.log(`   - Matched by product name: ${isModuleSubscriptionByProductName}`);
+            console.log(`   - Is module subscription: ${isModuleSubscription}`);
+            
+            if (isModuleSubscription) {
+              console.log(`[Module Toggle] 🚫 CANCELLING module subscription ${subscription.id} for module ${module.name} (${moduleId})`);
+              
+              try {
+                // Cancel at the end of the billing period (like White Labelling)
+                // This allows the user to continue using the module until the period ends
+                const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
+                  cancel_at_period_end: true
                 });
-                console.log(`[Module Toggle] Updated subscription metadata - removed ${module.name}`);
-                break; // Found and removed, no need to check other items
+                
+                // Get the period end date for logging
+                const periodEnd = new Date((updatedSubscription.current_period_end as number) * 1000);
+                const periodEndFormatted = periodEnd.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric',
+                  year: 'numeric'
+                });
+                
+                console.log(`[Module Toggle] ✅ Successfully scheduled cancellation of module subscription ${subscription.id}`);
+                console.log(`[Module Toggle]    Module: ${module.name}`);
+                console.log(`[Module Toggle]    Cancellation date: ${periodEndFormatted}`);
+                console.log(`[Module Toggle]    Cancel at period end: ${updatedSubscription.cancel_at_period_end}`);
+                
+                foundAndCanceled = true;
+                break; // Found and canceled, no need to check other subscriptions
+              } catch (cancelError: any) {
+                console.error(`[Module Toggle] ❌ Failed to cancel subscription ${subscription.id}:`, cancelError.message);
+                console.error(`[Module Toggle]    Error type: ${cancelError.type}`);
+                console.error(`[Module Toggle]    Error code: ${cancelError.code}`);
+                console.error(`[Module Toggle]    Full error:`, JSON.stringify(cancelError, null, 2));
+                // Continue checking other subscriptions even if this one fails
               }
             }
           }
+          
+          if (!foundAndCanceled) {
+            console.warn(`[Module Toggle] ⚠️  No module subscription found to cancel for module ${module.name} (${moduleId})`);
+            console.warn(`[Module Toggle]    This might be normal if the module was purchased as part of a bundle or if the subscription doesn't exist.`);
+          }
+          
         } catch (stripeError: any) {
-          console.error(`[Module Toggle] Failed to remove module from Stripe subscription:`, stripeError.message);
+          console.error(`[Module Toggle] ❌ Failed to cancel module subscription:`, stripeError.message);
+          console.error(`[Module Toggle]    Error type: ${stripeError.type}`);
+          console.error(`[Module Toggle]    Error code: ${stripeError.code}`);
+          console.error(`[Module Toggle]    Full error:`, JSON.stringify(stripeError, null, 2));
           // Don't fail the module disable if Stripe update fails - module is still disabled in database
         }
       }
@@ -2847,31 +2922,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[Billing] Checkout - Total inspections: ${totalInspections}, Tier included: ${tierIncluded}, Additional: ${additionalInspections}`);
       
-      // Get active modules (excluding those in bundles) to include in checkout
-      // IMPORTANT: If subscription exists, check which modules are already in it to avoid duplicates
+      // IMPORTANT: When subscribing to a tier, DO NOT include modules in checkout
+      // Modules are separate subscriptions and should be purchased/managed separately
+      // Modules that are already active should remain active and not be charged again
       const instanceSub = existingInstanceSub || await storage.getInstanceSubscription(organizationId);
-      const modulesAlreadyInSubscription = new Set<string>();
-      
-      if (existingStripeSubscription) {
-        // Get modules already in the subscription to avoid adding them again
-        const subscriptionModuleNames = existingStripeSubscription.metadata?.moduleNames;
-        if (subscriptionModuleNames) {
-          const moduleNameList = subscriptionModuleNames.split(',').filter(Boolean);
-          const modules = await storage.getMarketplaceModules();
-          for (const moduleName of moduleNameList) {
-            const matchedModule = modules.find(m => m.name === moduleName.trim());
-            if (matchedModule) {
-              modulesAlreadyInSubscription.add(matchedModule.id);
-              console.log(`[Billing Checkout] Module ${matchedModule.name} already in subscription - will update instead of adding duplicate`);
-            }
-          }
-        }
-      }
       let moduleLineItems: any[] = [];
       let totalProratedCredit = 0;
       const moduleNames: string[] = [];
       const moduleCredits: Array<{ moduleId: string; moduleName: string; credit: number }> = [];
       
+      // DO NOT add modules to tier checkout - modules are separate subscriptions
+      // Modules should be purchased separately through the marketplace
+      // This prevents double-charging for modules that are already active
+      console.log(`[Billing Checkout] Tier subscription checkout - modules will NOT be included (modules are separate subscriptions)`);
+      
+      // The code below is commented out to prevent modules from being added to tier checkout
+      // Modules should be purchased/managed separately through the marketplace
+      /*
       if (instanceSub) {
         const instanceModules = await storage.getInstanceModules(instanceSub.id);
         const enabledModules = instanceModules.filter(m => m.isEnabled);
@@ -2881,10 +2948,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const coveredModuleIds = await pricingService.getBundledModuleIds(instanceSub.id);
         
         // Filter out modules covered by bundles
-        // Also filter out modules already in subscription (if updating existing subscription)
+        // Filter out modules that have separate subscriptions
         const modulesToCharge = enabledModules.filter(im => 
           !coveredModuleIds.has(im.moduleId) && 
-          !modulesAlreadyInSubscription.has(im.moduleId)
+          !modulesWithSeparateSubscriptions.has(im.moduleId)
         );
         
         // Get module details and calculate prorated credits
@@ -2984,6 +3051,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[Billing Checkout] Applied prorated credits totaling ${(totalProratedCredit / 100).toFixed(2)} ${orgCurrency} to module prices`);
         }
       }
+      */
       
       // Build description
       let description = `${totalInspections} inspections per month`;
@@ -2993,24 +3061,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description += ` (${billingPeriod} billing)`;
       }
 
-      // Add module information to description
-      if (moduleNames.length > 0) {
-        description += `\n\n📦 Active Modules (included below with prorated credits applied):\n${moduleNames.map((name, idx) => `${idx + 1}. ${name}`).join("\n")}`;
-        
-        if (totalProratedCredit > 0) {
-          const creditAmount = (totalProratedCredit / 100).toFixed(2);
-          description += `\n\n💰 Total Prorated Credit Applied: ${currency} ${creditAmount}`;
-          description += `\n(Credits for already-paid module subscriptions are deducted from module prices below)`;
-          
-          // Show per-module credits
-          if (moduleCredits.length > 0) {
-            description += `\n\nCredit Breakdown:`;
-            moduleCredits.forEach(mc => {
-              description += `\n  • ${mc.moduleName}: ${currency} ${(mc.credit / 100).toFixed(2)}`;
-            });
-          }
-        }
-      }
+      // Note: Modules are NOT included in tier checkout - they are separate subscriptions
+      // Modules should be purchased/managed separately through the marketplace
 
       // Build line items: tier + additional inspections (if any) + modules (with prorated credits already applied)
       const lineItems: any[] = [
@@ -3018,7 +3070,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             price_data: {
               currency: (currency || "GBP").toLowerCase(),
               product_data: {
-              name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+              name: `Inspect360 ${selectedTier.name} Plan`,
               },
             unit_amount: tierAmount,
               recurring: {
@@ -3074,7 +3126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const newTierPrice = await stripe.prices.create({
             currency: (currency || "GBP").toLowerCase(),
             product_data: {
-              name: `Inspect360 ${selectedTier.name} Plan${moduleNames.length > 0 ? ` + ${moduleNames.length} Active Module${moduleNames.length > 1 ? 's' : ''}` : ''}`,
+              name: `Inspect360 ${selectedTier.name} Plan`,
             },
             recurring: {
               interval: billingPeriod === "annual" ? "year" : "month",
@@ -18486,16 +18538,67 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
               limit: 100
             });
 
-            // Cancel all active subscriptions before creating/updating the new one
+            // Only cancel tier subscriptions, NOT module subscriptions
+            // Modules are separate subscriptions and should coexist with tier subscriptions
+            // Get all tier names to help identify tier subscriptions by product name
+            const tiers = await storage.getSubscriptionTiers();
+            const tierNames = tiers.map(t => t.name);
+            
             for (const sub of allSubscriptions.data) {
               if (sub.status === "active" && sub.id !== (session.subscription as string)) {
-                console.log(`[Process Session] Cancelling existing subscription ${sub.id} for org ${user.organizationId} before processing quotation subscription`);
-                try {
-                  await stripe.subscriptions.cancel(sub.id);
-                  console.log(`[Process Session] Successfully cancelled existing subscription ${sub.id}`);
-                } catch (cancelError: any) {
-                  console.error(`[Process Session] Failed to cancel subscription ${sub.id}:`, cancelError.message);
-                  // Continue with new subscription creation even if cancellation fails
+                // Check if this is a tier subscription (not a module subscription)
+                // Check both metadata AND product names for reliable identification
+                const subMetadata = sub.metadata || {};
+                
+                // Check metadata first
+                const hasTierMetadata = subMetadata.tierId || subMetadata.planCode || 
+                                       (subMetadata.type === "tier_subscription");
+                
+                // Check product names to identify tier subscriptions (for older subscriptions without metadata)
+                let hasTierProductName = false;
+                const items = sub.items?.data || [];
+                for (const item of items) {
+                  const product = item.price?.product;
+                  const productName = (typeof product === 'object' && product && 'name' in product) 
+                    ? (product.name || '') 
+                    : (item.price?.nickname || '');
+                  
+                  // Check if product name contains tier name or "Plan" (tier subscriptions have names like "Inspect360 [Tier] Plan")
+                  if (productName) {
+                    const nameLower = productName.toLowerCase();
+                    if (nameLower.includes('plan') && nameLower.includes('inspect360')) {
+                      // Check if it contains any tier name
+                      for (const tierName of tierNames) {
+                        if (nameLower.includes(tierName.toLowerCase())) {
+                          hasTierProductName = true;
+                          break;
+                        }
+                      }
+                      // Also check for "Starter", "Growth", "Professional", "Enterprise" keywords
+                      if (nameLower.includes('starter') || nameLower.includes('growth') || 
+                          nameLower.includes('professional') || nameLower.includes('enterprise')) {
+                        hasTierProductName = true;
+                      }
+                    }
+                  }
+                }
+                
+                const isTierSubscription = hasTierMetadata || hasTierProductName;
+                const isModuleSubscription = subMetadata.type === "module_purchase" ||
+                                           subMetadata.moduleId;
+                
+                // Only cancel tier subscriptions, preserve module subscriptions
+                if (isTierSubscription && !isModuleSubscription) {
+                  console.log(`[Process Session] Cancelling existing tier subscription ${sub.id} for org ${user.organizationId} before processing quotation subscription (identified by ${hasTierMetadata ? 'metadata' : 'product name'})`);
+                  try {
+                    await stripe.subscriptions.cancel(sub.id);
+                    console.log(`[Process Session] Successfully cancelled tier subscription ${sub.id}`);
+                  } catch (cancelError: any) {
+                    console.error(`[Process Session] Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                    // Continue with new subscription creation even if cancellation fails
+                  }
+                } else {
+                  console.log(`[Process Session] Preserving ${isModuleSubscription ? 'module' : 'other'} subscription ${sub.id} (not a tier subscription - metadata: ${hasTierMetadata}, productName: ${hasTierProductName})`);
                 }
               }
             }
@@ -19026,23 +19129,163 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
           const tierOrg = await storage.getOrganization(user.organizationId);
           if (tierOrg?.stripeCustomerId) {
             try {
+              console.log(`[Process Session] Looking for subscriptions for customer: ${tierOrg.stripeCustomerId}`);
+              console.log(`[Process Session] New subscription ID from session: ${session.subscription}`);
+              
+              // Get ALL subscriptions (not just active) to catch edge cases
               const allSubscriptions = await stripe.subscriptions.list({
                 customer: tierOrg.stripeCustomerId,
-                status: "active",
-                limit: 100
+                limit: 100,
+                expand: ['data.items.data.price.product'] // Expand product data for better matching
               });
+              
+              console.log(`[Process Session] Found ${allSubscriptions.data.length} total subscriptions for customer ${tierOrg.stripeCustomerId}`);
+              
+              // Filter to only active subscriptions for cancellation
+              const activeSubscriptions = allSubscriptions.data.filter(sub => sub.status === "active");
+              console.log(`[Process Session] Found ${activeSubscriptions.length} active subscriptions to check`);
 
-              // Cancel all active subscriptions before creating/updating the new one
-              for (const sub of allSubscriptions.data) {
-                if (sub.status === "active" && sub.id !== (session.subscription as string)) {
-                  console.log(`[Process Session] Cancelling existing subscription ${sub.id} for org ${user.organizationId} before processing tier subscription`);
+              // Only cancel tier subscriptions, NOT module subscriptions
+              // Modules are separate subscriptions and should coexist with tier subscriptions
+              // Get all tier names to help identify tier subscriptions by product name
+              const tiers = await storage.getSubscriptionTiers();
+              const tierNames = tiers.map(t => t.name);
+              
+              console.log(`[Process Session] Checking ${activeSubscriptions.length} active subscriptions for tier cancellation`);
+              
+              for (const sub of activeSubscriptions) {
+                // Skip the new subscription being created
+                if (sub.id === (session.subscription as string)) {
+                  console.log(`[Process Session] Skipping new subscription ${sub.id}`);
+                  continue;
+                }
+                
+                // Only process active subscriptions (skip canceled, incomplete, etc.)
+                if (sub.status !== "active") {
+                  console.log(`[Process Session] Skipping subscription ${sub.id} with status: ${sub.status}`);
+                  continue;
+                }
+                
+                // Check if this is a tier subscription (not a module subscription)
+                // Check both metadata AND product names for reliable identification
+                const subMetadata = sub.metadata || {};
+                
+                // Check metadata first
+                const hasTierMetadata = subMetadata.tierId || subMetadata.planCode || 
+                                       (subMetadata.type === "tier_subscription");
+                
+                // Check product names to identify tier subscriptions (for older subscriptions without metadata)
+                let hasTierProductName = false;
+                let foundProductNames: string[] = [];
+                const items = sub.items?.data || [];
+                
+                // AGGRESSIVE DETECTION: Check ALL line items in the subscription
+                for (const item of items) {
+                  // Try multiple ways to get the product name
+                  let productName = '';
+                  
+                  // Method 1: Get from product object
+                  const product = item.price?.product;
+                  if (typeof product === 'object' && product && 'name' in product) {
+                    productName = product.name || '';
+                  }
+                  
+                  // Method 2: Get from price nickname
+                  if (!productName && item.price?.nickname) {
+                    productName = item.price.nickname;
+                  }
+                  
+                  // Method 3: Get from price description
+                  if (!productName && item.price?.product && typeof item.price.product === 'object') {
+                    const prod = item.price.product as any;
+                    if (prod.description) {
+                      productName = prod.description;
+                    }
+                  }
+                  
+                  if (productName) {
+                    foundProductNames.push(productName);
+                    const nameLower = productName.toLowerCase();
+                    
+                    // AGGRESSIVE MATCHING: Any subscription with "Inspect360" and "Plan" is a tier subscription
+                    // This catches: "Inspect360 Growth Plan", "Inspect360 Starter Plan", etc.
+                    if (nameLower.includes('inspect360') && nameLower.includes('plan')) {
+                      hasTierProductName = true;
+                      console.log(`[Process Session] ✅ MATCHED tier subscription by product name: "${productName}"`);
+                      break; // Found it, no need to check other items
+                    }
+                    
+                    // Also match "Additional Inspections" as these are part of tier subscriptions
+                    if (nameLower.includes('additional') && nameLower.includes('inspection')) {
+                      hasTierProductName = true;
+                      console.log(`[Process Session] ✅ MATCHED tier subscription with additional inspections: "${productName}"`);
+                      break;
+                    }
+                    
+                    // Match tier keywords even without "Plan" (for edge cases)
+                    if (nameLower.includes('inspect360') && 
+                        (nameLower.includes('starter') || nameLower.includes('growth') || 
+                         nameLower.includes('professional') || nameLower.includes('enterprise'))) {
+                      hasTierProductName = true;
+                      console.log(`[Process Session] ✅ MATCHED tier subscription by keyword: "${productName}"`);
+                      break;
+                    }
+                  }
+                }
+                
+                // FINAL CHECK: If subscription has ANY product with "Inspect360" and "Plan", it's a tier subscription
+                // This is a catch-all for edge cases
+                let hasInspect360Plan = false;
+                for (const productName of foundProductNames) {
+                  const nameLower = productName.toLowerCase();
+                  if (nameLower.includes('inspect360') && nameLower.includes('plan')) {
+                    hasInspect360Plan = true;
+                    break;
+                  }
+                }
+                
+                // If we found "Inspect360" and "Plan" but didn't match earlier, still consider it a tier
+                if (hasInspect360Plan && !hasTierProductName) {
+                  hasTierProductName = true;
+                  console.log(`[Process Session] ✅ FALLBACK: Matched tier subscription by "Inspect360" + "Plan" pattern`);
+                }
+                
+                const isTierSubscription = hasTierMetadata || hasTierProductName || hasInspect360Plan;
+                const isModuleSubscription = subMetadata.type === "module_purchase" ||
+                                           subMetadata.moduleId;
+                
+                // Log what we found for debugging
+                console.log(`[Process Session] 📋 Subscription ${sub.id}:`);
+                console.log(`   - Status: ${sub.status}`);
+                console.log(`   - Customer: ${sub.customer}`);
+                console.log(`   - Metadata: ${JSON.stringify(subMetadata)}`);
+                console.log(`   - Products: [${foundProductNames.join(', ')}]`);
+                console.log(`   - Has tier metadata: ${hasTierMetadata}`);
+                console.log(`   - Has tier product name: ${hasTierProductName}`);
+                console.log(`   - Has Inspect360+Plan pattern: ${hasInspect360Plan}`);
+                console.log(`   - Is tier subscription: ${isTierSubscription}`);
+                console.log(`   - Is module subscription: ${isModuleSubscription}`);
+                
+                // Only cancel tier subscriptions, preserve module subscriptions
+                if (isTierSubscription && !isModuleSubscription) {
+                  console.log(`[Process Session] 🚫 CANCELLING tier subscription ${sub.id} for org ${user.organizationId}`);
+                  console.log(`[Process Session]    Reason: ${hasTierMetadata ? 'metadata' : hasTierProductName ? 'product name' : 'Inspect360+Plan pattern'}`);
                   try {
-                    await stripe.subscriptions.cancel(sub.id);
-                    console.log(`[Process Session] Successfully cancelled existing subscription ${sub.id}`);
+                    const cancelResult = await stripe.subscriptions.cancel(sub.id);
+                    console.log(`[Process Session] ✅ Successfully cancelled tier subscription ${sub.id}`);
+                    console.log(`[Process Session]    Cancel result status: ${cancelResult.status}`);
                   } catch (cancelError: any) {
-                    console.error(`[Process Session] Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                    console.error(`[Process Session] ❌ Failed to cancel subscription ${sub.id}:`, cancelError.message);
+                    console.error(`[Process Session]    Error type: ${cancelError.type}`);
+                    console.error(`[Process Session]    Error code: ${cancelError.code}`);
+                    console.error(`[Process Session]    Full error:`, JSON.stringify(cancelError, null, 2));
                     // Continue with new subscription creation even if cancellation fails
                   }
+                } else if (isModuleSubscription) {
+                  console.log(`[Process Session] ✅ Preserving module subscription ${sub.id}`);
+                } else {
+                  console.log(`[Process Session] ⚠️  Preserving unknown subscription ${sub.id} (not identified as tier or module)`);
+                  console.log(`[Process Session]    This subscription will NOT be cancelled. If this is a tier subscription, please check the logs above.`);
                 }
               }
             } catch (listError: any) {

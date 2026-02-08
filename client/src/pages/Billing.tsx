@@ -304,10 +304,10 @@ export default function Billing() {
         billingPeriod,
         currency: selectedCurrency,
         inspectionCount: inspectionsNeeded,
-        totalPrice: Math.round(pricingBreakdown.totalCost), // Already in minor units
+        totalPrice: Math.round(pricingBreakdown.totalCost), // Already in minor units (excludes modules)
         tierPrice: Math.round(pricingBreakdown.tierPrice), // Already in minor units
         additionalCost: Math.round(pricingBreakdown.additionalCost), // Already in minor units
-        moduleCost: Math.round(pricingBreakdown.moduleCost) // Already in minor units
+        moduleCost: 0 // Modules are separate subscriptions, not included in tier checkout
       });
       const data = await res.json();
       console.log("[Billing] Checkout response data:", data);
@@ -443,12 +443,12 @@ export default function Billing() {
         additionalCost = additionalInspections * perInspectionPrice;
       }
 
-      // Get module costs from API (already converted)
-      const moduleCost = billingPeriod === "monthly" 
-        ? pricing.calculations.modulesMonthly 
-        : pricing.calculations.modulesAnnual;
+      // IMPORTANT: Do NOT include module costs in tier subscription checkout
+      // Modules are separate subscriptions and should be purchased/managed separately
+      // Module costs should be 0 for tier subscriptions
+      const moduleCost = 0; // Modules are separate subscriptions, not included in tier checkout
       
-      const totalCost = tierPrice + additionalCost + moduleCost;
+      const totalCost = tierPrice + additionalCost; // Exclude moduleCost from total
 
       return {
         tierPrice,
@@ -528,11 +528,11 @@ export default function Billing() {
       additionalCost = additionalInspections * getPerInspectionPriceFromConfig(currentTierName, selectedCurrency, config);
     }
 
-    // Get module costs from API (this is the only part that needs API data)
-    // Module costs don't change with inspection count, so we use the latest available value
-    // This allows the breakdown to update immediately for tier/additional costs
-    const moduleCost = pricing?.calculations ? (billingPeriod === "monthly" ? pricing.calculations.modulesMonthly : pricing.calculations.modulesAnnual) : 0;
-    const totalCost = tierPrice + additionalCost + moduleCost;
+    // IMPORTANT: Do NOT include module costs in tier subscription checkout
+    // Modules are separate subscriptions and should be purchased/managed separately
+    // Module costs should be 0 for tier subscriptions
+    const moduleCost = 0; // Modules are separate subscriptions, not included in tier checkout
+    const totalCost = tierPrice + additionalCost; // Exclude moduleCost from total
 
     // tierCodeForCheckout is already set in the dynamic tier detection above
 
@@ -873,17 +873,8 @@ export default function Billing() {
                       </>
                     )}
 
-                    {/* Module Costs */}
-                    {moduleCost > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          Active Modules{activeModuleNames.length > 0 ? ` (${activeModuleNames.join(", ")})` : ""}:
-                        </span>
-                        <span className="font-bold text-lg">
-                          {formatCurrency(moduleCost, selectedCurrency)}
-                        </span>
-                      </div>
-                    )}
+                    {/* Module Costs - REMOVED: Modules are separate subscriptions, not included in tier checkout */}
+                    {/* Modules should be purchased/managed separately through the marketplace */}
 
                     <Separator />
 

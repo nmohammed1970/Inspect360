@@ -1072,10 +1072,10 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               safeField.type === 'auto_tenant_names' ? autoContext?.tenantNames :
                 autoContext?.inspectionDate) || '';
         return (
-          <Input
-            label={safeField.label}
-            value={autoValue}
-            editable={false}
+            <Input
+              label={safeField.label}
+              value={autoValue}
+              editable={false}
             style={[
               {
                 backgroundColor: themeColors.input,
@@ -1481,7 +1481,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <Image 
               source={isLocalPath(selectedPhoto) ? getImageSource(selectedPhoto) : { uri: selectedPhoto }} 
               style={styles.photoViewer} 
-              resizeMode="contain"
+              resizeMode="contain" 
               onError={(error) => {
                 console.error('[FieldWidget] Photo viewer image load error:', error.nativeEvent.error, 'for URL:', selectedPhoto);
               }}
