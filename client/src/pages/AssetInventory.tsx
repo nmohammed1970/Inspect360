@@ -18,9 +18,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import type { AssetInventory, Property, Block } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import Uppy from "@uppy/core";
-import { Dashboard } from "@uppy/react";
-import AwsS3 from "@uppy/aws-s3";
+import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 
 const conditionLabels = {
   excellent: "Excellent",
@@ -213,170 +211,158 @@ export default function AssetInventory() {
     },
   });
 
-  const uppy = useMemo(() => {
-    const uppyInstance = new Uppy({
-      restrictions: {
-        maxFileSize: 10 * 1024 * 1024,
-        maxNumberOfFiles: 10,
-        allowedFileTypes: ['image/*'],
-      },
-      autoProceed: false,
-    });
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [photoUploadProgress, setPhotoUploadProgress] = useState(0);
 
-    uppyInstance.use(AwsS3, {
-      shouldUseMultipart: false,
-      getUploadParameters: async (file) => {
+  const handlePhotoFilesSelected = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setIsUploadingPhotos(true);
+    setPhotoUploadProgress(0);
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Get upload parameters
+        const response = await fetch('/api/objects/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to get upload URL: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        if (!data.uploadURL) {
+          throw new Error("Invalid upload URL response");
+        }
+
+        // Ensure URL is absolute
+        let uploadURL = data.uploadURL;
+        if (uploadURL.startsWith('/')) {
+          uploadURL = `${window.location.origin}${uploadURL}`;
+        }
+
+        // Upload file
+        const uploadResponse = await fetch(uploadURL, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+        }
+
+        // Extract file URL
+        let photoUrl: string | null = null;
         try {
-          const response = await fetch('/api/objects/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to get upload URL: ${response.statusText}`);
+          const text = await uploadResponse.text();
+          let responseBody: any = null;
+          if (text) {
+            try {
+              responseBody = JSON.parse(text);
+            } catch {
+              responseBody = text;
+            }
           }
 
-          const data = await response.json();
-          
-          if (!data.uploadURL) {
-            throw new Error("Invalid upload URL response");
-          }
-
-          // Ensure URL is absolute
-          let uploadURL = data.uploadURL;
-          if (uploadURL.startsWith('/')) {
-            // Convert relative URL to absolute
-            uploadURL = `${window.location.origin}${uploadURL}`;
-          }
-
-          // Validate URL
-          try {
-            new URL(uploadURL);
-          } catch (e) {
-            throw new Error(`Invalid upload URL format: ${uploadURL}`);
-          }
-
-          // Extract objectId from upload URL for later use
-          const urlObj = new URL(uploadURL);
-          const objectId = urlObj.searchParams.get('objectId') || urlObj.pathname.split('/').pop() || '';
-          
-          // Store metadata for later retrieval
-          uppyInstance.setFileMeta(file.id, { 
-            originalUploadURL: uploadURL,
-            objectId: objectId,
-          });
-
-          return {
-            method: 'PUT',
-            url: uploadURL,
-            fields: {},
-            headers: {
-              'Content-Type': file.type || 'application/octet-stream',
+          const mockFile = {
+            response: {
+              body: responseBody,
+              url: uploadResponse.headers.get('Location') || undefined,
+            },
+            meta: {
+              originalUploadURL: uploadURL,
             },
           };
-        } catch (error: any) {
-          console.error("[AssetInventory] Upload URL error:", error);
-          throw new Error(`Failed to get upload URL: ${error.message}`);
-        }
-      },
-    });
 
-    uppyInstance.on('upload-success', async (file, response) => {
-      console.log('[AssetInventory] Upload success event:', { 
-        file: { id: file?.id, name: file?.name, meta: file?.meta },
-        response,
-        fileResponse: file?.response,
-        fullFile: file
-      });
-      
-      // Extract the file URL from the PUT response using the utility function
-      // This handles both absolute and relative URLs and normalizes to /objects/...
-      let photoUrl = extractFileUrlFromUploadResponse(file, response);
-      
-      // If extraction failed, try to use objectId from metadata as fallback
-      if (!photoUrl && file?.meta?.objectId) {
-        photoUrl = `/objects/${file.meta.objectId}`;
-        console.log('[AssetInventory] Using objectId fallback:', photoUrl);
-      }
-      
-      if (!photoUrl) {
-        console.error('[AssetInventory] No photo URL found. Full debug info:', {
-          fileResponse: file?.response,
-          response,
-          fileMeta: file?.meta,
-          fileKeys: file ? Object.keys(file) : null,
-          responseKeys: response ? Object.keys(response) : null
-        });
-        toast({
-          variant: "destructive",
-          title: "Upload Error",
-          description: "Upload succeeded but could not get photo URL. Please try again.",
-        });
-        return;
-      }
-      
-      // photoUrl is already normalized to a relative path starting with /objects/
-      // Convert relative path to absolute URL for display
-      const absolutePhotoUrl = `${window.location.origin}${photoUrl}`;
-      console.log('[AssetInventory] Final photo URL:', absolutePhotoUrl);
-      
-      // Add photo to preview immediately
-      setUploadedPhotos(prev => {
-        // Avoid duplicates
-        if (prev.includes(absolutePhotoUrl)) {
-          return prev;
-        }
-        return [...prev, absolutePhotoUrl];
-      });
-      
-      // Set ACL for the uploaded photo (in background, don't block UI)
-      fetch('/api/objects/set-acl', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ photoUrl: absolutePhotoUrl }),
-      })
-      .then(async (aclResponse) => {
-        if (aclResponse.ok) {
-          const { objectPath } = await aclResponse.json();
-          // If objectPath is different, update it (though it should be the same)
-          if (objectPath && objectPath !== photoUrl) {
-            const finalUrl = objectPath.startsWith('/') 
-              ? `${window.location.origin}${objectPath}` 
-              : objectPath;
-            
-            setUploadedPhotos(prev => {
-              const index = prev.indexOf(absolutePhotoUrl);
-              if (index >= 0) {
-                const updated = [...prev];
-                updated[index] = finalUrl;
-                return updated;
-              }
-              return prev;
-            });
+          photoUrl = extractFileUrlFromUploadResponse(mockFile, responseBody);
+        } catch (e) {
+          // Fallback: extract from upload URL
+          try {
+            const urlObj = new URL(uploadURL);
+            photoUrl = urlObj.pathname;
+          } catch {
+            photoUrl = uploadURL;
           }
         }
-      })
-      .catch(error => {
-        console.error('[AssetInventory] Error setting ACL (non-blocking):', error);
-      });
-      
-      toast({
-        title: "Photo uploaded",
-        description: "Photo has been uploaded successfully",
-      });
-    });
 
-    return uppyInstance;
-  }, [toast]);
+        if (photoUrl) {
+          const absolutePhotoUrl = photoUrl.startsWith('/')
+            ? `${window.location.origin}${photoUrl}`
+            : photoUrl;
+
+          setUploadedPhotos(prev => {
+            if (prev.includes(absolutePhotoUrl)) {
+              return prev;
+            }
+            return [...prev, absolutePhotoUrl];
+          });
+
+          // Set ACL in background
+          fetch('/api/objects/set-acl', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ photoUrl: absolutePhotoUrl }),
+          })
+          .then(async (aclResponse) => {
+            if (aclResponse.ok) {
+              const { objectPath } = await aclResponse.json();
+              if (objectPath && objectPath !== photoUrl) {
+                const finalUrl = objectPath.startsWith('/') 
+                  ? `${window.location.origin}${objectPath}` 
+                  : objectPath;
+                
+                setUploadedPhotos(prev => {
+                  const index = prev.indexOf(absolutePhotoUrl);
+                  if (index >= 0) {
+                    const updated = [...prev];
+                    updated[index] = finalUrl;
+                    return updated;
+                  }
+                  return prev;
+                });
+              }
+            }
+          })
+          .catch(error => {
+            console.error('[AssetInventory] Error setting ACL (non-blocking):', error);
+          });
+
+          toast({
+            title: "Photo uploaded",
+            description: "Photo has been uploaded successfully",
+          });
+        }
+
+        setPhotoUploadProgress(Math.round(((i + 1) / files.length) * 100));
+      }
+    } catch (error: any) {
+      console.error('[AssetInventory] Upload error:', error);
+      toast({
+        variant: "destructive",
+        title: "Upload Error",
+        description: error.message || "Failed to upload photos",
+      });
+    } finally {
+      setIsUploadingPhotos(false);
+    }
+  };
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setEditingAsset(null);
     setFormData({});
     setUploadedPhotos([]);
-    uppy.cancelAll();
+    setIsUploadingPhotos(false);
+    setPhotoUploadProgress(0);
   };
 
   const handleOpenDialog = (asset?: AssetInventory) => {
@@ -847,7 +833,16 @@ export default function AssetInventory() {
                     ))}
                   </div>
                 )}
-                <Dashboard uppy={uppy} proudlyDisplayPoweredByUppy={false} height={300} />
+                <ModernFilePickerInline
+                  onFilesSelected={handlePhotoFilesSelected}
+                  maxFiles={10}
+                  maxFileSize={10 * 1024 * 1024}
+                  accept="image/*"
+                  multiple={true}
+                  isUploading={isUploadingPhotos}
+                  uploadProgress={photoUploadProgress}
+                  height={300}
+                />
               </div>
 
               <DialogFooter>

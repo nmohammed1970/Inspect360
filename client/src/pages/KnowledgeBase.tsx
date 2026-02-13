@@ -27,9 +27,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import Uppy from '@uppy/core';
-import { Dashboard as UppyDashboard } from '@uppy/react';
-import AwsS3 from '@uppy/aws-s3';
+import { ModernFilePickerInline } from '@/components/ModernFilePickerInline';
+import { extractFileUrlFromUploadResponse } from '@/lib/utils';
 
 export default function KnowledgeBase() {
   const [, navigate] = useLocation();
@@ -46,29 +45,91 @@ export default function KnowledgeBase() {
     fileType: "",
     fileSizeBytes: 0,
   });
-  const [uppy] = useState(() =>
-    new Uppy({
-      restrictions: {
-        maxFileSize: 10 * 1024 * 1024,
-        allowedFileTypes: ['.pdf', '.docx', '.txt'],
-      },
-    }).use(AwsS3, {
-      endpoint: '/api/object-storage/upload',
-      shouldUseMultipart: false,
-    })
-  );
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [fileUploadProgress, setFileUploadProgress] = useState(0);
 
-  useEffect(() => {
-    const handleUploadSuccess = async (file: any, response: any) => {
-      const { extractFileUrlFromUploadResponse } = await import("@/lib/utils");
-      const fileUrl = extractFileUrlFromUploadResponse(file, response);
-      
-      if (fileUrl && file) {
-        // Convert relative path to absolute URL if needed
-        const absoluteUrl = fileUrl.startsWith('/') 
+  const handleFileSelected = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    const file = files[0]; // Knowledge base only supports single file
+    setIsUploadingFile(true);
+    setFileUploadProgress(0);
+
+    try {
+      // Get upload parameters
+      const response = await fetch('/api/object-storage/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get upload URL: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.uploadURL) {
+        throw new Error("Invalid upload URL response");
+      }
+
+      // Ensure URL is absolute
+      let uploadURL = data.uploadURL;
+      if (uploadURL.startsWith('/')) {
+        uploadURL = `${window.location.origin}${uploadURL}`;
+      }
+
+      // Upload file
+      const uploadResponse = await fetch(uploadURL, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type,
+        },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+      }
+
+      // Extract file URL
+      let fileUrl: string | null = null;
+      try {
+        const text = await uploadResponse.text();
+        let responseBody: any = null;
+        if (text) {
+          try {
+            responseBody = JSON.parse(text);
+          } catch {
+            responseBody = text;
+          }
+        }
+
+        const mockFile = {
+          response: {
+            body: responseBody,
+            url: uploadResponse.headers.get('Location') || undefined,
+          },
+          meta: {
+            originalUploadURL: uploadURL,
+          },
+        };
+
+        fileUrl = extractFileUrlFromUploadResponse(mockFile, responseBody);
+      } catch (e) {
+        // Fallback: extract from upload URL
+        try {
+          const urlObj = new URL(uploadURL);
+          fileUrl = urlObj.pathname;
+        } catch {
+          fileUrl = uploadURL;
+        }
+      }
+
+      if (fileUrl) {
+        const absoluteUrl = fileUrl.startsWith('/')
           ? `${window.location.origin}${fileUrl}`
           : fileUrl;
-        
+
         setUploadData(prev => ({
           ...prev,
           fileUrl: absoluteUrl,
@@ -77,14 +138,19 @@ export default function KnowledgeBase() {
           fileSizeBytes: file.size,
         }));
       }
-    };
 
-    uppy.on('upload-success', handleUploadSuccess);
-
-    return () => {
-      uppy.off('upload-success', handleUploadSuccess);
-    };
-  }, [uppy]);
+      setFileUploadProgress(100);
+    } catch (error: any) {
+      console.error('[KnowledgeBase] Upload error:', error);
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: error.message || "Failed to upload file",
+      });
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
 
   const { data: adminUser } = useQuery({
     queryKey: ["/api/admin/me"],
@@ -122,7 +188,8 @@ export default function KnowledgeBase() {
         fileType: "",
         fileSizeBytes: 0,
       });
-      uppy.reset();
+      setFileUploadProgress(0);
+      setIsUploadingFile(false);
       toast({
         title: "Document Uploaded",
         description: "Knowledge base document has been processed and uploaded successfully",
@@ -357,7 +424,16 @@ export default function KnowledgeBase() {
             <div>
               <Label>Upload File *</Label>
               <div className="mt-2">
-                <UppyDashboard uppy={uppy} height={250} />
+                <ModernFilePickerInline
+                  onFilesSelected={handleFileSelected}
+                  maxFiles={1}
+                  maxFileSize={10 * 1024 * 1024}
+                  accept=".pdf,.docx,.txt"
+                  multiple={false}
+                  isUploading={isUploadingFile}
+                  uploadProgress={fileUploadProgress}
+                  height={250}
+                />
               </div>
               {uploadData.fileName && (
                 <p className="text-sm text-muted-foreground mt-2">

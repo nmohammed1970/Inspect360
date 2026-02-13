@@ -11,10 +11,7 @@ import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles,
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import Uppy from "@uppy/core";
-import { Dashboard } from "@uppy/react";
-import AwsS3 from "@uppy/aws-s3";
-import Webcam from "@uppy/webcam";
+import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -94,6 +91,10 @@ export function FieldWidget({
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
   const [localMarkedForReview, setLocalMarkedForReview] = useState(markedForReview || false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoUploadProgress, setPhotoUploadProgress] = useState(0);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const signaturePadRef = useRef<SignatureCanvas>(null);
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
@@ -437,7 +438,164 @@ export function FieldWidget({
     }
   };
 
-  const createPhotoUppy = () => {
+  const handlePhotoFilesSelected = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setIsUploadingPhoto(true);
+    setPhotoUploadProgress(0);
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+
+        // Check if offline
+        if (!navigator.onLine) {
+          try {
+            const result = await fileUploadSync.uploadFile(
+              file,
+              '/api/objects/upload-file',
+              false
+            );
+
+            if (result.success && result.url) {
+              let displayUrl = result.url;
+              if (displayUrl.startsWith('offline://')) {
+                displayUrl = await fileUploadSync.getFileUrl(displayUrl) || displayUrl;
+              }
+
+              let photoUrl = displayUrl;
+              if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+                try {
+                  const urlObj = new URL(photoUrl);
+                  photoUrl = urlObj.pathname;
+                } catch (e) {
+                  // If parsing fails, use as is
+                }
+              } else if (photoUrl.startsWith('blob:')) {
+                photoUrl = result.url; // Store the offline:// URL
+              }
+
+              handlePhotoAdd(photoUrl);
+
+              toast({
+                title: "Saved Offline",
+                description: "Photo will upload when connection is restored",
+              });
+            } else {
+              throw new Error(result.error || 'Upload failed');
+            }
+          } catch (offlineError: any) {
+            console.error('[FieldWidget] Offline upload failed:', offlineError);
+            toast({
+              title: "Upload Failed",
+              description: `Failed to save photo: ${offlineError.message}`,
+              variant: "destructive",
+            });
+          }
+        } else {
+          // Online upload
+          try {
+            const response = await fetch("/api/objects/upload", {
+              method: "POST",
+              credentials: "include",
+            });
+
+            if (!response.ok) {
+              throw new Error(`Failed to get upload URL: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            if (!data.uploadURL) {
+              throw new Error("Invalid upload URL response");
+            }
+
+            let uploadURL = data.uploadURL;
+            if (uploadURL.startsWith('/')) {
+              uploadURL = `${window.location.origin}${uploadURL}`;
+            }
+
+            // Upload file
+            const uploadResponse = await fetch(uploadURL, {
+              method: 'PUT',
+              body: file,
+              headers: {
+                'Content-Type': file.type,
+              },
+            });
+
+            if (!uploadResponse.ok) {
+              throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+            }
+
+            // Extract file URL
+            let uploadUrl: string | null = null;
+            try {
+              const text = await uploadResponse.text();
+              let responseBody: any = null;
+              if (text) {
+                try {
+                  responseBody = JSON.parse(text);
+                } catch {
+                  responseBody = text;
+                }
+              }
+
+              const mockFile = {
+                response: {
+                  body: responseBody,
+                  url: uploadResponse.headers.get('Location') || undefined,
+                },
+                meta: {
+                  originalUploadURL: uploadURL,
+                },
+              };
+
+              uploadUrl = extractFileUrlFromUploadResponse(mockFile, responseBody);
+            } catch (e) {
+              try {
+                const urlObj = new URL(uploadURL);
+                uploadUrl = urlObj.pathname;
+              } catch {
+                uploadUrl = uploadURL;
+              }
+            }
+
+            if (uploadUrl) {
+              handlePhotoAdd(uploadUrl);
+
+              // Set ACL in background
+              const absolutePhotoUrl = `${window.location.origin}${uploadUrl}`;
+              fetch("/api/objects/set-acl", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ photoUrl: absolutePhotoUrl }),
+              }).catch((err) => {
+                console.warn('[FieldWidget] Error setting photo ACL (non-blocking):', err);
+              });
+            }
+          } catch (error: any) {
+            console.error('[FieldWidget] Upload error:', error);
+            toast({
+              title: "Upload Error",
+              description: error?.message || "Failed to upload photo",
+              variant: "destructive",
+            });
+          }
+        }
+
+        setPhotoUploadProgress(Math.round(((i + 1) / files.length) * 100));
+      }
+
+      setShowPhotoUpload(false);
+    } catch (error: any) {
+      console.error('[FieldWidget] Upload error:', error);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const createPhotoUppy_DEPRECATED = () => {
     // Allow up to 10 photos for all photo field types
     const maxFiles = 10;
     const uppy = new Uppy({
@@ -750,7 +908,103 @@ export function FieldWidget({
     return uppy;
   };
 
-  const createVideoUppy = () => {
+  const handleVideoFileSelected = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    const file = files[0]; // Only one video allowed
+    setIsUploadingVideo(true);
+    setVideoUploadProgress(0);
+
+    try {
+      // Get upload parameters
+      const response = await fetch("/api/objects/upload", {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get upload URL: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.uploadURL) {
+        throw new Error("Invalid upload URL response");
+      }
+
+      let uploadURL = data.uploadURL;
+      if (uploadURL.startsWith('/')) {
+        uploadURL = `${window.location.origin}${uploadURL}`;
+      }
+
+      // Upload file
+      const uploadResponse = await fetch(uploadURL, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type,
+        },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+      }
+
+      // Extract file URL
+      let uploadUrl: string | null = null;
+      try {
+        const text = await uploadResponse.text();
+        let responseBody: any = null;
+        if (text) {
+          try {
+            responseBody = JSON.parse(text);
+          } catch {
+            responseBody = text;
+          }
+        }
+
+        const mockFile = {
+          response: {
+            body: responseBody,
+            url: uploadResponse.headers.get('Location') || undefined,
+          },
+          meta: {
+            originalUploadURL: uploadURL,
+          },
+        };
+
+        uploadUrl = extractFileUrlFromUploadResponse(mockFile, responseBody);
+      } catch (e) {
+        try {
+          const urlObj = new URL(uploadURL);
+          uploadUrl = urlObj.pathname;
+        } catch {
+          uploadUrl = uploadURL;
+        }
+      }
+
+      if (uploadUrl) {
+        onChange(uploadUrl);
+        toast({
+          title: "Video uploaded",
+          description: "Video has been uploaded successfully",
+        });
+      }
+
+      setVideoUploadProgress(100);
+      setShowPhotoUpload(false);
+    } catch (error: any) {
+      console.error('[FieldWidget] Video upload error:', error);
+      toast({
+        title: "Upload Error",
+        description: error?.message || "Failed to upload video",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingVideo(false);
+    }
+  };
+
+  const createVideoUppy_DEPRECATED = () => {
     const uppy = new Uppy({
       restrictions: {
         maxNumberOfFiles: 1,
@@ -1183,11 +1437,15 @@ export function FieldWidget({
               {localPhotos.length > 0 ? "Add More Photos" : "Upload Photo"}
             </Button>
             {showPhotoUpload && (
-              <Dashboard
-                uppy={createPhotoUppy()}
-                proudlyDisplayPoweredByUppy={false}
+              <ModernFilePickerInline
+                onFilesSelected={handlePhotoFilesSelected}
+                maxFiles={10}
+                maxFileSize={10485760}
+                accept="image/*"
+                multiple={true}
+                isUploading={isUploadingPhoto}
+                uploadProgress={photoUploadProgress}
                 height={300}
-                plugins={['Webcam']}
               />
             )}
           </div>
@@ -1214,9 +1472,14 @@ export function FieldWidget({
               {localValue ? "Replace Video" : "Upload Video"}
             </Button>
             {showPhotoUpload && (
-              <Dashboard
-                uppy={createVideoUppy()}
-                proudlyDisplayPoweredByUppy={false}
+              <ModernFilePickerInline
+                onFilesSelected={handleVideoFileSelected}
+                maxFiles={1}
+                maxFileSize={104857600}
+                accept="video/*"
+                multiple={false}
+                isUploading={isUploadingVideo}
+                uploadProgress={videoUploadProgress}
                 height={300}
               />
             )}

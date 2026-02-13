@@ -345,9 +345,9 @@ export default function ComplianceDocumentCalendar({ entityType, entityId, docum
                         docType.status === 'expiring_soon' ? 'secondary' :
                         'destructive'
                       }
-                      className={!hasDocs ? 'text-muted-foreground' : (docType.status === 'valid' || docType.status === 'no_expiry' ? 'bg-green-600' : '')}
+                      className={`${!hasDocs ? 'text-muted-foreground' : (docType.status === 'valid' || docType.status === 'no_expiry' ? 'bg-green-600' : '')} min-w-[100px] inline-flex justify-center`}
                     >
-                      {!hasDocs ? 'Missing' : (docType.status === 'no_expiry' ? 'Valid' : docType.status.replace('_', ' '))}
+                      {!hasDocs ? 'Missing' : (docType.status === 'no_expiry' ? 'Valid' : docType.status.replace('_', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '))}
                     </Badge>
                   </div>
                 </div>

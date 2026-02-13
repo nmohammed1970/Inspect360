@@ -57,10 +57,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertMaintenanceRequestSchema } from "@shared/schema";
 import type { MaintenanceRequest, Property, User } from "@shared/schema";
 import { z } from "zod";
-import Uppy from "@uppy/core";
-import AwsS3 from "@uppy/aws-s3";
-import { Dashboard } from "@uppy/react";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
+import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -158,7 +157,8 @@ export default function Maintenance() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStep, setCurrentStep] = useState<"form" | "images" | "suggestions" | "review">("form");
-  const uppyRef = useRef<Uppy | null>(null);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [imageUploadProgress, setImageUploadProgress] = useState(0);
   const processedMaintenanceIdRef = useRef<string | null>(null);
 
   // Work order creation state
@@ -380,107 +380,93 @@ export default function Maintenance() {
     },
   });
 
-  // Initialize Uppy for image uploads
-  useEffect(() => {
-    if (isCreateOpen && user?.role === "tenant" && !uppyRef.current) {
-      const uppy = new Uppy({
-        restrictions: {
-          maxFileSize: 10 * 1024 * 1024, // 10MB
-          maxNumberOfFiles: 5,
-          allowedFileTypes: ["image/*"],
-        },
-        autoProceed: false,
-      });
+  const handleImageFilesSelected = async (files: File[]) => {
+    if (files.length === 0) return;
 
-      uppy.use(AwsS3, {
-        shouldUseMultipart: false,
-        async getUploadParameters(file) {
-          try {
-            const response = await fetch("/api/objects/upload", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-            });
+    setIsUploadingImages(true);
+    setImageUploadProgress(0);
 
-            if (!response.ok) {
-              throw new Error(`Failed to get upload URL: ${response.statusText}`);
-            }
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Get upload parameters
+        const response = await fetch("/api/objects/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        });
 
-            const data = await response.json();
+        if (!response.ok) {
+          throw new Error(`Failed to get upload URL: ${response.statusText}`);
+        }
 
-            if (!data.uploadURL) {
-              throw new Error("Invalid upload URL response");
-            }
+        const data = await response.json();
+        if (!data.uploadURL) {
+          throw new Error("Invalid upload URL response");
+        }
 
-            // Ensure URL is absolute
-            let uploadURL = data.uploadURL;
-            if (uploadURL.startsWith('/')) {
-              // Convert relative URL to absolute
-              uploadURL = `${window.location.origin}${uploadURL}`;
-            }
+        // Ensure URL is absolute
+        let uploadURL = data.uploadURL;
+        if (uploadURL.startsWith('/')) {
+          uploadURL = `${window.location.origin}${uploadURL}`;
+        }
 
-            // Validate URL
+        // Upload file
+        const uploadResponse = await fetch(uploadURL, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+        }
+
+        // Extract file URL
+        let fileUrl: string | null = null;
+        try {
+          const text = await uploadResponse.text();
+          let responseBody: any = null;
+          if (text) {
             try {
-              new URL(uploadURL);
-            } catch (e) {
-              throw new Error(`Invalid upload URL format: ${uploadURL}`);
+              responseBody = JSON.parse(text);
+            } catch {
+              responseBody = text;
             }
-
-            // Extract objectId from upload URL and store in metadata
-            try {
-              const urlObj = new URL(uploadURL);
-              const objectId = urlObj.searchParams.get('objectId');
-              if (objectId) {
-                uppy.setFileMeta(file.id, {
-                  originalUploadURL: uploadURL,
-                  objectId: objectId,
-                });
-              } else {
-                uppy.setFileMeta(file.id, {
-                  originalUploadURL: uploadURL,
-                });
-              }
-            } catch (e) {
-              uppy.setFileMeta(file.id, {
-                originalUploadURL: uploadURL,
-              });
-            }
-
-            return {
-              method: "PUT" as const,
-              url: uploadURL,
-              headers: {
-                "Content-Type": file.type || "application/octet-stream",
-              },
-              fields: {},
-            };
-          } catch (error: any) {
-            console.error("[Maintenance] Upload URL error:", error);
-            throw new Error(`Failed to get upload URL: ${error.message}`);
           }
-        },
-      });
 
-      uppy.on("upload-success", async (file, response) => {
-        // Import the helper function
-        const { extractFileUrlFromUploadResponse } = await import("@/lib/utils");
-        let fileUrl = extractFileUrlFromUploadResponse(file, response);
+          const mockFile = {
+            response: {
+              body: responseBody,
+              url: uploadResponse.headers.get('Location') || undefined,
+            },
+            meta: {
+              originalUploadURL: uploadURL,
+            },
+          };
 
-        // If extraction failed, try to use objectId from metadata as fallback
-        if (!fileUrl && file?.meta?.objectId) {
-          fileUrl = `/objects/${file.meta.objectId}`;
-          console.log('[Maintenance] Using objectId fallback:', fileUrl);
+          fileUrl = extractFileUrlFromUploadResponse(mockFile, responseBody);
+        } catch (e) {
+          // Fallback: extract from upload URL
+          try {
+            const urlObj = new URL(uploadURL);
+            fileUrl = urlObj.pathname;
+          } catch {
+            fileUrl = uploadURL;
+          }
         }
 
         if (fileUrl) {
-          // Convert relative path to absolute URL for display
           const absoluteUrl = fileUrl.startsWith('/')
             ? `${window.location.origin}${fileUrl}`
             : fileUrl;
 
           setUploadedImages((prev) => {
             if (prev.includes(absoluteUrl)) {
-              return prev; // Avoid duplicates
+              return prev;
             }
             return [...prev, absoluteUrl];
           });
@@ -494,21 +480,21 @@ export default function Maintenance() {
           }).catch(error => {
             console.error('[Maintenance] Error setting ACL:', error);
           });
-        } else {
-          console.error('[Maintenance] No upload URL found in response:', { file, response });
         }
-      });
 
-      uppyRef.current = uppy;
-    }
-
-    return () => {
-      if (uppyRef.current) {
-        uppyRef.current.clear();
-        uppyRef.current = null;
+        setImageUploadProgress(Math.round(((i + 1) / files.length) * 100));
       }
-    };
-  }, [isCreateOpen, user?.role]);
+    } catch (error: any) {
+      console.error('[Maintenance] Upload error:', error);
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: error.message || "Failed to upload images",
+      });
+    } finally {
+      setIsUploadingImages(false);
+    }
+  };
 
   // Auto-open maintenance request when ID is in URL (must be after form initialization)
   useEffect(() => {
@@ -892,9 +878,18 @@ export default function Maintenance() {
                 )}
 
                 {/* Step 2: Image Upload */}
-                {currentStep === "images" && uppyRef.current && (
+                {currentStep === "images" && (
                   <div className="space-y-4">
-                    <Dashboard uppy={uppyRef.current} proudlyDisplayPoweredByUppy={false} height={300} />
+                    <ModernFilePickerInline
+                      onFilesSelected={handleImageFilesSelected}
+                      maxFiles={5}
+                      maxFileSize={10 * 1024 * 1024}
+                      accept="image/*"
+                      multiple={true}
+                      isUploading={isUploadingImages}
+                      uploadProgress={imageUploadProgress}
+                      height={300}
+                    />
                     <div className="flex flex-col gap-2">
                       {uploadedImages.length > 0 && (
                         <p className="text-sm text-muted-foreground">{uploadedImages.length} image(s) uploaded</p>

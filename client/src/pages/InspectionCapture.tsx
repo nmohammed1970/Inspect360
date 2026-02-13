@@ -8,7 +8,8 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Inspection } from "@shared/schema";
@@ -66,6 +67,7 @@ export default function InspectionCapture() {
   const { toast } = useToast();
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
+  const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const isOnline = useOnlineStatus();
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -180,6 +182,8 @@ export default function InspectionCapture() {
   useEffect(() => {
     if (existingEntries && existingEntries.length > 0) {
       const entriesMap: Record<string, InspectionEntry> = {};
+      const countsMap: Record<string, number> = {};
+      
       existingEntries.forEach((entry: any) => {
         const key = `${entry.sectionRef}-${entry.fieldKey}`;
         entriesMap[key] = {
@@ -193,7 +197,29 @@ export default function InspectionCapture() {
           maintenanceFlag: entry.maintenanceFlag,
           markedForReview: entry.markedForReview,
         };
+        
+        // Extract repeatable instance count from sectionRef (e.g., "Bedrooms/Bedroom 1" -> 1)
+        // Check if sectionRef contains instance pattern like "SectionName/InstanceName N"
+        const sectionRefParts = entry.sectionRef.split('/');
+        if (sectionRefParts.length > 1) {
+          const instancePart = sectionRefParts[1];
+          const match = instancePart.match(/(\d+)$/); // Extract number at end
+          if (match) {
+            const instanceNum = parseInt(match[1], 10);
+            const baseSectionId = sectionRefParts[0];
+            // Track max instance number for each repeatable section
+            if (!countsMap[baseSectionId] || instanceNum > countsMap[baseSectionId]) {
+              countsMap[baseSectionId] = instanceNum;
+            }
+          }
+        }
       });
+      
+      // Set repeatable counts
+      if (Object.keys(countsMap).length > 0) {
+        setRepeatableCounts(prev => ({ ...prev, ...countsMap }));
+      }
+      
       // Merge with existing entries to preserve any local changes, but prioritize server data
       // Only update if there are actual changes to prevent infinite loops
       setEntries(prev => {
@@ -488,7 +514,14 @@ export default function InspectionCapture() {
   }, [inspection, id]);
 
   // Calculate progress - count entries with values OR photos
-  const totalFields = sections.reduce((acc, section) => acc + section.fields.length, 0);
+  // For repeatable sections, multiply field count by instance count
+  const totalFields = sections.reduce((acc, section) => {
+    if (section.repeatable) {
+      const count = repeatableCounts[section.id] ?? 1;
+      return acc + (section.fields.length * count);
+    }
+    return acc + section.fields.length;
+  }, 0);
   const completedFields = Object.values(entries).filter(entry => {
     // Count as complete if has valueJson OR photos
     const hasValue = entry.valueJson !== null && entry.valueJson !== undefined;
@@ -589,12 +622,45 @@ export default function InspectionCapture() {
     });
   }, [property?.address, templateStructure, sections, existingEntries, id, isOnline, updateEntry]);
 
+  // Handle repeatable count change
+  const handleRepeatableCountChange = (sectionId: string, count: number) => {
+    const newCount = Math.max(1, Math.min(50, count)); // Limit between 1 and 50
+    setRepeatableCounts(prev => ({
+      ...prev,
+      [sectionId]: newCount,
+    }));
+    
+    // If count is reduced, remove entries for instances beyond the new count
+    if (newCount < (prev[sectionId] ?? 1)) {
+      setEntries(prev => {
+        const updated = { ...prev };
+        const section = sections.find(s => s.id === sectionId);
+        if (section) {
+          // Remove entries for instances beyond new count
+          for (let i = newCount + 1; i <= (prev[sectionId] ?? 1); i++) {
+            const instanceName = `${section.title} ${i}`;
+            section.fields.forEach(field => {
+              const entryKey = `${sectionId}/${instanceName}-${field.id}`;
+              delete updated[entryKey];
+            });
+          }
+        }
+        return updated;
+      });
+    }
+  };
+
   // Handle field value change
-  const handleFieldChange = (fieldKey: string, value: any, note?: string | undefined, photos?: string[] | undefined) => {
+  const handleFieldChange = (fieldKey: string, value: any, note?: string | undefined, photos?: string[] | undefined, instanceIndex?: number) => {
     const field = currentSection.fields.find(f => f.id === fieldKey);
     if (!field) return;
 
-    const entryKey = `${currentSection.id}-${fieldKey}`;
+    // For repeatable sections, use instance-specific sectionRef
+    const sectionRef = instanceIndex !== undefined 
+      ? `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
+      : currentSection.id;
+    
+    const entryKey = `${sectionRef}-${fieldKey}`;
     const existingEntry = entries[entryKey];
 
     // Check if this is a photo removal operation (photos array passed but possibly empty)
@@ -614,7 +680,7 @@ export default function InspectionCapture() {
     if (!isOnline) {
       offlineQueue.enqueue({
         inspectionId: id!,
-        sectionRef: currentSection.id,
+        sectionRef,
         fieldKey,
         fieldType: field.type,
         valueJson: value,
@@ -626,7 +692,7 @@ export default function InspectionCapture() {
       setEntries(prev => ({
         ...prev,
         [entryKey]: {
-          sectionRef: currentSection.id,
+          sectionRef,
           fieldKey,
           fieldType: field.type,
           valueJson: value,
@@ -645,7 +711,7 @@ export default function InspectionCapture() {
     }
 
     const entry: InspectionEntry = {
-      sectionRef: currentSection.id,
+      sectionRef,
       fieldKey,
       fieldType: field.type,
       valueJson: value,
@@ -665,8 +731,11 @@ export default function InspectionCapture() {
   };
 
   // Handle mark for review change
-  const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean) => {
-    const entryKey = `${currentSection.id}-${fieldKey}`;
+  const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean, instanceIndex?: number) => {
+    const sectionRef = instanceIndex !== undefined 
+      ? `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
+      : currentSection.id;
+    const entryKey = `${sectionRef}-${fieldKey}`;
     const entry = entries[entryKey];
 
     // Update local state optimistically
@@ -1025,88 +1094,229 @@ export default function InspectionCapture() {
             )}
           </CardHeader>
           <CardContent className="space-y-6">
-            {currentSection.fields.map((field) => {
-              const entryKey = `${currentSection.id}-${field.id}`;
-              const entry = entries[entryKey];
-              
-              // Build auto-context for auto-populated fields
-              const getAddress = () => {
-                if (property) {
-                  return [property.address, property.city, property.state, property.postalCode]
-                    .filter(Boolean).join(", ");
-                }
-                if (block) {
-                  return [block.address, block.city, block.state, block.postalCode]
-                    .filter(Boolean).join(", ");
-                }
-                return "";
-              };
-              
-              const getTenantNames = () => {
-                if (tenants && tenants.length > 0) {
-                  // Try to get tenant names from various possible data structures
-                  const tenantNames = tenants
-                    .map((t: any) => {
-                      // Check various possible field names for tenant name
-                      return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
-                             t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
-                             t.firstName || t.lastName || "";
-                    })
-                    .filter(Boolean);
-                  
-                  if (tenantNames.length > 0) {
-                    return tenantNames.join(", ");
-                  }
-                  
-                  // If no names found but tenants exist, check if they have any identifying info
-                  const hasAnyTenant = tenants.some((t: any) => 
-                    t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                  );
-                  
-                  if (hasAnyTenant) {
-                    // Return a generic message if we have tenant data but no names
-                    return "Tenant assigned";
-                  }
-                }
-                return "";
-              };
-              
-              const autoContext = {
-                inspectorName: inspector?.fullName || inspector?.username || "",
-                address: getAddress(),
-                tenantNames: getTenantNames(),
-                inspectionDate: inspection?.scheduledDate 
-                  ? new Date(inspection.scheduledDate).toISOString().split("T")[0] 
-                  : new Date().toISOString().split("T")[0],
-              };
+            {/* Repeatable section count input */}
+            {currentSection.repeatable && (
+              <div className="p-4 bg-muted/50 rounded-lg border-2 border-dashed">
+                <Label htmlFor={`repeatable-count-${currentSection.id}`} className="text-base font-semibold mb-2 block">
+                  How many {currentSection.title.toLowerCase()}?
+                </Label>
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const currentCount = repeatableCounts[currentSection.id] ?? 1;
+                      handleRepeatableCountChange(currentSection.id, currentCount - 1);
+                    }}
+                    disabled={(repeatableCounts[currentSection.id] ?? 1) <= 1}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                  <Input
+                    id={`repeatable-count-${currentSection.id}`}
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={repeatableCounts[currentSection.id] ?? 1}
+                    onChange={(e) => {
+                      const count = parseInt(e.target.value, 10) || 1;
+                      handleRepeatableCountChange(currentSection.id, count);
+                    }}
+                    className="w-24 text-center"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const currentCount = repeatableCounts[currentSection.id] ?? 1;
+                      handleRepeatableCountChange(currentSection.id, currentCount + 1);
+                    }}
+                    disabled={(repeatableCounts[currentSection.id] ?? 1) >= 50}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    {(repeatableCounts[currentSection.id] ?? 1) > 0 
+                      ? `${repeatableCounts[currentSection.id] ?? 1} ${currentSection.title.toLowerCase()} will be created`
+                      : "Enter the number of items to inspect"}
+                  </span>
+                </div>
+              </div>
+            )}
 
-              return (
-                <FieldWidget
-                  key={field.id}
-                  field={field}
-                  value={entry?.valueJson}
-                  note={entry?.note}
-                  photos={entry?.photos}
-                  inspectionId={id}
-                  entryId={entry?.id}
-                  isCheckOut={inspection?.type === "check_out"}
-                  markedForReview={entry?.markedForReview || false}
-                  sectionName={currentSection.title}
-                  autoContext={autoContext}
-                  onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
-                  onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
-                  onLogMaintenance={(fieldLabel: string, photos: string[]) => {
-                    setMaintenanceContext({
-                      fieldLabel,
-                      sectionTitle: currentSection.title,
-                      entryId: entry?.id,
-                      photos,
-                    });
-                    setShowMaintenanceSheet(true);
-                  }}
-                />
-              );
-            })}
+            {/* Render fields - for repeatable sections, render for each instance */}
+            {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
+              // Render instances for repeatable sections
+              Array.from({ length: repeatableCounts[currentSection.id] ?? 1 }).map((_, instanceIndex) => {
+                const instanceName = `${currentSection.title} ${instanceIndex + 1}`;
+                return (
+                  <div key={`instance-${instanceIndex}`} className="space-y-6 p-4 border-2 rounded-lg bg-card">
+                    <h3 className="text-lg font-semibold text-primary">{instanceName}</h3>
+                    {currentSection.fields.map((field) => {
+                      const sectionRef = `${currentSection.id}/${instanceName}`;
+                      const entryKey = `${sectionRef}-${field.id}`;
+                      const entry = entries[entryKey];
+                      
+                      // Build auto-context for auto-populated fields
+                      const getAddress = () => {
+                        if (property) {
+                          return [property.address, property.city, property.state, property.postalCode]
+                            .filter(Boolean).join(", ");
+                        }
+                        if (block) {
+                          return [block.address, block.city, block.state, block.postalCode]
+                            .filter(Boolean).join(", ");
+                        }
+                        return "";
+                      };
+                      
+                      const getTenantNames = () => {
+                        if (tenants && tenants.length > 0) {
+                          const tenantNames = tenants
+                            .map((t: any) => {
+                              return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
+                                     t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
+                                     t.firstName || t.lastName || "";
+                            })
+                            .filter(Boolean);
+                          
+                          if (tenantNames.length > 0) {
+                            return tenantNames.join(", ");
+                          }
+                          
+                          const hasAnyTenant = tenants.some((t: any) => 
+                            t.tenantName || t.name || t.tenant || t.firstName || t.lastName
+                          );
+                          
+                          if (hasAnyTenant) {
+                            return "Tenant assigned";
+                          }
+                        }
+                        return "";
+                      };
+                      
+                      const autoContext = {
+                        inspectorName: inspector?.fullName || inspector?.username || "",
+                        address: getAddress(),
+                        tenantNames: getTenantNames(),
+                        inspectionDate: inspection?.scheduledDate 
+                          ? new Date(inspection.scheduledDate).toISOString().split("T")[0] 
+                          : new Date().toISOString().split("T")[0],
+                      };
+
+                      return (
+                        <FieldWidget
+                          key={`${instanceIndex}-${field.id}`}
+                          field={field}
+                          value={entry?.valueJson}
+                          note={entry?.note}
+                          photos={entry?.photos}
+                          inspectionId={id}
+                          entryId={entry?.id}
+                          isCheckOut={inspection?.type === "check_out"}
+                          markedForReview={entry?.markedForReview || false}
+                          sectionName={instanceName}
+                          autoContext={autoContext}
+                          onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos, instanceIndex)}
+                          onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked, instanceIndex)}
+                          onLogMaintenance={(fieldLabel: string, photos: string[]) => {
+                            setMaintenanceContext({
+                              fieldLabel,
+                              sectionTitle: instanceName,
+                              entryId: entry?.id,
+                              photos,
+                            });
+                            setShowMaintenanceSheet(true);
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })
+            ) : !currentSection.repeatable ? (
+              // Render normally for non-repeatable sections
+              currentSection.fields.map((field) => {
+                const entryKey = `${currentSection.id}-${field.id}`;
+                const entry = entries[entryKey];
+                
+                // Build auto-context for auto-populated fields
+                const getAddress = () => {
+                  if (property) {
+                    return [property.address, property.city, property.state, property.postalCode]
+                      .filter(Boolean).join(", ");
+                  }
+                  if (block) {
+                    return [block.address, block.city, block.state, block.postalCode]
+                      .filter(Boolean).join(", ");
+                  }
+                  return "";
+                };
+                
+                const getTenantNames = () => {
+                  if (tenants && tenants.length > 0) {
+                    const tenantNames = tenants
+                      .map((t: any) => {
+                        return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
+                               t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
+                               t.firstName || t.lastName || "";
+                      })
+                      .filter(Boolean);
+                    
+                    if (tenantNames.length > 0) {
+                      return tenantNames.join(", ");
+                    }
+                    
+                    const hasAnyTenant = tenants.some((t: any) => 
+                      t.tenantName || t.name || t.tenant || t.firstName || t.lastName
+                    );
+                    
+                    if (hasAnyTenant) {
+                      return "Tenant assigned";
+                    }
+                  }
+                  return "";
+                };
+                
+                const autoContext = {
+                  inspectorName: inspector?.fullName || inspector?.username || "",
+                  address: getAddress(),
+                  tenantNames: getTenantNames(),
+                  inspectionDate: inspection?.scheduledDate 
+                    ? new Date(inspection.scheduledDate).toISOString().split("T")[0] 
+                    : new Date().toISOString().split("T")[0],
+                };
+
+                return (
+                  <FieldWidget
+                    key={field.id}
+                    field={field}
+                    value={entry?.valueJson}
+                    note={entry?.note}
+                    photos={entry?.photos}
+                    inspectionId={id}
+                    entryId={entry?.id}
+                    isCheckOut={inspection?.type === "check_out"}
+                    markedForReview={entry?.markedForReview || false}
+                    sectionName={currentSection.title}
+                    autoContext={autoContext}
+                    onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
+                    onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
+                    onLogMaintenance={(fieldLabel: string, photos: string[]) => {
+                      setMaintenanceContext({
+                        fieldLabel,
+                        sectionTitle: currentSection.title,
+                        entryId: entry?.id,
+                        photos,
+                      });
+                      setShowMaintenanceSheet(true);
+                    }}
+                  />
+                );
+              })
+            ) : null}
           </CardContent>
         </Card>
       )}

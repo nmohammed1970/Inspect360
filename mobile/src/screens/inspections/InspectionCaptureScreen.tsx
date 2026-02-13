@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Platform,
   KeyboardAvoidingView,
+  TextInput,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -76,6 +77,7 @@ export default function InspectionCaptureScreen() {
 
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
+  const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const [copyImages, setCopyImages] = useState(false);
   const [copyNotes, setCopyNotes] = useState(false);
   const [syncStats, setSyncStats] = useState({ pendingEntries: 0, pendingImages: 0, queuedOperations: 0 });
@@ -279,6 +281,8 @@ export default function InspectionCaptureScreen() {
     }
 
     const entriesMap: Record<string, InspectionEntry> = {};
+    const countsMap: Record<string, number> = {};
+    
     entriesToUse.forEach((entry: any) => {
       const key = `${entry.sectionRef}-${entry.fieldKey}`;
       entriesMap[key] = {
@@ -293,7 +297,42 @@ export default function InspectionCaptureScreen() {
         maintenanceFlag: entry.maintenanceFlag,
         markedForReview: entry.markedForReview,
       };
+      
+      // Extract repeatable instance count from sectionRef (e.g., "Bedrooms/Bedroom 1" -> 1)
+      const sectionRefParts = entry.sectionRef.split('/');
+      if (sectionRefParts.length > 1) {
+        const instancePart = sectionRefParts[1];
+        const match = instancePart.match(/(\d+)$/); // Extract number at end
+        if (match) {
+          const instanceNum = parseInt(match[1], 10);
+          const baseSectionId = sectionRefParts[0];
+          // Track max instance number for each repeatable section
+          if (!countsMap[baseSectionId] || instanceNum > countsMap[baseSectionId]) {
+            countsMap[baseSectionId] = instanceNum;
+          }
+        }
+      }
     });
+    
+    // Set repeatable counts
+    if (Object.keys(countsMap).length > 0) {
+      setRepeatableCounts(prev => ({ ...prev, ...countsMap }));
+    }
+  }, [effectiveEntries, sections]);
+
+  // Initialize repeatable sections to 1 by default
+  useEffect(() => {
+    if (sections.length > 0) {
+      const defaultCounts: Record<string, number> = {};
+      sections.forEach(section => {
+        if (section.repeatable && !repeatableCounts[section.id]) {
+          defaultCounts[section.id] = 1;
+        }
+      });
+      if (Object.keys(defaultCounts).length > 0) {
+        setRepeatableCounts(prev => ({ ...prev, ...defaultCounts }));
+      }
+    }
 
     setEntries(prev => {
       // Merge entries from server, prioritizing server data for photos and notes when copying
@@ -605,7 +644,14 @@ export default function InspectionCaptureScreen() {
 
   // Calculate progress (memoized to prevent recalculation on every render)
   const { totalFields, completedFields, progress } = useMemo(() => {
-    const total = sections.reduce((acc, section) => acc + section.fields.length, 0);
+    // For repeatable sections, multiply field count by instance count
+    const total = sections.reduce((acc, section) => {
+      if (section.repeatable) {
+        const count = repeatableCounts[section.id] ?? 1;
+        return acc + (section.fields.length * count);
+      }
+      return acc + section.fields.length;
+    }, 0);
     const completed = Object.values(entries).filter(entry => {
       const hasValue = entry.valueJson !== null && entry.valueJson !== undefined;
       const hasPhotos = entry.photos && entry.photos.length > 0;
@@ -613,7 +659,7 @@ export default function InspectionCaptureScreen() {
     }).length;
     const prog = total > 0 ? (completed / total) * 100 : 0;
     return { totalFields: total, completedFields: completed, progress: prog };
-  }, [sections, entries]);
+  }, [sections, entries, repeatableCounts]);
 
   const currentSection = sections[currentSectionIndex] || null;
 
@@ -640,13 +686,43 @@ export default function InspectionCaptureScreen() {
     setShowRightFade(sections.length > 2); // Show fade if more than 2 tabs (rough estimate)
   }, [sections.length]);
 
+  // Handle repeatable count change
+  const handleRepeatableCountChange = React.useCallback((sectionId: string, count: number) => {
+    const newCount = Math.max(1, Math.min(50, count)); // Limit between 1 and 50
+    setRepeatableCounts(prev => ({
+      ...prev,
+      [sectionId]: newCount,
+    }));
+    
+    // If count is reduced, remove entries for instances beyond the new count
+    const prevCount = repeatableCounts[sectionId] ?? 1;
+    if (newCount < prevCount) {
+      setEntries(prev => {
+        const updated = { ...prev };
+        const section = sections.find(s => s.id === sectionId);
+        if (section) {
+          // Remove entries for instances beyond new count
+          for (let i = newCount + 1; i <= prevCount; i++) {
+            const instanceName = `${section.title} ${i}`;
+            section.fields.forEach(field => {
+              const entryKey = `${sectionId}/${instanceName}-${field.id || field.key}`;
+              delete updated[entryKey];
+            });
+          }
+        }
+        return updated;
+      });
+    }
+  }, [sections, repeatableCounts]);
+
   const handleFieldChange = React.useCallback(async (
     sectionRef: string,
     fieldKey: string,
     value: any,
     note?: string,
     photos?: string[],
-    markedForReview?: boolean
+    markedForReview?: boolean,
+    instanceIndex?: number
   ) => {
     // Prevent changes if inspection is completed
     if (effectiveInspection?.status === 'completed') {
@@ -668,9 +744,15 @@ export default function InspectionCaptureScreen() {
       return;
     }
 
-    const key = `${sectionRef}-${fieldKey}`;
+    // For repeatable sections, use instance-specific sectionRef
+    const currentSection = sections.find(s => s.id === sectionRef);
+    const finalSectionRef = instanceIndex !== undefined && currentSection
+      ? `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
+      : sectionRef;
+
+    const key = `${finalSectionRef}-${fieldKey}`;
     const existingEntry = entries[key];
-    const fieldType = sections.find(s => s.id === sectionRef)?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type || 'text';
+    const fieldType = currentSection?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type || 'text';
 
     // CRITICAL FIX: Use the entry key (sectionRef-fieldKey) as the entry ID
     // This ensures photos uploaded before entry creation can be associated correctly
@@ -681,7 +763,7 @@ export default function InspectionCaptureScreen() {
       ...existingEntry,
       id: entryId, // Always use the key format for consistency
       inspectionId,
-      sectionRef,
+      sectionRef: finalSectionRef,
       fieldKey,
       fieldType,
       valueJson: value !== undefined ? value : existingEntry?.valueJson,
@@ -698,7 +780,7 @@ export default function InspectionCaptureScreen() {
 
     // Auto-save mutation
     updateEntry.mutate(newEntry);
-  }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted]);
+  }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted, entries]);
 
   const handleComplete = async () => {
     // Check if progress is less than 100%
@@ -1253,140 +1335,326 @@ export default function InspectionCaptureScreen() {
                   </Card>
                 )}
 
-                {currentSection.fields.map((field, fieldIndex) => {
-                  if (!field || !field.id && !field.key) {
-                    console.warn('Invalid field found:', field);
-                    return null;
-                  }
-
-                  try {
-                    const key = `${currentSection.id}-${field.id || field.key}`;
-                    const entry = entries[key];
-                    
-                    // CRITICAL FIX: Always use the key format (sectionRef-fieldKey) as entryId
-                    // This ensures consistency between entries and photos
-                    const properEntryId = entry?.id || key;
-
-                    return (
-                      <View key={field.id || field.key || `field-${Math.random()}`} style={styles.fieldContainer}>
-                        <FieldWidget
-                          field={field}
-                          value={entry?.valueJson}
-                          note={entry?.note}
-                          photos={entry?.photos}
-                          inspectionId={inspectionId}
-                          entryId={properEntryId}
-                          sectionName={currentSection.title}
-                          isCheckOut={effectiveInspection?.type === 'check_out'}
-                          markedForReview={entry?.markedForReview || false}
-                          disabled={effectiveInspection?.status === 'completed' || isDeleted}
-                          autoContext={{
-                            inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
-                            address: property
-                              ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
-                              : block
-                                ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
-                                : '',
-                            tenantNames: Array.isArray(tenants) && tenants.length > 0
-                              ? (() => {
-                                  // Try to get tenant names from various possible data structures
-                                  const tenantNames = tenants
-                                    .map((t: any) => {
-                                      // Check various possible field names for tenant name
-                                      return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
-                                             (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
-                                             t.firstName || t.lastName || "");
-                                    })
-                                    .filter(Boolean);
-                                  
-                                  if (tenantNames.length > 0) {
-                                    return tenantNames.join(", ");
-                                  }
-                                  
-                                  // If no names found but tenants exist, check if they have any identifying info
-                                  const hasAnyTenant = tenants.some((t: any) => 
-                                    t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                                  );
-                                  
-                                  if (hasAnyTenant) {
-                                    // Return a generic message if we have tenant data but no names
-                                    return "Tenant assigned";
-                                  }
-                                  
-                                  return "";
-                                })()
-                              : '',
-                            inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
-                          }}
-                          onChange={(value, note, photos) =>
-                            handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
+                {/* Repeatable section count input */}
+                {currentSection.repeatable && (
+                  <Card style={[styles.fieldContainer, { backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT }]}>
+                    <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
+                      How many {currentSection.title.toLowerCase()}?
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginTop: spacing[2] }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const currentCount = repeatableCounts[currentSection.id] ?? 1;
+                          handleRepeatableCountChange(currentSection.id, currentCount - 1);
+                        }}
+                        disabled={(repeatableCounts[currentSection.id] ?? 1) <= 1}
+                        style={[
+                          styles.countButton,
+                          {
+                            backgroundColor: themeColors.primary.DEFAULT,
+                            opacity: (repeatableCounts[currentSection.id] ?? 1) <= 1 ? 0.5 : 1,
                           }
-                          onMarkedForReviewChange={(marked) => {
-                            handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked);
-                          }}
-                          onLogMaintenance={(fieldLabel, photos) => {
-                            // Navigate to maintenance creation with context from inspection
-                            // Navigate from RootStack -> Main -> Maintenance -> CreateMaintenance
-                            try {
-                              // Get the root navigator (RootStack)
-                              const rootNavigator = navigation.getParent()?.getParent();
-                              if (rootNavigator) {
-                                rootNavigator.dispatch(
-                                  CommonActions.navigate({
-                                    name: 'Main',
-                                    params: {
-                                      screen: 'Maintenance',
-                                      params: {
-                                        screen: 'CreateMaintenance',
-                                        params: {
-                                          inspectionId,
-                                          propertyId: effectiveInspection?.propertyId,
-                                          blockId: effectiveInspection?.blockId,
-                                          fieldLabel,
-                                          photos,
-                                          entryId: entry?.id,
-                                          sectionTitle: currentSection?.title,
-                                        },
-                                      },
-                                    },
-                                  })
-                                );
-                              } else {
-                                // Fallback: try tab navigator directly
-                                const tabNavigator = navigation.getParent();
-                                if (tabNavigator) {
-                                  (tabNavigator as any).navigate('Maintenance', {
-                                    screen: 'CreateMaintenance',
-                                    params: {
-                                      inspectionId,
-                                      propertyId: effectiveInspection?.propertyId,
-                                      blockId: effectiveInspection?.blockId,
-                                      fieldLabel,
-                                      photos,
-                                      entryId: entry?.id,
-                                      sectionTitle: currentSection?.title,
-                                    },
-                                  });
-                                } else {
-                                  console.error('[InspectionCapture] Could not find navigator');
-                                }
-                              }
-                            } catch (error) {
-                              console.error('[InspectionCapture] Navigation error:', error);
-                            }
-                          }}
-                        />
+                        ]}
+                      >
+                        <Text style={{ color: themeColors.primary.foreground || '#ffffff', fontSize: 18, fontWeight: 'bold' }}>-</Text>
+                      </TouchableOpacity>
+                      <TextInput
+                        style={[
+                          styles.countInput,
+                          {
+                            backgroundColor: themeColors.card.DEFAULT,
+                            borderColor: themeColors.border.DEFAULT,
+                            color: themeColors.text.primary,
+                          }
+                        ]}
+                        value={String(repeatableCounts[currentSection.id] ?? 1)}
+                        onChangeText={(text) => {
+                          const count = parseInt(text, 10) || 1;
+                          handleRepeatableCountChange(currentSection.id, count);
+                        }}
+                        keyboardType="number-pad"
+                        placeholder="1"
+                      />
+                      <TouchableOpacity
+                        onPress={() => {
+                          const currentCount = repeatableCounts[currentSection.id] ?? 1;
+                          handleRepeatableCountChange(currentSection.id, currentCount + 1);
+                        }}
+                        disabled={(repeatableCounts[currentSection.id] ?? 1) >= 50}
+                        style={[
+                          styles.countButton,
+                          {
+                            backgroundColor: themeColors.primary.DEFAULT,
+                            opacity: (repeatableCounts[currentSection.id] ?? 1) >= 50 ? 0.5 : 1,
+                          }
+                        ]}
+                      >
+                        <Text style={{ color: themeColors.primary.foreground || '#ffffff', fontSize: 18, fontWeight: 'bold' }}>+</Text>
+                      </TouchableOpacity>
+                      <Text style={[styles.countHint, { color: themeColors.text.muted }]}>
+                        {(repeatableCounts[currentSection.id] ?? 1) > 0 
+                          ? `${repeatableCounts[currentSection.id] ?? 1} ${currentSection.title.toLowerCase()} will be created`
+                          : "Enter the number of items to inspect"}
+                      </Text>
+                    </View>
+                  </Card>
+                )}
+
+                {/* Render fields - for repeatable sections, render for each instance */}
+                {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
+                  // Render instances for repeatable sections
+                  Array.from({ length: repeatableCounts[currentSection.id] ?? 1 }).map((_, instanceIndex) => {
+                    const instanceName = `${currentSection.title} ${instanceIndex + 1}`;
+                    return (
+                      <View key={`instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
+                        <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>{instanceName}</Text>
+                        {currentSection.fields.map((field, fieldIndex) => {
+                          if (!field || !field.id && !field.key) {
+                            console.warn('Invalid field found:', field);
+                            return null;
+                          }
+
+                          try {
+                            const sectionRef = `${currentSection.id}/${instanceName}`;
+                            const key = `${sectionRef}-${field.id || field.key}`;
+                            const entry = entries[key];
+                            
+                            const properEntryId = entry?.id || key;
+
+                            return (
+                              <View key={`${instanceIndex}-${field.id || field.key || `field-${Math.random()}`}`} style={styles.fieldContainer}>
+                                <FieldWidget
+                                  field={field}
+                                  value={entry?.valueJson}
+                                  note={entry?.note}
+                                  photos={entry?.photos}
+                                  inspectionId={inspectionId}
+                                  entryId={properEntryId}
+                                  sectionName={instanceName}
+                                  isCheckOut={effectiveInspection?.type === 'check_out'}
+                                  markedForReview={entry?.markedForReview || false}
+                                  disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                                  autoContext={{
+                                    inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
+                                    address: property
+                                      ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                                      : block
+                                        ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                                        : '',
+                                    tenantNames: Array.isArray(tenants) && tenants.length > 0
+                                      ? (() => {
+                                          const tenantNames = tenants
+                                            .map((t: any) => {
+                                              return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
+                                                     (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
+                                                     t.firstName || t.lastName || "");
+                                            })
+                                            .filter(Boolean);
+                                          
+                                          if (tenantNames.length > 0) {
+                                            return tenantNames.join(", ");
+                                          }
+                                          
+                                          const hasAnyTenant = tenants.some((t: any) => 
+                                            t.tenantName || t.name || t.tenant || t.firstName || t.lastName
+                                          );
+                                          
+                                          if (hasAnyTenant) {
+                                            return "Tenant assigned";
+                                          }
+                                          
+                                          return "";
+                                        })()
+                                      : '',
+                                    inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                                  }}
+                                  onChange={(value, note, photos) =>
+                                    handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos, undefined, instanceIndex)
+                                  }
+                                  onMarkedForReviewChange={(marked) => {
+                                    handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked, instanceIndex);
+                                  }}
+                                  onLogMaintenance={(fieldLabel, photos) => {
+                                    try {
+                                      const rootNavigator = navigation.getParent()?.getParent();
+                                      if (rootNavigator) {
+                                        rootNavigator.dispatch(
+                                          CommonActions.navigate({
+                                            name: 'Main',
+                                            params: {
+                                              screen: 'Maintenance',
+                                              params: {
+                                                screen: 'CreateMaintenance',
+                                                params: {
+                                                  inspectionId,
+                                                  propertyId: effectiveInspection?.propertyId,
+                                                  blockId: effectiveInspection?.blockId,
+                                                  fieldLabel,
+                                                  photos,
+                                                  entryId: entry?.id,
+                                                  sectionTitle: instanceName,
+                                                },
+                                              },
+                                            },
+                                          })
+                                        );
+                                      }
+                                    } catch (error) {
+                                      console.error('[InspectionCapture] Navigation error:', error);
+                                    }
+                                  }}
+                                />
+                              </View>
+                            );
+                          } catch (error) {
+                            console.error(`[InspectionCapture] Error rendering field ${field.id || field.key}:`, error);
+                            return (
+                              <View key={`${instanceIndex}-${field.id || field.key || `field-error-${Math.random()}`}`} style={styles.fieldContainer}>
+                                <Text style={{ color: 'red' }}>Error rendering field: {field.label || field.id || field.key}</Text>
+                              </View>
+                            );
+                          }
+                        })}
                       </View>
                     );
-                  } catch (error) {
-                    console.error('Error rendering field:', field, error);
-                    return (
-                      <Card key={`error-${field.id || field.key || Math.random()}`} style={styles.fieldContainer}>
-                        <Text style={[styles.errorText, { color: themeColors.text.primary }]}>Error rendering field: {field.label || field.id || field.key}</Text>
-                      </Card>
-                    );
-                  }
-                })}
+                  })
+                ) : !currentSection.repeatable ? (
+                  // Render normally for non-repeatable sections
+                  currentSection.fields.map((field, fieldIndex) => {
+                    if (!field || !field.id && !field.key) {
+                      console.warn('Invalid field found:', field);
+                      return null;
+                    }
+
+                    try {
+                      const key = `${currentSection.id}-${field.id || field.key}`;
+                      const entry = entries[key];
+                      
+                      // CRITICAL FIX: Always use the key format (sectionRef-fieldKey) as entryId
+                      // This ensures consistency between entries and photos
+                      const properEntryId = entry?.id || key;
+
+                      return (
+                        <View key={field.id || field.key || `field-${Math.random()}`} style={styles.fieldContainer}>
+                          <FieldWidget
+                            field={field}
+                            value={entry?.valueJson}
+                            note={entry?.note}
+                            photos={entry?.photos}
+                            inspectionId={inspectionId}
+                            entryId={properEntryId}
+                            sectionName={currentSection.title}
+                            isCheckOut={effectiveInspection?.type === 'check_out'}
+                            markedForReview={entry?.markedForReview || false}
+                            disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                            autoContext={{
+                              inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
+                              address: property
+                                ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                                : block
+                                  ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                                  : '',
+                              tenantNames: Array.isArray(tenants) && tenants.length > 0
+                                ? (() => {
+                                    // Try to get tenant names from various possible data structures
+                                    const tenantNames = tenants
+                                      .map((t: any) => {
+                                        // Check various possible field names for tenant name
+                                        return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
+                                               (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
+                                               t.firstName || t.lastName || "");
+                                      })
+                                      .filter(Boolean);
+                                    
+                                    if (tenantNames.length > 0) {
+                                      return tenantNames.join(", ");
+                                    }
+                                    
+                                    // If no names found but tenants exist, check if they have any identifying info
+                                    const hasAnyTenant = tenants.some((t: any) => 
+                                      t.tenantName || t.name || t.tenant || t.firstName || t.lastName
+                                    );
+                                    
+                                    if (hasAnyTenant) {
+                                      // Return a generic message if we have tenant data but no names
+                                      return "Tenant assigned";
+                                    }
+                                    
+                                    return "";
+                                  })()
+                                : '',
+                              inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                            }}
+                            onChange={(value, note, photos) =>
+                              handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
+                            }
+                            onMarkedForReviewChange={(marked) => {
+                              handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked);
+                            }}
+                            onLogMaintenance={(fieldLabel, photos) => {
+                              // Navigate to maintenance creation with context from inspection
+                              // Navigate from RootStack -> Main -> Maintenance -> CreateMaintenance
+                              try {
+                                // Get the root navigator (RootStack)
+                                const rootNavigator = navigation.getParent()?.getParent();
+                                if (rootNavigator) {
+                                  rootNavigator.dispatch(
+                                    CommonActions.navigate({
+                                      name: 'Main',
+                                      params: {
+                                        screen: 'Maintenance',
+                                        params: {
+                                          screen: 'CreateMaintenance',
+                                          params: {
+                                            inspectionId,
+                                            propertyId: effectiveInspection?.propertyId,
+                                            blockId: effectiveInspection?.blockId,
+                                            fieldLabel,
+                                            photos,
+                                            entryId: entry?.id,
+                                            sectionTitle: currentSection?.title,
+                                          },
+                                        },
+                                      },
+                                    })
+                                  );
+                                } else {
+                                  // Fallback: try tab navigator directly
+                                  const tabNavigator = navigation.getParent();
+                                  if (tabNavigator) {
+                                    (tabNavigator as any).navigate('Maintenance', {
+                                      screen: 'CreateMaintenance',
+                                      params: {
+                                        inspectionId,
+                                        propertyId: effectiveInspection?.propertyId,
+                                        blockId: effectiveInspection?.blockId,
+                                        fieldLabel,
+                                        photos,
+                                        entryId: entry?.id,
+                                        sectionTitle: currentSection?.title,
+                                      },
+                                    });
+                                  } else {
+                                    console.error('[InspectionCapture] Could not find navigator');
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('[InspectionCapture] Navigation error:', error);
+                              }
+                            }}
+                          />
+                        </View>
+                      );
+                    } catch (error) {
+                      console.error('Error rendering field:', field, error);
+                      return (
+                        <Card key={`error-${field.id || field.key || Math.random()}`} style={styles.fieldContainer}>
+                          <Text style={[styles.errorText, { color: themeColors.text.primary }]}>Error rendering field: {field.label || field.id || field.key}</Text>
+                        </Card>
+                      );
+                    }
+                  })
+                ) : null}
               </>
             )}
             {!currentSection && (
@@ -1619,6 +1887,42 @@ const styles = StyleSheet.create({
   },
   fieldContainer: {
     marginBottom: spacing[5],
+  },
+  fieldLabel: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold,
+    marginBottom: spacing[2],
+  },
+  countButton: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  countInput: {
+    width: 80,
+    height: 40,
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    textAlign: 'center',
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+  },
+  countHint: {
+    fontSize: typography.fontSize.sm,
+    flex: 1,
+  },
+  instanceContainer: {
+    marginBottom: spacing[5],
+    padding: spacing[4],
+    borderWidth: 2,
+    borderRadius: borderRadius.lg,
+  },
+  instanceTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: spacing[4],
   },
   footer: {
     borderTopWidth: 1,
