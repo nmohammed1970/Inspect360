@@ -578,16 +578,24 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       } catch (fetchError: any) {
         clearTimeout(timeoutId);
         
+        // Extract error message with better fallbacks
+        const errorMessage = fetchError?.message || 
+                            fetchError?.error?.message || 
+                            fetchError?.toString() || 
+                            String(fetchError) || 
+                            'Unknown upload error';
+        
         // Log detailed error for debugging
-        console.error('[FieldWidget] Upload error:', {
-          name: fetchError.name,
-          message: fetchError.message,
+        console.error('[FieldWidget] Upload error:', errorMessage, {
+          name: fetchError?.name || 'Unknown',
+          message: errorMessage,
           url: uploadUrl,
           uri: fileUri,
           apiUrl: apiUrl,
           isOnline: isOnline,
-          errorType: fetchError.constructor?.name,
-          stack: fetchError.stack,
+          errorType: fetchError?.constructor?.name || typeof fetchError,
+          stack: fetchError?.stack,
+          fullError: fetchError,
         });
         
         // CRITICAL: If upload fails, store image locally with pending status
@@ -610,13 +618,16 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         }
         
         // Re-throw with user-friendly message
-        if (fetchError.name === 'AbortError') {
+        const errorMsg = errorMessage.toLowerCase();
+        if (fetchError?.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('timeout')) {
           throw new Error('Upload timeout: The server took too long to respond. The image has been saved locally and will be uploaded when you have a better connection.');
-        } else if (fetchError.message?.includes('Network request failed') || fetchError.message?.includes('Failed to fetch')) {
+        } else if (errorMsg.includes('network request failed') || errorMsg.includes('failed to fetch') || errorMsg.includes('networkerror') || errorMsg.includes('network error')) {
           // Check if it's a CORS or connectivity issue
           throw new Error('Network request failed. The image has been saved locally and will be uploaded when you have a better connection.');
+        } else if (errorMsg.includes('cors') || errorMsg.includes('cross-origin')) {
+          throw new Error('CORS error: Unable to upload image. The image has been saved locally and will be uploaded when you have a better connection.');
         } else {
-          throw new Error(`Upload failed: ${fetchError.message || 'Unknown error'}. The image has been saved locally and will be uploaded when you have a better connection.`);
+          throw new Error(`Upload failed: ${errorMessage}. The image has been saved locally and will be uploaded when you have a better connection.`);
         }
       }
     } catch (error: any) {
@@ -660,7 +671,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: 'images' as any,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
+        exif: false, // Disable EXIF to reduce file size
       });
 
       if (result.canceled) {
@@ -723,9 +735,10 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: 'images' as any,
-        quality: 0.8,
+        quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
         allowsMultipleSelection: true,
         selectionLimit: 0, // 0 means no limit
+        exif: false, // Disable EXIF to reduce file size
       });
 
       if (result.canceled) {
@@ -1136,8 +1149,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         )}
 
         {/* Current Photos */}
-        <View style={styles.photoSection}>
-          <View style={styles.photoHeader}>
+        <View style={[styles.photoSection, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
+          <View style={[styles.photoHeader, { borderBottomColor: themeColors.border.DEFAULT }]}>
             <Text style={[styles.photoLabel, { color: themeColors.text.primary }]}>
               {safeField.label}
               {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
@@ -1175,20 +1188,37 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                 } else if (photo.startsWith('/')) {
                   // Relative server path - prepend API URL
                   const apiUrl = getAPI_URL();
-                  // Ensure we don't double up on slashes
-                  photoUrl = `${apiUrl}${photo.startsWith('/') ? photo : `/${photo}`}`;
+                  // Normalize: remove leading slash from photo if apiUrl already ends with one, or ensure single slash
+                  const normalizedPath = photo.startsWith('/') ? photo : `/${photo}`;
+                  photoUrl = `${apiUrl.replace(/\/$/, '')}${normalizedPath}`;
                   imageSource = { uri: photoUrl };
                 } else {
                   // Assume it's a server object path or object ID
                   const apiUrl = getAPI_URL();
                   // Handle both /objects/objectId and just objectId
                   if (photo.includes('/objects/')) {
-                    photoUrl = photo.startsWith('http') ? photo : `${apiUrl}${photo.startsWith('/') ? photo : `/${photo}`}`;
+                    // Already has /objects/ in it
+                    if (photo.startsWith('http')) {
+                      photoUrl = photo;
+                    } else {
+                      // Remove leading slash if present, then add to apiUrl
+                      const normalizedPath = photo.startsWith('/') ? photo : `/${photo}`;
+                      photoUrl = `${apiUrl.replace(/\/$/, '')}${normalizedPath}`;
+                    }
                   } else {
-                    // Just object ID - construct full path
-                    photoUrl = `${apiUrl}/objects/${photo}`;
+                    // Just object ID (UUID) - construct full path
+                    photoUrl = `${apiUrl.replace(/\/$/, '')}/objects/${photo}`;
                   }
                   imageSource = { uri: photoUrl };
+                }
+                
+                // Log for debugging web portal images
+                if (__DEV__ && !isLocalPath(photo)) {
+                  console.log('[FieldWidget] Image URL constructed:', {
+                    original: photo,
+                    constructed: photoUrl,
+                    apiUrl: getAPI_URL(),
+                  });
                 }
 
                 return (
@@ -1203,10 +1233,17 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     >
                       <Image 
                         source={imageSource} 
-                        style={[styles.photoThumbnail, { borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} 
+                        style={[styles.photoThumbnail, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT }]} 
                         resizeMode="cover"
                         onError={(error) => {
-                          console.error('[FieldWidget] Image load error:', error.nativeEvent.error, 'for URL:', photoUrl, 'original photo:', photo);
+                          const errorMsg = error?.nativeEvent?.error || 'Unknown error';
+                          console.error('[FieldWidget] Image load error:', {
+                            error: errorMsg,
+                            photoUrl,
+                            originalPhoto: photo,
+                            imageSource,
+                            isLocal: isLocalPath(photo),
+                          });
                         }}
                         onLoad={() => {
                           console.log('[FieldWidget] Image loaded successfully:', photoUrl);
@@ -1750,10 +1787,9 @@ const styles = StyleSheet.create({
   photoSection: {
     marginBottom: spacing[4],
     padding: spacing[3],
-    backgroundColor: colors.card.DEFAULT,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
-    borderColor: colors.border.DEFAULT,
+    // backgroundColor and borderColor applied dynamically via themeColors
   },
   photoHeader: {
     flexDirection: 'row',
@@ -1762,7 +1798,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing[3],
     paddingBottom: spacing[2],
     borderBottomWidth: 1,
-    borderBottomColor: colors.border.DEFAULT,
+    // borderBottomColor applied dynamically via themeColors
   },
   photoLabel: {
     fontSize: typography.fontSize.sm,

@@ -612,9 +612,9 @@ const InspectionReportScreen = () => {
                                         </TouchableOpacity>
 
                                         {isExpanded && (
-                                            <View style={styles.tableContainer}>
+                                            <View style={[styles.tableContainer, { backgroundColor: themeColors.card.DEFAULT }]}>
                                                 {/* Table Header */}
-                                                <View style={[styles.tableHeader, { borderBottomColor: themeColors.border.light }]}>
+                                                <View style={[styles.tableHeader, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
                                                     <View style={[styles.tableHeaderCell, { width: width * 0.25 }]}>
                                                         <Text style={[styles.tableHeaderText, { color: themeColors.text.primary }]} numberOfLines={2}>Room/Space</Text>
                                                     </View>
@@ -676,7 +676,7 @@ const InspectionReportScreen = () => {
                                                                         const photoCount = entry.photos?.length || 0;
 
                                                                         return (
-                                                                            <View key={field.id || field.key || field.label} style={[styles.tableRow, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.background }]}>
+                                                                            <View key={field.id || field.key || field.label} style={[styles.tableRow, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
                                                                                 <View style={[styles.tableCell, { width: width * 0.25 }]}>
                                                                                     <TouchableOpacity
                                                                                         onPress={() => photoCount > 0 && togglePhotoExpansion(photoKey)}
@@ -815,7 +815,7 @@ const InspectionReportScreen = () => {
                                                         const photoCount = entry.photos?.length || 0;
 
                                                         return (
-                                                            <View key={field.id || field.key || field.label} style={[styles.tableRow, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.background }]}>
+                                                            <View key={field.id || field.key || field.label} style={[styles.tableRow, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
                                                                 <View style={[styles.tableCell, { width: width * 0.25 }]}>
                                                                     <TouchableOpacity
                                                                         onPress={() => photoCount > 0 && togglePhotoExpansion(photoKey)}

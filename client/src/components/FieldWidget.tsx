@@ -438,6 +438,61 @@ export function FieldWidget({
     }
   };
 
+  // Compress image before upload to reduce file size and improve upload speed
+  const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.7): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // Calculate new dimensions while maintaining aspect ratio
+          let width = img.width;
+          let height = img.height;
+          
+          if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width = width * ratio;
+            height = height * ratio;
+          }
+          
+          // Create canvas and compress
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+          
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Failed to compress image'));
+                return;
+              }
+              // Create a new File object with compressed data
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handlePhotoFilesSelected = async (files: File[]) => {
     if (files.length === 0) return;
 
@@ -446,7 +501,18 @@ export function FieldWidget({
 
     try {
       for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+        let file = files[i];
+        
+        // Compress image if it's an image file and larger than 1MB
+        if (file.type.startsWith('image/') && file.size > 1024 * 1024) {
+          try {
+            file = await compressImage(file, 1920, 1920, 0.7);
+            console.log(`[FieldWidget] Compressed image from ${(files[i].size / 1024 / 1024).toFixed(2)}MB to ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+          } catch (compressError) {
+            console.warn('[FieldWidget] Image compression failed, using original:', compressError);
+            // Continue with original file if compression fails
+          }
+        }
 
         // Check if offline
         if (!navigator.onLine) {
