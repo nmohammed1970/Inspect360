@@ -16813,31 +16813,28 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       }
       console.log('[Transcribe-base64] Received:', { size, fileName });
       const openaiClient = getOpenAI();
-      let transcription: any;
-      try {
-        const audioFile = await toFile(buffer, 'audio.m4a', { type: 'audio/mp4' });
-        transcription = await openaiClient.audio.transcriptions.create({
-          file: audioFile,
-          model: "whisper-1",
-          language: "en",
-          response_format: "text"
-        });
-      } catch (firstErr: any) {
-        const isInvalidFormat = (firstErr?.message || '').toLowerCase().includes('invalid file format') || (firstErr?.message || '').toLowerCase().includes('unrecognized file format');
-        if (isInvalidFormat) {
-          console.log('[Transcribe-base64] Format rejected, converting to MP3');
-          const mp3Buffer = await convertToMp3(buffer, 'm4a');
-          const mp3File = await toFile(mp3Buffer, 'audio.mp3', { type: 'audio/mpeg' });
-          transcription = await openaiClient.audio.transcriptions.create({
-            file: mp3File,
-            model: "whisper-1",
-            language: "en",
-            response_format: "text"
-          });
-        } else {
-          throw firstErr;
+      // Always convert M4A/MP4 to MP3 for mobile (iOS/Android) - Whisper often rejects iOS M4A with "could not be decoded"
+      const isM4A = fileName.toLowerCase().endsWith('.m4a') || fileName.toLowerCase().endsWith('.mp4');
+      let audioBuffer = buffer;
+      let ext = 'm4a';
+      let mime = 'audio/mp4';
+      if (isM4A) {
+        try {
+          console.log('[Transcribe-base64] Converting M4A to MP3 for Whisper compatibility');
+          audioBuffer = await convertToMp3(buffer, 'm4a');
+          ext = 'mp3';
+          mime = 'audio/mpeg';
+        } catch (convErr: any) {
+          console.warn('[Transcribe-base64] MP3 conversion failed, trying M4A directly:', convErr?.message);
         }
       }
+      const audioFile = await toFile(audioBuffer, `audio.${ext}`, { type: mime });
+      const transcription = await openaiClient.audio.transcriptions.create({
+        file: audioFile,
+        model: "whisper-1",
+        language: "en",
+        response_format: "text"
+      });
       const transcribedText = typeof transcription === 'string'
         ? transcription
         : (transcription as any)?.text || String(transcription || '').trim();
@@ -16854,8 +16851,15 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(400).json({ error: "Audio file too large. Maximum size is 25MB" });
       }
       const msg = error?.message || "Failed to transcribe audio";
-      const isFormatError = msg.toLowerCase().includes('invalid file format') || msg.toLowerCase().includes('unrecognized file format');
-      res.status(500).json({ error: isFormatError ? "Invalid audio format. Please ensure the recording is in a supported format (M4A, MP3, WAV). Try recording again." : msg });
+      const errLower = msg.toLowerCase();
+      const isFormatError =
+        errLower.includes('invalid file format') ||
+        errLower.includes('unrecognized file format') ||
+        errLower.includes('could not be decoded') ||
+        errLower.includes('format is not supported') ||
+        errLower.includes('format not supported');
+      const status = isFormatError || error?.status === 400 ? 400 : 500;
+      res.status(status).json({ error: isFormatError ? "The audio file could not be processed. Try recording again or use a shorter clip." : msg });
     }
   });
 

@@ -21,7 +21,7 @@ import Button from '../ui/Button';
 import DatePicker from '../ui/DatePicker';
 import Select from '../ui/Select';
 import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Trash2, Calendar, Clock, Eye, CheckCircle2, AlertCircle, Mic, Square, Play } from 'lucide-react-native';
-import { requestRecordingPermissionsAsync, RecordingPresets, createAudioPlayer, AudioModule } from 'expo-audio';
+import { requestRecordingPermissionsAsync, RecordingPresets, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { storeImageLocally, getImageSource, isLocalPath } from '../../services/offline/storage';
@@ -1564,6 +1564,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     Alert.alert('Permission Required', 'Microphone permission is required to record voice notes.');
                     return;
                   }
+                  await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
                   const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
                   await recorder.prepareToRecordAsync();
                   recorder.record();

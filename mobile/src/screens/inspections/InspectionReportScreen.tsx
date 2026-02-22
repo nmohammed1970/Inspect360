@@ -37,7 +37,7 @@ import {
 } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { requestRecordingPermissionsAsync, RecordingPresets, createAudioPlayer, AudioModule } from 'expo-audio';
+import { requestRecordingPermissionsAsync, RecordingPresets, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { format } from 'date-fns';
 import { inspectionsService } from '../../services/inspections';
 import { inspectionsOffline } from '../../services/offline/inspectionsOffline';
@@ -104,6 +104,7 @@ const InspectionReportScreen = () => {
         try {
             const { status } = await requestRecordingPermissionsAsync();
             if (status !== 'granted') { Alert.alert('Permission Required', 'Microphone access is needed to record audio.'); return; }
+            await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
             const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
             await recorder.prepareToRecordAsync();
             recorder.record();
