@@ -134,8 +134,8 @@ export default function InspectionReport() {
   const [editMode, setEditMode] = useState(false);
   const [editedNotes, setEditedNotes] = useState<Record<string, string>>({});
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
-  // Track per-entry audio URLs so voice widget can render with current audioUrl
-  const [entryAudioUrls, setEntryAudioUrls] = useState<Record<string, string | null>>({});
+  // Track per-entry audio URLs (multiple recordings per entry)
+  const [entryAudioUrls, setEntryAudioUrls] = useState<Record<string, string[]>>({});
   const [selectedEntryForMaintenance, setSelectedEntryForMaintenance] = useState<{
     entryId: string;
     fieldLabel: string;
@@ -598,25 +598,30 @@ export default function InspectionReport() {
     },
   });
 
-  // Helper: save note (and optionally audioUrl in valueJson) for an entry directly via PATCH
+  // Helper: save note (and optionally audioUrls in valueJson) for an entry directly via PATCH
   const saveEntryVoiceData = async (
     entryId: string,
     note: string,
-    audioUrl: string | null,
+    audioUrls: string[],
     existingValueJson: any
   ) => {
-    // Merge audioUrl into valueJson
+    // Merge audioUrls into valueJson (supports multiple recordings)
     let newValueJson = existingValueJson;
-    if (audioUrl !== undefined) {
-      if (newValueJson && typeof newValueJson === 'object' && !Array.isArray(newValueJson)) {
-        newValueJson = { ...newValueJson, audioUrl };
-      } else {
-        newValueJson = { value: newValueJson ?? null, audioUrl };
-      }
+    if (newValueJson && typeof newValueJson === 'object' && !Array.isArray(newValueJson)) {
+      newValueJson = { ...newValueJson };
+    } else {
+      newValueJson = { value: newValueJson ?? null };
+    }
+    if (audioUrls.length > 0) {
+      newValueJson.audioUrls = audioUrls;
+      newValueJson.audioUrl = audioUrls[0]; // backward compatibility
+    } else {
+      delete newValueJson.audioUrls;
+      delete newValueJson.audioUrl;
     }
     await apiRequest('PATCH', `/api/inspection-entries/${entryId}`, {
       note,
-      ...(newValueJson !== existingValueJson ? { valueJson: newValueJson } : {}),
+      valueJson: newValueJson,
     });
     queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
   };
@@ -2059,34 +2064,32 @@ export default function InspectionReport() {
                                           </Button>
                                         )}
                                       </div>
-                                      {/* Voice Recording */}
+                                      {/* Voice Recording - supports multiple recordings */}
                                       <ReportVoiceRecordingWidget
                                         fieldId={field.id || field.key || field.label}
-                                        initialAudioUrl={
+                                        initialAudioUrls={
                                           entryAudioUrls[entryKey] !== undefined
                                             ? entryAudioUrls[entryKey]
-                                            : (entry?.valueJson && typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)
-                                              ? (entry.valueJson as any).audioUrl ?? null
-                                              : null)
+                                            : (() => {
+                                                const vj = entry?.valueJson;
+                                                if (vj && typeof vj === 'object' && !Array.isArray(vj)) {
+                                                  if (Array.isArray((vj as any).audioUrls)) return (vj as any).audioUrls;
+                                                  if ((vj as any).audioUrl) return [(vj as any).audioUrl];
+                                                }
+                                                return [];
+                                              })()
                                         }
-                                        onAudioSaved={async (audioUrl) => {
-                                          setEntryAudioUrls(prev => ({ ...prev, [entryKey]: audioUrl }));
+                                        onAudioUrlsChange={async (audioUrls) => {
+                                          setEntryAudioUrls(prev => ({ ...prev, [entryKey]: audioUrls }));
                                           const currentNote = entry?.note || '';
-                                          await saveEntryVoiceData(entry.id, currentNote, audioUrl, entry?.valueJson);
+                                          await saveEntryVoiceData(entry.id, currentNote, audioUrls, entry?.valueJson);
                                         }}
                                         onTranscription={async (audioUrl, transcribedText) => {
-                                          if (audioUrl !== null && transcribedText !== null) {
-                                            // Append transcription to note
-                                            const existingNote = entry?.note || '';
-                                            const label = 'Inspector Comments: ' + transcribedText;
-                                            const newNote = existingNote ? `${existingNote}\n\n${label}` : label;
-                                            setEntryAudioUrls(prev => ({ ...prev, [entryKey]: audioUrl }));
-                                            await saveEntryVoiceData(entry.id, newNote, audioUrl, entry?.valueJson);
-                                          } else {
-                                            // Clear audio URL
-                                            setEntryAudioUrls(prev => ({ ...prev, [entryKey]: null }));
-                                            await saveEntryVoiceData(entry.id, entry?.note || '', null, entry?.valueJson);
-                                          }
+                                          const existingNote = entry?.note || '';
+                                          const label = 'Inspector Comments: ' + transcribedText;
+                                          const newNote = existingNote ? `${existingNote}\n\n${label}` : label;
+                                          const urls = entryAudioUrls[entryKey] ?? (Array.isArray((entry?.valueJson as any)?.audioUrls) ? (entry.valueJson as any).audioUrls : (entry?.valueJson as any)?.audioUrl ? [(entry.valueJson as any).audioUrl] : []);
+                                          await saveEntryVoiceData(entry.id, newNote, urls, entry?.valueJson);
                                         }}
                                       />
                                     </div>

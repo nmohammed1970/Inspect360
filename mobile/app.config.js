@@ -64,7 +64,7 @@ export default {
       // Fallback to production URL for standalone builds if not set
       apiUrl: process.env.EXPO_PUBLIC_API_URL || 'https://portal.inspect360.ai',
       eas: {
-        projectId: "f7bf67a8-c1b6-45fa-a536-d1462089d4bb"
+        projectId: "e8d871f6-af78-4846-a1c0-7a55edc54312"
       }
     },
     plugins: [

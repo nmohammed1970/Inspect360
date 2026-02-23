@@ -1,48 +1,51 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Mic, Square, Play, Sparkles, Loader2, X } from "lucide-react";
+import { Mic, Square, Play, Sparkles, Loader2, X, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+function getAudioUrls(value: string[] | string | null | undefined): string[] {
+    if (Array.isArray(value)) return value.filter((u): u is string => typeof u === "string");
+    if (typeof value === "string") return [value];
+    return [];
+}
 
 interface ReportVoiceRecordingWidgetProps {
     fieldId: string;
-    initialAudioUrl: string | null;
-    onTranscription: (audioUrl: string | null, transcribedText: string | null) => Promise<void>;
-    onAudioSaved: (audioUrl: string | null) => Promise<void>;
+    initialAudioUrls: string[];
+    onTranscription: (audioUrl: string, transcribedText: string) => Promise<void>;
+    onAudioUrlsChange: (audioUrls: string[]) => Promise<void>;
 }
 
 export function ReportVoiceRecordingWidget({
     fieldId,
-    initialAudioUrl,
+    initialAudioUrls,
     onTranscription,
-    onAudioSaved,
+    onAudioUrlsChange,
 }: ReportVoiceRecordingWidgetProps) {
     const { toast } = useToast();
 
-    const [audioUrl, setAudioUrl] = useState<string | null>(initialAudioUrl);
-    const audioUrlRef = useRef<string | null>(initialAudioUrl);
+    const [audioUrls, setAudioUrls] = useState<string[]>(initialAudioUrls);
+    const audioUrlsRef = useRef<string[]>(initialAudioUrls);
 
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
-    const [hasRecorded, setHasRecorded] = useState(!!initialAudioUrl);
-    const [isTranscribing, setIsTranscribing] = useState(false);
-    const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+    const [transcribingUrl, setTranscribingUrl] = useState<string | null>(null);
+    const [playingUrl, setPlayingUrl] = useState<string | null>(null);
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
 
-    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+    const currentAudioRef = useRef<HTMLAudioElement | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
-        if (initialAudioUrl !== audioUrlRef.current) {
-            audioUrlRef.current = initialAudioUrl;
-            setAudioUrl(initialAudioUrl);
-            if (initialAudioUrl) {
-                setHasRecorded(true);
-            }
+        const urls = getAudioUrls(initialAudioUrls);
+        if (JSON.stringify(urls) !== JSON.stringify(audioUrlsRef.current)) {
+            audioUrlsRef.current = urls;
+            setAudioUrls(urls);
         }
-    }, [initialAudioUrl]);
+    }, [initialAudioUrls]);
 
     useEffect(() => {
         return () => {
@@ -62,7 +65,7 @@ export function ReportVoiceRecordingWidget({
                 Voice Recording
             </Label>
             <div className="flex flex-wrap items-center gap-2">
-                {!isRecording && !hasRecorded && (
+                {!isRecording && (
                     <Button
                         type="button"
                         variant="outline"
@@ -90,7 +93,6 @@ export function ReportVoiceRecordingWidget({
                                 mediaRecorder.start();
                                 setIsRecording(true);
                                 setRecordingTime(0);
-                                setHasRecorded(false);
 
                                 recordingTimerRef.current = setInterval(() => {
                                     setRecordingTime((prev) => prev + 1);
@@ -98,7 +100,7 @@ export function ReportVoiceRecordingWidget({
                             } catch (error: any) {
                                 toast({
                                     title: "Recording Failed",
-                                    description: error.message || "Could not access microphone. Please check permissions.",
+                                    description: error.message || "Could not access microphone.",
                                     variant: "destructive",
                                 });
                             }
@@ -106,7 +108,7 @@ export function ReportVoiceRecordingWidget({
                         data-testid={`button-start-recording-${fieldId}`}
                     >
                         <Mic className="w-4 h-4 mr-2" />
-                        Start Recording
+                        Add Recording
                     </Button>
                 )}
 
@@ -120,7 +122,6 @@ export function ReportVoiceRecordingWidget({
                                 if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
                                     mediaRecorderRef.current.stop();
                                     setIsRecording(false);
-                                    setHasRecorded(true);
                                     if (recordingTimerRef.current) {
                                         clearInterval(recordingTimerRef.current);
                                         recordingTimerRef.current = null;
@@ -130,7 +131,6 @@ export function ReportVoiceRecordingWidget({
                                         setIsUploadingAudio(true);
                                         try {
                                             const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-
                                             const uploadFormData = new FormData();
                                             uploadFormData.append("file", audioBlob, "voice-note.webm");
 
@@ -140,31 +140,26 @@ export function ReportVoiceRecordingWidget({
                                                 credentials: "include",
                                             });
 
-                                            if (!uploadResponse.ok) {
-                                                throw new Error("Failed to upload audio file");
-                                            }
+                                            if (!uploadResponse.ok) throw new Error("Failed to upload audio file");
 
                                             const uploadResult = await uploadResponse.json();
                                             const uploadedAudioUrl = uploadResult.url || uploadResult.objectId;
 
-                                            if (!uploadedAudioUrl) {
-                                                throw new Error("No audio URL returned from upload");
-                                            }
+                                            if (!uploadedAudioUrl) throw new Error("No audio URL returned from upload");
 
-                                            audioUrlRef.current = uploadedAudioUrl;
-                                            setAudioUrl(uploadedAudioUrl);
-
-                                            await onAudioSaved(uploadedAudioUrl);
+                                            const newUrls = [...audioUrlsRef.current, uploadedAudioUrl];
+                                            audioUrlsRef.current = newUrls;
+                                            setAudioUrls(newUrls);
+                                            await onAudioUrlsChange(newUrls);
 
                                             toast({
                                                 title: "Voice Note Saved",
-                                                description: "Your voice note has been saved. You can transcribe it later or listen to it.",
+                                                description: "Your voice note has been saved.",
                                             });
                                         } catch (error: any) {
-                                            console.error("Error uploading audio:", error);
                                             toast({
                                                 title: "Upload Failed",
-                                                description: "Voice note recorded but not saved. Please try transcribing it to save.",
+                                                description: "Voice note could not be saved.",
                                                 variant: "destructive",
                                             });
                                         } finally {
@@ -181,6 +176,26 @@ export function ReportVoiceRecordingWidget({
                                 ? "Saving..."
                                 : `Stop (${Math.floor(recordingTime / 60)}:${(recordingTime % 60).toString().padStart(2, "0")})`}
                         </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+                                    mediaRecorderRef.current.stop();
+                                    mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+                                }
+                                if (recordingTimerRef.current) {
+                                    clearInterval(recordingTimerRef.current);
+                                    recordingTimerRef.current = null;
+                                }
+                                audioChunksRef.current = [];
+                                setIsRecording(false);
+                            }}
+                        >
+                            <X className="w-4 h-4 mr-2" />
+                            Cancel
+                        </Button>
                         <div className="flex items-center gap-2">
                             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                             <span className="text-sm text-muted-foreground">Recording...</span>
@@ -188,191 +203,102 @@ export function ReportVoiceRecordingWidget({
                     </>
                 )}
 
-                {hasRecorded && !isRecording && (
-                    <>
-                        <Button
-                            type="button"
-                            variant="default"
-                            size="sm"
-                            onClick={async () => {
-                                if (audioChunksRef.current.length === 0 && !audioUrl) {
-                                    toast({
-                                        title: "No Recording",
-                                        description: "Please record audio first.",
-                                        variant: "destructive",
-                                    });
-                                    return;
-                                }
+                {audioUrls.length > 0 && !isRecording && (
+                    <div className="flex flex-col gap-2 w-full">
+                        {[...audioUrls].reverse().map((url, idx) => (
+                            <div key={idx} className="flex flex-wrap items-center gap-2 p-2 rounded border">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        if (playingUrl === url) {
+                                            currentAudioRef.current?.pause();
+                                            setPlayingUrl(null);
+                                            return;
+                                        }
+                                        currentAudioRef.current?.pause();
+                                        const resolvedUrl = url.startsWith("/") ? `${window.location.origin}${url}` : url;
+                                        const audio = new Audio(resolvedUrl);
+                                        currentAudioRef.current = audio;
+                                        audio.onended = () => {
+                                            setPlayingUrl(null);
+                                            currentAudioRef.current = null;
+                                        };
+                                        audio.onerror = () => {
+                                            toast({ title: "Playback Failed", variant: "destructive" });
+                                            setPlayingUrl(null);
+                                            currentAudioRef.current = null;
+                                        };
+                                        audio.play();
+                                        setPlayingUrl(url);
+                                    }}
+                                >
+                                    {playingUrl === url ? (
+                                        <><Square className="w-4 h-4 mr-2" /> Pause</>
+                                    ) : (
+                                        <><Play className="w-4 h-4 mr-2" /> Play #{idx + 1}</>
+                                    )}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="default"
+                                    size="sm"
+                                    disabled={!!transcribingUrl}
+                                    onClick={async () => {
+                                        setTranscribingUrl(url);
+                                        try {
+                                            const fetchUrl = url.startsWith("http") ? url : `${window.location.origin}${url.startsWith("/") ? url : "/" + url}`;
+                                            const response = await fetch(fetchUrl);
+                                            const audioBlob = await response.blob();
+                                            const formData = new FormData();
+                                            formData.append("audio", audioBlob, "recording.webm");
 
-                                setIsTranscribing(true);
-                                try {
-                                    let audioBlob: Blob;
-
-                                    if (audioChunksRef.current.length > 0) {
-                                        audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-
-                                        if (!audioUrl) {
-                                            setIsUploadingAudio(true);
-                                            const uploadFormData = new FormData();
-                                            uploadFormData.append("file", audioBlob, "voice-note.webm");
-
-                                            const uploadResponse = await fetch("/api/objects/upload-file", {
+                                            const resp = await fetch("/api/audio/transcribe", {
                                                 method: "POST",
-                                                body: uploadFormData,
+                                                body: formData,
                                                 credentials: "include",
                                             });
-
-                                            if (!uploadResponse.ok) {
-                                                throw new Error("Failed to upload audio file");
-                                            }
-
-                                            const uploadResult = await uploadResponse.json();
-                                            const uploadedAudioUrl = uploadResult.url || uploadResult.objectId;
-
-                                            if (!uploadedAudioUrl) {
-                                                throw new Error("No audio URL returned from upload");
-                                            }
-
-                                            audioUrlRef.current = uploadedAudioUrl;
-                                            setAudioUrl(uploadedAudioUrl);
-
-                                            await onAudioSaved(uploadedAudioUrl);
-                                            setIsUploadingAudio(false);
+                                            if (!resp.ok) throw new Error("Transcription failed");
+                                            const result = await resp.json();
+                                            if (result.text) {
+                                                await onTranscription(url, result.text);
+                                                toast({ title: "Transcription Complete", description: "Added to notes." });
+                                            } else throw new Error("No transcription text");
+                                        } catch (error: any) {
+                                            toast({
+                                                title: "Transcription Failed",
+                                                description: error.message || "Failed to transcribe.",
+                                                variant: "destructive",
+                                            });
+                                        } finally {
+                                            setTranscribingUrl(null);
                                         }
-                                    } else if (audioUrl) {
-                                        const response = await fetch(audioUrl);
-                                        audioBlob = await response.blob();
-                                    } else {
-                                        throw new Error("No audio available for transcription");
-                                    }
-
-                                    const transcribeFormData = new FormData();
-                                    transcribeFormData.append("audio", audioBlob, "recording.webm");
-
-                                    const transcribeResponse = await fetch("/api/audio/transcribe", {
-                                        method: "POST",
-                                        body: transcribeFormData,
-                                        credentials: "include",
-                                    });
-
-                                    if (!transcribeResponse.ok) {
-                                        const errorData = await transcribeResponse.json().catch(() => ({ error: transcribeResponse.statusText }));
-                                        throw new Error(errorData.error || errorData.message || "Transcription failed");
-                                    }
-
-                                    const result = await transcribeResponse.json();
-
-                                    if (result.text) {
-                                        await onTranscription(audioUrlRef.current, result.text);
-
-                                        toast({
-                                            title: "Transcription Complete",
-                                            description: "Voice recording has been converted to text and added to notes.",
-                                        });
-
-                                        setHasRecorded(false);
-                                        audioChunksRef.current = [];
-                                    } else {
-                                        throw new Error("No transcription text received");
-                                    }
-                                } catch (error: any) {
-                                    console.error("Transcription error:", error);
-                                    toast({
-                                        title: "Transcription Failed",
-                                        description: error.message || "Failed to transcribe audio. Please try again.",
-                                        variant: "destructive",
-                                    });
-                                } finally {
-                                    setIsTranscribing(false);
-                                    setIsUploadingAudio(false);
-                                }
-                            }}
-                            disabled={isTranscribing}
-                            data-testid={`button-transcribe-${fieldId}`}
-                        >
-                            {isTranscribing ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    {isUploadingAudio ? "Uploading..." : "Transcribing..."}
-                                </>
-                            ) : (
-                                <>
-                                    <Sparkles className="w-4 h-4 mr-2" />
-                                    Convert to Text
-                                </>
-                            )}
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                                setHasRecorded(false);
-                                audioChunksRef.current = [];
-                                setRecordingTime(0);
-                                if (audioUrlRef.current) {
-                                    audioUrlRef.current = null;
-                                    setAudioUrl(null);
-                                    await onTranscription(null, null); // passing null to clear audioUrl
-                                }
-                            }}
-                            data-testid={`button-cancel-recording-${fieldId}`}
-                        >
-                            <X className="w-4 h-4 mr-2" />
-                            Cancel
-                        </Button>
-                    </>
-                )}
-
-                {audioUrl && (
-                    <div className="flex items-center gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                                if (audioPlayerRef.current) {
-                                    if (isPlayingAudio) {
-                                        audioPlayerRef.current.pause();
-                                        setIsPlayingAudio(false);
-                                    } else {
-                                        audioPlayerRef.current.play();
-                                        setIsPlayingAudio(true);
-                                    }
-                                } else {
-                                    const audio = new Audio(audioUrl);
-                                    audioPlayerRef.current = audio;
-                                    audio.onended = () => {
-                                        setIsPlayingAudio(false);
-                                        audioPlayerRef.current = null;
-                                    };
-                                    audio.onerror = () => {
-                                        toast({
-                                            title: "Playback Failed",
-                                            description: "Could not play audio. The file may be unavailable.",
-                                            variant: "destructive",
-                                        });
-                                        setIsPlayingAudio(false);
-                                        audioPlayerRef.current = null;
-                                    };
-                                    audio.play();
-                                    setIsPlayingAudio(true);
-                                }
-                            }}
-                        >
-                            {isPlayingAudio ? (
-                                <>
-                                    <Square className="w-4 h-4 mr-2" />
-                                    Pause
-                                </>
-                            ) : (
-                                <>
-                                    <Play className="w-4 h-4 mr-2" />
-                                    Play Voice Note
-                                </>
-                            )}
-                        </Button>
-                        <audio ref={audioPlayerRef} src={audioUrl} style={{ display: "none" }} />
+                                    }}
+                                >
+                                    {transcribingUrl === url ? (
+                                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Transcribing...</>
+                                    ) : (
+                                        <><Sparkles className="w-4 h-4 mr-2" /> Transcribe</>
+                                    )}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-destructive border-destructive hover:bg-destructive/10"
+                                    onClick={async () => {
+                                        const newUrls = audioUrls.filter((u) => u !== url);
+                                        audioUrlsRef.current = newUrls;
+                                        setAudioUrls(newUrls);
+                                        if (playingUrl === url) setPlayingUrl(null);
+                                        await onAudioUrlsChange(newUrls);
+                                    }}
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

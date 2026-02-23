@@ -146,17 +146,24 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
 
-  // Initialize audioUrl from valueJson if it exists (before using it in useState)
-  const initialAudioUrl = (value && typeof value === 'object' && 'audioUrl' in value) ? (value as any).audioUrl : null;
+  // Initialize audioUrls from valueJson (support audioUrls array or legacy audioUrl)
+  const getInitialAudioUrls = (): string[] => {
+    if (!value || typeof value !== 'object') return [];
+    if (Array.isArray((value as any).audioUrls)) return (value as any).audioUrls;
+    if ((value as any).audioUrl && typeof (value as any).audioUrl === 'string') return [(value as any).audioUrl];
+    return [];
+  };
+  const initialAudioUrls = getInitialAudioUrls();
   
+  const [hasRecorded, setHasRecorded] = useState(initialAudioUrls.length > 0);
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [hasRecorded, setHasRecorded] = useState(!!initialAudioUrl);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcribingUrl, setTranscribingUrl] = useState<string | null>(null);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(initialAudioUrl); // Store uploaded audio URL
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [audioUrls, setAudioUrls] = useState<string[]>(initialAudioUrls);
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [sound, setSound] = useState<any>(null);
   const recordingRef = useRef<any>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -166,7 +173,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const [uploadingPhotos, setUploadingPhotos] = useState<Record<string, boolean>>({});
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const autoSaveTriggeredRef = useRef(false);
-  const audioUrlRef = useRef<string | null>(initialAudioUrl);
+  const audioUrlsRef = useRef<string[]>(initialAudioUrls);
   const signatureRef = useRef<any>(null);
 
   // Fetch check-in reference for check-out inspections
@@ -214,59 +221,33 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           : undefined;
         setLocalCondition(condition);
         setLocalCleanliness(cleanliness);
-        // Extract audioUrl if it exists - always use the one from database
-        if ('audioUrl' in value) {
-          const newAudioUrl = (value as any).audioUrl;
-          if (newAudioUrl && typeof newAudioUrl === 'string') {
-            setAudioUrl((prevAudioUrl) => {
-              if (newAudioUrl !== prevAudioUrl) {
-                audioUrlRef.current = newAudioUrl;
-                return newAudioUrl;
-              }
-              return prevAudioUrl;
-            });
-            setHasRecorded(true);
-          } else if (newAudioUrl === null || newAudioUrl === undefined) {
-            // If audioUrl is explicitly null/undefined in valueJson, clear it
-            audioUrlRef.current = null;
-            setAudioUrl(null);
-            setHasRecorded(false);
+        // Extract audioUrls if it exists
+        const urls = getInitialAudioUrls();
+        setAudioUrls((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(urls)) {
+            audioUrlsRef.current = urls;
+            return urls;
           }
-        }
-        // Don't clear audioUrl if value object exists but doesn't have audioUrl
+          return prev;
+        });
         // (audioUrl might have been set from a previous value and not yet saved)
       } else {
         setLocalValue(parseValue(value));
-        // Check if value is an object with audioUrl
-        if (value && typeof value === 'object' && 'audioUrl' in value) {
-          const newAudioUrl = (value as any).audioUrl;
-          if (newAudioUrl && typeof newAudioUrl === 'string') {
-            setAudioUrl((prevAudioUrl) => {
-              if (newAudioUrl !== prevAudioUrl) {
-                audioUrlRef.current = newAudioUrl;
-                return newAudioUrl;
-              }
-              return prevAudioUrl;
-            });
-            setHasRecorded(true);
-          } else if (newAudioUrl === null || newAudioUrl === undefined) {
-            // If audioUrl is explicitly null/undefined in valueJson, clear it
-            audioUrlRef.current = null;
-            setAudioUrl(null);
-            setHasRecorded(false);
-          }
-        } else if (value === null || value === undefined) {
-          // Only clear audioUrl if value is explicitly null/undefined
-          setHasRecorded(false);
-          setAudioUrl((prevAudioUrl) => {
-            if (prevAudioUrl) {
-              audioUrlRef.current = null;
-              return null;
+        // Check if value is an object with audioUrl or audioUrls
+        if (value && typeof value === 'object') {
+          const urls = getInitialAudioUrls();
+          setAudioUrls((prev) => {
+            if (JSON.stringify(prev) !== JSON.stringify(urls)) {
+              audioUrlsRef.current = urls;
+              return urls;
             }
-            return prevAudioUrl;
+            return prev;
           });
-        }
+        } else if (value === null || value === undefined) {
+          setAudioUrls([]);
+          audioUrlsRef.current = [];
         // Don't clear audioUrl if value is a string or other type
+        }
         // because audioUrl is stored in valueJson object, not in the value itself
       }
     } catch (error) {
@@ -302,6 +283,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   useEffect(() => {
     setLocalMarkedForReview(!!markedForReview);
   }, [markedForReview]);
+
+  // Keep audioUrlsRef in sync with audioUrls
+  useEffect(() => {
+    audioUrlsRef.current = audioUrls;
+  }, [audioUrls]);
 
   // Cleanup recording timer and audio recording on unmount
   useEffect(() => {
@@ -359,7 +345,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       return;
     }
     setLocalValue(newValue);
-    const composedValue = composeValue(newValue, localCondition, localCleanliness, audioUrlRef.current);
+    const composedValue = composeValue(newValue, localCondition, localCleanliness, audioUrls);
     onChange(composedValue, localNote, localPhotos);
   };
 
@@ -377,7 +363,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
     // Debounce the save operation - wait 800ms after user stops typing
     noteDebounceTimeoutRef.current = setTimeout(() => {
-      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrlRef.current);
+      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
     onChange(composedValue, newNote, localPhotos);
     }, 800);
   };
@@ -399,7 +385,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         : undefined;
       
       setLocalCondition(validCondition);
-      const composedValue = composeValue(localValue, validCondition, localCleanliness, audioUrlRef.current);
+      const composedValue = composeValue(localValue, validCondition, localCleanliness, audioUrlsRef.current);
       onChange(composedValue, localNote, localPhotos);
     } catch (error) {
       console.error('[FieldWidget] Error handling condition change:', error);
@@ -415,7 +401,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         : undefined;
       
       setLocalCleanliness(validCleanliness);
-      const composedValue = composeValue(localValue, localCondition, validCleanliness, audioUrlRef.current);
+      const composedValue = composeValue(localValue, localCondition, validCleanliness, audioUrlsRef.current);
       onChange(composedValue, localNote, localPhotos);
     } catch (error) {
       console.error('[FieldWidget] Error handling cleanliness change:', error);
@@ -423,49 +409,31 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  const composeValue = (val: any, condition?: string, cleanliness?: string, explicitAudioUrl?: string | null) => {
+  const composeValue = (val: any, condition?: string, cleanliness?: string, explicitAudioUrls?: string[] | null) => {
     const includeCondition = !!safeField.includeCondition;
     const includeCleanliness = !!safeField.includeCleanliness;
-    const currentAudioUrl = explicitAudioUrl !== undefined ? explicitAudioUrl : audioUrlRef.current;
+    const urls: string[] = explicitAudioUrls !== undefined ? (explicitAudioUrls || []) : (audioUrlsRef.current || []);
+
+    const withAudio = (obj: any) => {
+      const o = { ...obj };
+      if (urls.length > 0) {
+        o.audioUrls = urls;
+        if (urls.length === 1) o.audioUrl = urls[0];
+      }
+      return o;
+    };
 
     if (includeCondition || includeCleanliness) {
-      // Ensure we only include condition/cleanliness if they have valid string values
-      // This prevents undefined/null from causing sync errors
-      const result: any = {
-        value: val !== undefined && val !== null ? val : '',
-      };
-      
-      // Only add condition if it's a valid non-empty string
-      if (includeCondition && condition && typeof condition === 'string' && condition.trim() !== '') {
-        result.condition = condition.trim();
-      }
-      
-      // Only add cleanliness if it's a valid non-empty string
-      if (includeCleanliness && cleanliness && typeof cleanliness === 'string' && cleanliness.trim() !== '') {
-        result.cleanliness = cleanliness.trim();
-      }
-
-      // Always include audioUrl if it exists (even if null, we want to preserve it)
-      if (currentAudioUrl !== undefined && currentAudioUrl !== null) {
-        result.audioUrl = currentAudioUrl;
-      }
-      
-      return result;
+      const result: any = { value: val !== undefined && val !== null ? val : '' };
+      if (includeCondition && condition && typeof condition === 'string' && condition.trim() !== '') result.condition = condition.trim();
+      if (includeCleanliness && cleanliness && typeof cleanliness === 'string' && cleanliness.trim() !== '') result.cleanliness = cleanliness.trim();
+      return withAudio(result);
     }
-    // If no condition/cleanliness, store audioUrl in valueJson
-    // For photo fields, val might be null or a string, so we need to wrap it in an object if audioUrl exists
-    if (currentAudioUrl) {
-      // If val is already an object, merge audioUrl into it
-      if (typeof val === 'object' && val !== null) {
-        return { ...val, audioUrl: currentAudioUrl };
-      }
-      // If val is null, undefined, or a primitive, create an object with value and audioUrl
-      return { value: val !== undefined && val !== null ? val : null, audioUrl: currentAudioUrl };
+    if (urls.length > 0) {
+      if (typeof val === 'object' && val !== null) return withAudio(val);
+      return withAudio({ value: val !== undefined && val !== null ? val : null });
     }
-    // If no audioUrl but val is already an object with audioUrl, preserve it
-    if (typeof val === 'object' && val !== null && 'audioUrl' in val) {
-      return val; // Preserve existing audioUrl even if audioUrl param is not provided
-    }
+    if (typeof val === 'object' && val !== null && ('audioUrl' in val || 'audioUrls' in val)) return val;
     return val !== undefined && val !== null ? val : '';
   };
 
@@ -551,7 +519,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         console.log(`[FieldWidget] Photo stored locally: ${localPath}`);
         
         // Add local path to photos array
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrl);
+        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
         const currentPhotos = [...localPhotos, localPath];
         onChange(composedValue, localNote, currentPhotos);
         
@@ -705,7 +673,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         console.log(`[FieldWidget] Photo uploaded successfully to server: ${serverUrl}`);
 
         // Trigger onChange with updated photos array (server URLs only)
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrl);
+        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
         const currentPhotos = [...localPhotos, serverUrl];
         onChange(composedValue, localNote, currentPhotos);
 
@@ -741,7 +709,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           console.log('[FieldWidget] Image stored locally for retry:', localPath);
           
           // Update photos array with local path so it can be synced later
-          const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrl);
+          const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
           const currentPhotos = [...localPhotos, localPath];
           onChange(composedValue, localNote, currentPhotos);
           
@@ -776,7 +744,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           console.log('[FieldWidget] Image stored locally as fallback:', localPath);
           
           // Update photos array with local path
-          const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrl);
+          const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
           const currentPhotos = [...localPhotos, localPath];
           onChange(composedValue, localNote, currentPhotos);
           
@@ -831,7 +799,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         // Update UI with server URL
         const newPhotos = [...localPhotos, uploadedUrl];
         setLocalPhotos(newPhotos);
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrl);
+        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
         onChange(composedValue, localNote, newPhotos);
       } catch (uploadError: any) {
         console.error('Error uploading photo:', uploadError);
@@ -933,7 +901,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       
       if (allPhotos.length > localPhotos.length) {
         setLocalPhotos(allPhotos);
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrl);
+        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
         onChange(composedValue, localNote, allPhotos);
       }
 
@@ -1538,22 +1506,16 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                 </Text>
               </View>
             )}
-            {hasRecorded && !isRecording && (
+            {audioUrls.length > 0 && !isRecording && (
               <View style={[voiceCardStyles.badge, { backgroundColor: '#16a34a20' }]}>
                 <View style={[voiceCardStyles.badgeDot, { backgroundColor: '#16a34a' }]} />
-                <Text style={[voiceCardStyles.badgeText, { color: '#16a34a' }]}>Recorded</Text>
-              </View>
-            )}
-            {audioUrl && !hasRecorded && !isRecording && (
-              <View style={[voiceCardStyles.badge, { backgroundColor: themeColors.primary.DEFAULT + '20' }]}>
-                <View style={[voiceCardStyles.badgeDot, { backgroundColor: themeColors.primary.DEFAULT }]} />
-                <Text style={[voiceCardStyles.badgeText, { color: themeColors.primary.DEFAULT }]}>Saved</Text>
+                <Text style={[voiceCardStyles.badgeText, { color: '#16a34a' }]}>{audioUrls.length} Saved</Text>
               </View>
             )}
           </View>
 
-          {/* ── Start Recording (idle) ── */}
-          {!isRecording && !hasRecorded && (
+          {/* ── Start Recording (always available when not recording) ── */}
+          {!isRecording && (
             <TouchableOpacity
               style={[voiceCardStyles.fullBtn, { backgroundColor: themeColors.primary.DEFAULT }]}
               activeOpacity={0.85}
@@ -1571,7 +1533,6 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                   recordingRef.current = recorder;
                   setIsRecording(true);
                   setRecordingTime(0);
-                  setHasRecorded(false);
                   recordingTimerRef.current = setInterval(() => {
                     setRecordingTime(prev => prev + 1);
                   }, 1000);
@@ -1581,7 +1542,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               }}
             >
               <Mic size={16} color="#fff" />
-              <Text style={voiceCardStyles.fullBtnText}>Start Recording</Text>
+              <Text style={voiceCardStyles.fullBtnText}>{audioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
             </TouchableOpacity>
           )}
 
@@ -1597,7 +1558,6 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     await recordingRef.current.stop();
                     const uri = recordingRef.current.uri;
                     setIsRecording(false);
-                    setHasRecorded(true);
                     if (recordingTimerRef.current) {
                       clearInterval(recordingTimerRef.current);
                       recordingTimerRef.current = null;
@@ -1638,15 +1598,10 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
                         if (!uploadedAudioUrl) throw new Error('No audio URL returned from upload');
 
-                        audioUrlRef.current = uploadedAudioUrl;
-                        setAudioUrl(uploadedAudioUrl);
-                        let composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrlRef.current);
-                        if (uploadedAudioUrl && (!composedValue || typeof composedValue !== 'object' || !('audioUrl' in composedValue))) {
-                          composedValue = typeof composedValue === 'object' && composedValue !== null
-                            ? { ...composedValue, audioUrl: uploadedAudioUrl }
-                            : { value: composedValue, audioUrl: uploadedAudioUrl };
-                        }
-                        onChange(composedValue, localNote, localPhotos);
+                        const newUrls = [...audioUrlsRef.current, uploadedAudioUrl];
+                        audioUrlsRef.current = newUrls;
+                        setAudioUrls(newUrls);
+                        onChange(composeValue(localValue, localCondition, localCleanliness, newUrls), localNote, localPhotos);
                       } catch (error: any) {
                         console.error('[FieldWidget] Error uploading audio:', error);
                         Alert.alert('Upload Failed', 'Voice note recorded but not saved. Please try transcribing it to save.');
@@ -1667,222 +1622,105 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             </TouchableOpacity>
           )}
 
-          {/* ── Post-record actions ── */}
-          {hasRecorded && !isRecording && (
-            <View style={voiceCardStyles.rowPair}>
+          {/* ── List of voice recordings (each: Play | Transcribe | Remove) ── */}
+          {audioUrls.length > 0 && !isRecording && [...audioUrls].reverse().map((url, idx) => (
+            <View key={`${url}-${idx}`} style={[voiceCardStyles.rowPair, { marginTop: 8 }]}>
               <TouchableOpacity
-                style={[voiceCardStyles.halfBtn, { backgroundColor: themeColors.primary.DEFAULT }, (isTranscribing || isUploadingAudio) && voiceCardStyles.disabledBtn]}
+                style={[voiceCardStyles.halfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1 }]}
                 activeOpacity={0.85}
-                disabled={isTranscribing || isUploadingAudio}
                 onPress={async () => {
-                  if (!recordingRef.current && !audioUrl) {
-                    Alert.alert('Error', 'No recording available');
-                    return;
-                  }
-
-                  if (!isOnline) {
-                    Alert.alert('No Internet Connection', 'An internet connection is required to transcribe audio.');
-                    return;
-                  }
-
-                  setIsTranscribing(true);
-                  const maxRetries = 3;
-                  let lastError: any = null;
-
-                  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                    try {
-                      let uri: string | null = null;
-                      if (recordingRef.current) {
-                        // Get URI from the recorder
-                        uri = recordingRef.current.uri;
-                        if (!uri) {
-                          throw new Error('Recording URI not available. Please record again.');
+                  try {
+                    if (playingUrl === url && sound) {
+                      if (sound.playing) { sound.pause(); setPlayingUrl(null); }
+                      else { sound.play(); setPlayingUrl(url); }
+                    } else {
+                      if (sound) { sound.remove(); setSound(null); }
+                      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+                      const resolvedUri = url.startsWith('http') ? url : `${getAPI_URL()}${url}`;
+                      const newSound = createAudioPlayer({ uri: resolvedUri });
+                      setSound(newSound);
+                      setPlayingUrl(url);
+                      newSound.play();
+                      const checkStatus = setInterval(() => {
+                        if (newSound.currentStatus.didJustFinish) {
+                          setPlayingUrl(null);
+                          newSound.remove();
+                          setSound(null);
+                          clearInterval(checkStatus);
                         }
-                      } else if (audioUrl) {
-                        // Download from server if we have an audioUrl
-                        try {
-                          const resolvedUrl = audioUrl.startsWith('http') ? audioUrl : `${getAPI_URL()}${audioUrl}`;
-                          console.log('[FieldWidget] Downloading audio for transcription:', resolvedUrl.substring(0, 100));
-                          const dl = await FileSystem.downloadAsync(resolvedUrl, FileSystem.documentDirectory + `temp-audio-${Date.now()}.m4a`);
-                          if (dl.uri) {
-                            uri = dl.uri;
-                            console.log('[FieldWidget] Audio downloaded successfully:', uri.substring(0, 50));
-                          } else {
-                            throw new Error('Download failed - no URI returned');
-                          }
-                        } catch (downloadError: any) {
-                          console.error('[FieldWidget] Error downloading audio:', downloadError);
-                          throw new Error(`Failed to download audio: ${downloadError.message || 'Unknown error'}`);
-                        }
-                      } else {
-                        throw new Error('No recording available. Please record audio first.');
-                      }
-
-                      if (!uri) throw new Error('No audio file available');
-                      
-                      const fileInfo = await FileSystem.getInfoAsync(uri);
-                      if (!fileInfo.exists) {
-                        throw new Error('Audio file not found. Please record again.');
-                      }
-                      if (fileInfo.size && fileInfo.size > 25 * 1024 * 1024) {
-                        throw new Error(`Audio file too large (${Math.round(fileInfo.size / 1024 / 1024)}MB). Maximum size is 25MB.`);
-                      }
-                      
-                      console.log('[FieldWidget] Audio file ready for transcription:', {
-                        uri: uri.substring(0, 50) + '...',
-                        size: fileInfo.size,
-                        exists: fileInfo.exists,
-                      });
-
-                      const fileUri = uri.startsWith('file://') ? uri : `file://${uri}`;
-                      // Use audio/mp4 for M4A files
-                      const audioType = Platform.OS === 'ios' ? 'audio/mp4' : uri.endsWith('.m4a') ? 'audio/mp4' : uri.endsWith('.mp4') ? 'audio/mp4' : 'audio/mp4';
-                      const fileName = uri.split('/').pop() || 'recording.m4a';
-                      const finalFileName = fileName.toLowerCase().endsWith('.m4a') ? fileName : fileName.replace(/\.[^/.]+$/, '') + '.m4a';
-
-                      const apiUrl = getAPI_URL();
-                      setIsUploadingAudio(true);
-                      const fileBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
-                      const uploadResponse = await fetch(`${apiUrl}/api/objects/upload-audio-base64`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify({ fileBase64, fileName: finalFileName, mimeType: audioType }),
-                      });
-
-                      if (!uploadResponse.ok) throw new Error('Upload failed');
-                      const text = await uploadResponse.text();
-                      let uploadResult: any;
-                      try {
-                        uploadResult = text ? JSON.parse(text) : {};
-                      } catch {
-                        throw new Error(text.startsWith('<') ? 'Server returned an error page. Restart the server and try again.' : 'Invalid server response');
-                      }
-                      const uploadedAudioUrl = uploadResult?.url || uploadResult?.objectId;
-                      audioUrlRef.current = uploadedAudioUrl;
-                      setAudioUrl(uploadedAudioUrl);
-                      setIsUploadingAudio(false);
-
-                      // Use base64 endpoint (reliable on mobile); server converts to MP3 if Whisper rejects M4A
-                      const audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
-                      const response = await fetch(`${apiUrl}/api/audio/transcribe-base64`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify({ audioBase64, fileName: 'recording.m4a' }),
-                      });
-                      const transcribeText = await response.text();
-                      let result: any;
-                      try { result = JSON.parse(transcribeText); } catch {
-                        throw new Error(transcribeText.startsWith('<') ? 'Server returned an error page. Please try again or check your connection.' : 'Transcription failed');
-                      }
-                      if (!response.ok) {
-                        throw new Error(result?.error || result?.message || `Server error: ${response.status}`);
-                      }
-
-                      if (result.text) {
-                        const existingNote = localNote || '';
-                        const transcribedText = `Inspector Comments: ${result.text}`;
-                        const newNote = existingNote ? `${existingNote}\n\n${transcribedText}` : transcribedText;
-                        setLocalNote(newNote);
-                        handleNoteChange(newNote);
-                        onChange(composeValue(localValue, localCondition, localCleanliness, uploadedAudioUrl), newNote, localPhotos);
-                        Alert.alert('Transcription Complete', 'Speech converted to text and added to notes.');
-                        setHasRecorded(false);
-                        recordingRef.current = null;
-                        setIsTranscribing(false);
-                        return;
-                      } else {
-                        throw new Error('No text received');
-                      }
-                    } catch (error: any) {
-                      lastError = error;
-                      console.error(`[FieldWidget] Transcription attempt ${attempt} failed:`, {
-                        error: error.message,
-                        stack: error.stack,
-                      });
-                      if (attempt === maxRetries) break;
-                      await new Promise<void>(resolve => setTimeout(() => resolve(), 1000 * Math.pow(2, attempt - 1)));
+                      }, 100);
                     }
+                  } catch (e: any) {
+                    Alert.alert('Playback Failed', e.message || 'Could not play audio.');
+                    setPlayingUrl(null);
+                    if (sound) { sound.remove(); setSound(null); }
                   }
-
-                  setIsTranscribing(false);
-                  const errorMessage = lastError?.message || 'Could not convert speech to text.';
-                  console.error('[FieldWidget] Transcription failed after all retries:', errorMessage);
-                  Alert.alert('Transcription Failed', errorMessage);
                 }}
               >
-                <Sparkles size={15} color="#fff" />
-                <Text style={voiceCardStyles.halfBtnText}>
-                  {isTranscribing ? "Transcribing..." : "Convert to Text"}
-                </Text>
+                {playingUrl === url && sound?.playing ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                <Text style={[voiceCardStyles.halfBtnText, { color: themeColors.primary.DEFAULT }]}>{playingUrl === url && sound?.playing ? 'Pause' : 'Play'}</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
-                style={[voiceCardStyles.halfBtn, voiceCardStyles.outlineBtn, { borderColor: themeColors.border.DEFAULT }]}
+                style={[voiceCardStyles.halfBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]}
+                activeOpacity={0.85}
+                disabled={isTranscribing}
+                onPress={async () => {
+                  if (!isOnline) { Alert.alert('No Internet Connection', 'An internet connection is required to transcribe.'); return; }
+                  setTranscribingUrl(url);
+                  setIsTranscribing(true);
+                  try {
+                    const resolvedUrl = url.startsWith('http') ? url : `${getAPI_URL()}${url}`;
+                    const dl = await FileSystem.downloadAsync(resolvedUrl, FileSystem.documentDirectory + `temp-audio-${Date.now()}.m4a`);
+                    if (!dl.uri) throw new Error('Download failed');
+                    const fileUri = dl.uri.startsWith('file://') ? dl.uri : `file://${dl.uri}`;
+                    const audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
+                    const response = await fetch(`${getAPI_URL()}/api/audio/transcribe-base64`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({ audioBase64, fileName: 'recording.m4a' }),
+                    });
+                    const transcribeText = await response.text();
+                    let result: any;
+                    try { result = JSON.parse(transcribeText); } catch {
+                      throw new Error(transcribeText.startsWith('<') ? 'Server error. Try again.' : 'Transcription failed');
+                    }
+                    if (!response.ok) throw new Error(result?.error || result?.message || 'Transcription failed');
+                    if (result.text) {
+                      const existingNote = localNote || '';
+                      const transcribedText = `Inspector Comments: ${result.text}`;
+                      const newNote = existingNote ? `${existingNote}\n\n${transcribedText}` : transcribedText;
+                      setLocalNote(newNote);
+                      handleNoteChange(newNote);
+                      onChange(composeValue(localValue, localCondition, localCleanliness, audioUrls), newNote, localPhotos);
+                      Alert.alert('Transcription Complete', 'Speech converted to text and added to notes.');
+                    } else throw new Error('No text received');
+                  } catch (e: any) {
+                    Alert.alert('Transcription Failed', e.message || 'Could not transcribe audio.');
+                  } finally {
+                    setTranscribingUrl(null);
+                    setIsTranscribing(false);
+                  }
+                }}
+              >
+                <Sparkles size={14} color="#fff" />
+                <Text style={[voiceCardStyles.halfBtnText, { color: '#fff' }]}>{transcribingUrl === url ? '...' : 'Transcribe'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[voiceCardStyles.halfBtn, voiceCardStyles.outlineBtn, { borderColor: themeColors.destructive.DEFAULT + '60', backgroundColor: 'transparent', flex: 0, minWidth: 44, paddingHorizontal: 12 }]}
                 activeOpacity={0.85}
                 onPress={() => {
-                  setHasRecorded(false);
-                  recordingRef.current = null;
-                  setRecordingTime(0);
-                  if (audioUrlRef.current) {
-                    audioUrlRef.current = null;
-                    setAudioUrl(null);
-                    onChange(composeValue(localValue, localCondition, localCleanliness, null), localNote, localPhotos);
-                  }
+                  const newUrls = audioUrls.filter((u) => u !== url);
+                  audioUrlsRef.current = newUrls;
+                  setAudioUrls(newUrls);
+                  onChange(composeValue(localValue, localCondition, localCleanliness, newUrls), localNote, localPhotos);
+                  if (playingUrl === url && sound) { sound.remove(); setSound(null); setPlayingUrl(null); }
                 }}
               >
-                <X size={15} color={themeColors.text.secondary} />
-                <Text style={[voiceCardStyles.halfBtnText, { color: themeColors.text.secondary }]}>Cancel</Text>
+                <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
               </TouchableOpacity>
             </View>
-          )}
-
-          {/* ── Playback ── */}
-          {audioUrl && (
-            <TouchableOpacity
-              style={[voiceCardStyles.playBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10' }]}
-              activeOpacity={0.85}
-              onPress={async () => {
-                try {
-                  if (sound) {
-                    if (sound.playing) {
-                      sound.pause();
-                      setIsPlayingAudio(false);
-                    } else {
-                      sound.play();
-                      setIsPlayingAudio(true);
-                    }
-                  } else {
-                    const resolvedAudioUri = audioUrl.startsWith('http') ? audioUrl : `${getAPI_URL()}${audioUrl}`;
-                    const newSound = createAudioPlayer({ uri: resolvedAudioUri });
-                    setSound(newSound);
-                    newSound.play();
-                    setIsPlayingAudio(true);
-                    // Listen for playback completion
-                    const checkStatus = setInterval(() => {
-                      if (newSound.currentStatus.didJustFinish) {
-                        setIsPlayingAudio(false);
-                        newSound.remove();
-                        setSound(null);
-                        clearInterval(checkStatus);
-                      }
-                    }, 100);
-                  }
-                } catch (error: any) {
-                  console.error('[FieldWidget] Error playing audio:', error);
-                  Alert.alert('Playback Failed', 'Could not play audio.');
-                  setIsPlayingAudio(false);
-                  if (sound) { sound.remove(); setSound(null); }
-                }
-              }}
-            >
-              {isPlayingAudio ? <Square size={16} color={themeColors.primary.DEFAULT} /> : <Play size={16} color={themeColors.primary.DEFAULT} />}
-              <Text style={[voiceCardStyles.playBtnText, { color: themeColors.primary.DEFAULT }]}>
-                {isPlayingAudio ? "Pause Recording" : "Play Voice Note"}
-              </Text>
-            </TouchableOpacity>
-          )}
+          ))}
         </View>
       )}
 

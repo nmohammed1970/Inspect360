@@ -7,6 +7,8 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   required?: boolean | string;
+  value?: string;
+  onChangeText?: (text: string) => void;
 }
 
 export default function Input({

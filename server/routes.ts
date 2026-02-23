@@ -16767,7 +16767,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   });
 
-  // Helper: convert audio buffer to MP3 when Whisper rejects format (mobile M4A compatibility)
+  // Helper: convert audio buffer to MP3 (iOS M4A compatibility - Whisper often rejects iOS M4A)
   async function convertToMp3(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
     const ffmpegPath = (await import("ffmpeg-static"))?.default;
     if (!ffmpegPath) throw new Error("ffmpeg not available");
@@ -16796,6 +16796,34 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   }
 
+  // Helper: convert to WAV (fallback when MP3 fails - Whisper reliably handles WAV)
+  async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
+    const ffmpegPath = (await import("ffmpeg-static"))?.default;
+    if (!ffmpegPath) throw new Error("ffmpeg not available");
+    const ffmpegMod = await import("fluent-ffmpeg");
+    const ffmpeg = (ffmpegMod as any).default ?? ffmpegMod;
+    (ffmpeg as any).setFfmpegPath(ffmpegPath);
+    const inputPath = path.join(os.tmpdir(), `whisper-wav-in-${randomUUID()}.${inputExt}`);
+    const outputPath = path.join(os.tmpdir(), `whisper-wav-out-${randomUUID()}.wav`);
+    await fs.writeFile(inputPath, inputBuffer);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(inputPath)
+          .noVideo()
+          .audioCodec('pcm_s16le')
+          .format('wav')
+          .outputOptions(['-ac', '1', '-ar', '16000'])
+          .save(outputPath)
+          .on('end', () => resolve())
+          .on('error', (err: Error) => reject(err));
+      });
+      return await fs.readFile(outputPath);
+    } finally {
+      await fs.unlink(inputPath).catch(() => {});
+      await fs.unlink(outputPath).catch(() => {});
+    }
+  }
+
   // Audio transcription via base64 (avoids multipart/FormData binary corruption on mobile)
   app.post("/api/audio/transcribe-base64", isAuthenticated, async (req: any, res: any) => {
     try {
@@ -16811,21 +16839,43 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       if (size > 25 * 1024 * 1024) {
         return res.status(400).json({ error: "Audio file too large. Maximum size is 25MB" });
       }
+      if (size < 1000) {
+        return res.status(400).json({ error: "Audio file too small or corrupted. Try recording again." });
+      }
       console.log('[Transcribe-base64] Received:', { size, fileName });
       const openaiClient = getOpenAI();
-      // Always convert M4A/MP4 to MP3 for mobile (iOS/Android) - Whisper often rejects iOS M4A with "could not be decoded"
+      // Always convert M4A/MP4 for mobile (iOS/Android) - Whisper often rejects iOS M4A with "could not be decoded"
       const isM4A = fileName.toLowerCase().endsWith('.m4a') || fileName.toLowerCase().endsWith('.mp4');
       let audioBuffer = buffer;
       let ext = 'm4a';
       let mime = 'audio/mp4';
       if (isM4A) {
+        let converted = false;
         try {
           console.log('[Transcribe-base64] Converting M4A to MP3 for Whisper compatibility');
           audioBuffer = await convertToMp3(buffer, 'm4a');
           ext = 'mp3';
           mime = 'audio/mpeg';
-        } catch (convErr: any) {
-          console.warn('[Transcribe-base64] MP3 conversion failed, trying M4A directly:', convErr?.message);
+          converted = true;
+        } catch (mp3Err: any) {
+          console.warn('[Transcribe-base64] MP3 conversion failed, trying WAV:', mp3Err?.message);
+        }
+        if (!converted) {
+          try {
+            console.log('[Transcribe-base64] Converting M4A to WAV (iOS fallback)');
+            audioBuffer = await convertToWav(buffer, 'm4a');
+            ext = 'wav';
+            mime = 'audio/wav';
+            converted = true;
+          } catch (wavErr: any) {
+            console.warn('[Transcribe-base64] WAV conversion failed:', wavErr?.message);
+          }
+        }
+        if (!converted) {
+          console.error('[Transcribe-base64] Both MP3 and WAV conversion failed for iOS M4A');
+          return res.status(400).json({
+            error: "The audio file could not be processed. Try recording again or use a shorter clip.",
+          });
         }
       }
       const audioFile = await toFile(audioBuffer, `audio.${ext}`, { type: mime });

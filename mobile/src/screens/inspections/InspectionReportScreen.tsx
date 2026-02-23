@@ -34,6 +34,7 @@ import {
     Square,
     Play,
     Sparkles,
+    Trash2,
 } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -71,36 +72,45 @@ const InspectionReportScreen = () => {
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
     const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-    // ---- Voice recording state (per-entry key) ----
+    // ---- Voice recording state (per-entry key) - supports multiple recordings ----
     type VoiceState = {
         isRecording: boolean;
         recordingTime: number;
-        hasRecorded: boolean;
         isTranscribing: boolean;
+        transcribingUrl: string | null;
         isUploadingAudio: boolean;
         isPlayingAudio: boolean;
-        audioUrl: string | null;
+        playingUrl: string | null;
+        audioUrls: string[];
     };
     const [voiceStates, setVoiceStates] = useState<Record<string, VoiceState>>({});
     const recordingRefs = useRef<Record<string, any>>({});
     const soundRefs = useRef<Record<string, any>>({});
     const timerRefs = useRef<Record<string, ReturnType<typeof setInterval> | null>>({});
     const playbackStatusIntervals = useRef<Record<string, ReturnType<typeof setInterval> | null>>({});
-    const audioChunksRef = useRef<Record<string, string | null>>({}); // stores local file URI after recording
 
     const getVoiceState = useCallback((key: string): VoiceState => {
         return voiceStates[key] || {
-            isRecording: false, recordingTime: 0, hasRecorded: false,
-            isTranscribing: false, isUploadingAudio: false, isPlayingAudio: false,
-            audioUrl: null,
+            isRecording: false, recordingTime: 0,
+            isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null,
+            audioUrls: [],
         };
     }, [voiceStates]);
 
     const setVoiceField = useCallback((key: string, patch: Partial<VoiceState>) => {
-        setVoiceStates(prev => ({ ...prev, [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, hasRecorded: false, isTranscribing: false, isUploadingAudio: false, isPlayingAudio: false, audioUrl: null }), ...patch } }));
+        setVoiceStates(prev => ({ ...prev, [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, audioUrls: [] }), ...patch } }));
     }, []);
 
-    const startRecording = useCallback(async (key: string) => {
+    const getEntryAudioUrls = useCallback((entry: any): string[] => {
+        const vj = entry?.valueJson;
+        if (vj && typeof vj === 'object' && !Array.isArray(vj)) {
+            if (Array.isArray((vj as any).audioUrls)) return (vj as any).audioUrls;
+            if ((vj as any).audioUrl) return [(vj as any).audioUrl];
+        }
+        return [];
+    }, []);
+
+    const startRecording = useCallback(async (key: string, existingAudioUrls: string[]) => {
         try {
             const { status } = await requestRecordingPermissionsAsync();
             if (status !== 'granted') { Alert.alert('Permission Required', 'Microphone access is needed to record audio.'); return; }
@@ -109,11 +119,11 @@ const InspectionReportScreen = () => {
             await recorder.prepareToRecordAsync();
             recorder.record();
             recordingRefs.current[key] = recorder;
-            setVoiceField(key, { isRecording: true, recordingTime: 0, hasRecorded: false });
+            setVoiceField(key, { isRecording: true, recordingTime: 0, audioUrls: existingAudioUrls });
             timerRefs.current[key] = setInterval(() => {
                 setVoiceStates(prev => ({
                     ...prev,
-                    [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, hasRecorded: false, isTranscribing: false, isUploadingAudio: false, isPlayingAudio: false, audioUrl: null }), recordingTime: ((prev[key]?.recordingTime) || 0) + 1 }
+                    [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, audioUrls: [] }), recordingTime: ((prev[key]?.recordingTime) || 0) + 1 }
                 }));
             }, 1000);
         } catch (e: any) {
@@ -121,15 +131,14 @@ const InspectionReportScreen = () => {
         }
     }, [setVoiceField]);
 
-    const stopRecording = useCallback(async (key: string, entryId: string, existingNote: string, existingValueJson: any) => {
+    const stopRecording = useCallback(async (key: string, entryId: string, existingNote: string, existingValueJson: any, currentAudioUrls: string[]) => {
         const recording = recordingRefs.current[key];
         if (!recording) return;
         if (timerRefs.current[key]) { clearInterval(timerRefs.current[key]!); timerRefs.current[key] = null; }
         await recording.stop();
         const uri = recording.uri;
         recordingRefs.current[key] = null;
-        audioChunksRef.current[key] = uri;
-        setVoiceField(key, { isRecording: false, hasRecorded: true });
+        setVoiceField(key, { isRecording: false, isPlayingAudio: false });
 
         if (uri) {
             setVoiceField(key, { isUploadingAudio: true });
@@ -152,9 +161,9 @@ const InspectionReportScreen = () => {
                 }
                 const uploadedUrl = uploadResult?.url || uploadResult?.objectId;
                 if (!uploadedUrl) throw new Error('No URL returned');
-                setVoiceField(key, { audioUrl: uploadedUrl, isUploadingAudio: false });
-                // save audioUrl to entry valueJson
-                await saveEntryVoiceDataMobile(entryId, existingNote, uploadedUrl, existingValueJson);
+                const newUrls = [...currentAudioUrls, uploadedUrl];
+                setVoiceField(key, { audioUrls: newUrls, isUploadingAudio: false });
+                await saveEntryVoiceDataMobile(entryId, existingNote, newUrls, existingValueJson);
             } catch (e: any) {
                 Alert.alert('Upload Failed', e.message || 'Could not save voice note.');
                 setVoiceField(key, { isUploadingAudio: false });
@@ -162,41 +171,21 @@ const InspectionReportScreen = () => {
         }
     }, [setVoiceField]);
 
-    const transcribeAudio = useCallback(async (key: string, entryId: string, existingNote: string, existingValueJson: any) => {
-        const vs = getVoiceState(key);
-        const localUri = audioChunksRef.current[key];
-        if (!localUri && !vs.audioUrl) { Alert.alert('No Recording', 'Please record audio first.'); return; }
-        setVoiceField(key, { isTranscribing: true });
+    const transcribeAudio = useCallback(async (key: string, audioUrl: string, entryId: string, existingNote: string, existingValueJson: any, currentAudioUrls: string[]) => {
+        setVoiceField(key, { isTranscribing: true, transcribingUrl: audioUrl });
         try {
             const apiUrl = getAPI_URL();
-            let audioBase64: string;
-            if (localUri) {
-                const fileUri = localUri.startsWith('file://') ? localUri : `file://${localUri}`;
-                audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
-            } else {
-                const audioUrlToFetch = vs.audioUrl!.startsWith('http')
-                    ? vs.audioUrl!
-                    : vs.audioUrl!.startsWith('/')
-                        ? `${apiUrl}${vs.audioUrl}`
-                        : `${apiUrl}/${vs.audioUrl}`;
-                const r = await fetch(audioUrlToFetch, { credentials: 'include' });
-                if (!r.ok) throw new Error(`Failed to fetch audio: ${r.status}`);
-                const arrayBuffer = await r.arrayBuffer();
-                const bytes = new Uint8Array(arrayBuffer);
-                let binary = '';
-                for (let i = 0; i < bytes.length; i += 8192) {
-                    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192) as any);
-                }
-                audioBase64 = typeof btoa === 'function' ? btoa(binary) : (() => {
-                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-                    let out = '';
-                    for (let i = 0; i < bytes.length; i += 3) {
-                        const a = bytes[i] ?? 0, b = bytes[i + 1] ?? 0, c = bytes[i + 2] ?? 0;
-                        out += chars[a >> 2] + chars[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? chars[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? chars[c & 63] : '=');
-                    }
-                    return out;
-                })();
-            }
+            const audioUrlToFetch = audioUrl.startsWith('http')
+                ? audioUrl
+                : audioUrl.startsWith('/')
+                    ? `${apiUrl}${audioUrl}`
+                    : `${apiUrl}/${audioUrl}`;
+            // Use FileSystem for iOS consistency: avoids fetch+arrayBuffer+btoa issues and stack overflow on large files
+            const tempPath = FileSystem.documentDirectory + `temp-audio-transcribe-${Date.now()}.m4a`;
+            const dl = await FileSystem.downloadAsync(audioUrlToFetch, tempPath);
+            if (!dl.uri) throw new Error('Download failed');
+            const fileUri = dl.uri.startsWith('file://') ? dl.uri : `file://${dl.uri}`;
+            const audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
             const resp = await fetch(`${apiUrl}/api/audio/transcribe-base64`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -208,29 +197,26 @@ const InspectionReportScreen = () => {
             try { result = JSON.parse(text); } catch {
                 throw new Error(text.startsWith('<') ? 'Server returned an error page. Please try again or check your connection.' : 'Transcription failed');
             }
-            if (!resp.ok) throw new Error(result?.error || 'Transcription failed');
+            if (!resp.ok) throw new Error(result?.error || result?.message || 'Transcription failed');
             if (result.text) {
                 const prefix = 'Inspector Comments: ' + result.text;
                 const newNote = existingNote ? `${existingNote}\n\n${prefix}` : prefix;
-                await saveEntryVoiceDataMobile(entryId, newNote, vs.audioUrl, existingValueJson);
-                setVoiceField(key, { hasRecorded: false }); // reset after transcription
-                audioChunksRef.current[key] = null;
+                await saveEntryVoiceDataMobile(entryId, newNote, currentAudioUrls, existingValueJson);
                 Alert.alert('Transcription Complete', 'Voice note converted to text and added to notes.');
             } else { throw new Error('No transcription text received'); }
         } catch (e: any) {
             Alert.alert('Transcription Failed', e.message || 'Could not transcribe audio.');
         } finally {
-            setVoiceField(key, { isTranscribing: false });
+            setVoiceField(key, { isTranscribing: false, transcribingUrl: null });
         }
-    }, [getVoiceState, setVoiceField]);
+    }, [setVoiceField]);
 
     const playAudio = useCallback(async (key: string, audioUrl: string) => {
         const existing = soundRefs.current[key];
         if (existing) {
             if (existing.playing) {
                 existing.pause();
-                setVoiceField(key, { isPlayingAudio: false });
-                // Clear any existing status check interval
+                setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
                 if (playbackStatusIntervals.current[key]) {
                     clearInterval(playbackStatusIntervals.current[key]!);
                     playbackStatusIntervals.current[key] = null;
@@ -239,35 +225,26 @@ const InspectionReportScreen = () => {
             }
         }
         try {
-            // Resolve audio URL - ensure it's a full URL
+            await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
             let resolvedAudioUri = audioUrl;
             if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
-                // If it's a relative path, prepend the API URL
                 const apiUrl = getAPI_URL();
-                resolvedAudioUri = audioUrl.startsWith('/') 
-                    ? `${apiUrl}${audioUrl}` 
-                    : `${apiUrl}/${audioUrl}`;
+                resolvedAudioUri = audioUrl.startsWith('/') ? `${apiUrl}${audioUrl}` : `${apiUrl}/${audioUrl}`;
             }
-            
-            console.log('[InspectionReport] Playing audio:', { original: audioUrl, resolved: resolvedAudioUri });
-            
             const sound = createAudioPlayer({ uri: resolvedAudioUri });
             soundRefs.current[key] = sound;
             sound.play();
-            setVoiceField(key, { isPlayingAudio: true });
-            
-            // Listen for playback completion
+            setVoiceField(key, { isPlayingAudio: true, playingUrl: audioUrl });
             const checkStatus = setInterval(() => {
                 try {
                     if (sound.currentStatus.didJustFinish) {
-                        setVoiceField(key, { isPlayingAudio: false });
+                        setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
                         sound.remove();
                         soundRefs.current[key] = null;
                         clearInterval(checkStatus);
                         playbackStatusIntervals.current[key] = null;
                     }
                 } catch (err) {
-                    // If sound was already removed, clear the interval
                     clearInterval(checkStatus);
                     playbackStatusIntervals.current[key] = null;
                 }
@@ -276,36 +253,41 @@ const InspectionReportScreen = () => {
         } catch (e: any) {
             console.error('[InspectionReport] Error playing audio:', e, { audioUrl });
             Alert.alert('Playback Failed', `Could not play audio: ${e.message || 'Unknown error'}`);
-            setVoiceField(key, { isPlayingAudio: false });
+            setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
         }
     }, [setVoiceField]);
 
-    const cancelRecording = useCallback(async (key: string, entryId: string, existingNote: string, existingValueJson: any) => {
+    const cancelRecording = useCallback(async (key: string, currentAudioUrls: string[]) => {
         const recording = recordingRefs.current[key];
-        if (recording) { 
-            try { 
-                await recording.stop(); 
-            } catch { } 
-            recordingRefs.current[key] = null; 
+        if (recording) {
+            try { await recording.stop(); } catch { }
+            recordingRefs.current[key] = null;
         }
         if (timerRefs.current[key]) { clearInterval(timerRefs.current[key]!); timerRefs.current[key] = null; }
-        audioChunksRef.current[key] = null;
-        const vs = getVoiceState(key);
-        if (vs.audioUrl) {
-            await saveEntryVoiceDataMobile(entryId, existingNote, null, existingValueJson);
-        }
-        setVoiceField(key, { isRecording: false, hasRecorded: false, recordingTime: 0, audioUrl: null });
-    }, [getVoiceState, setVoiceField]);
+        setVoiceField(key, { isRecording: false, recordingTime: 0, audioUrls: currentAudioUrls, isPlayingAudio: false });
+    }, [setVoiceField]);
 
-    const saveEntryVoiceDataMobile = async (entryId: string, note: string, audioUrl: string | null | undefined, existingValueJson: any) => {
-        let newValueJson = existingValueJson;
-        if (audioUrl !== undefined) {
-            if (newValueJson && typeof newValueJson === 'object' && !Array.isArray(newValueJson)) {
-                newValueJson = { ...newValueJson, audioUrl: audioUrl ?? undefined };
-                if (audioUrl === null) delete newValueJson.audioUrl;
-            } else {
-                newValueJson = audioUrl ? { value: newValueJson ?? null, audioUrl } : { value: newValueJson ?? null };
-            }
+    const removeAudioUrl = useCallback(async (key: string, urlToRemove: string, entryId: string, existingNote: string, existingValueJson: any, currentAudioUrls: string[], currentPlayingUrl: string | null) => {
+        const newUrls = currentAudioUrls.filter(u => u !== urlToRemove);
+        setVoiceField(key, { audioUrls: newUrls });
+        if (soundRefs.current[key] && currentPlayingUrl === urlToRemove) {
+            try { soundRefs.current[key]?.remove(); } catch { }
+            soundRefs.current[key] = null;
+            setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
+        }
+        await saveEntryVoiceDataMobile(entryId, existingNote, newUrls, existingValueJson);
+    }, [setVoiceField]);
+
+    const saveEntryVoiceDataMobile = async (entryId: string, note: string, audioUrls: string[], existingValueJson: any) => {
+        let newValueJson = existingValueJson && typeof existingValueJson === 'object' && !Array.isArray(existingValueJson)
+            ? { ...existingValueJson }
+            : { value: existingValueJson ?? null };
+        if (audioUrls.length > 0) {
+            newValueJson.audioUrls = audioUrls;
+            newValueJson.audioUrl = audioUrls[0];
+        } else {
+            delete newValueJson.audioUrls;
+            delete newValueJson.audioUrl;
         }
         await fetch(`${getAPI_URL()}/api/inspection-entries/${entryId}`, {
             method: 'PATCH',
@@ -1066,55 +1048,54 @@ const InspectionReportScreen = () => {
                                                                                 </View>
                                                                             )}
                                                                             
-                                                                            {/* Voice Recording Panel - Outside tableRow */}
+                                                                            {/* Voice Recording Panel - supports multiple recordings */}
                                                                             {isPhotoExpanded && entry?.id && (() => {
                                                                                 const vKey = `voice-${entryKey}`;
                                                                                 const vs = getVoiceState(vKey);
-                                                                                const entryAudioUrl = vs.audioUrl || (entry?.valueJson && typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson) ? (entry.valueJson as any).audioUrl : null);
+                                                                                const displayAudioUrls = vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
                                                                                 return (
                                                                                     <View style={[styles.voiceRecordingContainer, { borderTopColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
                                                                                         <Text style={[styles.voiceSectionLabel, { color: themeColors.text.secondary }]}>Voice Recording</Text>
                                                                                         <View style={styles.voiceButtonsRow}>
-                                                                                            {!vs.isRecording && !vs.hasRecorded && (
-                                                                                                <>
-                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: entryAudioUrl ? 1 : undefined, minWidth: entryAudioUrl ? 0 : '100%' }]} onPress={() => startRecording(vKey)}>
-                                                                                                        <Mic size={14} color={themeColors.primary.foreground || '#fff'} />
-                                                                                                        <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>Start Recording</Text>
-                                                                                                    </TouchableOpacity>
-                                                                                                    {entryAudioUrl && (
-                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent', flex: 1 }]} onPress={() => playAudio(vKey, entryAudioUrl)}>
-                                                                                                            {vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.isPlayingAudio ? 'Pause' : 'Play Voice Note'}</Text>
-                                                                                                        </TouchableOpacity>
-                                                                                                    )}
-                                                                                                </>
-                                                                                            )}
-                                                                                            {vs.isRecording && (
-                                                                                                <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: '#ef4444', opacity: vs.isUploadingAudio ? 0.5 : 1 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson)} disabled={vs.isUploadingAudio}>
-                                                                                                    <Square size={14} color='#fff' />
-                                                                                                    <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
+                                                                                            {!vs.isRecording && (
+                                                                                                <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]} onPress={() => startRecording(vKey, displayAudioUrls)}>
+                                                                                                    <Mic size={14} color={themeColors.primary.foreground || '#fff'} />
+                                                                                                    <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
                                                                                                 </TouchableOpacity>
                                                                                             )}
-                                                                                            {vs.hasRecorded && !vs.isRecording && (
+                                                                                            {vs.isRecording && (
                                                                                                 <>
-                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, opacity: vs.isTranscribing ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, entry.id, entry?.note || '', entry?.valueJson)} disabled={vs.isTranscribing}>
-                                                                                                        <Sparkles size={14} color={themeColors.primary.foreground || '#fff'} />
-                                                                                                        <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>{vs.isTranscribing ? 'Transcribing...' : 'Convert to Text'}</Text>
+                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: '#ef4444', opacity: vs.isUploadingAudio ? 0.5 : 1, flex: 1 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio}>
+                                                                                                        <Square size={14} color='#fff' />
+                                                                                                        <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
                                                                                                     </TouchableOpacity>
-                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => cancelRecording(vKey, entry.id, entry?.note || '', entry?.valueJson)}>
+                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => cancelRecording(vKey, displayAudioUrls)}>
                                                                                                         <X size={14} color={themeColors.text.primary} />
                                                                                                         <Text style={[styles.voiceBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
                                                                                                     </TouchableOpacity>
-                                                                                                    {entryAudioUrl && (
-                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => playAudio(vKey, entryAudioUrl)}>
-                                                                                                            {vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.isPlayingAudio ? 'Pause' : 'Play Voice Note'}</Text>
-                                                                                                        </TouchableOpacity>
-                                                                                                    )}
                                                                                                 </>
                                                                                             )}
                                                                                         </View>
                                                                                         {vs.isRecording && (<View style={styles.recordingIndicatorRow}><View style={styles.recordingDot} /><Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text></View>)}
+                                                                                        {displayAudioUrls.length > 0 && !vs.isRecording && (
+                                                                                            <View style={{ marginTop: 8, gap: 8 }}>
+                                                                                                {[...displayAudioUrls].reverse().map((url, idx) => (
+                                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceButtonsRow, { flexWrap: 'wrap' }]}>
+                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1 }]} onPress={() => playAudio(vKey, url)}>
+                                                                                                            {vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
+                                                                                                        </TouchableOpacity>
+                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl}>
+                                                                                                            <Sparkles size={14} color='#fff' />
+                                                                                                            <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
+                                                                                                        </TouchableOpacity>
+                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.destructive.DEFAULT + '60', backgroundColor: 'transparent', flex: 0, minWidth: 44, paddingHorizontal: 12 }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)}>
+                                                                                                            <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
+                                                                                                        </TouchableOpacity>
+                                                                                                    </View>
+                                                                                                ))}
+                                                                                            </View>
+                                                                                        )}
                                                                                     </View>
                                                                                 );
                                                                             })()}
@@ -1272,55 +1253,54 @@ const InspectionReportScreen = () => {
                                                                 </View>
                                                             )}
                                                             
-                                                            {/* Voice Recording Panel - Outside tableRow */}
+                                                            {/* Voice Recording Panel - supports multiple recordings */}
                                                             {isPhotoExpanded && entry?.id && (() => {
                                                                 const vKey = `voice-${entryKey}`;
                                                                 const vs = getVoiceState(vKey);
-                                                                const entryAudioUrl = vs.audioUrl || (entry?.valueJson && typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson) ? (entry.valueJson as any).audioUrl : null);
+                                                                const displayAudioUrls = vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
                                                                 return (
                                                                     <View style={[styles.voiceRecordingContainer, { borderTopColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
                                                                         <Text style={[styles.voiceSectionLabel, { color: themeColors.text.secondary }]}>Voice Recording</Text>
                                                                         <View style={styles.voiceButtonsRow}>
-                                                                            {!vs.isRecording && !vs.hasRecorded && (
-                                                                                <>
-                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: entryAudioUrl ? 1 : undefined, minWidth: entryAudioUrl ? 0 : '100%' }]} onPress={() => startRecording(vKey)}>
-                                                                                        <Mic size={14} color={themeColors.primary.foreground || '#fff'} />
-                                                                                        <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>Start Recording</Text>
-                                                                                    </TouchableOpacity>
-                                                                                    {entryAudioUrl && (
-                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent', flex: 1 }]} onPress={() => playAudio(vKey, entryAudioUrl)}>
-                                                                                            {vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.isPlayingAudio ? 'Pause' : 'Play Voice Note'}</Text>
-                                                                                        </TouchableOpacity>
-                                                                                    )}
-                                                                                </>
-                                                                            )}
-                                                                            {vs.isRecording && (
-                                                                                <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: '#ef4444', opacity: vs.isUploadingAudio ? 0.5 : 1 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson)} disabled={vs.isUploadingAudio}>
-                                                                                    <Square size={14} color='#fff' />
-                                                                                    <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
+                                                                            {!vs.isRecording && (
+                                                                                <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]} onPress={() => startRecording(vKey, displayAudioUrls)}>
+                                                                                    <Mic size={14} color={themeColors.primary.foreground || '#fff'} />
+                                                                                    <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
                                                                                 </TouchableOpacity>
                                                                             )}
-                                                                            {vs.hasRecorded && !vs.isRecording && (
+                                                                            {vs.isRecording && (
                                                                                 <>
-                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, opacity: vs.isTranscribing ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, entry.id, entry?.note || '', entry?.valueJson)} disabled={vs.isTranscribing}>
-                                                                                        <Sparkles size={14} color={themeColors.primary.foreground || '#fff'} />
-                                                                                        <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>{vs.isTranscribing ? 'Transcribing...' : 'Convert to Text'}</Text>
+                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: '#ef4444', opacity: vs.isUploadingAudio ? 0.5 : 1, flex: 1 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio}>
+                                                                                        <Square size={14} color='#fff' />
+                                                                                        <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
                                                                                     </TouchableOpacity>
-                                                                                    <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => cancelRecording(vKey, entry.id, entry?.note || '', entry?.valueJson)}>
+                                                                                    <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => cancelRecording(vKey, displayAudioUrls)}>
                                                                                         <X size={14} color={themeColors.text.primary} />
                                                                                         <Text style={[styles.voiceBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
                                                                                     </TouchableOpacity>
-                                                                                    {entryAudioUrl && (
-                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => playAudio(vKey, entryAudioUrl)}>
-                                                                                            {vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.isPlayingAudio ? 'Pause' : 'Play Voice Note'}</Text>
-                                                                                        </TouchableOpacity>
-                                                                                    )}
                                                                                 </>
                                                                             )}
                                                                         </View>
                                                                         {vs.isRecording && (<View style={styles.recordingIndicatorRow}><View style={styles.recordingDot} /><Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text></View>)}
+                                                                        {displayAudioUrls.length > 0 && !vs.isRecording && (
+                                                                            <View style={{ marginTop: 8, gap: 8 }}>
+                                                                                {[...displayAudioUrls].reverse().map((url, idx) => (
+                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceButtonsRow, { flexWrap: 'wrap' }]}>
+                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1 }]} onPress={() => playAudio(vKey, url)}>
+                                                                                            {vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
+                                                                                        </TouchableOpacity>
+                                                                                        <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl}>
+                                                                                            <Sparkles size={14} color='#fff' />
+                                                                                            <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
+                                                                                        </TouchableOpacity>
+                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.destructive.DEFAULT + '60', backgroundColor: 'transparent', flex: 0, minWidth: 44, paddingHorizontal: 12 }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)}>
+                                                                                            <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
+                                                                                        </TouchableOpacity>
+                                                                                    </View>
+                                                                                ))}
+                                                                            </View>
+                                                                        )}
                                                                     </View>
                                                                 );
                                                             })()}
