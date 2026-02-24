@@ -7,6 +7,7 @@ import { randomUUID, createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
+import { spawn } from "child_process";
 import { storage } from "./storage";
 import { getUncachableStripeClient, getStripeSecretKey } from "./stripeClient";
 
@@ -16767,7 +16768,55 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   });
 
-  // Helper: convert audio buffer to MP3 (iOS M4A compatibility - Whisper often rejects iOS M4A)
+  // Convert M4A to MP3 using ffmpeg with stdin/stdout pipe (avoids temp files - fixes Windows/iOS M4A issues)
+  async function convertM4aToMp3ViaPipe(inputBuffer: Buffer): Promise<Buffer> {
+    const ffmpegPath = (await import("ffmpeg-static"))?.default;
+    if (!ffmpegPath) throw new Error("ffmpeg not available");
+    return new Promise((resolve, reject) => {
+      const args = [
+        "-f", "mov", "-i", "pipe:0",
+        "-vn", "-acodec", "libmp3lame", "-ab", "128k",
+        "-f", "mp3", "pipe:1"
+      ];
+      const proc = spawn(ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+      const chunks: Buffer[] = [];
+      proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+      proc.stderr.on("data", () => {});
+      proc.on("error", (err) => reject(err));
+      proc.on("close", (code, signal) => {
+        if (code !== 0) return reject(new Error(`ffmpeg exited ${code}`));
+        resolve(Buffer.concat(chunks));
+      });
+      proc.stdin.write(inputBuffer);
+      proc.stdin.end();
+    });
+  }
+
+  // Convert M4A to WAV using ffmpeg with stdin/stdout pipe (avoids temp files)
+  async function convertM4aToWavViaPipe(inputBuffer: Buffer): Promise<Buffer> {
+    const ffmpegPath = (await import("ffmpeg-static"))?.default;
+    if (!ffmpegPath) throw new Error("ffmpeg not available");
+    return new Promise((resolve, reject) => {
+      const args = [
+        "-f", "mov", "-i", "pipe:0",
+        "-vn", "-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000",
+        "-f", "wav", "pipe:1"
+      ];
+      const proc = spawn(ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+      const chunks: Buffer[] = [];
+      proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+      proc.stderr.on("data", () => {});
+      proc.on("error", (err) => reject(err));
+      proc.on("close", (code) => {
+        if (code !== 0) return reject(new Error(`ffmpeg exited ${code}`));
+        resolve(Buffer.concat(chunks));
+      });
+      proc.stdin.write(inputBuffer);
+      proc.stdin.end();
+    });
+  }
+
+  // Legacy file-based conversion (kept for multipart transcribe endpoint)
   async function convertToMp3(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
     const ffmpegPath = (await import("ffmpeg-static"))?.default;
     if (!ffmpegPath) throw new Error("ffmpeg not available");
@@ -16776,10 +16825,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     (ffmpeg as any).setFfmpegPath(ffmpegPath);
     const inputPath = path.join(os.tmpdir(), `whisper-in-${randomUUID()}.${inputExt}`);
     const outputPath = path.join(os.tmpdir(), `whisper-out-${randomUUID()}.mp3`);
-    await fs.writeFile(inputPath, inputBuffer);
+    await fs.writeFile(inputPath, inputBuffer, { flag: 'w' });
     try {
       await new Promise<void>((resolve, reject) => {
         ffmpeg(inputPath)
+          .inputOptions(['-f', 'mov', '-err_detect', 'ignore_err'])
           .noVideo()
           .audioCodec('libmp3lame')
           .audioBitrate(128)
@@ -16796,7 +16846,6 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   }
 
-  // Helper: convert to WAV (fallback when MP3 fails - Whisper reliably handles WAV)
   async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
     const ffmpegPath = (await import("ffmpeg-static"))?.default;
     if (!ffmpegPath) throw new Error("ffmpeg not available");
@@ -16805,10 +16854,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     (ffmpeg as any).setFfmpegPath(ffmpegPath);
     const inputPath = path.join(os.tmpdir(), `whisper-wav-in-${randomUUID()}.${inputExt}`);
     const outputPath = path.join(os.tmpdir(), `whisper-wav-out-${randomUUID()}.wav`);
-    await fs.writeFile(inputPath, inputBuffer);
+    await fs.writeFile(inputPath, inputBuffer, { flag: 'w' });
     try {
       await new Promise<void>((resolve, reject) => {
         ffmpeg(inputPath)
+          .inputOptions(['-f', 'mov', '-err_detect', 'ignore_err'])
           .noVideo()
           .audioCodec('pcm_s16le')
           .format('wav')
@@ -16831,7 +16881,11 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       if (!audioBase64 || typeof audioBase64 !== 'string') {
         return res.status(400).json({ error: "Missing audioBase64 in request body" });
       }
-      const buffer = Buffer.from(audioBase64, 'base64');
+      // Sanitize base64: remove whitespace, support URL-safe base64, strip invalid chars (iOS/RN can send corrupted payloads)
+      let sanitized = audioBase64.replace(/\s/g, '');
+      sanitized = sanitized.replace(/-/g, '+').replace(/_/g, '/');
+      sanitized = sanitized.replace(/[^A-Za-z0-9+/=]/g, '');
+      const buffer = Buffer.from(sanitized, 'base64');
       const fileName = (reqFileName && typeof reqFileName === 'string' && reqFileName.toLowerCase().endsWith('.m4a'))
         ? reqFileName
         : 'recording.m4a';
@@ -16842,42 +16896,68 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       if (size < 1000) {
         return res.status(400).json({ error: "Audio file too small or corrupted. Try recording again." });
       }
-      console.log('[Transcribe-base64] Received:', { size, fileName });
+      // M4A/MP4 files start with ... ftyp around offset 4; if missing, client may have sent wrong data (e.g. 401 HTML)
+      const looksLikeM4A = size >= 12 && buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70;
+      if (fileName.toLowerCase().endsWith('.m4a') && !looksLikeM4A) {
+        console.warn('[Transcribe-base64] Decoded buffer does not look like M4A (missing ftyp). Check client sends auth for audio URL.');
+      }
+      console.log('[Transcribe-base64] Received:', { size, fileName, looksLikeM4A });
       const openaiClient = getOpenAI();
-      // Always convert M4A/MP4 for mobile (iOS/Android) - Whisper often rejects iOS M4A with "could not be decoded"
       const isM4A = fileName.toLowerCase().endsWith('.m4a') || fileName.toLowerCase().endsWith('.mp4');
       let audioBuffer = buffer;
       let ext = 'm4a';
       let mime = 'audio/mp4';
+
       if (isM4A) {
-        let converted = false;
+        // Strategy for iOS M4A: try Whisper with raw M4A first (often works); then pipe-based ffmpeg (no temp file)
+        let transcribedText: string | null = null;
+
+        // 1) Try raw M4A with Whisper first (avoids ffmpeg entirely - works for many iOS recordings)
         try {
-          console.log('[Transcribe-base64] Converting M4A to MP3 for Whisper compatibility');
-          audioBuffer = await convertToMp3(buffer, 'm4a');
+          console.log('[Transcribe-base64] Trying raw M4A with Whisper first (no ffmpeg)');
+          const rawFile = await toFile(buffer, 'audio.m4a', { type: 'audio/mp4' });
+          const transcription = await openaiClient.audio.transcriptions.create({
+            file: rawFile,
+            model: "whisper-1",
+            language: "en",
+            response_format: "text"
+          });
+          const text = typeof transcription === 'string'
+            ? transcription
+            : (transcription as any)?.text || String(transcription || '').trim();
+          if (text && text.trim().length > 0) {
+            transcribedText = text.trim();
+          }
+        } catch (rawErr: any) {
+          console.warn('[Transcribe-base64] Raw M4A Whisper failed:', rawErr?.message);
+        }
+
+        if (transcribedText) {
+          return res.json({ text: transcribedText });
+        }
+
+        // 2) Convert via ffmpeg stdin pipe (no temp file - avoids Windows "Invalid data" file write issues)
+        try {
+          console.log('[Transcribe-base64] Converting M4A to MP3 via pipe (stdin/stdout)');
+          audioBuffer = Buffer.from(await convertM4aToMp3ViaPipe(buffer));
           ext = 'mp3';
           mime = 'audio/mpeg';
-          converted = true;
-        } catch (mp3Err: any) {
-          console.warn('[Transcribe-base64] MP3 conversion failed, trying WAV:', mp3Err?.message);
-        }
-        if (!converted) {
+        } catch (pipeMp3Err: any) {
+          console.warn('[Transcribe-base64] Pipe MP3 failed, trying pipe WAV:', pipeMp3Err?.message);
           try {
-            console.log('[Transcribe-base64] Converting M4A to WAV (iOS fallback)');
-            audioBuffer = await convertToWav(buffer, 'm4a');
+            console.log('[Transcribe-base64] Converting M4A to WAV via pipe');
+            audioBuffer = Buffer.from(await convertM4aToWavViaPipe(buffer));
             ext = 'wav';
             mime = 'audio/wav';
-            converted = true;
-          } catch (wavErr: any) {
-            console.warn('[Transcribe-base64] WAV conversion failed:', wavErr?.message);
+          } catch (pipeWavErr: any) {
+            console.warn('[Transcribe-base64] Pipe WAV failed:', pipeWavErr?.message);
+            return res.status(400).json({
+              error: "The audio file could not be processed. Try recording again or use a shorter clip.",
+            });
           }
         }
-        if (!converted) {
-          console.error('[Transcribe-base64] Both MP3 and WAV conversion failed for iOS M4A');
-          return res.status(400).json({
-            error: "The audio file could not be processed. Try recording again or use a shorter clip.",
-          });
-        }
       }
+
       const audioFile = await toFile(audioBuffer, `audio.${ext}`, { type: mime });
       const transcription = await openaiClient.audio.transcriptions.create({
         file: audioFile,

@@ -281,8 +281,12 @@ export async function apiRequest(
         error.message?.includes('Network request failed') ||
         error.message?.includes('NetworkError') ||
         error.message?.includes('No network connection')) {
+      const baseUrl = getBaseUrl();
+      const hint = isDevelopment && (baseUrl.includes('192.') || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'))
+        ? ` (Cannot reach ${baseUrl}. Ensure phone and PC are on same Wi‑Fi, server is running, and firewall allows the port.)`
+        : '';
       throw new Error(
-        `Server problem. Cannot connect to server. Please check your internet connection and try again later.`
+        `Server problem. Cannot connect to server. Please check your internet connection and try again later.${hint}`
       );
     }
     

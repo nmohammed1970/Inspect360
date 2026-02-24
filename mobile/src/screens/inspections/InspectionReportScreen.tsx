@@ -180,12 +180,35 @@ const InspectionReportScreen = () => {
                 : audioUrl.startsWith('/')
                     ? `${apiUrl}${audioUrl}`
                     : `${apiUrl}/${audioUrl}`;
-            // Use FileSystem for iOS consistency: avoids fetch+arrayBuffer+btoa issues and stack overflow on large files
-            const tempPath = FileSystem.documentDirectory + `temp-audio-transcribe-${Date.now()}.m4a`;
-            const dl = await FileSystem.downloadAsync(audioUrlToFetch, tempPath);
-            if (!dl.uri) throw new Error('Download failed');
-            const fileUri = dl.uri.startsWith('file://') ? dl.uri : `file://${dl.uri}`;
-            const audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
+            // Prefer fetch with credentials so server sends real M4A (not 401 HTML); fallback to FileSystem for iOS
+            let audioBase64: string;
+            try {
+                const res = await fetch(audioUrlToFetch, { credentials: 'include' });
+                if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+                const arrayBuffer = await res.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                const chunkSize = 8192;
+                let binary = '';
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+                }
+                audioBase64 = typeof btoa === 'function' ? btoa(binary) : (() => {
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+                    let out = '';
+                    for (let i = 0; i < bytes.length; i += 3) {
+                        const a = bytes[i] ?? 0, b = bytes[i + 1] ?? 0, c = bytes[i + 2] ?? 0;
+                        out += chars[a >> 2] + chars[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? chars[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? chars[c & 63] : '=');
+                    }
+                    return out;
+                })();
+            } catch (fetchErr) {
+                const tempPath = FileSystem.documentDirectory + `temp-audio-transcribe-${Date.now()}.m4a`;
+                const dl = await FileSystem.downloadAsync(audioUrlToFetch, tempPath);
+                if (!dl.uri) throw new Error('Download failed');
+                const fileUri = dl.uri.startsWith('file://') ? dl.uri : `file://${dl.uri}`;
+                audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
+            }
             const resp = await fetch(`${apiUrl}/api/audio/transcribe-base64`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
