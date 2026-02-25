@@ -10,6 +10,8 @@ import {
     Alert,
     ImageStyle,
     Linking,
+    Platform,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -38,7 +40,7 @@ import {
 } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { requestRecordingPermissionsAsync, RecordingPresets, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
+import { requestRecordingPermissionsAsync, RecordingPresets, AudioQuality, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { format } from 'date-fns';
 import { inspectionsService } from '../../services/inspections';
 import { inspectionsOffline } from '../../services/offline/inspectionsOffline';
@@ -54,6 +56,32 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { getImageSource, isLocalPath } from '../../services/offline/storage';
 
 const { width } = Dimensions.get('window');
+
+// On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
+// Use a smaller preset on iOS only (mono, 22kHz, 64kbps, MIN quality) so upload/transcribe succeed.
+// Android keeps HIGH_QUALITY (no server-side conversion, files stay manageable).
+const VOICE_RECORDING_PRESET = Platform.OS === 'ios'
+  ? {
+      ...RecordingPresets.HIGH_QUALITY,
+      sampleRate: 22050,
+      numberOfChannels: 1,
+      bitRate: 64000,
+      ios: {
+        ...RecordingPresets.HIGH_QUALITY.ios,
+        audioQuality: AudioQuality.MIN,
+      },
+    }
+  : RecordingPresets.HIGH_QUALITY;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i] ?? 0, b = bytes[i + 1] ?? 0, c = bytes[i + 2] ?? 0;
+    out += chars[a >> 2] + chars[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? chars[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? chars[c & 63] : '=');
+  }
+  return out;
+}
 
 const InspectionReportScreen = () => {
     const route = useRoute<RouteProp<InspectionsStackParamList, 'InspectionReport'>>();
@@ -81,6 +109,7 @@ const InspectionReportScreen = () => {
         isUploadingAudio: boolean;
         isPlayingAudio: boolean;
         playingUrl: string | null;
+        loadingPlayUrl: string | null;
         audioUrls: string[];
     };
     const [voiceStates, setVoiceStates] = useState<Record<string, VoiceState>>({});
@@ -92,13 +121,13 @@ const InspectionReportScreen = () => {
     const getVoiceState = useCallback((key: string): VoiceState => {
         return voiceStates[key] || {
             isRecording: false, recordingTime: 0,
-            isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null,
+            isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null,
             audioUrls: [],
         };
     }, [voiceStates]);
 
     const setVoiceField = useCallback((key: string, patch: Partial<VoiceState>) => {
-        setVoiceStates(prev => ({ ...prev, [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, audioUrls: [] }), ...patch } }));
+        setVoiceStates(prev => ({ ...prev, [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null, audioUrls: [] }), ...patch } }));
     }, []);
 
     const getEntryAudioUrls = useCallback((entry: any): string[] => {
@@ -115,7 +144,7 @@ const InspectionReportScreen = () => {
             const { status } = await requestRecordingPermissionsAsync();
             if (status !== 'granted') { Alert.alert('Permission Required', 'Microphone access is needed to record audio.'); return; }
             await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-            const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+            const recorder = new AudioModule.AudioRecorder(VOICE_RECORDING_PRESET);
             await recorder.prepareToRecordAsync();
             recorder.record();
             recordingRefs.current[key] = recorder;
@@ -236,17 +265,36 @@ const InspectionReportScreen = () => {
 
     const playAudio = useCallback(async (key: string, audioUrl: string) => {
         const existing = soundRefs.current[key];
-        if (existing) {
-            if (existing.playing) {
-                existing.pause();
-                setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
-                if (playbackStatusIntervals.current[key]) {
-                    clearInterval(playbackStatusIntervals.current[key]!);
-                    playbackStatusIntervals.current[key] = null;
-                }
-                return;
+        if (existing && existing.playing && voiceStates[key]?.playingUrl === audioUrl) {
+            existing.pause();
+            setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
+            if (playbackStatusIntervals.current[key]) {
+                clearInterval(playbackStatusIntervals.current[key]!);
+                playbackStatusIntervals.current[key] = null;
+            }
+            return;
+        }
+        // Stop any other playing sound (any entry) so only one plays at a time
+        const allKeys = Object.keys(soundRefs.current);
+        for (const k of allKeys) {
+            const s = soundRefs.current[k];
+            if (s) {
+                try { s.remove(); } catch { }
+                soundRefs.current[k] = null;
+            }
+            if (playbackStatusIntervals.current[k]) {
+                clearInterval(playbackStatusIntervals.current[k]!);
+                playbackStatusIntervals.current[k] = null;
             }
         }
+        setVoiceStates(prev => {
+            const next = { ...prev };
+            for (const k of Object.keys(next)) {
+                next[k] = { ...(next[k] || {}), isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null };
+            }
+            next[key] = { ...(next[key] || {}), loadingPlayUrl: audioUrl };
+            return next;
+        });
         try {
             await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
             let resolvedAudioUri = audioUrl;
@@ -254,10 +302,28 @@ const InspectionReportScreen = () => {
                 const apiUrl = getAPI_URL();
                 resolvedAudioUri = audioUrl.startsWith('/') ? `${apiUrl}${audioUrl}` : `${apiUrl}/${audioUrl}`;
             }
+            // On iOS, AVPlayer does not send cookies for remote URLs, so authenticated audio fails.
+            // Download to a temp file with credentials, then play from local URI.
+            if (Platform.OS === 'ios' && (resolvedAudioUri.startsWith('http://') || resolvedAudioUri.startsWith('https://'))) {
+                const res = await fetch(resolvedAudioUri, { credentials: 'include' });
+                if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+                const arrayBuffer = await res.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                let binary = '';
+                const chunkSize = 8192;
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+                }
+                const base64 = typeof btoa === 'function' ? btoa(binary) : bytesToBase64(bytes);
+                const tempPath = FileSystem.documentDirectory + `voice-play-${Date.now()}.m4a`;
+                await FileSystem.writeAsStringAsync(tempPath, base64, { encoding: 'base64' as any });
+                resolvedAudioUri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
+            }
             const sound = createAudioPlayer({ uri: resolvedAudioUri });
             soundRefs.current[key] = sound;
             sound.play();
-            setVoiceField(key, { isPlayingAudio: true, playingUrl: audioUrl });
+            setVoiceField(key, { isPlayingAudio: true, playingUrl: audioUrl, loadingPlayUrl: null });
             const checkStatus = setInterval(() => {
                 try {
                     if (sound.currentStatus.didJustFinish) {
@@ -276,9 +342,9 @@ const InspectionReportScreen = () => {
         } catch (e: any) {
             console.error('[InspectionReport] Error playing audio:', e, { audioUrl });
             Alert.alert('Playback Failed', `Could not play audio: ${e.message || 'Unknown error'}`);
-            setVoiceField(key, { isPlayingAudio: false, playingUrl: null });
+            setVoiceField(key, { isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null });
         }
-    }, [setVoiceField]);
+    }, [setVoiceField, voiceStates]);
 
     const cancelRecording = useCallback(async (key: string, currentAudioUrls: string[]) => {
         const recording = recordingRefs.current[key];
@@ -1104,9 +1170,9 @@ const InspectionReportScreen = () => {
                                                                                             <View style={{ marginTop: 8, gap: 8 }}>
                                                                                                 {[...displayAudioUrls].reverse().map((url, idx) => (
                                                                                                     <View key={`${url}-${idx}`} style={[styles.voiceButtonsRow, { flexWrap: 'wrap' }]}>
-                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1 }]} onPress={() => playAudio(vKey, url)}>
-                                                                                                            {vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
+                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1, opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url}>
+                                                                                                            {vs.loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
                                                                                                         </TouchableOpacity>
                                                                                                         <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl}>
                                                                                                             <Sparkles size={14} color='#fff' />
@@ -1309,9 +1375,9 @@ const InspectionReportScreen = () => {
                                                                             <View style={{ marginTop: 8, gap: 8 }}>
                                                                                 {[...displayAudioUrls].reverse().map((url, idx) => (
                                                                                     <View key={`${url}-${idx}`} style={[styles.voiceButtonsRow, { flexWrap: 'wrap' }]}>
-                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1 }]} onPress={() => playAudio(vKey, url)}>
-                                                                                            {vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
+                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1, opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url}>
+                                                                                            {vs.loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
                                                                                         </TouchableOpacity>
                                                                                         <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl}>
                                                                                             <Sparkles size={14} color='#fff' />

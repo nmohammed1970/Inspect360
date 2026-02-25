@@ -21,7 +21,7 @@ import Button from '../ui/Button';
 import DatePicker from '../ui/DatePicker';
 import Select from '../ui/Select';
 import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Trash2, Calendar, Clock, Eye, CheckCircle2, AlertCircle, Mic, Square, Play } from 'lucide-react-native';
-import { requestRecordingPermissionsAsync, RecordingPresets, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
+import { requestRecordingPermissionsAsync, RecordingPresets, AudioQuality, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { storeImageLocally, getImageSource, isLocalPath } from '../../services/offline/storage';
@@ -33,6 +33,16 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
 // No offline functionality - app requires server connection
 import { format } from 'date-fns';
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i] ?? 0, b = bytes[i + 1] ?? 0, c = bytes[i + 2] ?? 0;
+    out += chars[a >> 2] + chars[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? chars[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? chars[c & 63] : '=');
+  }
+  return out;
+}
 
 interface TemplateField {
   id: string;
@@ -69,6 +79,21 @@ interface FieldWidgetProps {
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
 }
+
+// On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
+// Use a smaller preset on iOS only (mono, 22kHz, 64kbps, MIN quality).
+const VOICE_RECORDING_PRESET = Platform.OS === 'ios'
+  ? {
+      ...RecordingPresets.HIGH_QUALITY,
+      sampleRate: 22050,
+      numberOfChannels: 1,
+      bitRate: 64000,
+      ios: {
+        ...RecordingPresets.HIGH_QUALITY.ios,
+        audioQuality: AudioQuality.MIN,
+      },
+    }
+  : RecordingPresets.HIGH_QUALITY;
 
 function FieldWidgetComponent(props: FieldWidgetProps) {
   const {
@@ -164,6 +189,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
   const [audioUrls, setAudioUrls] = useState<string[]>(initialAudioUrls);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+  const [loadingPlayUrl, setLoadingPlayUrl] = useState<string | null>(null);
   const [sound, setSound] = useState<any>(null);
   const recordingRef = useRef<any>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1527,7 +1553,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     return;
                   }
                   await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-                  const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+                  const recorder = new AudioModule.AudioRecorder(VOICE_RECORDING_PRESET);
                   await recorder.prepareToRecordAsync();
                   recorder.record();
                   recordingRef.current = recorder;
@@ -1626,8 +1652,9 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           {audioUrls.length > 0 && !isRecording && [...audioUrls].reverse().map((url, idx) => (
             <View key={`${url}-${idx}`} style={[voiceCardStyles.rowPair, { marginTop: 8 }]}>
               <TouchableOpacity
-                style={[voiceCardStyles.halfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1 }]}
+                style={[voiceCardStyles.halfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1, opacity: loadingPlayUrl === url ? 0.8 : 1 }]}
                 activeOpacity={0.85}
+                disabled={loadingPlayUrl === url}
                 onPress={async () => {
                   try {
                     if (playingUrl === url && sound) {
@@ -1635,11 +1662,31 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                       else { sound.play(); setPlayingUrl(url); }
                     } else {
                       if (sound) { sound.remove(); setSound(null); }
+                      setPlayingUrl(null);
+                      setLoadingPlayUrl(url);
                       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-                      const resolvedUri = url.startsWith('http') ? url : `${getAPI_URL()}${url}`;
+                      let resolvedUri = url.startsWith('http') ? url : `${getAPI_URL()}${url}`;
+                      // On iOS, AVPlayer does not send cookies for remote URLs; download with credentials then play locally.
+                      if (Platform.OS === 'ios' && (resolvedUri.startsWith('http://') || resolvedUri.startsWith('https://'))) {
+                        const res = await fetch(resolvedUri, { credentials: 'include' });
+                        if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+                        const arrayBuffer = await res.arrayBuffer();
+                        const bytes = new Uint8Array(arrayBuffer);
+                        let binary = '';
+                        const chunkSize = 8192;
+                        for (let i = 0; i < bytes.length; i += chunkSize) {
+                          const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                          binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+                        }
+                        const base64 = typeof btoa === 'function' ? btoa(binary) : bytesToBase64(bytes);
+                        const tempPath = FileSystem.documentDirectory + `voice-play-${Date.now()}.m4a`;
+                        await FileSystem.writeAsStringAsync(tempPath, base64, { encoding: 'base64' as any });
+                        resolvedUri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
+                      }
                       const newSound = createAudioPlayer({ uri: resolvedUri });
                       setSound(newSound);
                       setPlayingUrl(url);
+                      setLoadingPlayUrl(null);
                       newSound.play();
                       const checkStatus = setInterval(() => {
                         if (newSound.currentStatus.didJustFinish) {
@@ -1653,12 +1700,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                   } catch (e: any) {
                     Alert.alert('Playback Failed', e.message || 'Could not play audio.');
                     setPlayingUrl(null);
+                    setLoadingPlayUrl(null);
                     if (sound) { sound.remove(); setSound(null); }
                   }
                 }}
               >
-                {playingUrl === url && sound?.playing ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                <Text style={[voiceCardStyles.halfBtnText, { color: themeColors.primary.DEFAULT }]}>{playingUrl === url && sound?.playing ? 'Pause' : 'Play'}</Text>
+                {loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : playingUrl === url && sound?.playing ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                <Text style={[voiceCardStyles.halfBtnText, { color: themeColors.primary.DEFAULT }]}>{loadingPlayUrl === url ? 'Loading...' : playingUrl === url && sound?.playing ? 'Pause' : 'Play'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[voiceCardStyles.halfBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]}
