@@ -17,7 +17,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.inspect360.mobile",
-      buildNumber: "16", // iOS CFBundleVersion; used when appVersionSource is "local" in eas.json
+      buildNumber: "17", // iOS CFBundleVersion; used when appVersionSource is "local" in eas.json
       requiresFullScreen: false,
       // Minimum iOS version supported
       deploymentTarget: "13.4",
@@ -44,7 +44,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.inspect360.mobile",
-      versionCode: 16, // Android versionCode; used when appVersionSource is "local" in eas.json
+      versionCode: 17, // Android versionCode; used when appVersionSource is "local" in eas.json
       permissions: [
         "CAMERA",
         "RECORD_AUDIO",

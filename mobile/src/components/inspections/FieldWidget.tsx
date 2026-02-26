@@ -1705,8 +1705,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                   }
                 }}
               >
-                {loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : playingUrl === url && sound?.playing ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                <Text style={[voiceCardStyles.halfBtnText, { color: themeColors.primary.DEFAULT }]}>{loadingPlayUrl === url ? 'Loading...' : playingUrl === url && sound?.playing ? 'Pause' : 'Play'}</Text>
+                {loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : playingUrl === url ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
+                <Text style={[voiceCardStyles.halfBtnText, { color: themeColors.primary.DEFAULT }]}>{loadingPlayUrl === url ? 'Loading...' : playingUrl === url ? 'Pause' : 'Play'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[voiceCardStyles.halfBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]}

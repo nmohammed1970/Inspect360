@@ -118,16 +118,19 @@ const InspectionReportScreen = () => {
     const timerRefs = useRef<Record<string, ReturnType<typeof setInterval> | null>>({});
     const playbackStatusIntervals = useRef<Record<string, ReturnType<typeof setInterval> | null>>({});
 
+    const defaultVoiceState: VoiceState = {
+        isRecording: false, recordingTime: 0,
+        isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null,
+        audioUrls: [],
+    };
+
     const getVoiceState = useCallback((key: string): VoiceState => {
-        return voiceStates[key] || {
-            isRecording: false, recordingTime: 0,
-            isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null,
-            audioUrls: [],
-        };
+        const s = voiceStates[key];
+        return s ? { ...defaultVoiceState, ...s, audioUrls: Array.isArray(s.audioUrls) ? s.audioUrls : defaultVoiceState.audioUrls } : defaultVoiceState;
     }, [voiceStates]);
 
     const setVoiceField = useCallback((key: string, patch: Partial<VoiceState>) => {
-        setVoiceStates(prev => ({ ...prev, [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null, audioUrls: [] }), ...patch } }));
+        setVoiceStates(prev => ({ ...prev, [key]: { ...defaultVoiceState, ...(prev[key] || {}), ...patch, audioUrls: patch.audioUrls !== undefined ? patch.audioUrls : (prev[key]?.audioUrls ?? defaultVoiceState.audioUrls) } }));
     }, []);
 
     const getEntryAudioUrls = useCallback((entry: any): string[] => {
@@ -152,7 +155,7 @@ const InspectionReportScreen = () => {
             timerRefs.current[key] = setInterval(() => {
                 setVoiceStates(prev => ({
                     ...prev,
-                    [key]: { ...(prev[key] || { isRecording: false, recordingTime: 0, isTranscribing: false, transcribingUrl: null, isUploadingAudio: false, isPlayingAudio: false, audioUrls: [] }), recordingTime: ((prev[key]?.recordingTime) || 0) + 1 }
+                    [key]: { ...defaultVoiceState, ...(prev[key] || {}), recordingTime: ((prev[key]?.recordingTime) ?? 0) + 1 }
                 }));
             }, 1000);
         } catch (e: any) {
@@ -204,40 +207,13 @@ const InspectionReportScreen = () => {
         setVoiceField(key, { isTranscribing: true, transcribingUrl: audioUrl });
         try {
             const apiUrl = getAPI_URL();
-            const audioUrlToFetch = audioUrl.startsWith('http')
-                ? audioUrl
-                : audioUrl.startsWith('/')
-                    ? `${apiUrl}${audioUrl}`
-                    : `${apiUrl}/${audioUrl}`;
-            // Prefer fetch with credentials so server sends real M4A (not 401 HTML); fallback to FileSystem for iOS
-            let audioBase64: string;
-            try {
-                const res = await fetch(audioUrlToFetch, { credentials: 'include' });
-                if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-                const arrayBuffer = await res.arrayBuffer();
-                const bytes = new Uint8Array(arrayBuffer);
-                const chunkSize = 8192;
-                let binary = '';
-                for (let i = 0; i < bytes.length; i += chunkSize) {
-                    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-                    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-                }
-                audioBase64 = typeof btoa === 'function' ? btoa(binary) : (() => {
-                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-                    let out = '';
-                    for (let i = 0; i < bytes.length; i += 3) {
-                        const a = bytes[i] ?? 0, b = bytes[i + 1] ?? 0, c = bytes[i + 2] ?? 0;
-                        out += chars[a >> 2] + chars[((a & 3) << 4) | (b >> 4)] + (i + 1 < bytes.length ? chars[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bytes.length ? chars[c & 63] : '=');
-                    }
-                    return out;
-                })();
-            } catch (fetchErr) {
-                const tempPath = FileSystem.documentDirectory + `temp-audio-transcribe-${Date.now()}.m4a`;
-                const dl = await FileSystem.downloadAsync(audioUrlToFetch, tempPath);
-                if (!dl.uri) throw new Error('Download failed');
-                const fileUri = dl.uri.startsWith('file://') ? dl.uri : `file://${dl.uri}`;
-                audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
-            }
+            const resolvedUrl = audioUrl.startsWith('http') ? audioUrl : audioUrl.startsWith('/') ? `${apiUrl}${audioUrl}` : `${apiUrl}/${audioUrl}`;
+            // Same as Inspection Capture: FileSystem.downloadAsync + readAsStringAsync for iOS consistency
+            const tempPath = FileSystem.documentDirectory + `temp-audio-transcribe-${Date.now()}.m4a`;
+            const dl = await FileSystem.downloadAsync(resolvedUrl, tempPath);
+            if (!dl.uri) throw new Error('Download failed');
+            const fileUri = dl.uri.startsWith('file://') ? dl.uri : `file://${dl.uri}`;
+            const audioBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
             const resp = await fetch(`${apiUrl}/api/audio/transcribe-base64`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -290,9 +266,9 @@ const InspectionReportScreen = () => {
         setVoiceStates(prev => {
             const next = { ...prev };
             for (const k of Object.keys(next)) {
-                next[k] = { ...(next[k] || {}), isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null };
+                next[k] = { ...defaultVoiceState, ...(next[k] || {}), isPlayingAudio: false, playingUrl: null, loadingPlayUrl: null };
             }
-            next[key] = { ...(next[key] || {}), loadingPlayUrl: audioUrl };
+            next[key] = { ...defaultVoiceState, ...(next[key] || {}), loadingPlayUrl: audioUrl };
             return next;
         });
         try {
@@ -1137,48 +1113,63 @@ const InspectionReportScreen = () => {
                                                                                 </View>
                                                                             )}
                                                                             
-                                                                            {/* Voice Recording Panel - supports multiple recordings */}
+                                                                            {/* Voice Recording - same layout as Inspection Capture (less weighted for iOS) */}
                                                                             {isPhotoExpanded && entry?.id && (() => {
                                                                                 const vKey = `voice-${entryKey}`;
                                                                                 const vs = getVoiceState(vKey);
                                                                                 const displayAudioUrls = vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
                                                                                 return (
-                                                                                    <View style={[styles.voiceRecordingContainer, { borderTopColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                                                        <Text style={[styles.voiceSectionLabel, { color: themeColors.text.secondary }]}>Voice Recording</Text>
-                                                                                        <View style={styles.voiceButtonsRow}>
-                                                                                            {!vs.isRecording && (
-                                                                                                <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]} onPress={() => startRecording(vKey, displayAudioUrls)}>
-                                                                                                    <Mic size={14} color={themeColors.primary.foreground || '#fff'} />
-                                                                                                    <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
-                                                                                                </TouchableOpacity>
-                                                                                            )}
+                                                                                    <View style={[styles.voiceCard, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
+                                                                                        <View style={styles.voiceCardHeaderRow}>
+                                                                                            <View style={[styles.voiceCardIconCircle, { backgroundColor: themeColors.primary.DEFAULT + '20' }]}>
+                                                                                                <Mic size={13} color={themeColors.primary.DEFAULT} />
+                                                                                            </View>
+                                                                                            <Text style={[styles.voiceCardHeaderLabel, { color: themeColors.text.primary }]}>Voice Recording</Text>
                                                                                             {vs.isRecording && (
-                                                                                                <>
-                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: '#ef4444', opacity: vs.isUploadingAudio ? 0.5 : 1, flex: 1 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio}>
-                                                                                                        <Square size={14} color='#fff' />
-                                                                                                        <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
-                                                                                                    </TouchableOpacity>
-                                                                                                    <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => cancelRecording(vKey, displayAudioUrls)}>
-                                                                                                        <X size={14} color={themeColors.text.primary} />
-                                                                                                        <Text style={[styles.voiceBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
-                                                                                                    </TouchableOpacity>
-                                                                                                </>
+                                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#ef444420' }]}>
+                                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#ef4444' }]} />
+                                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#ef4444' }]}>{`${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')}`}</Text>
+                                                                                                </View>
+                                                                                            )}
+                                                                                            {displayAudioUrls.length > 0 && !vs.isRecording && (
+                                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#16a34a20' }]}>
+                                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#16a34a' }]} />
+                                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#16a34a' }]}>{displayAudioUrls.length} Saved</Text>
+                                                                                                </View>
                                                                                             )}
                                                                                         </View>
+                                                                                        {!vs.isRecording && (
+                                                                                            <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: themeColors.primary.DEFAULT }]} onPress={() => startRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
+                                                                                                <Mic size={16} color="#fff" />
+                                                                                                <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
+                                                                                            </TouchableOpacity>
+                                                                                        )}
+                                                                                        {vs.isRecording && (
+                                                                                            <>
+                                                                                                <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: '#dc2626' }, vs.isUploadingAudio && { opacity: 0.5 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio} activeOpacity={0.85}>
+                                                                                                    <Square size={16} color="#fff" />
+                                                                                                    <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
+                                                                                                </TouchableOpacity>
+                                                                                                <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.border.DEFAULT, marginTop: spacing[2] }]} onPress={() => cancelRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
+                                                                                                    <X size={14} color={themeColors.text.primary} />
+                                                                                                    <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
+                                                                                                </TouchableOpacity>
+                                                                                            </>
+                                                                                        )}
                                                                                         {vs.isRecording && (<View style={styles.recordingIndicatorRow}><View style={styles.recordingDot} /><Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text></View>)}
                                                                                         {displayAudioUrls.length > 0 && !vs.isRecording && (
-                                                                                            <View style={{ marginTop: 8, gap: 8 }}>
+                                                                                            <View style={{ marginTop: spacing[2], gap: spacing[2] }}>
                                                                                                 {[...displayAudioUrls].reverse().map((url, idx) => (
-                                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceButtonsRow, { flexWrap: 'wrap' }]}>
-                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1, opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url}>
+                                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8 }]}>
+                                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url} activeOpacity={0.85}>
                                                                                                             {vs.loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
+                                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : 'Play'}</Text>
                                                                                                         </TouchableOpacity>
-                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl}>
-                                                                                                            <Sparkles size={14} color='#fff' />
-                                                                                                            <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
+                                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { backgroundColor: themeColors.primary.DEFAULT, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl} activeOpacity={0.85}>
+                                                                                                            <Sparkles size={14} color="#fff" />
+                                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
                                                                                                         </TouchableOpacity>
-                                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.destructive.DEFAULT + '60', backgroundColor: 'transparent', flex: 0, minWidth: 44, paddingHorizontal: 12 }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)}>
+                                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.destructive.DEFAULT + '60' }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)} activeOpacity={0.85}>
                                                                                                             <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
                                                                                                         </TouchableOpacity>
                                                                                                     </View>
@@ -1342,48 +1333,63 @@ const InspectionReportScreen = () => {
                                                                 </View>
                                                             )}
                                                             
-                                                            {/* Voice Recording Panel - supports multiple recordings */}
+                                                            {/* Voice Recording - same as Inspection Capture (less weighted for iOS) */}
                                                             {isPhotoExpanded && entry?.id && (() => {
                                                                 const vKey = `voice-${entryKey}`;
                                                                 const vs = getVoiceState(vKey);
                                                                 const displayAudioUrls = vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
                                                                 return (
-                                                                    <View style={[styles.voiceRecordingContainer, { borderTopColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                                        <Text style={[styles.voiceSectionLabel, { color: themeColors.text.secondary }]}>Voice Recording</Text>
-                                                                        <View style={styles.voiceButtonsRow}>
-                                                                            {!vs.isRecording && (
-                                                                                <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1 }]} onPress={() => startRecording(vKey, displayAudioUrls)}>
-                                                                                    <Mic size={14} color={themeColors.primary.foreground || '#fff'} />
-                                                                                    <Text style={[styles.voiceBtnText, { color: themeColors.primary.foreground || '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
-                                                                                </TouchableOpacity>
-                                                                            )}
+                                                                    <View style={[styles.voiceCard, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
+                                                                        <View style={styles.voiceCardHeaderRow}>
+                                                                            <View style={[styles.voiceCardIconCircle, { backgroundColor: themeColors.primary.DEFAULT + '20' }]}>
+                                                                                <Mic size={13} color={themeColors.primary.DEFAULT} />
+                                                                            </View>
+                                                                            <Text style={[styles.voiceCardHeaderLabel, { color: themeColors.text.primary }]}>Voice Recording</Text>
                                                                             {vs.isRecording && (
-                                                                                <>
-                                                                                    <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: '#ef4444', opacity: vs.isUploadingAudio ? 0.5 : 1, flex: 1 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio}>
-                                                                                        <Square size={14} color='#fff' />
-                                                                                        <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
-                                                                                    </TouchableOpacity>
-                                                                                    <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.border.DEFAULT, backgroundColor: 'transparent' }]} onPress={() => cancelRecording(vKey, displayAudioUrls)}>
-                                                                                        <X size={14} color={themeColors.text.primary} />
-                                                                                        <Text style={[styles.voiceBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
-                                                                                    </TouchableOpacity>
-                                                                                </>
+                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#ef444420' }]}>
+                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#ef4444' }]} />
+                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#ef4444' }]}>{`${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')}`}</Text>
+                                                                                </View>
+                                                                            )}
+                                                                            {displayAudioUrls.length > 0 && !vs.isRecording && (
+                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#16a34a20' }]}>
+                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#16a34a' }]} />
+                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#16a34a' }]}>{displayAudioUrls.length} Saved</Text>
+                                                                                </View>
                                                                             )}
                                                                         </View>
+                                                                        {!vs.isRecording && (
+                                                                            <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: themeColors.primary.DEFAULT }]} onPress={() => startRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
+                                                                                <Mic size={16} color="#fff" />
+                                                                                <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
+                                                                            </TouchableOpacity>
+                                                                        )}
+                                                                        {vs.isRecording && (
+                                                                            <>
+                                                                                <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: '#dc2626' }, vs.isUploadingAudio && { opacity: 0.5 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio} activeOpacity={0.85}>
+                                                                                    <Square size={16} color="#fff" />
+                                                                                    <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
+                                                                                </TouchableOpacity>
+                                                                                <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.border.DEFAULT, marginTop: spacing[2] }]} onPress={() => cancelRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
+                                                                                    <X size={14} color={themeColors.text.primary} />
+                                                                                    <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
+                                                                                </TouchableOpacity>
+                                                                            </>
+                                                                        )}
                                                                         {vs.isRecording && (<View style={styles.recordingIndicatorRow}><View style={styles.recordingDot} /><Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text></View>)}
                                                                         {displayAudioUrls.length > 0 && !vs.isRecording && (
-                                                                            <View style={{ marginTop: 8, gap: 8 }}>
+                                                                            <View style={{ marginTop: spacing[2], gap: spacing[2] }}>
                                                                                 {[...displayAudioUrls].reverse().map((url, idx) => (
-                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceButtonsRow, { flexWrap: 'wrap' }]}>
-                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1, opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url}>
+                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8 }]}>
+                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url} activeOpacity={0.85}>
                                                                                             {vs.loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                            <Text style={[styles.voiceBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : `Play #${idx + 1}`}</Text>
+                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : 'Play'}</Text>
                                                                                         </TouchableOpacity>
-                                                                                        <TouchableOpacity style={[styles.voiceBtn, { backgroundColor: themeColors.primary.DEFAULT, flex: 1, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl}>
-                                                                                            <Sparkles size={14} color='#fff' />
-                                                                                            <Text style={[styles.voiceBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
+                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { backgroundColor: themeColors.primary.DEFAULT, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl} activeOpacity={0.85}>
+                                                                                            <Sparkles size={14} color="#fff" />
+                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
                                                                                         </TouchableOpacity>
-                                                                                        <TouchableOpacity style={[styles.voiceBtn, { borderWidth: 1, borderColor: themeColors.destructive.DEFAULT + '60', backgroundColor: 'transparent', flex: 0, minWidth: 44, paddingHorizontal: 12 }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)}>
+                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.destructive.DEFAULT + '60' }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)} activeOpacity={0.85}>
                                                                                             <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
                                                                                         </TouchableOpacity>
                                                                                     </View>
@@ -1790,6 +1796,89 @@ const styles = StyleSheet.create({
         height: 8,
         borderRadius: 4,
         backgroundColor: '#ef4444',
+    },
+    // Same as Inspection Capture (FieldWidget voiceCardStyles) - lighter weight for iOS
+    voiceCard: {
+        padding: spacing[4],
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        marginTop: spacing[2],
+        marginBottom: spacing[2],
+        ...shadows.sm,
+    },
+    voiceCardHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: spacing[4],
+        gap: spacing[2],
+    },
+    voiceCardIconCircle: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+    },
+    voiceCardHeaderLabel: {
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.bold,
+        flex: 1,
+    },
+    voiceCardBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing[2],
+        paddingVertical: spacing[1],
+        borderRadius: borderRadius.full,
+        gap: spacing[1],
+    },
+    voiceCardBadgeDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+    voiceCardBadgeText: {
+        fontSize: 11,
+        fontWeight: typography.fontWeight.bold,
+        textTransform: 'uppercase',
+    },
+    voiceCardFullBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: spacing[3],
+        borderRadius: borderRadius.md,
+        gap: spacing[2],
+        width: '100%',
+    },
+    voiceCardFullBtnText: {
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.semibold,
+    },
+    voiceCardRowPair: {
+        flexDirection: 'row',
+        gap: spacing[2],
+        width: '100%',
+    },
+    voiceCardHalfBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: spacing[3],
+        borderRadius: borderRadius.md,
+        gap: spacing[2],
+    },
+    voiceCardHalfBtnText: {
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.semibold,
+    },
+    voiceCardOutlineBtn: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        flex: 0,
+        minWidth: 44,
+        paddingHorizontal: 12,
     },
 });
 
