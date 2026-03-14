@@ -1200,11 +1200,17 @@ export default function AssetInventoryListScreen() {
         </View>
       </Modal>
 
-      {/* Filter Pickers */}
+      {/* Filter Pickers - use overFullScreen on iOS so they appear above the Add Asset modal */}
       {/* Category Picker */}
-      <Modal visible={showCategoryPicker} transparent animationType="fade" onRequestClose={() => setShowCategoryPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+      <Modal
+        visible={showCategoryPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCategoryPicker(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <TouchableOpacity activeOpacity={1} style={styles.modalOverlay} onPress={() => setShowCategoryPicker(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]} onPress={() => {}}>
             <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Category</Text>
             <FlatList
               data={isDialogOpen ? assetCategories : ['all', ...assetCategories]}
@@ -1231,14 +1237,20 @@ export default function AssetInventoryListScreen() {
                 </TouchableOpacity>
               )}
             />
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Condition Picker */}
-      <Modal visible={showConditionPicker} transparent animationType="fade" onRequestClose={() => setShowConditionPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+      <Modal
+        visible={showConditionPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowConditionPicker(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <TouchableOpacity activeOpacity={1} style={styles.modalOverlay} onPress={() => setShowConditionPicker(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]} onPress={() => {}}>
             <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Condition</Text>
             <FlatList
               data={isDialogOpen ? Object.keys(conditionLabels) : ['all', ...Object.keys(conditionLabels)]}
@@ -1270,14 +1282,20 @@ export default function AssetInventoryListScreen() {
                 </TouchableOpacity>
               )}
             />
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Cleanliness Picker */}
-      <Modal visible={showCleanlinessPicker} transparent animationType="fade" onRequestClose={() => setShowCleanlinessPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+      <Modal
+        visible={showCleanlinessPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCleanlinessPicker(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <TouchableOpacity activeOpacity={1} style={styles.modalOverlay} onPress={() => setShowCleanlinessPicker(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]} onPress={() => {}}>
             <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Cleanliness</Text>
             <FlatList
               data={Object.keys(cleanlinessLabels)}
@@ -1300,14 +1318,20 @@ export default function AssetInventoryListScreen() {
                 </TouchableOpacity>
               )}
             />
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Location Picker */}
-      <Modal visible={showLocationPicker} transparent animationType="fade" onRequestClose={() => setShowLocationPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+      <Modal
+        visible={showLocationPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLocationPicker(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <TouchableOpacity activeOpacity={1} style={styles.modalOverlay} onPress={() => setShowLocationPicker(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]} onPress={() => {}}>
             <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Location</Text>
             <FlatList
               data={[{ id: 'all', name: 'All Locations', type: 'property' as const }, ...locations]}
@@ -1329,14 +1353,20 @@ export default function AssetInventoryListScreen() {
                 </TouchableOpacity>
               )}
             />
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Property Picker (for form) */}
-      <Modal visible={showPropertyPicker} transparent animationType="fade" onRequestClose={() => setShowPropertyPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+      <Modal
+        visible={showPropertyPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPropertyPicker(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <TouchableOpacity activeOpacity={1} style={styles.modalOverlay} onPress={() => setShowPropertyPicker(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]} onPress={() => {}}>
             <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Property</Text>
             <FlatList
               data={[{ id: '', name: 'None', address: '', status: 'active' } as Property, ...properties]}
@@ -1357,14 +1387,20 @@ export default function AssetInventoryListScreen() {
                 </TouchableOpacity>
               )}
             />
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Block Picker (for form) */}
-      <Modal visible={showBlockPicker} transparent animationType="fade" onRequestClose={() => setShowBlockPicker(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]}>
+      <Modal
+        visible={showBlockPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBlockPicker(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      >
+        <TouchableOpacity activeOpacity={1} style={styles.modalOverlay} onPress={() => setShowBlockPicker(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.pickerModal, { backgroundColor: themeColors.card.DEFAULT }]} onPress={() => {}}>
             <Text style={[styles.pickerTitle, { color: themeColors.text.primary, borderBottomColor: themeColors.border.light }]}>Select Block</Text>
             <FlatList
               data={[{ id: '', name: 'None' }, ...blocks]}
@@ -1383,8 +1419,8 @@ export default function AssetInventoryListScreen() {
                 </TouchableOpacity>
               )}
             />
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
