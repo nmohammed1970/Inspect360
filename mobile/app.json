@@ -21,7 +21,7 @@
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to select images for inspections.",
         "NSPhotoLibraryAddUsageDescription": "This app needs access to save photos to your library."
       },
-      "buildNumber": "22"
+      "buildNumber": "24"
     },
     "android": {
       "adaptiveIcon": {
@@ -38,7 +38,7 @@
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "versionCode": 22
+      "versionCode": 24
     },
     "web": {
       "favicon": "./assets/favicon.png"

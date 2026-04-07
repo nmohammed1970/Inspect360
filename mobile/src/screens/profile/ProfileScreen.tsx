@@ -17,7 +17,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Upload, Plus, X, FileText, Trash2, User as UserIcon, Mail, Shield, LogOut, Fingerprint } from 'lucide-react-native';
@@ -711,46 +711,61 @@ export default function ProfileScreen() {
   const displayUser = profile || user;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: themeColors.background }} edges={['top', 'left', 'right']}>
+    <View style={[styles.container, { backgroundColor: themeColors.background }]}>
+      {/* Fixed header — matches Inspections, Maintenance, Assets tab screens */}
+      <View
+        style={[
+          styles.fixedHeader,
+          {
+            paddingTop: insets.top + spacing[2],
+            backgroundColor: themeColors.card.DEFAULT,
+            borderBottomColor: themeColors.border.light,
+          },
+        ]}
+      >
+        <View style={styles.screenHeaderTitleBlock}>
+          <View style={styles.headerText}>
+            <Text style={[styles.title, { color: themeColors.text.primary }]}>Profile</Text>
+            <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>
+              Manage your personal information and settings
+            </Text>
+          </View>
+        </View>
+      </View>
+
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: themeColors.background }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
-          style={[styles.container, { backgroundColor: themeColors.background }]}
+          style={styles.scrollView}
           contentContainerStyle={[
-            styles.content,
+            styles.contentContainer,
             {
-              paddingTop: spacing[4],
-              paddingBottom: Math.max(insets.bottom + 80, spacing[8])
+              paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
             },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Page Header */}
-          <View style={styles.pageHeader}>
-            <View style={styles.headerContent}>
-              <UserIcon size={28} color={themeColors.primary.DEFAULT} />
-              <View style={styles.headerText}>
-                <Text style={[styles.pageTitle, { color: themeColors.text.primary }]}>Profile</Text>
-                <Text style={[styles.pageSubtitle, { color: themeColors.text.secondary }]}>Manage your personal information and settings</Text>
-              </View>
-            </View>
-          </View>
-
           {/* Personal Information */}
-          <Card style={styles.card}>
-            <View style={[styles.cardHeader, { borderBottomColor: themeColors.border.light }]}>
+          <Card style={styles.card} padding="sm">
+            <View
+              style={[
+                styles.cardHeader,
+                styles.personalInfoCardHeader,
+                { borderBottomColor: themeColors.border.light },
+              ]}
+            >
               <View>
                 <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Personal Information</Text>
                 <Text style={[styles.cardSubtitle, { color: themeColors.text.secondary }]}>Update your profile details below</Text>
               </View>
             </View>
 
-            <View style={styles.avatarSection}>
-              <View style={styles.avatarWrapper}>
+            <View style={[styles.avatarSection, styles.personalInfoAvatarSection]}>
+              <View style={[styles.avatarWrapper, styles.personalInfoAvatarWrapper]}>
                 <View style={styles.avatarContainer}>
                   {getProfileImageUrl() ? (
                     <Image
@@ -786,7 +801,7 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            <View style={styles.formGroup}>
+            <View style={styles.personalInfoField}>
               <Input
                 label="First Name"
                 value={firstName}
@@ -795,7 +810,7 @@ export default function ProfileScreen() {
               />
             </View>
 
-            <View style={styles.formGroup}>
+            <View style={styles.personalInfoField}>
               <Input
                 label="Last Name"
                 value={lastName}
@@ -804,7 +819,18 @@ export default function ProfileScreen() {
               />
             </View>
 
-            <View style={styles.formGroup}>
+            <View style={styles.personalInfoField}>
+              <Input
+                label="Email"
+                value={displayUser?.email || ''}
+                editable={false}
+                placeholder="Not available"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.personalInfoField}>
               <Input
                 label="Phone Number"
                 value={phone}
@@ -819,7 +845,7 @@ export default function ProfileScreen() {
               onPress={handleSaveProfile}
               variant="primary"
               loading={updateMutation.isPending}
-              style={styles.saveButton}
+              style={[styles.saveButton, styles.personalInfoSaveButton]}
             />
           </Card>
 
@@ -1479,7 +1505,7 @@ export default function ProfileScreen() {
           </Modal>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1487,33 +1513,56 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    padding: spacing[4],
+  fixedHeader: {
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[3],
+    borderBottomWidth: 1,
+    zIndex: 10,
   },
-  pageHeader: {
-    marginBottom: spacing[6],
-    paddingBottom: spacing[4],
-  },
-  headerContent: {
+  screenHeaderTitleBlock: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   headerText: {
     flex: 1,
+    marginRight: spacing[2],
   },
-  pageTitle: {
-    fontSize: typography.fontSize['3xl'] || 28,
+  title: {
+    fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
     marginBottom: spacing[1],
   },
-  pageSubtitle: {
-    fontSize: typography.fontSize.base,
-    lineHeight: 20,
+  subtitle: {
+    fontSize: typography.fontSize.sm,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: spacing[4],
+    paddingTop: spacing[3],
   },
   card: {
     marginBottom: spacing[5],
     ...shadows.sm,
+  },
+  personalInfoCardHeader: {
+    marginBottom: spacing[3],
+    paddingBottom: spacing[2],
+  },
+  personalInfoAvatarSection: {
+    marginBottom: spacing[3],
+    paddingVertical: 0,
+  },
+  personalInfoAvatarWrapper: {
+    marginBottom: spacing[2],
+  },
+  personalInfoField: {
+    marginBottom: spacing[3],
+  },
+  personalInfoSaveButton: {
+    marginTop: spacing[2],
   },
   cardHeader: {
     marginBottom: spacing[5],

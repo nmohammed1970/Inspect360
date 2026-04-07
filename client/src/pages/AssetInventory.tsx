@@ -16,6 +16,7 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, FileText, MapPin, Tag as TagIcon, ArrowLeft, Filter, X } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { AssetInventory, Property, Block } from "@shared/schema";
+import { formatPropertyLocationLabel, formatBlockLocationLabel } from "@shared/locationLabels";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
@@ -84,7 +85,10 @@ export default function AssetInventory() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterCondition, setFilterCondition] = useState<string>("all");
-  const [filterLocation, setFilterLocation] = useState<string>("all");
+  /** Scope: single property or block (all assets assigned there) */
+  const [filterPropertyBlock, setFilterPropertyBlock] = useState<string>("all");
+  /** Internal "Specific location" text saved on assets (not addresses) */
+  const [filterSpecificLocation, setFilterSpecificLocation] = useState<string>("all");
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
 
   // Form state
@@ -108,9 +112,9 @@ export default function AssetInventory() {
   // Auto-filter by block or property if in URL
   useEffect(() => {
     if (blockIdFromUrl) {
-      setFilterLocation(blockIdFromUrl);
+      setFilterPropertyBlock(blockIdFromUrl);
     } else if (propertyIdFromUrl) {
-      setFilterLocation(propertyIdFromUrl);
+      setFilterPropertyBlock(propertyIdFromUrl);
     }
   }, [blockIdFromUrl, propertyIdFromUrl]);
 
@@ -434,31 +438,87 @@ export default function AssetInventory() {
     return Math.max(0, purchasePrice - totalDepreciation);
   };
 
-  // Filter assets
+  // Filter assets (search includes linked property/block name and address)
   const filteredAssets = useMemo(() => {
     if (!assets) return [];
-    
-    return assets.filter(asset => {
-      const matchesSearch = searchTerm === "" ||
-        asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        asset.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        asset.location?.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
+    const q = searchTerm.trim().toLowerCase();
+
+    return assets.filter((asset) => {
+      const matchesSearch =
+        q === "" ||
+        (() => {
+          if (asset.name?.toLowerCase().includes(q)) return true;
+          if (asset.description?.toLowerCase().includes(q)) return true;
+          if (asset.location?.toLowerCase().includes(q)) return true;
+          if (asset.propertyId && properties) {
+            const p = properties.find((x) => x.id === asset.propertyId);
+            if (p) {
+              if (p.name?.toLowerCase().includes(q)) return true;
+              if (p.address?.toLowerCase().includes(q)) return true;
+              if (formatPropertyLocationLabel(p).toLowerCase().includes(q)) return true;
+            }
+          }
+          if (asset.blockId && blocks) {
+            const b = blocks.find((x) => x.id === asset.blockId);
+            if (b) {
+              if (b.name?.toLowerCase().includes(q)) return true;
+              if (b.address?.toLowerCase().includes(q)) return true;
+              if (formatBlockLocationLabel(b).toLowerCase().includes(q)) return true;
+            }
+          }
+          return false;
+        })();
+
       const matchesCategory = filterCategory === "all" || asset.category === filterCategory;
       const matchesCondition = filterCondition === "all" || asset.condition === filterCondition;
-      const matchesLocation = filterLocation === "all" || asset.propertyId === filterLocation || asset.blockId === filterLocation;
-      
-      return matchesSearch && matchesCategory && matchesCondition && matchesLocation;
-    });
-  }, [assets, searchTerm, filterCategory, filterCondition, filterLocation]);
+      const matchesPropertyBlock =
+        filterPropertyBlock === "all" ||
+        asset.propertyId === filterPropertyBlock ||
+        asset.blockId === filterPropertyBlock;
+      const matchesSpecificLocation =
+        filterSpecificLocation === "all" ||
+        (asset.location?.trim() ?? "") === filterSpecificLocation;
 
-  // Get unique locations
-  const locations = useMemo(() => {
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesCondition &&
+        matchesPropertyBlock &&
+        matchesSpecificLocation
+      );
+    });
+  }, [
+    assets,
+    searchTerm,
+    filterCategory,
+    filterCondition,
+    filterPropertyBlock,
+    filterSpecificLocation,
+    properties,
+    blocks,
+  ]);
+
+  // Property / block scope options (for filtering assets to one building or unit)
+  const propertyBlockOptions = useMemo(() => {
     const locs: Array<{ id: string; name: string; type: "property" | "block" }> = [];
-    properties?.forEach(p => locs.push({ id: p.id, name: p.address, type: "property" }));
-    blocks?.forEach(b => locs.push({ id: b.id, name: b.name, type: "block" }));
+    properties?.forEach((p) =>
+      locs.push({ id: p.id, name: formatPropertyLocationLabel(p), type: "property" }),
+    );
+    blocks?.forEach((b) => locs.push({ id: b.id, name: formatBlockLocationLabel(b), type: "block" }));
     return locs;
   }, [properties, blocks]);
+
+  // Distinct "Specific location" values from assets (room/area text — not property addresses)
+  const specificLocationOptions = useMemo(() => {
+    if (!assets?.length) return [];
+    const seen = new Set<string>();
+    for (const a of assets) {
+      const t = a.location?.trim();
+      if (t) seen.add(t);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [assets]);
 
   if (isLoading) {
     return <div className="container mx-auto p-4 md:p-6">Loading...</div>;
@@ -617,7 +677,7 @@ export default function AssetInventory() {
                       <SelectContent>
                         {properties?.map((property) => (
                           <SelectItem key={property.id} value={property.id}>
-                            {property.address}
+                            {formatPropertyLocationLabel(property)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -636,7 +696,7 @@ export default function AssetInventory() {
                       <SelectContent>
                         {blocks?.map((block) => (
                           <SelectItem key={block.id} value={block.id}>
-                            {block.name}
+                            {formatBlockLocationLabel(block)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -863,7 +923,7 @@ export default function AssetInventory() {
         <div className="relative flex-1 min-w-[300px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search assets by name, description, or location..."
+            placeholder="Search by asset, description, location, property name, or block name..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9"
@@ -895,16 +955,31 @@ export default function AssetInventory() {
           </SelectContent>
         </Select>
 
-        <Select value={filterLocation} onValueChange={setFilterLocation}>
-          <SelectTrigger className="w-48" data-testid="select-filter-location">
-            <SelectValue placeholder="All Locations" />
+        <Select value={filterPropertyBlock} onValueChange={setFilterPropertyBlock}>
+          <SelectTrigger className="w-[min(100%,220px)] min-w-[180px]" data-testid="select-filter-property-block">
+            <SelectValue placeholder="All properties & blocks" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Locations</SelectItem>
-            {locations.map((loc) => (
+            <SelectItem value="all">All properties & blocks</SelectItem>
+            {propertyBlockOptions.map((loc) => (
               <SelectItem key={loc.id} value={loc.id}>
                 {loc.type === "property" ? <Home className="w-3 h-3 inline mr-1" /> : <Building2 className="w-3 h-3 inline mr-1" />}
                 {loc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterSpecificLocation} onValueChange={setFilterSpecificLocation}>
+          <SelectTrigger className="w-[min(100%,200px)] min-w-[160px]" data-testid="select-filter-specific-location">
+            <SelectValue placeholder="All specific locations" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All specific locations</SelectItem>
+            {specificLocationOptions.map((locText) => (
+              <SelectItem key={locText} value={locText}>
+                <MapPin className="w-3 h-3 inline mr-1" />
+                {locText}
               </SelectItem>
             ))}
           </SelectContent>
@@ -916,7 +991,7 @@ export default function AssetInventory() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search assets..."
+            placeholder="Search assets, property, or block..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9"
@@ -927,7 +1002,7 @@ export default function AssetInventory() {
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" className="shrink-0">
               <Filter className="w-4 h-4" />
-              {(filterCategory !== "all" || filterCondition !== "all" || filterLocation !== "all") && (
+              {(filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all") && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
               )}
             </Button>
@@ -936,7 +1011,7 @@ export default function AssetInventory() {
             <SheetHeader>
               <SheetTitle>Filters</SheetTitle>
               <SheetDescription>
-                Filter assets by category, condition, or location
+                Filter by category, condition, property/block, or specific on-site location
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 mt-6">
@@ -971,14 +1046,14 @@ export default function AssetInventory() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Location</label>
-                <Select value={filterLocation} onValueChange={setFilterLocation}>
+                <label className="text-sm font-medium">Property or block</label>
+                <Select value={filterPropertyBlock} onValueChange={setFilterPropertyBlock}>
                   <SelectTrigger>
-                    <SelectValue placeholder="All Locations" />
+                    <SelectValue placeholder="All properties & blocks" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Locations</SelectItem>
-                    {locations.map((loc) => (
+                    <SelectItem value="all">All properties & blocks</SelectItem>
+                    {propertyBlockOptions.map((loc) => (
                       <SelectItem key={loc.id} value={loc.id}>
                         {loc.type === "property" ? <Home className="w-3 h-3 inline mr-1" /> : <Building2 className="w-3 h-3 inline mr-1" />}
                         {loc.name}
@@ -988,14 +1063,34 @@ export default function AssetInventory() {
                 </Select>
               </div>
 
-              {(filterCategory !== "all" || filterCondition !== "all" || filterLocation !== "all") && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Specific location</label>
+                <p className="text-xs text-muted-foreground">Room or area text saved on each asset (not the property address)</p>
+                <Select value={filterSpecificLocation} onValueChange={setFilterSpecificLocation}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All specific locations" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All specific locations</SelectItem>
+                    {specificLocationOptions.map((locText) => (
+                      <SelectItem key={locText} value={locText}>
+                        <MapPin className="w-3 h-3 inline mr-1" />
+                        {locText}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all") && (
                 <Button 
                   variant="outline" 
                   className="w-full"
                   onClick={() => {
                     setFilterCategory("all");
                     setFilterCondition("all");
-                    setFilterLocation("all");
+                    setFilterPropertyBlock("all");
+                    setFilterSpecificLocation("all");
                   }}
                 >
                   <X className="w-4 h-4 mr-2" />
@@ -1013,14 +1108,14 @@ export default function AssetInventory() {
           <CardContent className="p-12 text-center">
             <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">
-              {searchTerm || filterCategory !== "all" || filterCondition !== "all" ? "No Assets Found" : "No Assets Yet"}
+              {searchTerm || filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all" ? "No Assets Found" : "No Assets Yet"}
             </h3>
             <p className="text-muted-foreground mb-4">
-              {searchTerm || filterCategory !== "all" || filterCondition !== "all"
+              {searchTerm || filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all"
                 ? "Try adjusting your search or filters"
                 : "Get started by adding your first asset"}
             </p>
-            {!searchTerm && filterCategory === "all" && filterCondition === "all" && (
+            {!searchTerm && filterCategory === "all" && filterCondition === "all" && filterPropertyBlock === "all" && filterSpecificLocation === "all" && (
               <Button onClick={() => handleOpenDialog()} data-testid="button-add-first-asset" style={{ backgroundColor: '#00D2BD' }} className="hover:opacity-90">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Your First Asset
@@ -1098,6 +1193,29 @@ export default function AssetInventory() {
                 })()}
 
                 <div className="space-y-2 text-sm">
+                  {(asset.propertyId || asset.blockId) && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      {asset.propertyId ? (
+                        <Home className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <Building2 className="w-4 h-4 shrink-0" />
+                      )}
+                      <span className="truncate">
+                        {asset.propertyId
+                          ? (() => {
+                              const p = properties?.find((x) => x.id === asset.propertyId);
+                              return p
+                                ? formatPropertyLocationLabel(p)
+                                : "Property";
+                            })()
+                          : (() => {
+                              const b = blocks?.find((x) => x.id === asset.blockId);
+                              return b ? formatBlockLocationLabel(b) : "Block";
+                            })()}
+                      </span>
+                    </div>
+                  )}
+
                   {asset.location && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <MapPin className="w-4 h-4 shrink-0" />

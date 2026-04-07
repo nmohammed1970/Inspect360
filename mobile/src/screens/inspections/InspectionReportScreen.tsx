@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
     View,
     Text,
@@ -6,7 +6,6 @@ import {
     StyleSheet,
     TouchableOpacity,
     Image,
-    Dimensions,
     Alert,
     ImageStyle,
     Linking,
@@ -55,8 +54,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { getImageSource, isLocalPath } from '../../services/offline/storage';
 
-const { width } = Dimensions.get('window');
-
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
 // Use a smaller preset on iOS only (mono, 22kHz, 64kbps, MIN quality) so upload/transcribe succeed.
 // Android keeps HIGH_QUALITY (no server-side conversion, files stay manageable).
@@ -72,6 +69,15 @@ const VOICE_RECORDING_PRESET = Platform.OS === 'ios'
       },
     }
   : RecordingPresets.HIGH_QUALITY;
+
+/** Collapsed comment / description lines before "Read more" on inspection report cards */
+const SCHEDULE_DESCRIPTION_COLLAPSED_LINES = 5;
+/**
+ * Show "Read more" when text is likely longer than the collapsed line count.
+ * We avoid an invisible measurement Text overlay — on Android it can sit above
+ * sibling touch targets (Read more, photo row) and steal touches even with pointerEvents="none".
+ */
+const READ_MORE_MIN_APPROX_CHARS = 160;
 
 function bytesToBase64(bytes: Uint8Array): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -97,7 +103,11 @@ const InspectionReportScreen = () => {
     const { user } = useAuth();
     const isOnline = useOnlineStatus();
     const [expandedPhotos, setExpandedPhotos] = useState<Record<string, boolean>>({});
+    /** Full comment text expanded (per schedule field key) */
+    const [expandedDescriptions, setExpandedDescriptions] = useState<Record<string, boolean>>({});
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+    /** Glossary card: collapsed by default (heading + chevron only) */
+    const [glossaryExpanded, setGlossaryExpanded] = useState(false);
     const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
     // ---- Voice recording state (per-entry key) - supports multiple recordings ----
@@ -400,6 +410,10 @@ const InspectionReportScreen = () => {
         setExpandedPhotos(prev => ({ ...prev, [key]: !prev[key] }));
     };
 
+    const toggleDescriptionExpanded = (key: string) => {
+        setExpandedDescriptions((prev) => ({ ...prev, [key]: !prev[key] }));
+    };
+
     const toggleSection = (sectionId: string) => {
         setExpandedSections(prev => ({
             ...prev,
@@ -645,6 +659,471 @@ const InspectionReportScreen = () => {
     const sections = (inspection.templateSnapshotJson as any)?.sections || [];
     const propertyOrBlock = inspection.property || inspection.block;
 
+    /** Card layout for each schedule field (replaces cramped table on mobile) */
+    const renderScheduleFieldBlock = (
+        section: any,
+        field: any,
+        entry: any,
+        instanceName: string | undefined,
+        sectionHasCondition: boolean,
+        sectionHasCleanliness: boolean,
+    ) => {
+        const entryKey =
+            instanceName != null && instanceName !== ''
+                ? `${section.id}/${instanceName}-${field.id || field.key || field.label}`
+                : `${section.id}-${field.id || field.key || field.label}`;
+        const photoKey = `photos-${entryKey}`;
+        const isPhotoExpanded = expandedPhotos[photoKey];
+
+        let condition: string | number | null = null;
+        let cleanliness: string | number | null = null;
+        let description = '';
+
+        if (entry.valueJson) {
+            if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
+                condition = entry.valueJson.condition ?? null;
+                cleanliness = entry.valueJson.cleanliness ?? null;
+                description = entry.valueJson.value || '';
+            } else if (typeof entry.valueJson === 'string') {
+                description = entry.valueJson;
+            }
+        }
+
+        const isSignature =
+            field.type === 'signature' ||
+            (typeof description === 'string' && description.startsWith('data:image'));
+        const photoCount = entry.photos?.length || 0;
+        const showCondition = sectionHasCondition && field.includeCondition;
+        const showCleanliness = sectionHasCleanliness && field.includeCleanliness;
+        const bodyTextRaw = description || entry.note;
+        const fullText = typeof bodyTextRaw === 'string' ? bodyTextRaw : String(bodyTextRaw ?? '');
+        const hasBodyText = !!fullText.trim();
+        const hasMetrics = showCondition || showCleanliness || photoCount > 0;
+
+        const descKey = `desc-${entryKey}`;
+        const isDescExpanded = expandedDescriptions[descKey] === true;
+        const newlineBlocks = fullText.split(/\n/).filter((s) => s.length > 0).length;
+        const showReadMoreToggle =
+            fullText.length > READ_MORE_MIN_APPROX_CHARS ||
+            newlineBlocks > SCHEDULE_DESCRIPTION_COLLAPSED_LINES;
+
+        return (
+            <React.Fragment key={entryKey}>
+                <View
+                    style={[
+                        styles.scheduleEntryCard,
+                        {
+                            borderColor: themeColors.border.light,
+                            backgroundColor: themeColors.card.DEFAULT,
+                        },
+                    ]}
+                >
+                    <Text style={[styles.scheduleEntryFieldTitle, { color: themeColors.text.primary }]}>
+                        {field.label}
+                    </Text>
+
+                    {isSignature && description ? (
+                        <Image
+                            source={{ uri: description }}
+                            style={styles.signatureImage as ImageStyle}
+                            resizeMode="contain"
+                        />
+                    ) : hasBodyText ? (
+                        <View style={styles.scheduleDescriptionWrap}>
+                            {isDescExpanded ? (
+                                <Text
+                                    key={`${descKey}-expanded`}
+                                    style={[
+                                        styles.scheduleEntryDescription,
+                                        styles.scheduleEntryDescriptionVisible,
+                                        { color: themeColors.text.secondary },
+                                    ]}
+                                >
+                                    {fullText}
+                                </Text>
+                            ) : (
+                                <Text
+                                    key={`${descKey}-collapsed`}
+                                    style={[
+                                        styles.scheduleEntryDescription,
+                                        styles.scheduleEntryDescriptionVisible,
+                                        { color: themeColors.text.secondary },
+                                    ]}
+                                    numberOfLines={SCHEDULE_DESCRIPTION_COLLAPSED_LINES}
+                                >
+                                    {fullText}
+                                </Text>
+                            )}
+                            {showReadMoreToggle && (
+                                <TouchableOpacity
+                                    style={styles.scheduleReadMore}
+                                    onPress={() => toggleDescriptionExpanded(descKey)}
+                                    activeOpacity={0.7}
+                                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                        isDescExpanded ? 'Show less comment' : 'Read more comment'
+                                    }
+                                >
+                                    <Text
+                                        style={[
+                                            styles.scheduleReadMoreText,
+                                            { color: themeColors.primary.DEFAULT },
+                                        ]}
+                                    >
+                                        {isDescExpanded ? 'Show less' : 'Read more'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    ) : null}
+
+                    {hasMetrics && (
+                        <View style={styles.scheduleEntryMetrics}>
+                            {showCondition && (
+                                <View style={styles.scheduleMetricBlock}>
+                                    <Text style={[styles.scheduleMetricLabel, { color: themeColors.text.muted }]}>
+                                        Condition
+                                    </Text>
+                                    {condition !== null && condition !== undefined ? (
+                                        <View style={styles.scheduleMetricValueRow}>
+                                            <View
+                                                style={[
+                                                    styles.conditionDot,
+                                                    { backgroundColor: getConditionColor(condition) },
+                                                ]}
+                                            />
+                                            <Text
+                                                style={[
+                                                    styles.scheduleMetricValueText,
+                                                    { color: themeColors.text.primary },
+                                                ]}
+                                            >
+                                                {formatCondition(condition)}
+                                            </Text>
+                                            {getConditionScore(condition) != null && (
+                                                <Text
+                                                    style={[
+                                                        styles.scheduleMetricScore,
+                                                        { color: themeColors.text.muted },
+                                                    ]}
+                                                >
+                                                    ({getConditionScore(condition)})
+                                                </Text>
+                                            )}
+                                        </View>
+                                    ) : (
+                                        <Text
+                                            style={[
+                                                styles.scheduleMetricEmpty,
+                                                { color: themeColors.text.muted },
+                                            ]}
+                                        >
+                                            Not recorded
+                                        </Text>
+                                    )}
+                                </View>
+                            )}
+                            {showCleanliness && (
+                                <View style={styles.scheduleMetricBlock}>
+                                    <Text style={[styles.scheduleMetricLabel, { color: themeColors.text.muted }]}>
+                                        Cleanliness
+                                    </Text>
+                                    {cleanliness !== null && cleanliness !== undefined ? (
+                                        <View style={styles.scheduleMetricValueRow}>
+                                            <View
+                                                style={[
+                                                    styles.conditionDot,
+                                                    { backgroundColor: getCleanlinessColor(cleanliness) },
+                                                ]}
+                                            />
+                                            <Text
+                                                style={[
+                                                    styles.scheduleMetricValueText,
+                                                    { color: themeColors.text.primary },
+                                                ]}
+                                            >
+                                                {formatCleanliness(cleanliness)}
+                                            </Text>
+                                            {getCleanlinessScore(cleanliness) != null && (
+                                                <Text
+                                                    style={[
+                                                        styles.scheduleMetricScore,
+                                                        { color: themeColors.text.muted },
+                                                    ]}
+                                                >
+                                                    ({getCleanlinessScore(cleanliness)})
+                                                </Text>
+                                            )}
+                                        </View>
+                                    ) : (
+                                        <Text
+                                            style={[
+                                                styles.scheduleMetricEmpty,
+                                                { color: themeColors.text.muted },
+                                            ]}
+                                        >
+                                            Not recorded
+                                        </Text>
+                                    )}
+                                </View>
+                            )}
+                            {photoCount > 0 && (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.schedulePhotoRow,
+                                        { borderTopColor: themeColors.border.light },
+                                    ]}
+                                    onPress={() => togglePhotoExpansion(photoKey)}
+                                    activeOpacity={0.75}
+                                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                                >
+                                    <Camera size={18} color={themeColors.primary.DEFAULT} />
+                                    <Text style={[styles.schedulePhotoText, { color: themeColors.text.primary }]}>
+                                        {photoCount} photo{photoCount !== 1 ? 's' : ''}
+                                    </Text>
+                                    <Text style={[styles.schedulePhotoHint, { color: themeColors.primary.DEFAULT }]}>
+                                        {isPhotoExpanded ? 'Hide' : 'View'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    )}
+                </View>
+
+                {isPhotoExpanded && photoCount > 0 && (
+                    <View
+                        style={[
+                            styles.photoExpansionContainer,
+                            { borderTopColor: themeColors.border.light, marginTop: spacing[2] },
+                        ]}
+                    >
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.photoScrollView}
+                        >
+                            {entry.photos?.map((photo: string, photoIdx: number) => {
+                                let photoUrl: string;
+                                if (isLocalPath(photo)) {
+                                    const imageSource = getImageSource(photo);
+                                    photoUrl = imageSource.uri;
+                                } else if (photo.startsWith('http')) {
+                                    photoUrl = photo;
+                                } else if (photo.startsWith('/')) {
+                                    photoUrl = `${getAPI_URL()}${photo}`;
+                                } else {
+                                    photoUrl = `${getAPI_URL()}/objects/${photo}`;
+                                }
+                                return (
+                                    <Image
+                                        key={photoIdx}
+                                        source={{ uri: photoUrl }}
+                                        style={styles.photoThumbnail as ImageStyle}
+                                    />
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+                )}
+
+                {isPhotoExpanded && entry?.id &&
+                    (() => {
+                        const vKey = `voice-${entryKey}`;
+                        const vs = getVoiceState(vKey);
+                        const displayAudioUrls =
+                            vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
+                        return (
+                            <View
+                                style={[
+                                    styles.voiceCard,
+                                    {
+                                        borderColor: themeColors.border.DEFAULT,
+                                        backgroundColor: themeColors.card.DEFAULT,
+                                        marginTop: spacing[2],
+                                    },
+                                ]}
+                            >
+                                <View style={styles.voiceCardHeaderRow}>
+                                    <View
+                                        style={[
+                                            styles.voiceCardIconCircle,
+                                            { backgroundColor: themeColors.primary.DEFAULT + '20' },
+                                        ]}
+                                    >
+                                        <Mic size={13} color={themeColors.primary.DEFAULT} />
+                                    </View>
+                                    <Text style={[styles.voiceCardHeaderLabel, { color: themeColors.text.primary }]}>
+                                        Voice Recording
+                                    </Text>
+                                    {vs.isRecording && (
+                                        <View style={[styles.voiceCardBadge, { backgroundColor: '#ef444420' }]}>
+                                            <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#ef4444' }]} />
+                                            <Text style={[styles.voiceCardBadgeText, { color: '#ef4444' }]}>
+                                                {`${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')}`}
+                                            </Text>
+                                        </View>
+                                    )}
+                                    {displayAudioUrls.length > 0 && !vs.isRecording && (
+                                        <View style={[styles.voiceCardBadge, { backgroundColor: '#16a34a20' }]}>
+                                            <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#16a34a' }]} />
+                                            <Text style={[styles.voiceCardBadgeText, { color: '#16a34a' }]}>
+                                                {displayAudioUrls.length} Saved
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                                {!vs.isRecording && (
+                                    <TouchableOpacity
+                                        style={[styles.voiceCardFullBtn, { backgroundColor: themeColors.primary.DEFAULT }]}
+                                        onPress={() => startRecording(vKey, displayAudioUrls)}
+                                        activeOpacity={0.85}
+                                    >
+                                        <Mic size={16} color="#fff" />
+                                        <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>
+                                            {displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                                {vs.isRecording && (
+                                    <>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.voiceCardFullBtn,
+                                                { backgroundColor: '#dc2626' },
+                                                vs.isUploadingAudio && { opacity: 0.5 },
+                                            ]}
+                                            onPress={() =>
+                                                stopRecording(
+                                                    vKey,
+                                                    entry.id,
+                                                    entry?.note || '',
+                                                    entry?.valueJson,
+                                                    displayAudioUrls,
+                                                )
+                                            }
+                                            disabled={vs.isUploadingAudio}
+                                            activeOpacity={0.85}
+                                        >
+                                            <Square size={16} color="#fff" />
+                                            <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>
+                                                {vs.isUploadingAudio
+                                                    ? 'Saving...'
+                                                    : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}
+                                            </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.voiceCardHalfBtn,
+                                                styles.voiceCardOutlineBtn,
+                                                { borderColor: themeColors.border.DEFAULT, marginTop: spacing[2] },
+                                            ]}
+                                            onPress={() => cancelRecording(vKey, displayAudioUrls)}
+                                            activeOpacity={0.85}
+                                        >
+                                            <X size={14} color={themeColors.text.primary} />
+                                            <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.text.primary }]}>
+                                                Cancel
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </>
+                                )}
+                                {vs.isRecording && (
+                                    <View style={styles.recordingIndicatorRow}>
+                                        <View style={styles.recordingDot} />
+                                        <Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text>
+                                    </View>
+                                )}
+                                {displayAudioUrls.length > 0 && !vs.isRecording && (
+                                    <View style={{ marginTop: spacing[2], gap: spacing[2] }}>
+                                        {[...displayAudioUrls].reverse().map((url, idx) => (
+                                            <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8 }]}>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.voiceCardHalfBtn,
+                                                        {
+                                                            borderColor: themeColors.primary.DEFAULT + '60',
+                                                            backgroundColor: themeColors.primary.DEFAULT + '10',
+                                                            opacity: vs.loadingPlayUrl === url ? 0.8 : 1,
+                                                        },
+                                                    ]}
+                                                    onPress={() => playAudio(vKey, url)}
+                                                    disabled={vs.loadingPlayUrl === url}
+                                                    activeOpacity={0.85}
+                                                >
+                                                    {vs.loadingPlayUrl === url ? (
+                                                        <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} />
+                                                    ) : vs.playingUrl === url && vs.isPlayingAudio ? (
+                                                        <Square size={14} color={themeColors.primary.DEFAULT} />
+                                                    ) : (
+                                                        <Play size={14} color={themeColors.primary.DEFAULT} />
+                                                    )}
+                                                    <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.primary.DEFAULT }]}>
+                                                        {vs.loadingPlayUrl === url
+                                                            ? 'Loading...'
+                                                            : vs.playingUrl === url && vs.isPlayingAudio
+                                                              ? 'Pause'
+                                                              : 'Play'}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.voiceCardHalfBtn,
+                                                        {
+                                                            backgroundColor: themeColors.primary.DEFAULT,
+                                                            opacity: vs.transcribingUrl === url ? 0.6 : 1,
+                                                        },
+                                                    ]}
+                                                    onPress={() =>
+                                                        transcribeAudio(
+                                                            vKey,
+                                                            url,
+                                                            entry.id,
+                                                            entry?.note || '',
+                                                            entry?.valueJson,
+                                                            displayAudioUrls,
+                                                        )
+                                                    }
+                                                    disabled={!!vs.transcribingUrl}
+                                                    activeOpacity={0.85}
+                                                >
+                                                    <Sparkles size={14} color="#fff" />
+                                                    <Text style={[styles.voiceCardHalfBtnText, { color: '#fff' }]}>
+                                                        {vs.transcribingUrl === url ? '...' : 'Transcribe'}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.voiceCardHalfBtn,
+                                                        styles.voiceCardOutlineBtn,
+                                                        { borderColor: themeColors.destructive.DEFAULT + '60' },
+                                                    ]}
+                                                    onPress={() =>
+                                                        removeAudioUrl(
+                                                            vKey,
+                                                            url,
+                                                            entry.id,
+                                                            entry?.note || '',
+                                                            entry?.valueJson,
+                                                            displayAudioUrls,
+                                                            vs.playingUrl,
+                                                        )
+                                                    }
+                                                    activeOpacity={0.85}
+                                                >
+                                                    <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+                        );
+                    })()}
+            </React.Fragment>
+        );
+    };
+
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]}>
             {/* Header */}
@@ -760,10 +1239,41 @@ const InspectionReportScreen = () => {
 
                 {/* Glossary of Terms */}
                 <Card style={styles.glossaryCard}>
-                    <View style={styles.cardHeader}>
-                        <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Glossary of Terms</Text>
-                        <Text style={[styles.cardDescription, { color: themeColors.text.secondary }]}>For guidance, please find a glossary of terms used within this report</Text>
-                    </View>
+                    <TouchableOpacity
+                        style={[
+                            styles.glossaryHeaderRow,
+                            glossaryExpanded && {
+                                borderBottomWidth: 1,
+                                borderBottomColor: themeColors.border.light,
+                                marginBottom: spacing[3],
+                                paddingBottom: spacing[2],
+                            },
+                        ]}
+                        onPress={() => setGlossaryExpanded((v) => !v)}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Glossary of Terms"
+                        accessibilityState={{ expanded: glossaryExpanded }}
+                    >
+                        <Text
+                            style={[styles.glossaryHeaderTitle, { color: themeColors.text.primary }]}
+                            numberOfLines={2}
+                        >
+                            Glossary of Terms
+                        </Text>
+                        {glossaryExpanded ? (
+                            <ChevronUp size={22} color={themeColors.text.secondary} />
+                        ) : (
+                            <ChevronDown size={22} color={themeColors.text.secondary} />
+                        )}
+                    </TouchableOpacity>
+
+                    {glossaryExpanded && (
+                        <>
+                            <Text style={[styles.cardDescription, { color: themeColors.text.secondary, marginBottom: spacing[4] }]}>
+                                For guidance, please find a glossary of terms used within this report
+                            </Text>
 
                     <View style={styles.glossaryGrid}>
                         {/* Condition Column */}
@@ -885,6 +1395,8 @@ const InspectionReportScreen = () => {
                             </View>
                         </View>
                     </View>
+                        </>
+                    )}
                 </Card>
 
                 {/* Schedule of Cleanliness and Condition */}
@@ -893,7 +1405,12 @@ const InspectionReportScreen = () => {
                         <View style={styles.cameraIconContainer}>
                             <Camera size={24} color={themeColors.primary.DEFAULT} />
                         </View>
-                        <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Schedule of Cleanliness and Condition</Text>
+                        <Text
+                            style={[styles.cardTitle, styles.scheduleSectionTitle, { color: themeColors.text.primary }]}
+                            accessibilityRole="header"
+                        >
+                            Schedule of Cleanliness and Condition
+                        </Text>
                     </View>
 
                     {sections.length === 0 ? (
@@ -929,477 +1446,46 @@ const InspectionReportScreen = () => {
                                         </TouchableOpacity>
 
                                         {isExpanded && (
-                                            <View style={[styles.tableContainer, { backgroundColor: themeColors.card.DEFAULT }]}>
-                                                {/* Table Header */}
-                                                <View style={[styles.tableHeader, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                    <View style={[styles.tableHeaderCell, { width: width * 0.25 }]}>
-                                                        <Text style={[styles.tableHeaderText, { color: themeColors.text.primary }]} numberOfLines={2}>Room/Space</Text>
-                                                    </View>
-                                                    <View style={[styles.tableHeaderCell, {
-                                                        width: width * (sectionHasCondition && sectionHasCleanliness ? 0.35 : sectionHasCondition || sectionHasCleanliness ? 0.40 : 0.50)
-                                                    }]}>
-                                                        <Text style={[styles.tableHeaderText, { color: themeColors.text.secondary }]} numberOfLines={2}>Description</Text>
-                                                    </View>
-                                                    {sectionHasCondition && (
-                                                        <View style={[styles.tableHeaderCell, { width: width * 0.15, alignItems: 'center' }]}>
-                                                            <Text style={[styles.tableHeaderText, { color: themeColors.text.secondary }]} numberOfLines={2}>Condition</Text>
-                                                        </View>
-                                                    )}
-                                                    {sectionHasCleanliness && (
-                                                        <View style={[styles.tableHeaderCell, { width: width * 0.15, alignItems: 'center' }]}>
-                                                            <Text style={[styles.tableHeaderText, { color: themeColors.text.secondary }]} numberOfLines={2}>Cleanliness</Text>
-                                                        </View>
-                                                    )}
-                                                    <View style={[styles.tableHeaderCell, { width: width * 0.10, alignItems: 'center' }]}>
-                                                        <Text style={[styles.tableHeaderText, { color: themeColors.text.secondary }]} numberOfLines={1}>Photos</Text>
-                                                    </View>
-                                                </View>
-
-                                                {/* Table Rows */}
+                                            <View style={styles.scheduleFieldsList}>
                                                 {section.repeatable ? (
-                                                    // Render repeatable instances
                                                     (() => {
                                                         const instances = getRepeatableInstances(section.id);
                                                         if (instances.length === 0) return null;
 
-                                                        return instances.map((instanceName) => {
-                                                            return (
-                                                                <View key={instanceName} style={styles.instanceGroup}>
-                                                                    <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT, borderBottomColor: themeColors.border.light }]}>
-                                                                        {instanceName}
-                                                                    </Text>
-                                                                    {section.fields.map((field: any, fieldIdx: number) => {
-                                                                        const entry = getEntryValue(section.id, field.id || field.key || field.label, instanceName);
-                                                                        const entryKey = `${section.id}/${instanceName}-${field.id || field.key || field.label}`;
-                                                                        const photoKey = `photos-${entryKey}`;
-                                                                        const isPhotoExpanded = expandedPhotos[photoKey];
-
-                                                                        if (!entry) return null;
-
-                                                                        let condition: string | number | null = null;
-                                                                        let cleanliness: string | number | null = null;
-                                                                        let description = '';
-
-                                                                        if (entry.valueJson) {
-                                                                            if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
-                                                                                condition = entry.valueJson.condition || null;
-                                                                                cleanliness = entry.valueJson.cleanliness || null;
-                                                                                description = entry.valueJson.value || '';
-                                                                            } else if (typeof entry.valueJson === 'string') {
-                                                                                description = entry.valueJson;
-                                                                            }
-                                                                        }
-
-                                                                        // Check if this is a signature field (base64 image data)
-                                                                        const isSignature = field.type === 'signature' ||
-                                                                            (typeof description === 'string' && description.startsWith('data:image'));
-
-                                                                        const photoCount = entry.photos?.length || 0;
-
-                                                                        return (
-                                                                            <React.Fragment key={field.id || field.key || field.label}>
-                                                                            <View style={[styles.tableRow, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                                                <View style={[styles.tableCell, { width: width * 0.25 }]}>
-                                                                                    <TouchableOpacity
-                                                                                        onPress={() => photoCount > 0 && togglePhotoExpansion(photoKey)}
-                                                                                        activeOpacity={photoCount > 0 ? 0.7 : 1}
-                                                                                    >
-                                                                                        <Text style={[
-                                                                                            styles.roomSpaceText,
-                                                                                            { color: photoCount > 0 ? themeColors.primary.DEFAULT : themeColors.text.primary },
-                                                                                            photoCount > 0 && styles.roomSpaceLink
-                                                                                        ]} numberOfLines={2}>
-                                                                                            {field.label}
-                                                                                        </Text>
-                                                                                    </TouchableOpacity>
-                                                                                </View>
-                                                                                <View style={[styles.tableCell, {
-                                                                                    width: width * (sectionHasCondition && sectionHasCleanliness ? 0.35 : sectionHasCondition || sectionHasCleanliness ? 0.40 : 0.50)
-                                                                                }]}>
-                                                                                    {isSignature && description ? (
-                                                                                        <Image
-                                                                                            source={{ uri: description }}
-                                                                                            style={styles.signatureImage as ImageStyle}
-                                                                                            resizeMode="contain"
-                                                                                        />
-                                                                                    ) : (
-                                                                                        <Text style={[styles.descriptionText, { color: themeColors.text.secondary }]} numberOfLines={3}>
-                                                                                            {description || entry.note || '-'}
-                                                                                        </Text>
-                                                                                    )}
-                                                                                </View>
-                                                                                {sectionHasCondition && (
-                                                                                    <View style={[styles.tableCell, { width: width * 0.15, alignItems: 'center', justifyContent: 'center' }]}>
-                                                                                        {field.includeCondition && condition !== null && condition !== undefined ? (
-                                                                                            <View style={styles.conditionRow}>
-                                                                                                <View style={[styles.conditionDot, { backgroundColor: getConditionColor(condition) }]} />
-                                                                                                <Text style={[styles.conditionText, { color: themeColors.text.primary }]} numberOfLines={1}>
-                                                                                                    {formatCondition(condition)}
-                                                                                                </Text>
-                                                                                                <Text style={[styles.scoreText, { color: themeColors.text.muted }]}>
-                                                                                                    ({getConditionScore(condition)})
-                                                                                                </Text>
-                                                                                            </View>
-                                                                                        ) : (
-                                                                                            <Text style={[styles.emptyText, { color: themeColors.text.muted }]}>-</Text>
-                                                                                        )}
-                                                                                    </View>
-                                                                                )}
-                                                                                {sectionHasCleanliness && (
-                                                                                    <View style={[styles.tableCell, { width: width * 0.15, alignItems: 'center', justifyContent: 'center' }]}>
-                                                                                        {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
-                                                                                            <View style={styles.conditionRow}>
-                                                                                                <View style={[styles.conditionDot, { backgroundColor: getCleanlinessColor(cleanliness) }]} />
-                                                                                                <Text style={[styles.conditionText, { color: themeColors.text.primary }]} numberOfLines={1}>
-                                                                                                    {formatCleanliness(cleanliness)}
-                                                                                                </Text>
-                                                                                                <Text style={[styles.scoreText, { color: themeColors.text.muted }]}>
-                                                                                                    ({getCleanlinessScore(cleanliness)})
-                                                                                                </Text>
-                                                                                            </View>
-                                                                                        ) : (
-                                                                                            <Text style={[styles.emptyText, { color: themeColors.text.muted }]}>-</Text>
-                                                                                        )}
-                                                                                    </View>
-                                                                                )}
-                                                                                <View style={[styles.tableCell, { width: width * 0.10, alignItems: 'center', justifyContent: 'center' }]}>
-                                                                                    {photoCount > 0 ? (
-                                                                                        <TouchableOpacity
-                                                                                            onPress={() => togglePhotoExpansion(photoKey)}
-                                                                                            style={styles.photoButton}
-                                                                                            activeOpacity={0.7}
-                                                                                        >
-                                                                                            <Camera size={12} color={themeColors.primary.DEFAULT} />
-                                                                                            <Text style={[styles.photoCountText, { color: themeColors.text.primary }]} numberOfLines={1}>
-                                                                                                {photoCount}
-                                                                                            </Text>
-                                                                                        </TouchableOpacity>
-                                                                                    ) : (
-                                                                                        <Text style={[styles.emptyText, { color: themeColors.text.muted }]}>-</Text>
-                                                                                    )}
-                                                                                </View>
-                                                                            </View>
-                                                                            
-                                                                            {/* Expanded Photos - Outside tableRow */}
-                                                                            {isPhotoExpanded && photoCount > 0 && (
-                                                                                <View style={[styles.photoExpansionContainer, { borderTopColor: themeColors.border.light }]}>
-                                                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScrollView}>
-                                                                                        {entry.photos?.map((photo: string, photoIdx: number) => {
-                                                                                            // Handle both local and server images
-                                                                                            let photoUrl: string;
-                                                                                            if (isLocalPath(photo)) {
-                                                                                                // Local offline image - use local path
-                                                                                                const imageSource = getImageSource(photo);
-                                                                                                photoUrl = imageSource.uri;
-                                                                                            } else if (photo.startsWith('http')) {
-                                                                                                // Full URL
-                                                                                                photoUrl = photo;
-                                                                                            } else if (photo.startsWith('/')) {
-                                                                                                // Server path
-                                                                                                photoUrl = `${getAPI_URL()}${photo}`;
-                                                                                            } else {
-                                                                                                // Object ID
-                                                                                                photoUrl = `${getAPI_URL()}/objects/${photo}`;
-                                                                                            }
-                                                                                            return (
-                                                                                                <Image
-                                                                                                    key={photoIdx}
-                                                                                                    source={{ uri: photoUrl }}
-                                                                                                    style={styles.photoThumbnail as ImageStyle}
-                                                                                                />
-                                                                                            );
-                                                                                        })}
-                                                                                    </ScrollView>
-                                                                                </View>
-                                                                            )}
-                                                                            
-                                                                            {/* Voice Recording - same layout as Inspection Capture (less weighted for iOS) */}
-                                                                            {isPhotoExpanded && entry?.id && (() => {
-                                                                                const vKey = `voice-${entryKey}`;
-                                                                                const vs = getVoiceState(vKey);
-                                                                                const displayAudioUrls = vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
-                                                                                return (
-                                                                                    <View style={[styles.voiceCard, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                                                        <View style={styles.voiceCardHeaderRow}>
-                                                                                            <View style={[styles.voiceCardIconCircle, { backgroundColor: themeColors.primary.DEFAULT + '20' }]}>
-                                                                                                <Mic size={13} color={themeColors.primary.DEFAULT} />
-                                                                                            </View>
-                                                                                            <Text style={[styles.voiceCardHeaderLabel, { color: themeColors.text.primary }]}>Voice Recording</Text>
-                                                                                            {vs.isRecording && (
-                                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#ef444420' }]}>
-                                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#ef4444' }]} />
-                                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#ef4444' }]}>{`${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')}`}</Text>
-                                                                                                </View>
-                                                                                            )}
-                                                                                            {displayAudioUrls.length > 0 && !vs.isRecording && (
-                                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#16a34a20' }]}>
-                                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#16a34a' }]} />
-                                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#16a34a' }]}>{displayAudioUrls.length} Saved</Text>
-                                                                                                </View>
-                                                                                            )}
-                                                                                        </View>
-                                                                                        {!vs.isRecording && (
-                                                                                            <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: themeColors.primary.DEFAULT }]} onPress={() => startRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
-                                                                                                <Mic size={16} color="#fff" />
-                                                                                                <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
-                                                                                            </TouchableOpacity>
-                                                                                        )}
-                                                                                        {vs.isRecording && (
-                                                                                            <>
-                                                                                                <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: '#dc2626' }, vs.isUploadingAudio && { opacity: 0.5 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio} activeOpacity={0.85}>
-                                                                                                    <Square size={16} color="#fff" />
-                                                                                                    <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
-                                                                                                </TouchableOpacity>
-                                                                                                <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.border.DEFAULT, marginTop: spacing[2] }]} onPress={() => cancelRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
-                                                                                                    <X size={14} color={themeColors.text.primary} />
-                                                                                                    <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
-                                                                                                </TouchableOpacity>
-                                                                                            </>
-                                                                                        )}
-                                                                                        {vs.isRecording && (<View style={styles.recordingIndicatorRow}><View style={styles.recordingDot} /><Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text></View>)}
-                                                                                        {displayAudioUrls.length > 0 && !vs.isRecording && (
-                                                                                            <View style={{ marginTop: spacing[2], gap: spacing[2] }}>
-                                                                                                {[...displayAudioUrls].reverse().map((url, idx) => (
-                                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8 }]}>
-                                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url} activeOpacity={0.85}>
-                                                                                                            {vs.loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : 'Play'}</Text>
-                                                                                                        </TouchableOpacity>
-                                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { backgroundColor: themeColors.primary.DEFAULT, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl} activeOpacity={0.85}>
-                                                                                                            <Sparkles size={14} color="#fff" />
-                                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
-                                                                                                        </TouchableOpacity>
-                                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.destructive.DEFAULT + '60' }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)} activeOpacity={0.85}>
-                                                                                                            <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
-                                                                                                        </TouchableOpacity>
-                                                                                                    </View>
-                                                                                                ))}
-                                                                                            </View>
-                                                                                        )}
-                                                                                    </View>
-                                                                                );
-                                                                            })()}
-                                                                            </React.Fragment>
-                                                                        );
-                                                                    })}
-                                                                </View>
-                                                            );
-                                                        });
+                                                        return instances.map((instanceName) => (
+                                                            <View key={instanceName} style={styles.instanceGroup}>
+                                                                <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT, borderBottomColor: themeColors.border.light }]}>
+                                                                    {instanceName}
+                                                                </Text>
+                                                                {section.fields.map((field: any) => {
+                                                                    const entry = getEntryValue(section.id, field.id || field.key || field.label, instanceName);
+                                                                    if (!entry) return null;
+                                                                    return renderScheduleFieldBlock(
+                                                                        section,
+                                                                        field,
+                                                                        entry,
+                                                                        instanceName,
+                                                                        sectionHasCondition,
+                                                                        sectionHasCleanliness,
+                                                                    );
+                                                                })}
+                                                            </View>
+                                                        ));
                                                     })()
                                                 ) : (
-                                                    // Render normally for non-repeatable sections
-                                                    section.fields.map((field: any, fieldIdx: number) => {
-                                                        const entry = getEntryValue(section.id, field.id || field.key || field.label);
-                                                        const entryKey = `${section.id}-${field.id || field.key || field.label}`;
-                                                        const photoKey = `photos-${entryKey}`;
-                                                        const isPhotoExpanded = expandedPhotos[photoKey];
-
+                                                    section.fields.map((field: any) => {
+                                                        const entry = getEntryValue(
+                                                            section.id,
+                                                            field.id || field.key || field.label,
+                                                        );
                                                         if (!entry) return null;
-
-                                                        let condition: string | number | null = null;
-                                                        let cleanliness: string | number | null = null;
-                                                        let description = '';
-
-                                                        if (entry.valueJson) {
-                                                            if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
-                                                                condition = entry.valueJson.condition || null;
-                                                                cleanliness = entry.valueJson.cleanliness || null;
-                                                                description = entry.valueJson.value || '';
-                                                            } else if (typeof entry.valueJson === 'string') {
-                                                                description = entry.valueJson;
-                                                            }
-                                                        }
-
-                                                        // Check if this is a signature field (base64 image data)
-                                                        const isSignature = field.type === 'signature' ||
-                                                            (typeof description === 'string' && description.startsWith('data:image'));
-
-                                                        const photoCount = entry.photos?.length || 0;
-
-                                                        return (
-                                                            <React.Fragment key={field.id || field.key || field.label}>
-                                                            <View style={[styles.tableRow, { borderBottomColor: themeColors.border.light, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                                <View style={[styles.tableCell, { width: width * 0.25 }]}>
-                                                                    <TouchableOpacity
-                                                                        onPress={() => photoCount > 0 && togglePhotoExpansion(photoKey)}
-                                                                        activeOpacity={photoCount > 0 ? 0.7 : 1}
-                                                                    >
-                                                                        <Text style={[
-                                                                            styles.roomSpaceText,
-                                                                            { color: photoCount > 0 ? themeColors.primary.DEFAULT : themeColors.text.primary },
-                                                                            photoCount > 0 && styles.roomSpaceLink
-                                                                        ]} numberOfLines={2}>
-                                                                            {field.label}
-                                                                        </Text>
-                                                                    </TouchableOpacity>
-                                                                </View>
-                                                                <View style={[styles.tableCell, {
-                                                                    width: width * (sectionHasCondition && sectionHasCleanliness ? 0.35 : sectionHasCondition || sectionHasCleanliness ? 0.40 : 0.50)
-                                                                }]}>
-                                                                    {isSignature && description ? (
-                                                                        <Image
-                                                                            source={{ uri: description }}
-                                                                            style={styles.signatureImage as ImageStyle}
-                                                                            resizeMode="contain"
-                                                                        />
-                                                                    ) : (
-                                                                        <Text style={[styles.descriptionText, { color: themeColors.text.secondary }]} numberOfLines={3}>
-                                                                            {description || entry.note || '-'}
-                                                                        </Text>
-                                                                    )}
-                                                                </View>
-                                                                {sectionHasCondition && (
-                                                                    <View style={[styles.tableCell, { width: width * 0.15, alignItems: 'center', justifyContent: 'center' }]}>
-                                                                        {field.includeCondition && condition !== null && condition !== undefined ? (
-                                                                            <View style={styles.conditionRow}>
-                                                                                <View style={[styles.conditionDot, { backgroundColor: getConditionColor(condition) }]} />
-                                                                                <Text style={[styles.conditionText, { color: themeColors.text.primary }]} numberOfLines={1}>
-                                                                                    {formatCondition(condition)}
-                                                                                </Text>
-                                                                                <Text style={[styles.scoreText, { color: themeColors.text.muted }]}>
-                                                                                    ({getConditionScore(condition)})
-                                                                                </Text>
-                                                                            </View>
-                                                                        ) : (
-                                                                            <Text style={[styles.emptyText, { color: themeColors.text.muted }]}>-</Text>
-                                                                        )}
-                                                                    </View>
-                                                                )}
-                                                                {sectionHasCleanliness && (
-                                                                    <View style={[styles.tableCell, { width: width * 0.15, alignItems: 'center', justifyContent: 'center' }]}>
-                                                                        {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
-                                                                            <View style={styles.conditionRow}>
-                                                                                <View style={[styles.conditionDot, { backgroundColor: getCleanlinessColor(cleanliness) }]} />
-                                                                                <Text style={[styles.conditionText, { color: themeColors.text.primary }]} numberOfLines={1}>
-                                                                                    {formatCleanliness(cleanliness)}
-                                                                                </Text>
-                                                                                <Text style={[styles.scoreText, { color: themeColors.text.muted }]}>
-                                                                                    ({getCleanlinessScore(cleanliness)})
-                                                                                </Text>
-                                                                            </View>
-                                                                        ) : (
-                                                                            <Text style={[styles.emptyText, { color: themeColors.text.muted }]}>-</Text>
-                                                                        )}
-                                                                    </View>
-                                                                )}
-                                                                <View style={[styles.tableCell, { width: width * 0.10, alignItems: 'center', justifyContent: 'center' }]}>
-                                                                    {photoCount > 0 ? (
-                                                                        <TouchableOpacity
-                                                                            onPress={() => togglePhotoExpansion(photoKey)}
-                                                                            style={styles.photoButton}
-                                                                            activeOpacity={0.7}
-                                                                        >
-                                                                            <Camera size={12} color={themeColors.primary.DEFAULT} />
-                                                                            <Text style={[styles.photoCountText, { color: themeColors.text.primary }]} numberOfLines={1}>
-                                                                                {photoCount}
-                                                                            </Text>
-                                                                        </TouchableOpacity>
-                                                                    ) : (
-                                                                        <Text style={[styles.emptyText, { color: themeColors.text.muted }]}>-</Text>
-                                                                    )}
-                                                                </View>
-                                                            </View>
-                                                            
-                                                            {/* Expanded Photos - Outside tableRow */}
-                                                            {isPhotoExpanded && photoCount > 0 && (
-                                                                <View style={[styles.photoExpansionContainer, { borderTopColor: themeColors.border.light }]}>
-                                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScrollView}>
-                                                                        {entry.photos?.map((photo: string, photoIdx: number) => {
-                                                                            // Handle both local and server images
-                                                                            let photoUrl: string;
-                                                                            if (isLocalPath(photo)) {
-                                                                                // Local offline image - use local path
-                                                                                const imageSource = getImageSource(photo);
-                                                                                photoUrl = imageSource.uri;
-                                                                            } else if (photo.startsWith('http')) {
-                                                                                // Full URL
-                                                                                photoUrl = photo;
-                                                                            } else if (photo.startsWith('/')) {
-                                                                                // Server path
-                                                                                photoUrl = `${getAPI_URL()}${photo}`;
-                                                                            } else {
-                                                                                // Object ID
-                                                                                photoUrl = `${getAPI_URL()}/objects/${photo}`;
-                                                                            }
-                                                                            return (
-                                                                                <Image
-                                                                                    key={photoIdx}
-                                                                                    source={{ uri: photoUrl }}
-                                                                                    style={styles.photoThumbnail as ImageStyle}
-                                                                                />
-                                                                            );
-                                                                        })}
-                                                                    </ScrollView>
-                                                                </View>
-                                                            )}
-                                                            
-                                                            {/* Voice Recording - same as Inspection Capture (less weighted for iOS) */}
-                                                            {isPhotoExpanded && entry?.id && (() => {
-                                                                const vKey = `voice-${entryKey}`;
-                                                                const vs = getVoiceState(vKey);
-                                                                const displayAudioUrls = vs.audioUrls.length > 0 ? vs.audioUrls : getEntryAudioUrls(entry);
-                                                                return (
-                                                                    <View style={[styles.voiceCard, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
-                                                                        <View style={styles.voiceCardHeaderRow}>
-                                                                            <View style={[styles.voiceCardIconCircle, { backgroundColor: themeColors.primary.DEFAULT + '20' }]}>
-                                                                                <Mic size={13} color={themeColors.primary.DEFAULT} />
-                                                                            </View>
-                                                                            <Text style={[styles.voiceCardHeaderLabel, { color: themeColors.text.primary }]}>Voice Recording</Text>
-                                                                            {vs.isRecording && (
-                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#ef444420' }]}>
-                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#ef4444' }]} />
-                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#ef4444' }]}>{`${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')}`}</Text>
-                                                                                </View>
-                                                                            )}
-                                                                            {displayAudioUrls.length > 0 && !vs.isRecording && (
-                                                                                <View style={[styles.voiceCardBadge, { backgroundColor: '#16a34a20' }]}>
-                                                                                    <View style={[styles.voiceCardBadgeDot, { backgroundColor: '#16a34a' }]} />
-                                                                                    <Text style={[styles.voiceCardBadgeText, { color: '#16a34a' }]}>{displayAudioUrls.length} Saved</Text>
-                                                                                </View>
-                                                                            )}
-                                                                        </View>
-                                                                        {!vs.isRecording && (
-                                                                            <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: themeColors.primary.DEFAULT }]} onPress={() => startRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
-                                                                                <Mic size={16} color="#fff" />
-                                                                                <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{displayAudioUrls.length > 0 ? 'Add Recording' : 'Start Recording'}</Text>
-                                                                            </TouchableOpacity>
-                                                                        )}
-                                                                        {vs.isRecording && (
-                                                                            <>
-                                                                                <TouchableOpacity style={[styles.voiceCardFullBtn, { backgroundColor: '#dc2626' }, vs.isUploadingAudio && { opacity: 0.5 }]} onPress={() => stopRecording(vKey, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={vs.isUploadingAudio} activeOpacity={0.85}>
-                                                                                    <Square size={16} color="#fff" />
-                                                                                    <Text style={[styles.voiceCardFullBtnText, { color: '#fff' }]}>{vs.isUploadingAudio ? 'Saving...' : `Stop (${Math.floor(vs.recordingTime / 60)}:${(vs.recordingTime % 60).toString().padStart(2, '0')})`}</Text>
-                                                                                </TouchableOpacity>
-                                                                                <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.border.DEFAULT, marginTop: spacing[2] }]} onPress={() => cancelRecording(vKey, displayAudioUrls)} activeOpacity={0.85}>
-                                                                                    <X size={14} color={themeColors.text.primary} />
-                                                                                    <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.text.primary }]}>Cancel</Text>
-                                                                                </TouchableOpacity>
-                                                                            </>
-                                                                        )}
-                                                                        {vs.isRecording && (<View style={styles.recordingIndicatorRow}><View style={styles.recordingDot} /><Text style={{ fontSize: 12, color: themeColors.text.secondary }}>Recording...</Text></View>)}
-                                                                        {displayAudioUrls.length > 0 && !vs.isRecording && (
-                                                                            <View style={{ marginTop: spacing[2], gap: spacing[2] }}>
-                                                                                {[...displayAudioUrls].reverse().map((url, idx) => (
-                                                                                    <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8 }]}>
-                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', opacity: vs.loadingPlayUrl === url ? 0.8 : 1 }]} onPress={() => playAudio(vKey, url)} disabled={vs.loadingPlayUrl === url} activeOpacity={0.85}>
-                                                                                            {vs.loadingPlayUrl === url ? <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} /> : vs.playingUrl === url && vs.isPlayingAudio ? <Square size={14} color={themeColors.primary.DEFAULT} /> : <Play size={14} color={themeColors.primary.DEFAULT} />}
-                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: themeColors.primary.DEFAULT }]}>{vs.loadingPlayUrl === url ? 'Loading...' : vs.playingUrl === url && vs.isPlayingAudio ? 'Pause' : 'Play'}</Text>
-                                                                                        </TouchableOpacity>
-                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, { backgroundColor: themeColors.primary.DEFAULT, opacity: vs.transcribingUrl === url ? 0.6 : 1 }]} onPress={() => transcribeAudio(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls)} disabled={!!vs.transcribingUrl} activeOpacity={0.85}>
-                                                                                            <Sparkles size={14} color="#fff" />
-                                                                                            <Text style={[styles.voiceCardHalfBtnText, { color: '#fff' }]}>{vs.transcribingUrl === url ? '...' : 'Transcribe'}</Text>
-                                                                                        </TouchableOpacity>
-                                                                                        <TouchableOpacity style={[styles.voiceCardHalfBtn, styles.voiceCardOutlineBtn, { borderColor: themeColors.destructive.DEFAULT + '60' }]} onPress={() => removeAudioUrl(vKey, url, entry.id, entry?.note || '', entry?.valueJson, displayAudioUrls, vs.playingUrl)} activeOpacity={0.85}>
-                                                                                            <Trash2 size={16} color={themeColors.destructive.DEFAULT} />
-                                                                                        </TouchableOpacity>
-                                                                                    </View>
-                                                                                ))}
-                                                                            </View>
-                                                                        )}
-                                                                    </View>
-                                                                );
-                                                            })()}
-                                                            </React.Fragment>
+                                                        return renderScheduleFieldBlock(
+                                                            section,
+                                                            field,
+                                                            entry,
+                                                            undefined,
+                                                            sectionHasCondition,
+                                                            sectionHasCleanliness,
                                                         );
                                                     })
                                                 )}
@@ -1522,6 +1608,17 @@ const styles = StyleSheet.create({
         padding: spacing[4],
         marginBottom: spacing[4],
     },
+    glossaryHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: spacing[2],
+    },
+    glossaryHeaderTitle: {
+        flex: 1,
+        fontSize: typography.fontSize['2xl'],
+        fontWeight: typography.fontWeight.bold,
+    },
     cardHeader: {
         marginBottom: spacing[4],
     },
@@ -1584,13 +1681,21 @@ const styles = StyleSheet.create({
     },
     scheduleHeader: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         gap: spacing[3],
         marginBottom: spacing[4],
+    },
+    scheduleSectionTitle: {
+        flex: 1,
+        flexShrink: 1,
+        marginBottom: 0,
+        fontSize: typography.fontSize.xl,
+        lineHeight: typography.fontSize.xl * 1.35,
     },
     cameraIconContainer: {
         padding: spacing[2],
         borderRadius: borderRadius.lg,
+        marginTop: 2,
     },
     sectionsContainer: {
         gap: spacing[4],
@@ -1609,10 +1714,92 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontSize: typography.fontSize.lg,
         fontWeight: typography.fontWeight.bold,
+        flexShrink: 1,
     },
     sectionDescription: {
         fontSize: typography.fontSize.sm,
         marginTop: spacing[1],
+    },
+    scheduleFieldsList: {
+        gap: spacing[3],
+    },
+    scheduleEntryCard: {
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        padding: spacing[3],
+        marginBottom: spacing[2],
+    },
+    scheduleEntryFieldTitle: {
+        fontSize: typography.fontSize.base,
+        fontWeight: typography.fontWeight.bold,
+        marginBottom: spacing[2],
+    },
+    scheduleEntryDescription: {
+        fontSize: typography.fontSize.sm,
+        lineHeight: 22,
+    },
+    scheduleDescriptionWrap: {
+        width: '100%',
+        marginBottom: spacing[2],
+    },
+    scheduleEntryDescriptionVisible: {
+        marginBottom: 0,
+    },
+    scheduleReadMore: {
+        marginTop: spacing[1],
+        alignSelf: 'flex-start',
+        paddingVertical: spacing[0.5],
+    },
+    scheduleReadMoreText: {
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.semibold,
+    },
+    scheduleEntryMetrics: {
+        marginTop: spacing[2],
+        gap: spacing[3],
+    },
+    scheduleMetricBlock: {
+        gap: spacing[1],
+    },
+    scheduleMetricLabel: {
+        fontSize: typography.fontSize.xs,
+        fontWeight: typography.fontWeight.semibold,
+        marginBottom: spacing[0.5],
+    },
+    scheduleMetricValueRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: spacing[1],
+    },
+    scheduleMetricValueText: {
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.medium,
+        flexShrink: 1,
+    },
+    scheduleMetricScore: {
+        fontSize: typography.fontSize.xs,
+    },
+    scheduleMetricEmpty: {
+        fontSize: typography.fontSize.sm,
+        fontStyle: 'italic',
+    },
+    schedulePhotoRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing[2],
+        paddingTop: spacing[3],
+        marginTop: spacing[1],
+        borderTopWidth: 1,
+    },
+    schedulePhotoText: {
+        flex: 1,
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.medium,
+    },
+    schedulePhotoHint: {
+        fontSize: typography.fontSize.sm,
+        fontWeight: typography.fontWeight.semibold,
     },
     tableContainer: {
         borderRadius: borderRadius.lg,
@@ -1620,33 +1807,37 @@ const styles = StyleSheet.create({
     },
     tableHeader: {
         flexDirection: 'row',
+        alignItems: 'flex-start',
         borderBottomWidth: 1,
         paddingVertical: spacing[2],
-        paddingHorizontal: spacing[2],
-        flexWrap: 'wrap',
+        paddingHorizontal: spacing[1],
     },
     tableHeaderCell: {
         paddingHorizontal: spacing[1],
-        minWidth: 60,
+        minWidth: 0,
+        flexShrink: 0,
     },
     tableHeaderText: {
-        fontSize: typography.fontSize.xs - 1,
-        fontWeight: typography.fontWeight.medium,
+        fontSize: typography.fontSize.xs,
+        fontWeight: typography.fontWeight.semibold,
         textTransform: 'uppercase',
+        letterSpacing: 0.2,
+        lineHeight: 14,
     },
     tableRow: {
         flexDirection: 'row',
+        alignItems: 'flex-start',
         borderBottomWidth: 1,
         paddingVertical: spacing[2],
-        paddingHorizontal: spacing[2],
-        flexWrap: 'wrap',
+        paddingHorizontal: spacing[1],
         minHeight: 50,
         backgroundColor: 'transparent', // Will be set dynamically
     },
     tableCell: {
         paddingHorizontal: spacing[1],
-        justifyContent: 'center',
-        minWidth: 60,
+        justifyContent: 'flex-start',
+        minWidth: 0,
+        alignItems: 'stretch',
     },
     roomSpaceText: {
         fontSize: typography.fontSize.xs + 1,

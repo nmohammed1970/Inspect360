@@ -43,6 +43,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { assetsService, type AssetInventory } from '../../services/assets';
 import { propertiesService } from '../../services/properties';
 import type { Property, Block } from '../../types';
+import { formatPropertyLocationLabel, formatBlockLocationLabel } from '../../utils/locationLabels';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -153,7 +154,8 @@ export default function AssetInventoryListScreen() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterCondition, setFilterCondition] = useState<string>('all');
-  const [filterLocation, setFilterLocation] = useState<string>('all');
+  const [filterPropertyBlock, setFilterPropertyBlock] = useState<string>('all');
+  const [filterSpecificLocation, setFilterSpecificLocation] = useState<string>('all');
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
@@ -179,13 +181,24 @@ export default function AssetInventoryListScreen() {
     queryFn: () => propertiesService.getBlocks(),
   });
 
-  // Get unique locations
-  const locations = useMemo(() => {
+  const propertyBlockOptions = useMemo(() => {
     const locs: Array<{ id: string; name: string; type: 'property' | 'block' }> = [];
-    properties?.forEach(p => locs.push({ id: p.id, name: p.address || p.name, type: 'property' }));
-    blocks?.forEach(b => locs.push({ id: b.id, name: b.name, type: 'block' }));
+    properties?.forEach((p) =>
+      locs.push({ id: p.id, name: formatPropertyLocationLabel(p), type: 'property' }),
+    );
+    blocks?.forEach((b) => locs.push({ id: b.id, name: formatBlockLocationLabel(b), type: 'block' }));
     return locs;
   }, [properties, blocks]);
+
+  const specificLocationOptions = useMemo(() => {
+    if (!assets?.length) return [];
+    const seen = new Set<string>();
+    for (const a of assets) {
+      const t = a.location?.trim();
+      if (t) seen.add(t);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [assets]);
 
   // Simple dropdowns: native ActionSheet on iOS, Alert on Android (reliable on both)
   const openCategoryPicker = () => {
@@ -258,24 +271,50 @@ export default function AssetInventoryListScreen() {
     }
   };
 
-  const openLocationPicker = () => {
-    const items = [{ id: 'all', name: 'All Locations', type: 'property' as const }, ...locations];
+  const openPropertyBlockPicker = () => {
+    const items = [{ id: 'all', name: 'All properties & blocks', type: 'property' as const }, ...propertyBlockOptions];
     if (Platform.OS === 'ios' && ActionSheetIOS?.showActionSheetWithOptions) {
       ActionSheetIOS.showActionSheetWithOptions(
-        { options: ['Cancel', ...items.map(i => i.name)], cancelButtonIndex: 0 },
-        (i) => { if (i > 0) setFilterLocation(items[i - 1].id === 'all' ? 'all' : items[i - 1].id); }
+        { options: ['Cancel', ...items.map((i) => i.name)], cancelButtonIndex: 0 },
+        (i) => {
+          if (i > 0) setFilterPropertyBlock(items[i - 1].id === 'all' ? 'all' : items[i - 1].id);
+        },
       );
     } else {
-      Alert.alert('Select Location', '', [
+      Alert.alert('Property or block', '', [
         { text: 'Cancel', style: 'cancel' },
-        ...items.map(item => ({ text: item.name, onPress: () => setFilterLocation(item.id === 'all' ? 'all' : item.id) })),
+        ...items.map((item) => ({
+          text: item.name,
+          onPress: () => setFilterPropertyBlock(item.id === 'all' ? 'all' : item.id),
+        })),
+      ]);
+    }
+  };
+
+  const openSpecificLocationPicker = () => {
+    const items = ['all', ...specificLocationOptions];
+    const labels = ['All specific locations', ...specificLocationOptions];
+    if (Platform.OS === 'ios' && ActionSheetIOS?.showActionSheetWithOptions) {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Cancel', ...labels], cancelButtonIndex: 0 },
+        (i) => {
+          if (i > 0) setFilterSpecificLocation(items[i - 1]);
+        },
+      );
+    } else {
+      Alert.alert('Specific location', 'Room or area saved on the asset', [
+        { text: 'Cancel', style: 'cancel' },
+        ...items.map((value, idx) => ({
+          text: labels[idx],
+          onPress: () => setFilterSpecificLocation(value),
+        })),
       ]);
     }
   };
 
   const openPropertyPicker = () => {
     const items = [{ id: '', name: 'None', address: '', status: 'active' } as Property, ...properties];
-    const names = items.map(p => p.id === '' ? 'None' : (p.name || p.address || p.id));
+    const names = items.map((p) => (p.id === '' ? 'None' : formatPropertyLocationLabel(p)));
     if (Platform.OS === 'ios' && ActionSheetIOS?.showActionSheetWithOptions) {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ['Cancel', ...names], cancelButtonIndex: 0 },
@@ -290,8 +329,8 @@ export default function AssetInventoryListScreen() {
   };
 
   const openBlockPicker = () => {
-    const items = [{ id: '', name: 'None' }, ...blocks];
-    const names = items.map(b => b.name || 'None');
+    const items = [{ id: '', name: 'None', address: '' } as Block, ...blocks];
+    const names = items.map((b) => (!b.id ? 'None' : formatBlockLocationLabel(b)));
     if (Platform.OS === 'ios' && ActionSheetIOS?.showActionSheetWithOptions) {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ['Cancel', ...names], cancelButtonIndex: 0 },
@@ -308,11 +347,10 @@ export default function AssetInventoryListScreen() {
   // Auto-filter by block or property if in route params (only if explicitly provided)
   useEffect(() => {
     if (blockIdFromRoute) {
-      setFilterLocation(blockIdFromRoute);
+      setFilterPropertyBlock(blockIdFromRoute);
     } else if (propertyIdFromRoute) {
-      setFilterLocation(propertyIdFromRoute);
+      setFilterPropertyBlock(propertyIdFromRoute);
     }
-    // Note: If no route params, filterLocation stays 'all' and shows all assets
   }, [blockIdFromRoute, propertyIdFromRoute]);
 
   // Auto-open dialog and pre-populate form when navigated from inspection
@@ -337,23 +375,66 @@ export default function AssetInventoryListScreen() {
     }
   }, [autoOpen, propertyIdFromRoute, blockIdFromRoute, navigation, properties, blocks]);
 
-  // Filter assets
+  // Filter assets (search includes linked property/block name and address)
   const filteredAssets = useMemo(() => {
     if (!assets || assets.length === 0) return [];
 
-    return assets.filter(asset => {
-      const matchesSearch = searchTerm === '' ||
-        asset.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        asset.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        asset.location?.toLowerCase().includes(searchTerm.toLowerCase());
+    const q = searchTerm.trim().toLowerCase();
+
+    return assets.filter((asset) => {
+      const matchesSearch =
+        q === '' ||
+        (() => {
+          if (asset.name?.toLowerCase().includes(q)) return true;
+          if (asset.description?.toLowerCase().includes(q)) return true;
+          if (asset.location?.toLowerCase().includes(q)) return true;
+          if (asset.propertyId && properties.length) {
+            const p = properties.find((x) => x.id === asset.propertyId);
+            if (p) {
+              if (p.name?.toLowerCase().includes(q)) return true;
+              if (p.address?.toLowerCase().includes(q)) return true;
+              if (formatPropertyLocationLabel(p).toLowerCase().includes(q)) return true;
+            }
+          }
+          if (asset.blockId && blocks.length) {
+            const b = blocks.find((x) => x.id === asset.blockId);
+            if (b) {
+              if (b.name?.toLowerCase().includes(q)) return true;
+              if (b.address?.toLowerCase().includes(q)) return true;
+              if (formatBlockLocationLabel(b).toLowerCase().includes(q)) return true;
+            }
+          }
+          return false;
+        })();
 
       const matchesCategory = filterCategory === 'all' || asset.category === filterCategory;
       const matchesCondition = filterCondition === 'all' || asset.condition === filterCondition;
-      const matchesLocation = filterLocation === 'all' || asset.propertyId === filterLocation || asset.blockId === filterLocation;
+      const matchesPropertyBlock =
+        filterPropertyBlock === 'all' ||
+        asset.propertyId === filterPropertyBlock ||
+        asset.blockId === filterPropertyBlock;
+      const matchesSpecificLocation =
+        filterSpecificLocation === 'all' ||
+        (asset.location?.trim() ?? '') === filterSpecificLocation;
 
-      return matchesSearch && matchesCategory && matchesCondition && matchesLocation;
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesCondition &&
+        matchesPropertyBlock &&
+        matchesSpecificLocation
+      );
     });
-  }, [assets, searchTerm, filterCategory, filterCondition, filterLocation]);
+  }, [
+    assets,
+    searchTerm,
+    filterCategory,
+    filterCondition,
+    filterPropertyBlock,
+    filterSpecificLocation,
+    properties,
+    blocks,
+  ]);
 
   // Photo upload function
   const uploadPhoto = async (uri: string): Promise<string> => {
@@ -614,10 +695,15 @@ export default function AssetInventoryListScreen() {
 
   const selectedCategoryLabel = filterCategory === 'all' ? 'All' : filterCategory;
   const selectedConditionLabel = filterCondition === 'all' ? 'All' : conditionLabels[filterCondition] || filterCondition;
-  const selectedLocationLabel = filterLocation === 'all' ? 'All' : (() => {
-    const loc = locations.find(l => l.id === filterLocation);
-    return loc ? `${loc.type === 'property' ? '🏠' : '🏢'} ${loc.name}` : 'All';
-  })();
+  const selectedPropertyBlockLabel =
+    filterPropertyBlock === 'all'
+      ? 'All'
+      : (() => {
+          const loc = propertyBlockOptions.find((l) => l.id === filterPropertyBlock);
+          return loc ? `${loc.type === 'property' ? '🏠' : '🏢'} ${loc.name}` : 'All';
+        })();
+  const selectedSpecificLocationLabel =
+    filterSpecificLocation === 'all' ? 'All' : filterSpecificLocation;
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -655,7 +741,7 @@ export default function AssetInventoryListScreen() {
           <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
           <TextInput
             style={[styles.searchInput, { color: themeColors.text.primary }]}
-            placeholder="Search assets by name, description, or location..."
+            placeholder="Search by asset, description, location, property, or block..."
             placeholderTextColor={themeColors.text.secondary}
             value={searchTerm}
             onChangeText={setSearchTerm}
@@ -719,20 +805,44 @@ export default function AssetInventoryListScreen() {
                 styles.filterChip,
                 {
                   borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterLocation !== 'all' ? themeColors.primary.light : themeColors.background,
+                  backgroundColor: filterPropertyBlock !== 'all' ? themeColors.primary.light : themeColors.background,
                 },
-                filterLocation !== 'all' && { borderColor: themeColors.primary.DEFAULT }
+                filterPropertyBlock !== 'all' && { borderColor: themeColors.primary.DEFAULT },
               ]}
-              onPress={openLocationPicker}
+              onPress={openPropertyBlockPicker}
             >
-              <Text style={[
-                styles.filterChipText,
-                { color: filterLocation !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
-              ]}>
-                Location: {selectedLocationLabel}
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: filterPropertyBlock !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary },
+                ]}
+                numberOfLines={1}
+              >
+                Property/Block: {selectedPropertyBlockLabel}
               </Text>
             </TouchableOpacity>
-            {(filterCategory !== 'all' || filterCondition !== 'all' || filterLocation !== 'all') && (
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: filterSpecificLocation !== 'all' ? themeColors.primary.light : themeColors.background,
+                },
+                filterSpecificLocation !== 'all' && { borderColor: themeColors.primary.DEFAULT },
+              ]}
+              onPress={openSpecificLocationPicker}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: filterSpecificLocation !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary },
+                ]}
+                numberOfLines={1}
+              >
+                Place: {selectedSpecificLocationLabel}
+              </Text>
+            </TouchableOpacity>
+            {(filterCategory !== 'all' || filterCondition !== 'all' || filterPropertyBlock !== 'all' || filterSpecificLocation !== 'all') && (
               <TouchableOpacity
                 style={[styles.filterChip, {
                   backgroundColor: themeColors.card.DEFAULT,
@@ -741,7 +851,8 @@ export default function AssetInventoryListScreen() {
                 onPress={() => {
                   setFilterCategory('all');
                   setFilterCondition('all');
-                  setFilterLocation('all');
+                  setFilterPropertyBlock('all');
+                  setFilterSpecificLocation('all');
                 }}
               >
                 <X size={14} color={themeColors.text.secondary} />
@@ -757,16 +868,16 @@ export default function AssetInventoryListScreen() {
             <View style={styles.emptyContent}>
               <Package size={48} color={themeColors.text.secondary} />
               <Text style={[styles.emptyTitle, { color: themeColors.text.primary }]}>
-                {searchTerm || filterCategory !== 'all' || filterCondition !== 'all' || filterLocation !== 'all'
+                {searchTerm || filterCategory !== 'all' || filterCondition !== 'all' || filterPropertyBlock !== 'all' || filterSpecificLocation !== 'all'
                   ? 'No Assets Found'
                   : 'No Assets Yet'}
               </Text>
               <Text style={[styles.emptyMessage, { color: themeColors.text.secondary }]}>
-                {searchTerm || filterCategory !== 'all' || filterCondition !== 'all' || filterLocation !== 'all'
+                {searchTerm || filterCategory !== 'all' || filterCondition !== 'all' || filterPropertyBlock !== 'all' || filterSpecificLocation !== 'all'
                   ? 'Try adjusting your search or filters'
                   : 'Get started by adding your first asset'}
               </Text>
-              {!searchTerm && filterCategory === 'all' && filterCondition === 'all' && filterLocation === 'all' && (
+              {!searchTerm && filterCategory === 'all' && filterCondition === 'all' && filterPropertyBlock === 'all' && filterSpecificLocation === 'all' && (
                 <Button
                   title="Add Your First Asset"
                   onPress={() => handleOpenDialog()}
@@ -882,6 +993,27 @@ export default function AssetInventoryListScreen() {
                 })()}
 
                 <View style={styles.assetDetails}>
+                  {(asset.propertyId || asset.blockId) && (
+                    <View style={styles.assetDetailRow}>
+                      {asset.propertyId ? (
+                        <Home size={14} color={themeColors.text.secondary} />
+                      ) : (
+                        <Building2 size={14} color={themeColors.text.secondary} />
+                      )}
+                      <Text style={[styles.assetDetailText, { color: themeColors.text.secondary }]} numberOfLines={2}>
+                        {asset.propertyId
+                          ? (() => {
+                              const p = properties.find((x) => x.id === asset.propertyId);
+                              return p ? formatPropertyLocationLabel(p) : 'Property';
+                            })()
+                          : (() => {
+                              const b = blocks.find((x) => x.id === asset.blockId);
+                              return b ? formatBlockLocationLabel(b) : 'Block';
+                            })()}
+                      </Text>
+                    </View>
+                  )}
+
                   {asset.location && (
                     <View style={styles.assetDetailRow}>
                       <MapPin size={14} color={themeColors.text.secondary} />
@@ -1093,7 +1225,10 @@ export default function AssetInventoryListScreen() {
                         { color: formData.propertyId ? themeColors.text.primary : themeColors.text.muted }
                       ]}>
                         {formData.propertyId
-                          ? properties.find(p => p.id === formData.propertyId)?.address || 'Property'
+                          ? (() => {
+                              const p = properties.find((x) => x.id === formData.propertyId);
+                              return p ? formatPropertyLocationLabel(p) : 'Property';
+                            })()
                           : 'Property'}
                       </Text>
                     </TouchableOpacity>
@@ -1114,7 +1249,10 @@ export default function AssetInventoryListScreen() {
                         { color: formData.blockId ? themeColors.text.primary : themeColors.text.muted }
                       ]}>
                         {formData.blockId
-                          ? blocks.find(b => b.id === formData.blockId)?.name || 'Block'
+                          ? (() => {
+                              const b = blocks.find((x) => x.id === formData.blockId);
+                              return b ? formatBlockLocationLabel(b) : 'Block';
+                            })()
                           : 'Block'}
                       </Text>
                     </TouchableOpacity>
