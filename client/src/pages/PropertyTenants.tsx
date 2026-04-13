@@ -98,6 +98,7 @@ export default function PropertyTenants() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
       toast({
         title: "Tenant assignment deleted",
         description: "The tenant has been removed from this property",

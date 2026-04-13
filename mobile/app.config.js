@@ -3,7 +3,7 @@ export default {
   expo: {
     name: "Inspect360",
     slug: "inspect360-mobile",
-    version: "1.0.1", // Increment this for each new release (e.g., 1.0.1, 1.0.2, 1.1.0, etc.)
+    version: "1.0.2", // Increment this for each new release (e.g., 1.0.1, 1.0.2, 1.1.0, etc.)
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "automatic", // Supports automatic dark mode based on system settings
@@ -17,7 +17,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.inspect360.mobile",
-       buildNumber: "23", // iOS CFBundleVersion; next after 19 to avoid duplicate submission
+       buildNumber: "24", // iOS CFBundleVersion; incremented for next submission
       requiresFullScreen: false,
       // Minimum iOS version supported
       deploymentTarget: "13.4",
@@ -44,7 +44,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.inspect360.mobile",
-      versionCode: 23, // Android versionCode; used when appVersionSource is "local" in eas.json
+      versionCode: 24, // Android versionCode; used when appVersionSource is "local" in eas.json
       permissions: [
         "CAMERA",
         "RECORD_AUDIO",

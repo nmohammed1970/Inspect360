@@ -2,7 +2,7 @@
   "expo": {
     "name": "Inspect360",
     "slug": "inspect360-mobile",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,7 +21,7 @@
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to select images for inspections.",
         "NSPhotoLibraryAddUsageDescription": "This app needs access to save photos to your library."
       },
-      "buildNumber": "24"
+      "buildNumber": "25"
     },
     "android": {
       "adaptiveIcon": {

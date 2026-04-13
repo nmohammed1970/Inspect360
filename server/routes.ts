@@ -4764,11 +4764,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get tenants from tenant_assignments table (the correct source)
       const tenantAssignments = await storage.getTenantAssignmentsByProperty(id, user.organizationId);
-      // Filter for active assignments only
-      const activeAssignments = tenantAssignments.filter((ta: any) => ta.status === 'active');
+      // Occupying = not explicitly inactive (isActive null/undefined defaults to "active" for legacy rows; only false is vacant)
+      const activeAssignments = tenantAssignments.filter((ta: any) => {
+        const nested = ta.assignment;
+        const raw =
+          nested?.isActive !== undefined && nested?.isActive !== null
+            ? nested.isActive
+            : ta.isActive !== undefined && ta.isActive !== null
+              ? ta.isActive
+              : (ta as any).is_active;
+        if (raw === false || raw === 0 || raw === 'false' || raw === 'f') return false;
+        if (raw === true || raw === 1 || raw === 'true' || raw === 't') return true;
+        if (raw === null || raw === undefined) return true;
+        return ta.status === 'active' || ta.status === 'current';
+      });
 
       res.json({
-        occupancyStatus: activeAssignments.length > 0 ? `${activeAssignments.length} Tenant${activeAssignments.length > 1 ? 's' : ''}` : 'Vacant',
+        occupancyStatus: activeAssignments.length > 0 ? 'Occupied' : 'Vacant',
         complianceRate,
         dueInspections,
         overdueInspections,

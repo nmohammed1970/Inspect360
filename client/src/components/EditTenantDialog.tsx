@@ -272,6 +272,7 @@ export default function EditTenantDialog({
       // Invalidate all relevant queries to ensure UI updates
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/tenant-assignments", tenant.assignment.id] }),
         queryClient.invalidateQueries({ queryKey: ["/api/users", tenant.id] }),
         queryClient.invalidateQueries({ queryKey: ["/api/users"] }),

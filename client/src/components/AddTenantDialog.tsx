@@ -383,6 +383,10 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         refetchType: "active"
       });
       await queryClient.invalidateQueries({
+        queryKey: ["/api/properties", propertyId, "stats"],
+        refetchType: "active"
+      });
+      await queryClient.invalidateQueries({
         queryKey: ["/api/users/role/tenant"],
         refetchType: "active"
       });

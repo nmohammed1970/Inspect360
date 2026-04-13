@@ -69,6 +69,7 @@ interface Tenant {
   lastName: string;
   email: string;
   role: string;
+  assignment?: { isActive?: boolean | null };
 }
 
 interface Inspection {
@@ -180,7 +181,7 @@ export default function PropertyDetail() {
     enabled: !!propertyId,
   });
 
-  const { data: tenants = [] } = useQuery<Tenant[]>({
+  const { data: tenants = [], isLoading: tenantsLoading } = useQuery<Tenant[]>({
     queryKey: ["/api/properties", propertyId, "tenants"],
     queryFn: async () => {
       const res = await fetch(`/api/properties/${propertyId}/tenants`, { credentials: "include" });
@@ -189,6 +190,14 @@ export default function PropertyDetail() {
     },
     enabled: !!propertyId,
   });
+
+  const hasOccupyingTenant = tenants.some((t) => t.assignment?.isActive !== false);
+  const occupancyLabel =
+    tenantsLoading || tenants.length === 0
+      ? (stats?.occupancyStatus ?? "Vacant")
+      : hasOccupyingTenant
+        ? "Occupied"
+        : "Vacant";
 
   const { data: inspections = [] } = useQuery<Inspection[]>({
     queryKey: ["/api/properties", propertyId, "inspections"],
@@ -518,7 +527,7 @@ export default function PropertyDetail() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.occupancyStatus}</div>
+              <div className="text-2xl font-bold">{occupancyLabel}</div>
             </CardContent>
           </Card>
 
