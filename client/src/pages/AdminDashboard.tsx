@@ -38,6 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
@@ -929,7 +930,7 @@ function OrganizationAccordionItem({
                       <div className="flex items-center gap-2">
                         {getRoleIcon(role)}
                         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                          {role === "other" ? "Other" : role.charAt(0).toUpperCase() + role.slice(1)}
+                          {role === "other" ? "Other" : getTeamRoleDisplayLabel(role)}
                         </span>
                         <Badge variant="secondary" className="text-xs">
                           {groupedMembers[role].length}
@@ -944,7 +945,7 @@ function OrganizationAccordionItem({
                                   <div className="flex items-center gap-2 mb-2">
                                     <Badge variant={getRoleBadgeVariant(member.role)} className="text-xs">
                                       {getRoleIcon(member.role)}
-                                      <span className="ml-1 capitalize">{member.role}</span>
+                                      <span className="ml-1">{getTeamRoleDisplayLabel(member.role)}</span>
                                     </Badge>
                                     {member.isActive === false && (
                                       <Badge variant="destructive" className="text-xs">

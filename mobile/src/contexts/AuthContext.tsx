@@ -214,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Clear any stored data
           await deleteStorageItem(USER_STORAGE_KEY);
           queryClient.clear();
-          throw new Error('Access denied. This app is only for inspectors (clerks).');
+          throw new Error('Access denied. This app is only for Inventory Clerk / Inspector users.');
         }
       
         if (__DEV__) {

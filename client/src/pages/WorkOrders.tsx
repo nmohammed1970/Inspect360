@@ -171,7 +171,7 @@ export default function WorkOrders() {
                     <div className="flex items-center gap-2 text-sm">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
-                        <p className="font-medium">Contractor</p>
+                        <p className="font-medium">Maintenance Contractor</p>
                         <p className="text-muted-foreground">
                           {workOrder.contractor.firstName} {workOrder.contractor.lastName}
                         </p>

@@ -23,7 +23,7 @@ type ContactWithTags = Omit<Contact, 'tags'> & { tags?: TagType[] };
 
 const contactTypeLabels: Record<string, string> = {
   internal: "Internal",
-  contractor: "Contractor",
+  contractor: "Maintenance Contractor",
   lead: "Lead",
   company: "Company",
   partner: "Partner",
@@ -419,7 +419,7 @@ export default function Contacts() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="internal">Internal</SelectItem>
-                        <SelectItem value="contractor">Contractor</SelectItem>
+                        <SelectItem value="contractor">Maintenance Contractor</SelectItem>
                         <SelectItem value="lead">Lead</SelectItem>
                         <SelectItem value="company">Company</SelectItem>
                         <SelectItem value="partner">Partner</SelectItem>
@@ -546,7 +546,7 @@ export default function Contacts() {
                   </div>
 
                   <div>
-                    <Label htmlFor="postalCode">Postal Code</Label>
+                    <Label htmlFor="postalCode">Postal Code / ZIP Code</Label>
                     <Input
                       id="postalCode"
                       name="postalCode"
@@ -717,7 +717,7 @@ export default function Contacts() {
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="internal">Internal</SelectItem>
-              <SelectItem value="contractor">Contractor</SelectItem>
+              <SelectItem value="contractor">Maintenance Contractor</SelectItem>
               <SelectItem value="lead">Lead</SelectItem>
               <SelectItem value="company">Company</SelectItem>
               <SelectItem value="partner">Partner</SelectItem>
@@ -836,7 +836,7 @@ export default function Contacts() {
                     <SelectContent>
                       <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="internal">Internal</SelectItem>
-                      <SelectItem value="contractor">Contractor</SelectItem>
+                      <SelectItem value="contractor">Maintenance Contractor</SelectItem>
                       <SelectItem value="lead">Lead</SelectItem>
                       <SelectItem value="company">Company</SelectItem>
                       <SelectItem value="partner">Partner</SelectItem>

@@ -111,7 +111,7 @@ export function IvyChatbot() {
       </button>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-2xl h-[600px] p-0 flex flex-col">
+        <DialogContent hideCloseButton className="max-w-2xl h-[600px] p-0 flex flex-col">
           <DialogHeader className="px-6 py-4 border-b bg-gradient-to-r from-primary/5 via-teal-500/5 to-emerald-500/5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

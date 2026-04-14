@@ -28,6 +28,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { getImageSource, isLocalPath } from '../../services/offline/storage';
+import { ASSIGNED_INVENTORY_CLERK_LABEL } from '../../../../shared/roleLabels';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionReview'>;
 type NavProp = NavigationProp<InspectionsStackParamList>;
@@ -317,7 +318,7 @@ export default function InspectionReviewScreen() {
                 <View style={styles.clerkSection}>
                   <View style={styles.cardInfoRow}>
                     <User size={16} color={themeColors.text.secondary} />
-                    <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>Assigned Clerk:</Text>
+                    <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>{ASSIGNED_INVENTORY_CLERK_LABEL}:</Text>
                   </View>
                   <Text style={[styles.clerkEmail, { color: themeColors.text.primary }]}>{clerk.email}</Text>
                 </View>

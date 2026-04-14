@@ -40,12 +40,17 @@ export default function Properties() {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [propertyType, setPropertyType] = useState<string | undefined>();
+  /** DB value not in the standard list — show as its own select option so Radix can match `value`. */
+  const [propertyTypeExtra, setPropertyTypeExtra] = useState<{ value: string; label: string } | null>(null);
   const [blockId, setBlockId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [maintenancePropertyId, setMaintenancePropertyId] = useState<string | null>(null);
-  
+
+  /** Radix Select must stay controlled; avoid value={undefined} (breaks re-open / hydration). */
+  const PROPERTY_TYPE_NONE = "__property_type_none__";
+
   const propertyTypes = [
     { value: "apartment", label: "Apartment" },
     { value: "house", label: "House" },
@@ -62,6 +67,23 @@ export default function Properties() {
     { value: "commercial", label: "Commercial" },
     { value: "other", label: "Other" },
   ];
+  const propertyTypeValues = new Set(propertyTypes.map((t) => t.value));
+
+  const normalizePropertyType = (value?: string | null): string | undefined => {
+    if (value == null) return undefined;
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    const lower = trimmed.toLowerCase();
+    if (propertyTypeValues.has(lower)) return lower;
+    // Labels / legacy: "Semi-Detached", underscores, mixed spacing
+    const slug = lower.replace(/[\s_]+/g, "-");
+    if (propertyTypeValues.has(slug)) return slug;
+    const compact = lower.replace(/[\s_-]+/g, "");
+    for (const v of propertyTypeValues) {
+      if (v.replace(/-/g, "") === compact) return v;
+    }
+    return undefined;
+  };
 
   const { data: properties = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/properties"],
@@ -152,7 +174,7 @@ export default function Properties() {
   }, [dialogOpen, editingProperty, urlBlockId, selectedBlock]);
 
   const createProperty = useMutation({
-    mutationFn: async (data: { name: string; address: string; propertyType?: string; blockId?: string }) => {
+    mutationFn: async (data: { name: string; address: string; propertyType?: string | null; blockId?: string }) => {
       const res = await apiRequest("POST", "/api/properties", data);
       return await res.json();
     },
@@ -181,16 +203,21 @@ export default function Properties() {
   });
 
   const updateProperty = useMutation({
-    mutationFn: async (data: { id: string; name: string; address: string; propertyType?: string; blockId?: string }) => {
-      return await apiRequest("PATCH", `/api/properties/${data.id}`, {
+    mutationFn: async (data: { id: string; name: string; address: string; propertyType?: string | null; blockId?: string }) => {
+      const body: Record<string, unknown> = {
         name: data.name,
         address: data.address,
-        propertyType: data.propertyType,
         blockId: data.blockId,
-      });
+      };
+      if (data.propertyType !== undefined) {
+        body.propertyType = data.propertyType;
+      }
+      console.log("[Properties] PATCH payload", { id: data.id, body });
+      return await apiRequest("PATCH", `/api/properties/${data.id}`, body);
     },
     onSuccess: async (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
       
       // Update tags for the property (always update, even if empty, to handle removals)
@@ -216,17 +243,55 @@ export default function Properties() {
     setName("");
     setAddress("");
     setPropertyType(undefined);
+    setPropertyTypeExtra(null);
     setBlockId(urlBlockId || undefined);
     setSelectedTags([]);
     setDialogOpen(true);
   };
 
   const handleOpenEdit = async (property: any) => {
-    setEditingProperty(property);
-    setName(property.name);
-    setAddress(property.address);
-    setPropertyType(property.propertyType || undefined);
-    setBlockId(property.blockId || undefined);
+    let propertyData = property;
+    try {
+      const propertyRes = await fetch(`/api/properties/${property.id}?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (propertyRes.ok) {
+        propertyData = await propertyRes.json();
+      }
+    } catch (error) {
+      console.error("Error fetching latest property details:", error);
+    }
+
+    const rawType =
+      propertyData.propertyType ??
+      propertyData.property_type ??
+      null;
+
+    const normalized = normalizePropertyType(rawType);
+    const rawTrimmed =
+      rawType != null && String(rawType).trim() !== "" ? String(rawType).trim() : null;
+
+    setEditingProperty(propertyData);
+    setName(propertyData.name);
+    setAddress(propertyData.address);
+    if (normalized) {
+      setPropertyType(normalized);
+      setPropertyTypeExtra(null);
+    } else if (rawTrimmed) {
+      const slug = rawTrimmed.toLowerCase().replace(/[\s_]+/g, "-");
+      if (propertyTypeValues.has(slug)) {
+        setPropertyType(slug);
+        setPropertyTypeExtra(null);
+      } else {
+        setPropertyType(slug);
+        setPropertyTypeExtra({ value: slug, label: rawTrimmed });
+      }
+    } else {
+      setPropertyType(undefined);
+      setPropertyTypeExtra(null);
+    }
+    setBlockId(propertyData.blockId || undefined);
     
     // Fetch tags for this property
     try {
@@ -248,6 +313,7 @@ export default function Properties() {
     setName("");
     setAddress("");
     setPropertyType(undefined);
+    setPropertyTypeExtra(null);
     setBlockId(undefined);
     setSelectedTags([]);
   };
@@ -288,11 +354,31 @@ export default function Properties() {
     }
     // Convert "none" to null to explicitly remove block assignment, undefined means don't change
     const finalBlockId = blockId === "none" ? null : (blockId || undefined);
-    
+
+    const noneOrUnset = propertyType === undefined;
+
     if (editingProperty) {
-      updateProperty.mutate({ id: editingProperty.id, name, address, propertyType, blockId: finalBlockId });
+      const forApi = noneOrUnset
+        ? null
+        : normalizePropertyType(propertyType) ?? propertyType ?? null;
+      console.log("[Properties] Submit edit", {
+        editingPropertyId: editingProperty.id,
+        propertyTypeState: propertyType,
+        normalizedPropertyType: normalizePropertyType(propertyType),
+        forApi,
+      });
+      updateProperty.mutate({
+        id: editingProperty.id,
+        name,
+        address,
+        propertyType: forApi,
+        blockId: finalBlockId,
+      });
     } else {
-      createProperty.mutate({ name, address, propertyType, blockId: finalBlockId });
+      const forApi = noneOrUnset
+        ? undefined
+        : normalizePropertyType(propertyType) ?? propertyType;
+      createProperty.mutate({ name, address, propertyType: forApi, blockId: finalBlockId });
     }
   };
 
@@ -365,11 +451,28 @@ export default function Properties() {
               </div>
               <div>
                 <Label htmlFor="propertyType">Property Type</Label>
-                <Select value={propertyType} onValueChange={setPropertyType}>
+                <Select
+                  value={propertyType ?? PROPERTY_TYPE_NONE}
+                  onValueChange={(v) => {
+                    if (v === PROPERTY_TYPE_NONE) {
+                      setPropertyType(undefined);
+                      setPropertyTypeExtra(null);
+                      return;
+                    }
+                    setPropertyType(v);
+                    setPropertyTypeExtra(null);
+                  }}
+                >
                   <SelectTrigger data-testid="select-property-type">
                     <SelectValue placeholder="Select property type" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={PROPERTY_TYPE_NONE}>Select property type</SelectItem>
+                    {propertyTypeExtra && (
+                      <SelectItem value={propertyTypeExtra.value}>
+                        {propertyTypeExtra.label} (saved)
+                      </SelectItem>
+                    )}
                     {propertyTypes.map((type) => (
                       <SelectItem key={type.value} value={type.value}>
                         {type.label}

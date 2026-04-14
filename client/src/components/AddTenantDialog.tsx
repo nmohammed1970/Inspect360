@@ -59,7 +59,7 @@ const createTenantFormSchema = z.object({
   email: z.string().email("Invalid email address"),
   firstName: z.string().min(1, "First name is required").max(255),
   lastName: z.string().min(1, "Last name is required").max(255),
-  username: z.string().min(3, "Username must be at least 3 characters").max(100),
+  username: z.string().max(100).optional(),
   password: z.string().min(6, "Password must be at least 6 characters"),
   phone: z.string().optional(),
   leaseStartDate: z.string().optional(),
@@ -71,6 +71,16 @@ const createTenantFormSchema = z.object({
 
 type SelectTenantFormData = z.infer<typeof selectTenantFormSchema>;
 type CreateTenantFormData = z.infer<typeof createTenantFormSchema>;
+
+/** Username field hidden; API still requires username — derive from email. */
+function defaultUsernameFromEmail(email: string): string {
+  const localPart = email.trim().split("@")[0] || "user";
+  let u = localPart.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 100);
+  if (u.length < 3) {
+    u = `${u}usr`.slice(0, 100);
+  }
+  return u;
+}
 
 interface AddTenantDialogProps {
   propertyId: string;
@@ -84,6 +94,25 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
   const locale = useLocale();
+  const isUsDateFormat = locale.dateFormat.startsWith("MM/");
+
+  const parseLocaleDateString = (raw: string): Date => {
+    const dateStr = raw.trim();
+    if (dateStr.includes('/')) {
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const first = parseInt(parts[0], 10);
+        const second = parseInt(parts[1], 10);
+        const year = parseInt(parts[2], 10);
+        if (!isNaN(first) && !isNaN(second) && !isNaN(year)) {
+          const month = isUsDateFormat ? first : second;
+          const day = isUsDateFormat ? second : first;
+          return new Date(year, month - 1, day);
+        }
+      }
+    }
+    return new Date(dateStr);
+  };
 
   // Module Restriction Check
   const { isModuleEnabled, isLoading: isLoadingModules } = useModules();
@@ -121,7 +150,6 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       email: "",
       firstName: "",
       lastName: "",
-      username: "",
       password: "",
       phone: "",
       leaseStartDate: "",
@@ -164,7 +192,6 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         email: "",
         firstName: "",
         lastName: "",
-        username: "",
         password: "",
         phone: "",
         leaseStartDate: "",
@@ -204,7 +231,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       // Build payload, only including defined fields
       const userPayload: any = {
         email: data.email.trim(),
-        username: data.username.trim(),
+        username: defaultUsernameFromEmail(data.email),
         password: data.password.trim(),
         role: "tenant" as const,
       };
@@ -258,26 +285,12 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         hasPortalAccess: true, // Required field with default value
       };
 
-      // Convert dates - handle DD/MM/YYYY format and other formats
+      // Convert dates - parse slash dates by organization locale (US: MM/DD/YYYY, others: DD/MM/YYYY)
       // Send as ISO strings (will be converted to Date objects on server)
       if (data.leaseData.leaseStartDate && data.leaseData.leaseStartDate.trim() !== '') {
-        let startDate: Date;
-        const dateStr = data.leaseData.leaseStartDate.trim();
-
-        // Handle DD/MM/YYYY format (common in UK)
-        if (dateStr.includes('/')) {
-          const parts = dateStr.split('/');
-          if (parts.length === 3) {
-            // DD/MM/YYYY format
-            startDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-          } else {
-            startDate = new Date(dateStr);
-          }
-        } else {
-          startDate = typeof data.leaseData.leaseStartDate === 'string'
-            ? new Date(data.leaseData.leaseStartDate)
-            : data.leaseData.leaseStartDate;
-        }
+        const startDate = typeof data.leaseData.leaseStartDate === 'string'
+          ? parseLocaleDateString(data.leaseData.leaseStartDate)
+          : data.leaseData.leaseStartDate;
 
         if (!isNaN(startDate.getTime())) {
           // Send as ISO string (server will convert to Date object)
@@ -286,23 +299,9 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       }
 
       if (data.leaseData.leaseEndDate && data.leaseData.leaseEndDate.trim() !== '') {
-        let endDate: Date;
-        const dateStr = data.leaseData.leaseEndDate.trim();
-
-        // Handle DD/MM/YYYY format (common in UK)
-        if (dateStr.includes('/')) {
-          const parts = dateStr.split('/');
-          if (parts.length === 3) {
-            // DD/MM/YYYY format
-            endDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-          } else {
-            endDate = new Date(dateStr);
-          }
-        } else {
-          endDate = typeof data.leaseData.leaseEndDate === 'string'
-            ? new Date(data.leaseData.leaseEndDate)
-            : data.leaseData.leaseEndDate;
-        }
+        const endDate = typeof data.leaseData.leaseEndDate === 'string'
+          ? parseLocaleDateString(data.leaseData.leaseEndDate)
+          : data.leaseData.leaseEndDate;
 
         if (!isNaN(endDate.getTime())) {
           // Send as ISO string (server will convert to Date object)
@@ -746,19 +745,6 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                                   placeholder="john.doe@example.com"
                                   autoComplete="off"
                                   {...field}
-                                  onChange={(e) => {
-                                    const newEmail = e.target.value;
-                                    field.onChange(e);
-                                    // Auto-populate username from email if username is empty or matches previous email
-                                    const currentUsername = createForm.getValues("username");
-                                    if (!currentUsername || currentUsername === field.value?.split('@')[0] || currentUsername === field.value) {
-                                      // Extract username from email (part before @)
-                                      const emailUsername = newEmail.split('@')[0];
-                                      if (emailUsername) {
-                                        createForm.setValue("username", emailUsername);
-                                      }
-                                    }
-                                  }}
                                   data-testid="input-email"
                                 />
                               </FormControl>
@@ -787,71 +773,49 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                           )}
                         />
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <FormField
-                            control={createForm.control}
-                            name="username"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Username *</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    key={`username-${open}-${mode}`}
-                                    placeholder="johndoe"
-                                    autoComplete="off"
-                                    {...field}
-                                    data-testid="input-username"
+                        <FormField
+                          control={createForm.control}
+                          name="password"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Password *</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  {/* Hidden dummy password field to prevent browser autofill */}
+                                  <input
+                                    type="password"
+                                    autoComplete="new-password"
+                                    style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
+                                    tabIndex={-1}
+                                    readOnly
                                   />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={createForm.control}
-                            name="password"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Password *</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    {/* Hidden dummy password field to prevent browser autofill */}
-                                    <input
-                                      type="password"
-                                      autoComplete="new-password"
-                                      style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0, pointerEvents: 'none' }}
-                                      tabIndex={-1}
-                                      readOnly
-                                    />
-                                    <Input
-                                      key={`password-${open}-${mode}`}
-                                      type={showPassword ? "text" : "password"}
-                                      placeholder="••••••••"
-                                      autoComplete="new-password"
-                                      {...field}
-                                      data-testid="input-password"
-                                      className="pr-10"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => setShowPassword(!showPassword)}
-                                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                      data-testid="button-toggle-password"
-                                    >
-                                      {showPassword ? (
-                                        <EyeOff className="h-4 w-4" />
-                                      ) : (
-                                        <Eye className="h-4 w-4" />
-                                      )}
-                                    </button>
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
+                                  <Input
+                                    key={`password-${open}-${mode}`}
+                                    type={showPassword ? "text" : "password"}
+                                    placeholder="••••••••"
+                                    autoComplete="new-password"
+                                    {...field}
+                                    data-testid="input-password"
+                                    className="pr-10"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    data-testid="button-toggle-password"
+                                  >
+                                    {showPassword ? (
+                                      <EyeOff className="h-4 w-4" />
+                                    ) : (
+                                      <Eye className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </div>
 
                       <div className="space-y-4">

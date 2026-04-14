@@ -40,7 +40,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link, useLocation, useSearch } from "wouter";
-import { format } from "date-fns";
+import { useLocale } from "@/contexts/LocaleContext";
+import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -141,6 +142,7 @@ type CopyInspectionData = z.infer<typeof copyInspectionSchema>;
 
 export default function Inspections() {
   const { toast } = useToast();
+  const locale = useLocale();
   const [, navigate] = useLocation();
   const searchParams = useSearch();
   const urlParams = new URLSearchParams(searchParams);
@@ -817,7 +819,9 @@ export default function Inspections() {
                   name="scheduledDate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Scheduled Date</FormLabel>
+                      <FormLabel>
+                        Scheduled Date ({locale.dateFormat.toUpperCase()})
+                      </FormLabel>
                       <FormControl>
                         <Input
                           type="date"
@@ -835,7 +839,7 @@ export default function Inspections() {
                   name="clerkId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Assign to Inspector (Optional)</FormLabel>
+                      <FormLabel>Assign {getTeamRoleDisplayLabel("clerk")} (Optional)</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-clerk">
@@ -1227,7 +1231,7 @@ export default function Inspections() {
                     <Calendar className="w-4 h-4 text-muted-foreground" />
                     <span>
                       {inspection.scheduledDate
-                        ? format(new Date(inspection.scheduledDate), "MMM dd, yyyy")
+                        ? locale.formatDate(new Date(inspection.scheduledDate))
                         : "Not scheduled"}
                     </span>
                   </div>

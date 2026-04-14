@@ -4565,12 +4565,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { name, address, blockId } = validation.data;
+      const { name, address, propertyType, blockId } = validation.data;
 
       const property = await storage.createProperty({
         organizationId: user.organizationId,
         name,
         address,
+        propertyType: propertyType || null,
         blockId: blockId || null,
       });
 
@@ -4676,7 +4677,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      console.log("[Properties] PATCH incoming body:", req.body);
       const updates = parseResult.data;
+      console.log("[Properties] PATCH parsed updates:", updates);
       const updateData: any = {};
 
       // Only include fields that are provided in the update
@@ -4685,6 +4688,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (updates.address !== undefined) {
         updateData.address = updates.address;
+      }
+      if (updates.propertyType !== undefined) {
+        updateData.propertyType = updates.propertyType || null;
       }
       if (updates.blockId !== undefined) {
         // Allow setting blockId to null to remove block assignment
@@ -4699,6 +4705,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const property = await storage.updateProperty(req.params.id, updateData);
+      console.log("[Properties] PATCH saved property:", {
+        id: property.id,
+        propertyType: (property as any).propertyType,
+      });
 
       res.json(property);
     } catch (error: any) {
@@ -14612,7 +14622,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       if (validatedData.contractorId) {
         const contractor = await storage.getContact(validatedData.contractorId);
         if (!contractor || contractor.organizationId !== user.organizationId) {
-          return res.status(403).json({ error: "Contractor not found or access denied" });
+          return res.status(403).json({ error: "Maintenance contractor not found or access denied" });
         }
       }
 
@@ -14691,7 +14701,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
             const contractorName = contractor.firstName
               ? `${contractor.firstName}${contractor.lastName ? ' ' + contractor.lastName : ''}`
-              : contractor.companyName || 'Contractor';
+              : contractor.companyName || 'Maintenance Contractor';
 
             await sendContractorWorkOrderNotification(
               contractor.email,

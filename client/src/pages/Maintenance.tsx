@@ -761,11 +761,6 @@ export default function Maintenance() {
               ? "Submit and track your maintenance requests"
               : "Manage maintenance requests and contractor work orders"}
           </p>
-          <p className="text-sm md:text-base text-muted-foreground mt-1">
-            {user?.role === "tenant"
-              ? "Submit and track your maintenance requests"
-              : "Manage maintenance requests and contractor work orders"}
-          </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
@@ -1686,7 +1681,7 @@ export default function Maintenance() {
                         <div className="flex items-center gap-2 text-sm">
                           <UserIcon className="h-4 w-4 text-muted-foreground" />
                           <div>
-                            <p className="font-medium">Contractor</p>
+                            <p className="font-medium">Maintenance Contractor</p>
                             <p className="text-muted-foreground">
                               {workOrder.contractor.firstName} {workOrder.contractor.lastName}
                             </p>
@@ -1888,7 +1883,7 @@ function WorkOrderForm({
 
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor="contractor">
-          Assign to Contractor
+          Assign to Maintenance Contractor
         </label>
         <Select value={selectedContractorId} onValueChange={setSelectedContractorId}>
           <SelectTrigger id="contractor" data-testid="select-contractor">

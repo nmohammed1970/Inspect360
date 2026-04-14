@@ -246,7 +246,7 @@ export default function MaintenanceListScreen() {
     if (!selectedRequestForWorkOrder) return;
 
     if (!workOrderTeamId && !workOrderContractorId) {
-      Alert.alert('Error', 'Please select either a team or contractor');
+      Alert.alert('Error', 'Please select either a team or maintenance contractor');
       return;
     }
 
@@ -1013,7 +1013,7 @@ export default function MaintenanceListScreen() {
                   ))}
                 </ScrollView>
 
-                <Text style={[styles.workOrderFormLabel, { marginTop: 16, color: themeColors.text.primary }]}>Or Assign to Contractor (Optional)</Text>
+                <Text style={[styles.workOrderFormLabel, { marginTop: 16, color: themeColors.text.primary }]}>Or Assign to Maintenance Contractor (Optional)</Text>
                 <ScrollView style={styles.filterSelectContainer}>
                   <TouchableOpacity
                     style={[

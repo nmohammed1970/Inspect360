@@ -417,7 +417,7 @@ export default function SettingsTeamsPanel() {
                 name="contactIds"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Team Members (Contractors)</FormLabel>
+                    <FormLabel>Team Members (Maintenance Contractors)</FormLabel>
                     <div className="space-y-2">
                       {contacts.filter(c => c.type === 'contractor').map((contact) => (
                         <div key={contact.id} className="flex items-center space-x-2">
@@ -611,7 +611,7 @@ export default function SettingsTeamsPanel() {
                 name="contactIds"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Team Members (Contractors)</FormLabel>
+                    <FormLabel>Team Members (Maintenance Contractors)</FormLabel>
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                       {contacts.filter(c => c.type === 'contractor').map((contact) => (
                         <div key={contact.id} className="flex items-center space-x-2">

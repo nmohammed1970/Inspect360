@@ -19,6 +19,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { ASSIGNED_INVENTORY_CLERK_LABEL } from "@shared/roleLabels";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -388,7 +389,7 @@ export default function InspectionDetail() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <User className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Assigned Clerk:</span>
+                  <span className="text-sm text-muted-foreground">{ASSIGNED_INVENTORY_CLERK_LABEL}:</span>
                 </div>
                 <p className="text-sm ml-6">{inspection.clerk.email}</p>
               </div>
@@ -783,11 +784,11 @@ export default function InspectionDetail() {
                 name="inspectorId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Assigned Clerk</FormLabel>
+                    <FormLabel>{ASSIGNED_INVENTORY_CLERK_LABEL}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value || ""}>
                       <FormControl>
                         <SelectTrigger data-testid="select-edit-clerk">
-                          <SelectValue placeholder="Select clerk" />
+                          <SelectValue placeholder="Select inventory clerk / inspector" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>

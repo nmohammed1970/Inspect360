@@ -15,12 +15,46 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter, Eye, EyeOff } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { User } from "@shared/schema";
+import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
+import { useLocale } from "@/contexts/LocaleContext";
+
+/** Username input removed from UI; API still requires username — derive a safe value from email. */
+function defaultUsernameFromEmail(email: string): string {
+  const localPart = email.trim().split("@")[0] || "user";
+  let u = localPart.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 100);
+  if (u.length < 3) {
+    u = `${u}usr`.slice(0, 100);
+  }
+  return u;
+}
+
+function getAddressPlaceholders(countryCode: string) {
+  if (countryCode === "US") {
+    return {
+      street: "123 Main St",
+      city: "New York",
+      state: "New York",
+      postalCode: "10001",
+      country: "United States",
+    };
+  }
+
+  return {
+    street: "123 Main Street",
+    city: "London",
+    state: "Greater London",
+    postalCode: "W1A 1AA",
+    country: "United Kingdom",
+  };
+}
 
 export default function Team() {
   const { toast } = useToast();
+  const { countryCode } = useLocale();
+  const addressPlaceholders = getAddressPlaceholders(countryCode);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   
@@ -195,24 +229,6 @@ export default function Team() {
       return;
     }
     
-    if (!username || !username.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Username is required",
-      });
-      return;
-    }
-    
-    if (username.trim().length < 3) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Username must be at least 3 characters",
-      });
-      return;
-    }
-
     if (!editingUser && (!password || password.length < 6)) {
       toast({
         variant: "destructive",
@@ -310,7 +326,7 @@ export default function Team() {
         firstName: firstName.trim() || undefined,
         lastName: lastName.trim() || undefined,
         email: email.trim(),
-        username: username.trim(),
+        username: defaultUsernameFromEmail(email),
         password: password.trim(),
         phone: phone.trim() || undefined,
         role,
@@ -350,20 +366,7 @@ export default function Team() {
     }
   };
 
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case "owner":
-        return "Owner/Operator";
-      case "clerk":
-        return "Inventory Clerk";
-      case "compliance":
-        return "Compliance Officer";
-      case "contractor":
-        return "Contractor";
-      default:
-        return role.charAt(0).toUpperCase() + role.slice(1);
-    }
-  };
+  const getRoleLabel = (role: string) => getTeamRoleDisplayLabel(role);
 
   const formatAddress = (addr: any) => {
     if (!addr) return "";
@@ -490,10 +493,10 @@ export default function Team() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="owner">Owner/Operator</SelectItem>
-                <SelectItem value="clerk">Inventory Clerk</SelectItem>
-                <SelectItem value="compliance">Compliance Officer</SelectItem>
-                <SelectItem value="contractor">Contractor</SelectItem>
+                <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
+                <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
+                <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
+                <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -575,10 +578,10 @@ export default function Team() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Roles</SelectItem>
-                    <SelectItem value="owner">Owner/Operator</SelectItem>
-                    <SelectItem value="clerk">Inventory Clerk</SelectItem>
-                    <SelectItem value="compliance">Compliance Officer</SelectItem>
-                    <SelectItem value="contractor">Contractor</SelectItem>
+                    <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
+                    <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
+                    <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
+                    <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -720,9 +723,9 @@ export default function Team() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="owner">Owner/Operator</SelectItem>
-                        <SelectItem value="clerk">Inventory Clerk</SelectItem>
-                        <SelectItem value="compliance">Compliance Officer</SelectItem>
+                        <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
+                        <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
+                        <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -816,33 +819,9 @@ export default function Team() {
                   type="email"
                   value={email}
                   autoComplete="off"
-                  onChange={(e) => {
-                    const newEmail = e.target.value;
-                    setEmail(newEmail);
-                    // Auto-populate username from email if username is empty or matches previous email
-                    if (!username || username === email.split('@')[0] || username === email) {
-                      // Extract username from email (part before @)
-                      const emailUsername = newEmail.split('@')[0];
-                      if (emailUsername) {
-                        setUsername(emailUsername);
-                      }
-                    }
-                  }}
+                  onChange={(e) => setEmail(e.target.value)}
                   placeholder="john.doe@example.com"
                   data-testid="input-email"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="username">Username *</Label>
-                <Input
-                  key={`username-${isDialogOpen}-${editingUser?.id || 'new'}`}
-                  id="username"
-                  value={username}
-                  autoComplete="off"
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="johndoe"
-                  data-testid="input-username"
                 />
               </div>
 
@@ -902,10 +881,10 @@ export default function Team() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="owner">Owner/Operator</SelectItem>
-                    <SelectItem value="clerk">Inventory Clerk</SelectItem>
-                    <SelectItem value="compliance">Compliance Officer</SelectItem>
-                    <SelectItem value="contractor">Contractor</SelectItem>
+                    <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
+                    <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
+                    <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
+                    <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -922,7 +901,7 @@ export default function Team() {
                      id="street"
                      name="street"
                      defaultValue={editingUser?.address?.street || ""}
-                     placeholder="123 Main Street"
+                     placeholder={addressPlaceholders.street}
                      data-testid="input-street"
                    />
                  </div>
@@ -933,7 +912,7 @@ export default function Team() {
                        id="city"
                        name="city"
                        defaultValue={editingUser?.address?.city || ""}
-                       placeholder="London"
+                       placeholder={addressPlaceholders.city}
                        data-testid="input-city"
                      />
                    </div>
@@ -943,19 +922,19 @@ export default function Team() {
                        id="state"
                        name="state"
                        defaultValue={editingUser?.address?.state || ""}
-                       placeholder="Greater London"
+                       placeholder={addressPlaceholders.state}
                        data-testid="input-state"
                      />
                    </div>
                  </div>
                  <div className="grid grid-cols-2 gap-4">
                    <div className="space-y-2">
-                     <Label htmlFor="postalCode">Postal Code</Label>
+                     <Label htmlFor="postalCode">Postal Code / ZIP Code</Label>
                      <Input
                        id="postalCode"
                        name="postalCode"
                        defaultValue={editingUser?.address?.postalCode || ""}
-                       placeholder="W1A 1AA"
+                       placeholder={addressPlaceholders.postalCode}
                        data-testid="input-postal-code"
                      />
                    </div>
@@ -965,7 +944,7 @@ export default function Team() {
                        id="country"
                        name="country"
                        defaultValue={editingUser?.address?.country || ""}
-                       placeholder="United Kingdom"
+                       placeholder={addressPlaceholders.country}
                        data-testid="input-country"
                      />
                    </div>

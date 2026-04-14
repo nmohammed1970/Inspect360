@@ -42,8 +42,8 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
   { id: 'branding', label: 'Company Branding', icon: Building2 },
   { id: 'templates', label: 'Inspection Templates', icon: ClipboardList },
   { id: 'document-types', label: 'Compliance Documents', icon: FileText },
-  { id: 'teams', label: 'Maintenance Team', icon: UsersIcon },
   { id: 'team', label: 'Team Members', icon: Users },
+  { id: 'teams', label: 'Maintenance Team', icon: UsersIcon },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tenant-portal', label: 'Tenant Portal Configuration', icon: DoorOpen },
   { id: 'data-export', label: 'Data Export', icon: Download },
@@ -506,8 +506,8 @@ export default function Settings() {
                             <ul className="list-disc list-inside mt-2 space-y-1">
                               <li>All inspection reports and PDF exports</li>
                               <li>Tenant portal header</li>
-                              <li>Contractor portal header</li>
-                              <li>Inventory clerk portal header</li>
+                              <li>Maintenance contractor portal header</li>
+                              <li>Inventory Clerk / Inspector portal header</li>
                               <li>Email communications</li>
                             </ul>
                             <p className="mt-2 text-xs">Recommended size: 400x400 pixels. Max file size: 5MB.</p>

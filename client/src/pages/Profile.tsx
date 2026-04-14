@@ -21,6 +21,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
@@ -660,7 +661,9 @@ export default function Profile() {
           </div>
           <div>
             <Label className="text-sm font-medium text-muted-foreground">Role</Label>
-            <p className="text-base capitalize" data-testid="text-role">{user?.role}</p>
+            <p className="text-base" data-testid="text-role">
+              {user?.role ? getTeamRoleDisplayLabel(user.role) : ""}
+            </p>
           </div>
         </CardContent>
       </Card>

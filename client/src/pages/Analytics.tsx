@@ -635,7 +635,7 @@ export default function Analytics() {
               </Select>
               {selectedWorkOrder?.contractor && (
                 <p className="text-xs text-muted-foreground">
-                  Contractor: {selectedWorkOrder.contractor.firstName} {selectedWorkOrder.contractor.lastName} ({selectedWorkOrder.contractor.email})
+                  Maintenance Contractor: {selectedWorkOrder.contractor.firstName} {selectedWorkOrder.contractor.lastName} ({selectedWorkOrder.contractor.email})
                 </p>
               )}
             </div>

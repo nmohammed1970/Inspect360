@@ -33,6 +33,7 @@ import Input from '../../components/ui/Input';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Moon, Sun, Monitor } from 'lucide-react-native';
+import { getTeamRoleDisplayLabel } from '../../../../shared/roleLabels';
 
 const DOCUMENT_TYPES = [
   { value: 'license', label: 'License' },
@@ -1270,13 +1271,7 @@ export default function ProfileScreen() {
                   <View style={styles.infoTextContainer}>
                     <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Role</Text>
                     <Text style={[styles.infoValue, { color: themeColors.text.primary }]}>
-                      {displayUser?.role === 'owner'
-                        ? 'Owner'
-                        : displayUser?.role === 'clerk'
-                          ? 'Clerk'
-                          : displayUser?.role === 'compliance'
-                            ? 'Compliance'
-                            : displayUser?.role || 'N/A'}
+                      {displayUser?.role ? getTeamRoleDisplayLabel(displayUser.role) : 'N/A'}
                     </Text>
                   </View>
                 </View>

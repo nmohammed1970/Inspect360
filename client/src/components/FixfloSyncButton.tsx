@@ -87,7 +87,7 @@ export function FixfloSyncButton({
             <div className="text-xs space-y-1">
               <p><strong>Issue ID:</strong> {fixfloIssueId}</p>
               {fixfloStatus && <p><strong>Status:</strong> {fixfloStatus}</p>}
-              {fixfloContractorName && <p><strong>Contractor:</strong> {fixfloContractorName}</p>}
+              {fixfloContractorName && <p><strong>Maintenance Contractor:</strong> {fixfloContractorName}</p>}
             </div>
           </TooltipContent>
         </Tooltip>

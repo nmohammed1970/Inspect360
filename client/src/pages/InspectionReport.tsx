@@ -47,11 +47,11 @@ import {
   ChevronUp,
   Search
 } from "lucide-react";
-import { format } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Progress } from "@/components/ui/progress";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
 import { ReportVoiceRecordingWidget } from "@/components/ReportVoiceRecordingWidget";
+import { useLocale } from "@/contexts/LocaleContext";
 
 interface TemplateField {
   id: string;
@@ -118,6 +118,7 @@ export default function InspectionReport() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const isOnline = useOnlineStatus();
@@ -930,7 +931,7 @@ export default function InspectionReport() {
         break;
       case "date":
       case "auto_inspection_date":
-        displayValue = actualValue ? format(new Date(actualValue), "MMM dd, yyyy") : <span className="text-muted-foreground italic">Not set</span>;
+        displayValue = actualValue ? locale.formatDate(new Date(actualValue)) : <span className="text-muted-foreground italic">Not set</span>;
         break;
       case "auto_inspector":
       case "auto_address":
@@ -1200,9 +1201,9 @@ export default function InspectionReport() {
               <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Inspection Date</div>
               <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
                 {inspection.completedDate
-                  ? format(new Date(inspection.completedDate), "MMMM dd, yyyy")
+                  ? locale.formatDate(new Date(inspection.completedDate), "MMMM d, yyyy")
                   : inspection.scheduledDate
-                    ? format(new Date(inspection.scheduledDate), "MMMM dd, yyyy")
+                    ? locale.formatDate(new Date(inspection.scheduledDate), "MMMM d, yyyy")
                     : "Not Scheduled"}
               </div>
             </div>
@@ -1236,7 +1237,7 @@ export default function InspectionReport() {
                   )}
                   {inspection.tenantApprovedAt && (
                     <span className="text-sm text-gray-600">
-                      {format(new Date(inspection.tenantApprovedAt), "MMM dd, yyyy 'at' h:mm a")}
+                      {locale.formatDateTime(new Date(inspection.tenantApprovedAt))}
                     </span>
                   )}
                 </div>
@@ -1248,7 +1249,7 @@ export default function InspectionReport() {
                 )}
                 {inspection.tenantApprovalDeadline && inspection.tenantApprovalStatus === 'pending' && (
                   <div className="text-xs text-gray-500 mt-1">
-                    Deadline: {format(new Date(inspection.tenantApprovalDeadline), "MMM dd, yyyy 'at' h:mm a")}
+                    Deadline: {locale.formatDateTime(new Date(inspection.tenantApprovalDeadline))}
                   </div>
                 )}
               </div>
@@ -1397,9 +1398,9 @@ export default function InspectionReport() {
                   <div className="text-sm font-medium">Inspection Date</div>
                   <div className="text-sm text-muted-foreground">
                     {inspection.completedDate
-                      ? format(new Date(inspection.completedDate), "MMMM dd, yyyy")
+                      ? locale.formatDate(new Date(inspection.completedDate), "MMMM d, yyyy")
                       : inspection.scheduledDate
-                        ? format(new Date(inspection.scheduledDate), "MMMM dd, yyyy")
+                        ? locale.formatDate(new Date(inspection.scheduledDate), "MMMM d, yyyy")
                         : "Not scheduled"}
                   </div>
                 </div>
@@ -1825,8 +1826,8 @@ export default function InspectionReport() {
                                         const referencePrefix = `${sectionIdx + 1}.${fieldIdx + 1}`;
                                         const photoRef = `${referencePrefix}.${photoIdx + 1}`;
                                         const capturedDate = inspection?.completedDate
-                                          ? format(new Date(inspection.completedDate), 'dd/MM/yyyy')
-                                          : format(new Date(), 'dd/MM/yyyy');
+                                          ? locale.formatDate(new Date(inspection.completedDate))
+                                          : locale.formatDate(new Date());
 
                                         return (
                                           <div key={`${entry.id}-${field.id || field.key}-${photoIdx}`} className="space-y-2">
@@ -1993,8 +1994,8 @@ export default function InspectionReport() {
                                         ? photo : `/objects/${photo}`;
                                       const photoRef = `${referencePrefix}.${idx + 1}`;
                                       const capturedDate = inspection?.completedDate
-                                        ? format(new Date(inspection.completedDate), 'dd/MM/yyyy')
-                                        : format(new Date(), 'dd/MM/yyyy');
+                                        ? locale.formatDate(new Date(inspection.completedDate))
+                                        : locale.formatDate(new Date());
 
                                       return (
                                         <div key={`${entry.id}-${idx}`} className="space-y-2">
@@ -2224,7 +2225,7 @@ export default function InspectionReport() {
                                     <td className="py-2 px-3 align-top">
                                       <div className="text-xs text-muted-foreground">Previous State</div>
                                       <div className="font-medium">
-                                        {checkInDate ? format(new Date(checkInDate), 'dd MMMM yyyy') : 'N/A'}
+                                        {checkInDate ? locale.formatDate(new Date(checkInDate), 'd MMMM yyyy') : 'N/A'}
                                       </div>
                                     </td>
                                     <td className="py-2 px-3 text-muted-foreground text-xs">
@@ -2259,7 +2260,7 @@ export default function InspectionReport() {
                                     <td className="py-2 px-3 align-top">
                                       <div className="text-xs text-muted-foreground">Current State</div>
                                       <div className="font-medium">
-                                        {checkOutDate ? format(new Date(checkOutDate), 'dd MMMM yyyy') : 'N/A'}
+                                        {checkOutDate ? locale.formatDate(new Date(checkOutDate), 'd MMMM yyyy') : 'N/A'}
                                       </div>
                                     </td>
                                     <td className="py-2 px-3">
@@ -2344,8 +2345,8 @@ export default function InspectionReport() {
                                       ? photo : `/objects/${photo}`;
                                     const photoRef = `${sectionIdx + 1}.${fieldIdx + 1}.${idx + 1}`;
                                     const capturedDate = checkOutDate
-                                      ? format(new Date(checkOutDate), 'dd/MM/yyyy')
-                                      : format(new Date(), 'dd/MM/yyyy');
+                                      ? locale.formatDate(new Date(checkOutDate))
+                                      : locale.formatDate(new Date());
 
                                     return (
                                       <div key={`${field.id}-${idx}`} className="space-y-2">

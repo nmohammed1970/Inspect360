@@ -484,7 +484,7 @@ export default function Auth() {
               <div>
                 <h3 className="font-semibold mb-1">Role-Based Access</h3>
                 <p className="text-sm text-white/80">
-                  Secure access for owners, clerks, compliance officers, and tenants
+                  Secure access for owners, inventory clerks / inspectors, compliance officers, maintenance contractors, and tenants
                 </p>
               </div>
             </div>
