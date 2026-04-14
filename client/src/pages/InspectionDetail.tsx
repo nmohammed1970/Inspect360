@@ -13,17 +13,19 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, AlertTriangle, Pencil } from "lucide-react";
-import { format } from "date-fns";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ASSIGNED_INVENTORY_CLERK_LABEL } from "@shared/roleLabels";
+import { useLocale } from "@/contexts/LocaleContext";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
+  const locale = useLocale();
   const [, setLocation] = useLocation();
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -356,7 +358,7 @@ export default function InspectionDetail() {
               <Calendar className="w-4 h-4 text-muted-foreground" />
               <span className="text-sm">
                 {inspection.scheduledDate
-                  ? format(new Date(inspection.scheduledDate), "MMMM dd, yyyy")
+                  ? locale.formatDate(new Date(inspection.scheduledDate), "PPP")
                   : "Not scheduled"}
               </span>
             </div>
@@ -364,7 +366,7 @@ export default function InspectionDetail() {
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm">
-                  Completed: {format(new Date(inspection.completedDate), "MMMM dd, yyyy")}
+                  Completed: {locale.formatDate(new Date(inspection.completedDate), "PPP")}
                 </span>
               </div>
             )}
@@ -772,7 +774,14 @@ export default function InspectionDetail() {
                   <FormItem>
                     <FormLabel>Scheduled Date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} data-testid="input-edit-date" />
+                      <LocaleDateInput
+                        value={field.value}
+                        onChange={(ymd) => field.onChange(ymd ?? "")}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
+                        data-testid="input-edit-date"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

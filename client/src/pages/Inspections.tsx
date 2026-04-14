@@ -42,6 +42,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Link, useLocation, useSearch } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -823,9 +824,12 @@ export default function Inspections() {
                         Scheduled Date ({locale.dateFormat.toUpperCase()})
                       </FormLabel>
                       <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
+                        <LocaleDateInput
+                          value={field.value}
+                          onChange={(ymd) => field.onChange(ymd ?? "")}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
                           data-testid="input-scheduled-date"
                         />
                       </FormControl>
@@ -1345,9 +1349,12 @@ export default function Inspections() {
                   <FormItem>
                     <FormLabel>Scheduled Date</FormLabel>
                     <FormControl>
-                      <Input 
-                        type="date" 
-                        {...field} 
+                      <LocaleDateInput
+                        value={field.value}
+                        onChange={(ymd) => field.onChange(ymd ?? "")}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                         data-testid="input-copy-scheduled-date"
                       />
                     </FormControl>

@@ -32,6 +32,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Link } from "wouter";
 import { format } from "date-fns";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -279,20 +280,18 @@ export default function InspectionsReport() {
 
             <div className="space-y-2">
               <Label>Date From</Label>
-              <Input
-                type="date"
+              <LocaleDateInput
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(ymd) => setDateFrom(ymd ?? "")}
                 data-testid="input-date-from"
               />
             </div>
 
             <div className="space-y-2">
               <Label>Date To</Label>
-              <Input
-                type="date"
+              <LocaleDateInput
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(ymd) => setDateTo(ymd ?? "")}
                 data-testid="input-date-to"
               />
             </div>
@@ -406,19 +405,17 @@ export default function InspectionsReport() {
 
               <div className="space-y-2">
                 <Label>Date From</Label>
-                <Input
-                  type="date"
+                <LocaleDateInput
                   value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
+                  onChange={(ymd) => setDateFrom(ymd ?? "")}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label>Date To</Label>
-                <Input
-                  type="date"
+                <LocaleDateInput
                   value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
+                  onChange={(ymd) => setDateTo(ymd ?? "")}
                 />
               </div>
 

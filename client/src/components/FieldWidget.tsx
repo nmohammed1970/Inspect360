@@ -19,6 +19,8 @@ import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import SignatureCanvas from "react-signature-canvas";
 import { useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
+import { useLocale } from "@/contexts/LocaleContext";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 interface TemplateField {
   id: string;
@@ -71,6 +73,7 @@ export function FieldWidget({
   onLogMaintenance
 }: FieldWidgetProps) {
   const isOnline = useOnlineStatus();
+  const locale = useLocale();
   // Parse value - if field includes condition/cleanliness, value might be an object
   const parseValue = (val: any) => {
     if (val && typeof val === 'object' && (field.includeCondition || field.includeCleanliness)) {
@@ -1475,10 +1478,9 @@ export function FieldWidget({
         return (
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-muted-foreground" />
-            <Input
-              type="date"
+            <LocaleDateInput
               value={localValue || ""}
-              onChange={(e) => handleValueChange(e.target.value)}
+              onChange={(ymd) => handleValueChange(ymd ?? "")}
               data-testid={`input-date-${field.id}`}
             />
           </div>
@@ -1794,12 +1796,23 @@ export function FieldWidget({
 
       case "auto_inspection_date":
         const dateValue = localValue || autoContext?.inspectionDate || "";
+        const dateYmd =
+          typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}/.test(dateValue)
+            ? dateValue.slice(0, 10)
+            : dateValue
+              ? (() => {
+                  const d = new Date(dateValue);
+                  return isNaN(d.getTime())
+                    ? ""
+                    : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                })()
+              : "";
         return (
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-muted-foreground" />
             <Input
-              type="date"
-              value={dateValue}
+              type="text"
+              value={dateYmd ? locale.formatDate(new Date(`${dateYmd}T12:00:00`)) : ""}
               readOnly
               className="bg-muted cursor-not-allowed"
               data-testid={`input-auto-date-${field.id}`}

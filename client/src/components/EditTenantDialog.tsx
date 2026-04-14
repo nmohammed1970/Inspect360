@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -580,9 +581,12 @@ export default function EditTenantDialog({
                     <FormItem>
                       <FormLabel>Lease Start Date</FormLabel>
                       <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
+                        <LocaleDateInput
+                          value={field.value}
+                          onChange={(ymd) => field.onChange(ymd ?? "")}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
                           data-testid="input-lease-start"
                         />
                       </FormControl>
@@ -598,9 +602,12 @@ export default function EditTenantDialog({
                     <FormItem>
                       <FormLabel>Lease End Date</FormLabel>
                       <FormControl>
-                        <Input
-                          type="date"
-                          {...field}
+                        <LocaleDateInput
+                          value={field.value}
+                          onChange={(ymd) => field.onChange(ymd ?? "")}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
                           data-testid="input-lease-end"
                         />
                       </FormControl>

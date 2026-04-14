@@ -1,6 +1,6 @@
 import { createContext, useContext, ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { getCurrencyForCountry, getDateFormatForCountry, getDateTimeFormatForCountry, CURRENCY_SYMBOLS, formatCurrency as formatCurrencyUtil } from "@shared/countryUtils";
+import { getCurrencyForCountry, getDateFormatForCountry, getDateTimeFormatForCountry, getDateFnsLocale, CURRENCY_SYMBOLS, formatCurrency as formatCurrencyUtil } from "@shared/countryUtils";
 import { format as dateFnsFormat } from "date-fns";
 
 interface LocaleContextType {
@@ -31,14 +31,16 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     return formatCurrencyUtil(amount, currency, minorUnits);
   };
   
+  const dfLocale = getDateFnsLocale(countryCode);
+
   const formatDate = (date: Date | string | number, formatStr?: string): string => {
     const dateObj = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
-    return dateFnsFormat(dateObj, formatStr || dateFormat);
+    return dateFnsFormat(dateObj, formatStr || dateFormat, { locale: dfLocale });
   };
   
   const formatDateTime = (date: Date | string | number): string => {
     const dateObj = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
-    return dateFnsFormat(dateObj, dateTimeFormat);
+    return dateFnsFormat(dateObj, dateTimeFormat, { locale: dfLocale });
   };
   
   return (

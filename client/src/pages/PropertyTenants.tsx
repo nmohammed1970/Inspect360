@@ -19,7 +19,6 @@ import {
   History,
   FileText
 } from "lucide-react";
-import { format } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -218,9 +217,9 @@ export default function PropertyTenants() {
               <div>
                 <div className="text-muted-foreground text-xs">Lease Period</div>
                 <div>
-                  {leaseStartDate && format(leaseStartDate, "MMM d, yyyy")}
+                  {leaseStartDate && locale.formatDate(leaseStartDate, "PPP")}
                   {leaseStartDate && leaseEndDate && " - "}
-                  {leaseEndDate && format(leaseEndDate, "MMM d, yyyy")}
+                  {leaseEndDate && locale.formatDate(leaseEndDate, "PPP")}
                 </div>
               </div>
             </div>

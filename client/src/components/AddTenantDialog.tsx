@@ -37,6 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocale } from "@/contexts/LocaleContext";
 import { useModules } from "@/hooks/use-modules";
 import { PhoneInput } from "@/components/PhoneInput";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 interface User {
   id: string;
@@ -565,9 +566,12 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                             <FormItem>
                               <FormLabel>Lease Start Date</FormLabel>
                               <FormControl>
-                                <Input
-                                  type="date"
-                                  {...field}
+                                <LocaleDateInput
+                                  value={field.value}
+                                  onChange={(ymd) => field.onChange(ymd ?? "")}
+                                  onBlur={field.onBlur}
+                                  name={field.name}
+                                  ref={field.ref}
                                   data-testid="input-lease-start"
                                 />
                               </FormControl>
@@ -583,9 +587,12 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                             <FormItem>
                               <FormLabel>Lease End Date</FormLabel>
                               <FormControl>
-                                <Input
-                                  type="date"
-                                  {...field}
+                                <LocaleDateInput
+                                  value={field.value}
+                                  onChange={(ymd) => field.onChange(ymd ?? "")}
+                                  onBlur={field.onBlur}
+                                  name={field.name}
+                                  ref={field.ref}
                                   data-testid="input-lease-end"
                                 />
                               </FormControl>
@@ -829,9 +836,12 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                               <FormItem>
                                 <FormLabel>Lease Start Date</FormLabel>
                                 <FormControl>
-                                  <Input
-                                    type="date"
-                                    {...field}
+                                  <LocaleDateInput
+                                    value={field.value}
+                                    onChange={(ymd) => field.onChange(ymd ?? "")}
+                                    onBlur={field.onBlur}
+                                    name={field.name}
+                                    ref={field.ref}
                                     data-testid="input-create-lease-start"
                                   />
                                 </FormControl>
@@ -847,9 +857,12 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                               <FormItem>
                                 <FormLabel>Lease End Date</FormLabel>
                                 <FormControl>
-                                  <Input
-                                    type="date"
-                                    {...field}
+                                  <LocaleDateInput
+                                    value={field.value}
+                                    onChange={(ymd) => field.onChange(ymd ?? "")}
+                                    onBlur={field.onBlur}
+                                    name={field.name}
+                                    ref={field.ref}
                                     data-testid="input-create-lease-end"
                                   />
                                 </FormControl>

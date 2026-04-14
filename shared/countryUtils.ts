@@ -1,3 +1,6 @@
+import type { Locale } from "date-fns";
+import { enUS, enGB, enCA } from "date-fns/locale";
+
 // Country to Currency mapping (ISO 3166-1 alpha-2 country codes)
 // Note: Database enum only supports GBP, USD, AED, so other currencies default to GBP
 export const COUNTRY_TO_CURRENCY: Record<string, "GBP" | "USD" | "AED"> = {
@@ -115,6 +118,15 @@ export function getDateFormatForCountry(countryCode: string): string {
 
 export function getDateTimeFormatForCountry(countryCode: string): string {
   return COUNTRY_DATETIME_FORMATS[countryCode.toUpperCase()] || "dd/MM/yyyy 'at' h:mm a";
+}
+
+/** `date-fns` locale for long/short verbal dates (e.g. PPP) matching org date style. */
+export function getDateFnsLocale(countryCode: string): Locale {
+  const c = countryCode.toUpperCase();
+  if (c === "CA") return enCA;
+  const fmt = getDateFormatForCountry(c);
+  if (fmt.startsWith("MM")) return enUS;
+  return enGB;
 }
 
 // Short date format (for compact displays)

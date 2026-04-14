@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/contexts/LocaleContext";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 interface WorkOrderAnalytics {
   total: number;
@@ -675,10 +676,9 @@ export default function Analytics() {
 
               <div className="space-y-2">
                 <Label>SLA Due Date</Label>
-                <Input
-                  type="date"
+                <LocaleDateInput
                   value={editFormData.slaDue}
-                  onChange={(e) => setEditFormData({ ...editFormData, slaDue: e.target.value })}
+                  onChange={(ymd) => setEditFormData({ ...editFormData, slaDue: ymd ?? "" })}
                   data-testid="input-edit-sla"
                 />
               </div>

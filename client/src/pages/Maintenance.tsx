@@ -10,9 +10,10 @@ import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Penc
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
 import { FixfloSyncButton } from "@/components/FixfloSyncButton";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import {
   Dialog,
   DialogContent,
@@ -850,13 +851,11 @@ export default function Maintenance() {
                             <FormControl>
                               <div className="flex items-center gap-2">
                                 <Calendar className="w-4 h-4 text-muted-foreground" />
-                                <Input
-                                  type="date"
-                                  value={field.value ? (typeof field.value === 'string' ? field.value.split('T')[0] : new Date(field.value).toISOString().split('T')[0]) : ""}
-                                  onChange={(e) => {
-                                    const dateValue = e.target.value;
-                                    field.onChange(dateValue ? new Date(dateValue).toISOString() : null);
-                                  }}
+                                <LocaleDateInput
+                                  value={field.value}
+                                  onChange={(ymd) =>
+                                    field.onChange(ymd ? `${ymd}T00:00:00.000Z` : undefined)
+                                  }
                                   data-testid="input-due-date"
                                 />
                               </div>
@@ -1073,13 +1072,11 @@ export default function Maintenance() {
                         <FormControl>
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-muted-foreground" />
-                            <Input
-                              type="date"
-                              value={field.value ? (typeof field.value === 'string' ? field.value.split('T')[0] : new Date(field.value).toISOString().split('T')[0]) : ""}
-                              onChange={(e) => {
-                                const dateValue = e.target.value;
-                                field.onChange(dateValue ? new Date(dateValue).toISOString() : null);
-                              }}
+                            <LocaleDateInput
+                              value={field.value}
+                              onChange={(ymd) =>
+                                field.onChange(ymd ? `${ymd}T00:00:00.000Z` : undefined)
+                              }
                               data-testid="input-due-date"
                             />
                           </div>
@@ -1493,9 +1490,9 @@ export default function Maintenance() {
                             <span className="hidden sm:inline">• {request.property.address}</span>
                           )}
                           {request.dueDate ? (
-                            <span>• Due {format(new Date(request.dueDate), 'PPP')}</span>
+                            <span>• Due {locale.formatDate(new Date(request.dueDate), "PPP")}</span>
                           ) : (
-                            <span>• Created {format(new Date(request.createdAt?.toString() || Date.now()), 'PPP')}</span>
+                            <span>• Created {locale.formatDate(new Date(request.createdAt?.toString() || Date.now()), "PPP")}</span>
                           )}
                         </div>
                         {(user?.role === "owner" || user?.role === "clerk") && (

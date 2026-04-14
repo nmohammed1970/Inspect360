@@ -25,6 +25,7 @@ import Team from "./Team";
 import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
 import SettingsTeamsPanel from "@/components/SettingsTeamsPanel";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { AddressInput } from "@/components/AddressInput";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1545,7 +1546,13 @@ function ComplianceDocumentsPanel() {
                       <FormItem>
                         <FormLabel>Expiry Date (Optional)</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} value={field.value || ""} />
+                          <LocaleDateInput
+                            value={field.value || ""}
+                            onChange={(ymd) => field.onChange(ymd ?? "")}
+                            onBlur={field.onBlur}
+                            name={field.name}
+                            ref={field.ref}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1685,7 +1692,13 @@ function ComplianceDocumentsPanel() {
                                   <FormItem>
                                     <FormLabel>Expiry Date (Optional)</FormLabel>
                                     <FormControl>
-                                      <Input type="date" {...field} value={field.value || ""} />
+                                      <LocaleDateInput
+                                        value={field.value || ""}
+                                        onChange={(ymd) => field.onChange(ymd ?? "")}
+                                        onBlur={field.onBlur}
+                                        name={field.name}
+                                        ref={field.ref}
+                                      />
                                     </FormControl>
                                     <FormMessage />
                                   </FormItem>

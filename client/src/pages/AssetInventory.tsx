@@ -18,8 +18,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import type { AssetInventory, Property, Block } from "@shared/schema";
 import { formatPropertyLocationLabel, formatBlockLocationLabel } from "@shared/locationLabels";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 const conditionLabels = {
   excellent: "Excellent",
@@ -722,11 +722,15 @@ export default function AssetInventory() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="datePurchased">Date Purchased</Label>
-                    <Input
+                    <LocaleDateInput
                       id="datePurchased"
-                      type="date"
-                      value={formData.datePurchased ? format(new Date(formData.datePurchased), 'yyyy-MM-dd') : ""}
-                      onChange={(e) => setFormData({ ...formData, datePurchased: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      value={formData.datePurchased}
+                      onChange={(ymd) =>
+                        setFormData({
+                          ...formData,
+                          datePurchased: ymd ? (new Date(`${ymd}T12:00:00`) as any) : undefined,
+                        })
+                      }
                       data-testid="input-date-purchased"
                     />
                   </div>
@@ -821,11 +825,15 @@ export default function AssetInventory() {
 
                   <div>
                     <Label htmlFor="warrantyExpiryDate">Warranty Expiry Date</Label>
-                    <Input
+                    <LocaleDateInput
                       id="warrantyExpiryDate"
-                      type="date"
-                      value={formData.warrantyExpiryDate ? format(new Date(formData.warrantyExpiryDate), 'yyyy-MM-dd') : ""}
-                      onChange={(e) => setFormData({ ...formData, warrantyExpiryDate: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      value={formData.warrantyExpiryDate}
+                      onChange={(ymd) =>
+                        setFormData({
+                          ...formData,
+                          warrantyExpiryDate: ymd ? (new Date(`${ymd}T12:00:00`) as any) : undefined,
+                        })
+                      }
                       data-testid="input-warranty-expiry"
                     />
                   </div>
@@ -838,22 +846,30 @@ export default function AssetInventory() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="lastMaintenanceDate">Last Maintenance Date</Label>
-                    <Input
+                    <LocaleDateInput
                       id="lastMaintenanceDate"
-                      type="date"
-                      value={formData.lastMaintenanceDate ? format(new Date(formData.lastMaintenanceDate), 'yyyy-MM-dd') : ""}
-                      onChange={(e) => setFormData({ ...formData, lastMaintenanceDate: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      value={formData.lastMaintenanceDate}
+                      onChange={(ymd) =>
+                        setFormData({
+                          ...formData,
+                          lastMaintenanceDate: ymd ? (new Date(`${ymd}T12:00:00`) as any) : undefined,
+                        })
+                      }
                       data-testid="input-last-maintenance"
                     />
                   </div>
 
                   <div>
                     <Label htmlFor="nextMaintenanceDate">Next Maintenance Date</Label>
-                    <Input
+                    <LocaleDateInput
                       id="nextMaintenanceDate"
-                      type="date"
-                      value={formData.nextMaintenanceDate ? format(new Date(formData.nextMaintenanceDate), 'yyyy-MM-dd') : ""}
-                      onChange={(e) => setFormData({ ...formData, nextMaintenanceDate: e.target.value ? new Date(e.target.value) as any : undefined })}
+                      value={formData.nextMaintenanceDate}
+                      onChange={(ymd) =>
+                        setFormData({
+                          ...formData,
+                          nextMaintenanceDate: ymd ? (new Date(`${ymd}T12:00:00`) as any) : undefined,
+                        })
+                      }
                       data-testid="input-next-maintenance"
                     />
                   </div>
@@ -1233,14 +1249,14 @@ export default function AssetInventory() {
                   {asset.datePurchased && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Calendar className="w-4 h-4 shrink-0" />
-                      <span>Purchased: {format(new Date(asset.datePurchased), 'MMM d, yyyy')}</span>
+                      <span>Purchased: {locale.formatDate(new Date(asset.datePurchased), "PPP")}</span>
                     </div>
                   )}
 
                   {asset.lastMaintenanceDate && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Wrench className="w-4 h-4 shrink-0" />
-                      <span>Last Maintained: {format(new Date(asset.lastMaintenanceDate), 'MMM d, yyyy')}</span>
+                      <span>Last Maintained: {locale.formatDate(new Date(asset.lastMaintenanceDate), "PPP")}</span>
                     </div>
                   )}
 
