@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Upload, Camera, Image as ImageIcon, FileText, Loader2, CheckCircle2 } from "lucide-react";
+import { Upload, Camera, Image as ImageIcon, FileText, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -159,14 +159,6 @@ export function ModernFilePicker({
           {/* Header */}
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Upload Files</h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              className="h-8 w-8"
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
 
           {/* Error Message */}

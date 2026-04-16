@@ -52,6 +52,7 @@ import { Progress } from "@/components/ui/progress";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
 import { ReportVoiceRecordingWidget } from "@/components/ReportVoiceRecordingWidget";
 import { useLocale } from "@/contexts/LocaleContext";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
 
 interface TemplateField {
   id: string;
@@ -939,15 +940,7 @@ export default function InspectionReport() {
         displayValue = actualValue || <span className="text-muted-foreground italic">Not available</span>;
         break;
       case "signature":
-        displayValue = actualValue ? (
-          <img
-            src={actualValue}
-            alt="Signature"
-            className="max-w-md h-32 object-contain border rounded bg-background p-2"
-          />
-        ) : (
-          <span className="text-muted-foreground italic">Not signed</span>
-        );
+        displayValue = <SignatureDisplay signature={typeof actualValue === "string" ? actualValue : null} />;
         break;
       default:
         // Handle objects that don't match composite structure
@@ -1009,6 +1002,14 @@ export default function InspectionReport() {
         )}
       </div>
     );
+  };
+
+  const renderSignatureAwareDescription = (field: any, value: string, note?: string | null) => {
+    if (field.type === "signature") {
+      return <SignatureDisplay signature={value || note || null} />;
+    }
+
+    return value || note || "-";
   };
 
   const canEdit = currentUser?.role === 'owner' || currentUser?.role === 'compliance';
@@ -1759,8 +1760,8 @@ export default function InspectionReport() {
                                         <div className="col-span-3 font-medium text-primary">
                                           {field.label}
                                         </div>
-                                        <div className={`col-span-${descriptionCols} text-muted-foreground text-xs truncate`}>
-                                          {description || entry?.note || '-'}
+                                        <div className={`col-span-${descriptionCols} text-muted-foreground text-xs ${field.type === "signature" ? "" : "truncate"}`}>
+                                          {renderSignatureAwareDescription(field, description, entry?.note)}
                                         </div>
                                         {sectionHasCondition && (
                                           <div className="col-span-2 flex items-center justify-center gap-1">
@@ -1937,8 +1938,8 @@ export default function InspectionReport() {
                                 <div className="col-span-3 font-medium text-primary hover:underline cursor-pointer" onClick={() => photoCount > 0 && togglePhotoExpansion(photoKey)}>
                                   {field.label}
                                 </div>
-                                <div className={`col-span-${descriptionCols} text-muted-foreground text-xs truncate`}>
-                                  {description || entry?.note || '-'}
+                                <div className={`col-span-${descriptionCols} text-muted-foreground text-xs ${field.type === "signature" ? "" : "truncate"}`}>
+                                  {renderSignatureAwareDescription(field, description, entry?.note)}
                                 </div>
                                 {sectionHasCondition && (
                                   <div className="col-span-2 flex items-center justify-center gap-1">
@@ -2229,7 +2230,7 @@ export default function InspectionReport() {
                                       </div>
                                     </td>
                                     <td className="py-2 px-3 text-muted-foreground text-xs">
-                                      {checkInDescription || checkInEntry?.note || 'N/A'}
+                                      {renderSignatureAwareDescription(field, checkInDescription, checkInEntry?.note)}
                                     </td>
                                     <td className="py-2 px-3 text-center">
                                       {checkInCondition ? (
@@ -2265,7 +2266,7 @@ export default function InspectionReport() {
                                     </td>
                                     <td className="py-2 px-3">
                                       <div className="text-xs">
-                                        {checkOutDescription || checkOutEntry?.note || 'N/A'}
+                                        {renderSignatureAwareDescription(field, checkOutDescription, checkOutEntry?.note)}
                                       </div>
                                       {/* Responsibility Badge */}
                                       {degradation && (

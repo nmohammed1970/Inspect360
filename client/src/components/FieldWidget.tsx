@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import SignatureCanvas from "react-signature-canvas";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -132,6 +133,7 @@ export function FieldWidget({
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const signaturePadRef = useRef<SignatureCanvas>(null);
+  const [signatureCanvasKey, setSignatureCanvasKey] = useState(0);
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
   const [analyzingField, setAnalyzingField] = useState(false);
@@ -174,7 +176,22 @@ export function FieldWidget({
 
   // Find matching check-in entry for this field
   // Try matching by fieldRef first (for compatibility), then by fieldKey with mapping
+  const expectedInstanceNumber = (() => {
+    const match = sectionName?.match(/(\d+)\s*$/);
+    return match ? Number(match[1]) : null;
+  })();
+
+  const entryMatchesInstance = (entry: any) => {
+    if (expectedInstanceNumber == null) return true;
+    const sectionRef = String(entry?.sectionRef || "");
+    const match = sectionRef.match(/(\d+)\s*$/);
+    if (!match) return false;
+    return Number(match[1]) === expectedInstanceNumber;
+  };
+
   const checkInEntry = checkInReference?.checkInEntries?.find((entry: any) => {
+    if (!entryMatchesInstance(entry)) return false;
+
     // Direct match on fieldRef (if it exists)
     if (entry.fieldRef === field.id) return true;
 
@@ -1476,14 +1493,11 @@ export function FieldWidget({
 
       case "date":
         return (
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-muted-foreground" />
-            <LocaleDateInput
-              value={localValue || ""}
-              onChange={(ymd) => handleValueChange(ymd ?? "")}
-              data-testid={`input-date-${field.id}`}
-            />
-          </div>
+          <LocaleDateInput
+            value={localValue || ""}
+            onChange={(ymd) => handleValueChange(ymd ?? "")}
+            data-testid={`input-date-${field.id}`}
+          />
         );
 
       case "time":
@@ -1677,8 +1691,10 @@ export function FieldWidget({
         const handleClearSignature = () => {
           if (signaturePadRef.current) {
             signaturePadRef.current.clear();
-            handleValueChange("");
           }
+          setSignatureCanvasKey((prev) => prev + 1);
+          setLocalValue("");
+          onChange("", localNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
         };
 
         const handleSaveSignature = () => {
@@ -1698,12 +1714,13 @@ export function FieldWidget({
               <Card>
                 <CardContent className="p-4">
                   <div className="space-y-3">
-                    <img
-                      src={localValue}
-                      alt="Signature"
-                      className="w-full h-40 object-contain border rounded bg-background"
-                      data-testid={`img-signature-${field.id}`}
-                    />
+                    <div data-testid={`img-signature-${field.id}`}>
+                      <SignatureDisplay
+                        signature={typeof localValue === "string" ? localValue : null}
+                        className="max-w-none w-full"
+                        imageClassName="w-full h-40"
+                      />
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1722,6 +1739,7 @@ export function FieldWidget({
                   <div className="space-y-3">
                     <div className="border-2 border-dashed rounded bg-background">
                       <SignatureCanvas
+                        key={signatureCanvasKey}
                         ref={signaturePadRef}
                         canvasProps={{
                           className: "w-full h-40 cursor-crosshair",
@@ -1796,28 +1814,12 @@ export function FieldWidget({
 
       case "auto_inspection_date":
         const dateValue = localValue || autoContext?.inspectionDate || "";
-        const dateYmd =
-          typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}/.test(dateValue)
-            ? dateValue.slice(0, 10)
-            : dateValue
-              ? (() => {
-                  const d = new Date(dateValue);
-                  return isNaN(d.getTime())
-                    ? ""
-                    : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-                })()
-              : "";
         return (
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-muted-foreground" />
-            <Input
-              type="text"
-              value={dateYmd ? locale.formatDate(new Date(`${dateYmd}T12:00:00`)) : ""}
-              readOnly
-              className="bg-muted cursor-not-allowed"
-              data-testid={`input-auto-date-${field.id}`}
-            />
-          </div>
+          <LocaleDateInput
+            value={dateValue}
+            onChange={(ymd) => handleValueChange(ymd ?? "")}
+            data-testid={`input-auto-date-${field.id}`}
+          />
         );
 
       default:

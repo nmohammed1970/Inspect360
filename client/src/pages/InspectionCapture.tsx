@@ -293,15 +293,53 @@ export default function InspectionCapture() {
   // Parse template structure from snapshot and migrate old templates
   const rawTemplateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
 
+  const ensureBedroomWallsField = (section: any, fields: any[]) => {
+    const sectionTitle = (section.title || "").toLowerCase();
+    const sectionId = (section.id || "").toLowerCase();
+    const isBedroomSection = sectionTitle.includes("bedroom") || sectionId.includes("bedroom");
+    if (!isBedroomSection) return fields;
+
+    const hasWallsField = fields.some((field: any) => {
+      const fieldId = (field.id || "").toLowerCase();
+      const fieldKey = (field.key || "").toLowerCase();
+      const fieldLabel = (field.label || "").toLowerCase();
+      return (
+        fieldId.includes("bedroom_walls_paint") ||
+        fieldKey.includes("bedroom_walls_paint") ||
+        (fieldLabel.includes("walls") && fieldLabel.includes("paint"))
+      );
+    });
+
+    if (hasWallsField) return fields;
+
+    const isCheckOutSection = fields.some((field: any) => {
+      const fieldId = (field.id || "").toLowerCase();
+      const fieldKey = (field.key || "").toLowerCase();
+      return fieldId.includes("checkout") || fieldKey.includes("checkout");
+    });
+
+    const wallsField = {
+      id: isCheckOutSection ? "field_checkout_bedroom_walls_paint" : "field_checkin_bedroom_walls_paint",
+      key: isCheckOutSection ? "field_checkout_bedroom_walls_paint" : "field_checkin_bedroom_walls_paint",
+      label: "Walls and Paint",
+      type: "photo_array",
+      required: false,
+      includeCondition: true,
+      includeCleanliness: true,
+    };
+
+    return [...fields, wallsField];
+  };
+
   // Migrate old templates: ensure all fields have both id and key
   const templateStructure = rawTemplateStructure ? {
     sections: rawTemplateStructure.sections.map(section => ({
       ...section,
-      fields: section.fields.map((field: any) => ({
+      fields: ensureBedroomWallsField(section, section.fields.map((field: any) => ({
         ...field,
         id: field.id || field.key, // Use existing id or fall back to key
         key: field.key || field.id, // Ensure key exists too
-      })),
+      }))),
     })),
   } : null;
 
@@ -712,6 +750,51 @@ export default function InspectionCapture() {
       return prev;
     });
   }, [property?.address, templateStructure, sections, existingEntries, id, isOnline, updateEntry]);
+
+  useEffect(() => {
+    const generalInfoSection = sections.find((section) =>
+      section.title?.toLowerCase().includes("general") ||
+      section.id?.toLowerCase().includes("general")
+    );
+    const bedroomsSection = sections.find((section) =>
+      section.repeatable && (
+        section.title?.toLowerCase().includes("bedroom") ||
+        section.id?.toLowerCase().includes("bedroom")
+      )
+    );
+
+    if (!generalInfoSection || !bedroomsSection) return;
+
+    const bedroomCountField = generalInfoSection.fields.find((field) => {
+      const labelLower = field.label?.toLowerCase() || "";
+      const fieldIdLower = field.id?.toLowerCase() || "";
+      const fieldKeyLower = field.key?.toLowerCase() || "";
+
+      return (
+        (labelLower.includes("number") && labelLower.includes("bedroom")) ||
+        fieldIdLower.includes("num_bedroom") ||
+        fieldKeyLower.includes("num_bedroom")
+      );
+    });
+
+    if (!bedroomCountField) return;
+
+    const bedroomCountEntry = entries[`${generalInfoSection.id}-${bedroomCountField.id}`];
+    const rawValue =
+      typeof bedroomCountEntry?.valueJson === "object" && bedroomCountEntry?.valueJson !== null
+        ? (bedroomCountEntry.valueJson as any).value
+        : bedroomCountEntry?.valueJson;
+    const parsedCount = Number(rawValue);
+
+    if (!Number.isFinite(parsedCount) || parsedCount < 1) return;
+
+    const desiredCount = Math.max(1, Math.min(50, Math.floor(parsedCount)));
+    const currentCount = repeatableCounts[bedroomsSection.id] ?? 1;
+
+    if (currentCount !== desiredCount) {
+      handleRepeatableCountChange(bedroomsSection.id, desiredCount);
+    }
+  }, [entries, sections, repeatableCounts]);
 
   // Handle repeatable count change
   const handleRepeatableCountChange = (sectionId: string, count: number) => {

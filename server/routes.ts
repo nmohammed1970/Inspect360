@@ -259,6 +259,20 @@ function fieldKeysMatch(checkInFieldKey: string, checkOutFieldKey: string): bool
 function sectionRefsMatch(ref1: string, ref2: string): boolean {
   if (!ref1 || !ref2) return false;
 
+  const normalizeSectionBase = (value: string) => {
+    const base = String(value).split("/")[0] || "";
+    return base
+      .toLowerCase()
+      .replace(/[_\-]/g, " ")
+      .replace(/\b(checkin|checkout|section)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean)
+      .map((word) => (word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word))
+      .join(" ");
+  };
+
   const normalized1 = normalizeSectionRef(ref1);
   const normalized2 = normalizeSectionRef(ref2);
 
@@ -286,6 +300,9 @@ function sectionRefsMatch(ref1: string, ref2: string): boolean {
     const lastParts = parts2.slice(-parts1.length).join(" ");
     if (lastParts === normalized1) return true;
   }
+
+  // Match by base section identity ignoring checkin/checkout and singular/plural differences.
+  if (normalizeSectionBase(ref1) === normalizeSectionBase(ref2)) return true;
 
   return false;
 }
@@ -5742,6 +5759,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { matchingSection, matchingField };
       };
 
+      const resolveTargetSectionRef = (checkInSectionRef: string, matchingSection: any): string => {
+        if (!checkInSectionRef) return matchingSection?.id || "";
+
+        const instanceNumberMatch = String(checkInSectionRef).match(/(\d+)\s*$/);
+        const instanceNumber = instanceNumberMatch ? Number(instanceNumberMatch[1]) : null;
+
+        // For repeatable sections, always rebuild instance path using checkout section id/title
+        // to avoid carrying over check-in naming differences (Bedroom(s), Bathroom(s), etc.).
+        if (instanceNumber !== null && Number.isFinite(instanceNumber) && matchingSection?.id) {
+          const sectionTitle = String(matchingSection?.title || matchingSection?.id).trim();
+          return `${matchingSection.id}/${sectionTitle} ${instanceNumber}`;
+        }
+
+        const mappedSectionRef = mapCheckInToCheckOutSectionRef(checkInSectionRef);
+        if (mappedSectionRef) return mappedSectionRef;
+
+        return matchingSection?.id || checkInSectionRef;
+      };
+
       for (const checkInEntry of checkInEntries) {
         processedCount++;
 
@@ -5807,11 +5843,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (matchingSection && matchingField) {
           matchedCount++;
-          const key = `${matchingSection.id}-${matchingField.id}`;
+          const targetSectionRef = resolveTargetSectionRef(checkInEntry.sectionRef, matchingSection);
+          const targetFieldKey = matchingField.id || matchingField.key;
+          const key = `${targetSectionRef}-${targetFieldKey}`;
 
           // Find existing entry or create new one
           let existingEntry = currentEntries.find(e =>
-            e.sectionRef === matchingSection.id && e.fieldKey === matchingField.id
+            e.sectionRef === targetSectionRef &&
+            (e.fieldKey === targetFieldKey || fieldKeysMatch(e.fieldKey, targetFieldKey))
           );
 
           console.log(`[Copy] Processing match ${matchedCount}: key=${key}, existingEntry=${!!existingEntry}`);
@@ -5863,8 +5902,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } else {
               const newEntry = await storage.createInspectionEntry({
                 inspectionId: id,
-                sectionRef: matchingSection.id,
-                fieldKey: matchingField.id,
+                sectionRef: targetSectionRef,
+                fieldKey: targetFieldKey,
                 fieldType: matchingField.type || checkInEntry.fieldType || 'text',
                 photos,
                 note,
@@ -28363,6 +28402,26 @@ You can help the tenant with:
         content: aiResponse,
         aiSuggestedFixes,
       });
+
+      if (!chat.maintenanceRequestId) {
+        const maintenanceRequest = await storage.createMaintenanceRequest({
+          title: chat.title,
+          description: (message || "Maintenance issue reported via tenant portal").trim(),
+          priority: "medium",
+          status: "open",
+          propertyId: tenancy.propertyId,
+          blockId: tenancy.blockId || null,
+          reportedBy: userId,
+          organizationId: user.organizationId!,
+          photoUrls: imageUrl ? [imageUrl] : [],
+          aiSuggestedFixes: aiSuggestedFixes || null,
+          source: "tenant_portal",
+        });
+
+        await storage.updateTenantMaintenanceChat(chat.id, {
+          maintenanceRequestId: maintenanceRequest.id,
+        });
+      }
 
       res.json({ chatId: chat.id, userMessage, assistantMessage });
     } catch (error) {

@@ -365,6 +365,15 @@ export const DEFAULT_TEMPLATES = [
               includeCleanliness: true,
             },
             {
+              id: "field_checkout_bedroom_walls_paint",
+              key: "field_checkout_bedroom_walls_paint",
+              label: "Walls and Paint",
+              type: "photo_array",
+              required: false,
+              includeCondition: true,
+              includeCleanliness: true,
+            },
+            {
               id: "field_checkout_bedroom_comments",
               key: "field_checkout_bedroom_comments",
               label: "Comments",

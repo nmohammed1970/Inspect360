@@ -64,6 +64,7 @@ export default function TenantMaintenance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenant/maintenance-chats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tenant/maintenance-requests"] });
       if (selectedChatId) {
         queryClient.invalidateQueries({ queryKey: ["/api/tenant/maintenance-chats", selectedChatId] });
       }

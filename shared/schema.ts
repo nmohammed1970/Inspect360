@@ -1688,6 +1688,7 @@ export const updateMaintenanceRequestSchema = z.object({
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   assignedTo: z.string().nullable().optional(),
   photoUrls: z.array(z.string()).optional(),
+  aiSuggestedFixes: z.string().optional().nullable(),
 });
 
 // AI operation validation schemas

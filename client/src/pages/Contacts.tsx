@@ -424,7 +424,6 @@ export default function Contacts() {
                         <SelectItem value="company">Company</SelectItem>
                         <SelectItem value="partner">Partner</SelectItem>
                         <SelectItem value="vendor">Vendor</SelectItem>
-                        <SelectItem value="tenant">Tenant</SelectItem>
                         <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
@@ -722,7 +721,6 @@ export default function Contacts() {
               <SelectItem value="company">Company</SelectItem>
               <SelectItem value="partner">Partner</SelectItem>
               <SelectItem value="vendor">Vendor</SelectItem>
-              <SelectItem value="tenant">Tenant</SelectItem>
               <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
@@ -841,7 +839,6 @@ export default function Contacts() {
                       <SelectItem value="company">Company</SelectItem>
                       <SelectItem value="partner">Partner</SelectItem>
                       <SelectItem value="vendor">Vendor</SelectItem>
-                      <SelectItem value="tenant">Tenant</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>

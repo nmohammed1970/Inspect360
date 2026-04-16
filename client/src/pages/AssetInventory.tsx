@@ -56,19 +56,55 @@ const assetCategories = [
 // Helper function to normalize photo URLs (convert relative to absolute)
 const normalizePhotoUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
-  
-  // If already absolute URL, return as is
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
+
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return null;
+
+  // For object storage URLs, always use the current app origin so old localhost/IP
+  // combinations don't break authenticated image loading.
+  if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+    try {
+      const parsedUrl = new URL(trimmedUrl);
+      if (parsedUrl.pathname.startsWith('/objects/')) {
+        return `${window.location.origin}${parsedUrl.pathname}${parsedUrl.search}`;
+      }
+      return trimmedUrl;
+    } catch {
+      return trimmedUrl;
+    }
   }
-  
-  // If relative path, convert to absolute
-  if (url.startsWith('/')) {
-    return `${window.location.origin}${url}`;
+
+  // Normalize storage/object paths to absolute URLs
+  if (trimmedUrl.startsWith('/')) {
+    return `${window.location.origin}${trimmedUrl}`;
   }
-  
-  // Return as is if it's already in a valid format
-  return url;
+
+  if (trimmedUrl.startsWith('objects/')) {
+    return `${window.location.origin}/${trimmedUrl}`;
+  }
+
+  if (trimmedUrl.includes('/objects/')) {
+    const objectPathIndex = trimmedUrl.indexOf('/objects/');
+    return `${window.location.origin}${trimmedUrl.slice(objectPathIndex)}`;
+  }
+
+  return `${window.location.origin}/${trimmedUrl.replace(/^\/+/, '')}`;
+};
+
+const roundToTwoDecimals = (value: number): number => Math.round(value * 100) / 100;
+
+const getYearsUsed = (datePurchased: Date | string | null | undefined): number => {
+  if (!datePurchased) return 0;
+  const purchasedAt = new Date(datePurchased);
+  if (Number.isNaN(purchasedAt.getTime())) return 0;
+
+  const years = Math.floor((Date.now() - purchasedAt.getTime()) / (1000 * 60 * 60 * 24 * 365));
+  return Math.max(0, years);
+};
+
+const isPdfFileUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  return url.toLowerCase().split("?")[0].endsWith(".pdf");
 };
 
 export default function AssetInventory() {
@@ -117,6 +153,47 @@ export default function AssetInventory() {
       setFilterPropertyBlock(propertyIdFromUrl);
     }
   }, [blockIdFromUrl, propertyIdFromUrl]);
+
+  useEffect(() => {
+    const purchasePrice = Number(formData.purchasePrice);
+    const expectedLifespanYears = Number(formData.expectedLifespanYears);
+    const yearsUsed = getYearsUsed(formData.datePurchased as any);
+
+    if (purchasePrice > 0 && expectedLifespanYears > 0) {
+      const depreciationPerYear = roundToTwoDecimals(purchasePrice / expectedLifespanYears);
+      const currentValue = roundToTwoDecimals(
+        Math.max(0, purchasePrice - (depreciationPerYear * yearsUsed)),
+      );
+      setFormData((prev) => {
+        if (
+          Number(prev.depreciationPerYear) === depreciationPerYear &&
+          Number(prev.currentValue) === currentValue
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          depreciationPerYear,
+          currentValue,
+        };
+      });
+      return;
+    }
+
+    setFormData((prev) => {
+      if (
+        (prev.depreciationPerYear == null || prev.depreciationPerYear === "") &&
+        (prev.currentValue == null || prev.currentValue === "")
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        depreciationPerYear: null,
+        currentValue: null,
+      };
+    });
+  }, [formData.purchasePrice, formData.expectedLifespanYears, formData.datePurchased]);
 
   // Find the current block if filtering by block
   const currentBlock = useMemo(() => {
@@ -298,46 +375,13 @@ export default function AssetInventory() {
         }
 
         if (photoUrl) {
-          const absolutePhotoUrl = photoUrl.startsWith('/')
-            ? `${window.location.origin}${photoUrl}`
-            : photoUrl;
+          const normalizedPhotoUrl = normalizePhotoUrl(photoUrl) || photoUrl;
 
           setUploadedPhotos(prev => {
-            if (prev.includes(absolutePhotoUrl)) {
+            if (prev.includes(normalizedPhotoUrl)) {
               return prev;
             }
-            return [...prev, absolutePhotoUrl];
-          });
-
-          // Set ACL in background
-          fetch('/api/objects/set-acl', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ photoUrl: absolutePhotoUrl }),
-          })
-          .then(async (aclResponse) => {
-            if (aclResponse.ok) {
-              const { objectPath } = await aclResponse.json();
-              if (objectPath && objectPath !== photoUrl) {
-                const finalUrl = objectPath.startsWith('/') 
-                  ? `${window.location.origin}${objectPath}` 
-                  : objectPath;
-                
-                setUploadedPhotos(prev => {
-                  const index = prev.indexOf(absolutePhotoUrl);
-                  if (index >= 0) {
-                    const updated = [...prev];
-                    updated[index] = finalUrl;
-                    return updated;
-                  }
-                  return prev;
-                });
-              }
-            }
-          })
-          .catch(error => {
-            console.error('[AssetInventory] Error setting ACL (non-blocking):', error);
+            return [...prev, normalizedPhotoUrl];
           });
 
           toast({
@@ -390,7 +434,7 @@ export default function AssetInventory() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Helper to convert dates - handles string inputs, Date objects, and undefined
     const convertDate = (value: any) => {
       if (!value || value === '') return null;
@@ -399,7 +443,14 @@ export default function AssetInventory() {
       const parsed = new Date(value);
       return isNaN(parsed.getTime()) ? null : parsed;
     };
-    
+
+    const toNullableNumericString = (value: any) => {
+      if (value === null || value === undefined || value === "") return null;
+      const numericValue = typeof value === "string" ? Number(value) : value;
+      if (Number.isNaN(numericValue)) return null;
+      return Number(numericValue).toFixed(2);
+    };
+
     // Explicitly build submit data with proper type conversions
     const submitData: any = {
       organizationId: user?.organizationId || formData.organizationId,
@@ -412,10 +463,10 @@ export default function AssetInventory() {
       blockId: formData.blockId || null,
       location: formData.location || null,
       datePurchased: convertDate(formData.datePurchased),
-      purchasePrice: formData.purchasePrice || null,
+      purchasePrice: toNullableNumericString(formData.purchasePrice),
       expectedLifespanYears: formData.expectedLifespanYears || null,
-      depreciationPerYear: formData.depreciationPerYear || null,
-      currentValue: formData.currentValue || null,
+      depreciationPerYear: toNullableNumericString(formData.depreciationPerYear),
+      currentValue: toNullableNumericString(formData.currentValue),
       supplier: formData.supplier || null,
       supplierContact: formData.supplierContact || null,
       serialNumber: formData.serialNumber || null,
@@ -429,13 +480,6 @@ export default function AssetInventory() {
     };
 
     saveMutation.mutate(submitData);
-  };
-
-  // Calculate current value based on purchase price and depreciation
-  const calculateCurrentValue = (purchasePrice: number, depreciationPerYear: number, datePurchased: Date) => {
-    const yearsOwned = Math.floor((Date.now() - new Date(datePurchased).getTime()) / (1000 * 60 * 60 * 24 * 365));
-    const totalDepreciation = depreciationPerYear * yearsOwned;
-    return Math.max(0, purchasePrice - totalDepreciation);
   };
 
   // Filter assets (search includes linked property/block name and address)
@@ -767,9 +811,22 @@ export default function AssetInventory() {
                       type="number"
                       step="0.01"
                       value={formData.depreciationPerYear?.toString() || ""}
-                      onChange={(e) => setFormData({ ...formData, depreciationPerYear: e.target.value as any })}
                       placeholder="0.00"
                       data-testid="input-depreciation"
+                      readOnly
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="currentValue">Current Value ({locale.currencySymbol})</Label>
+                    <Input
+                      id="currentValue"
+                      type="number"
+                      step="0.01"
+                      value={formData.currentValue?.toString() || ""}
+                      placeholder="0.00"
+                      data-testid="input-current-value"
+                      readOnly
                     />
                   </div>
                 </div>
@@ -890,12 +947,24 @@ export default function AssetInventory() {
 
               {/* Photos */}
               <div className="space-y-4">
-                <h3 className="font-semibold text-lg">Photos</h3>
+                <h3 className="font-semibold text-lg">Photos & Documents</h3>
                 {uploadedPhotos.length > 0 && (
                   <div className="grid grid-cols-4 gap-2">
                     {uploadedPhotos.map((url, index) => (
                       <div key={index} className="relative">
-                        <img src={normalizePhotoUrl(url) || url} alt={`Asset photo ${index + 1}`} className="w-full h-24 object-cover rounded" />
+                        {isPdfFileUrl(url) ? (
+                          <a
+                            href={normalizePhotoUrl(url) || url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex h-24 w-full flex-col items-center justify-center rounded border bg-muted/40 px-2 text-center hover:bg-muted"
+                          >
+                            <FileText className="mb-1 h-8 w-8 text-primary" />
+                            <span className="text-xs font-medium">View PDF</span>
+                          </a>
+                        ) : (
+                          <img src={normalizePhotoUrl(url) || url} alt={`Asset file ${index + 1}`} className="w-full h-24 object-cover rounded" />
+                        )}
                         <Button
                           type="button"
                           size="icon"
@@ -913,7 +982,7 @@ export default function AssetInventory() {
                   onFilesSelected={handlePhotoFilesSelected}
                   maxFiles={10}
                   maxFileSize={10 * 1024 * 1024}
-                  accept="image/*"
+                  accept="image/*,.pdf,application/pdf"
                   multiple={true}
                   isUploading={isUploadingPhotos}
                   uploadProgress={photoUploadProgress}
@@ -1195,10 +1264,22 @@ export default function AssetInventory() {
                   const firstPhoto = normalizePhotoUrl(asset.photos[0]);
                   return firstPhoto ? (
                     <div className="relative h-32 rounded overflow-hidden">
-                      <img src={firstPhoto} alt={asset.name} className="w-full h-full object-cover" onError={(e) => {
-                        console.error('Failed to load image:', firstPhoto);
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }} />
+                      {isPdfFileUrl(firstPhoto) ? (
+                        <a
+                          href={firstPhoto}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex h-full w-full flex-col items-center justify-center bg-muted/40 hover:bg-muted"
+                        >
+                          <FileText className="mb-2 h-10 w-10 text-primary" />
+                          <span className="text-sm font-medium">Open PDF</span>
+                        </a>
+                      ) : (
+                        <img src={firstPhoto} alt={asset.name} className="w-full h-full object-cover" onError={(e) => {
+                          console.error('Failed to load image:', firstPhoto);
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }} />
+                      )}
                       {asset.photos.length > 1 && (
                         <Badge className="absolute top-2 right-2 text-xs">
                           +{asset.photos.length - 1} more

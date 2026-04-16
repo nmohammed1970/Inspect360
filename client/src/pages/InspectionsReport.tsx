@@ -549,7 +549,7 @@ export default function InspectionsReport() {
                             {getStatusBadge(inspection.status)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Link href={`/inspections/${inspection.id}`}>
+                            <Link href={`/inspections/${inspection.id}/report`}>
                               <Button variant="ghost" size="sm" className="h-8">
                                 <span className="hidden sm:inline">View</span>
                                 <span className="sm:hidden">→</span>

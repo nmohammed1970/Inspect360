@@ -75,6 +75,17 @@ function getScore(value: string | undefined | null): number | null {
   return conditionScoreMap[value] ?? null;
 }
 
+function formatIdentifierLabel(value: string | null | undefined): string {
+  if (!value) return "";
+
+  return value
+    .replace(/[_/]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 interface ConditionAlert {
   itemLabel: string;
   field: "condition" | "cleanliness";
@@ -612,7 +623,7 @@ export default function ComparisonReportDetail() {
             <ul className="list-disc list-inside space-y-1">
               {conditionAlerts.map((alert, index) => (
                 <li key={index} className="text-sm">
-                  <span className="font-medium">{alert.itemLabel}</span>:{" "}
+                  <span className="font-medium">{formatIdentifierLabel(alert.itemLabel)}</span>:{" "}
                   <span className="capitalize">{alert.field}</span> dropped from {alert.checkInScore}/5 to {alert.checkOutScore}/5 ({alert.percentageDrop}% decrease)
                 </li>
               ))}
@@ -662,7 +673,7 @@ export default function ComparisonReportDetail() {
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div>
                     <h3 className="text-lg font-semibold">
-                      {index + 1}. {item.sectionRef} - {item.fieldKey}
+                      {index + 1}. {formatIdentifierLabel(item.sectionRef)} - {formatIdentifierLabel(item.fieldKey)}
                     </h3>
                     {item.itemRef && (
                       <p className="text-sm text-muted-foreground">{item.itemRef}</p>

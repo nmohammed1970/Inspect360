@@ -67,6 +67,17 @@ interface ComparisonReport {
   } | null;
 }
 
+function formatIdentifierLabel(value: string | null | undefined): string {
+  if (!value) return "";
+
+  return value
+    .replace(/[_/]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 interface ComparisonReportItem {
   id: string;
   sectionRef: string;
@@ -416,7 +427,7 @@ export default function TenantComparisonReportDetail() {
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div>
                     <h3 className="text-lg font-semibold">
-                      {index + 1}. {item.sectionRef} - {item.fieldKey}
+                      {index + 1}. {formatIdentifierLabel(item.sectionRef)} - {formatIdentifierLabel(item.fieldKey)}
                     </h3>
                     {item.itemRef && (
                       <p className="text-sm text-muted-foreground">{item.itemRef}</p>

@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, AlertCircle, ChevronLeft, FileText } from "lucide-react";
@@ -125,8 +126,10 @@ export default function InspectionReview() {
       case "photo":
       case "photo_array":
       case "video":
-      case "signature":
         return <Badge variant="secondary">Media uploaded</Badge>;
+
+      case "signature":
+        return <SignatureDisplay signature={typeof value === "string" ? value : null} />;
       
       default:
         return <span>{String(value)}</span>;
