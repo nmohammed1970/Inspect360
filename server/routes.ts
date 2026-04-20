@@ -5168,12 +5168,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
 
-      // Get all team members who can conduct inspections (clerks, owners, compliance officers)
-      // Exclude tenants and contractors as they cannot be assigned inspections
+      // Get all team members who can be assigned inspections.
+      // Include inspectors (clerks) and maintenance contractors.
       const allUsers = await storage.getUsersByOrganization(user.organizationId);
       const inspectors = allUsers.filter(u =>
         u.isActive !== false &&
-        ['clerk', 'owner', 'compliance'].includes(u.role)
+        ["clerk", "contractor"].includes(u.role)
       );
       res.json(inspectors);
     } catch (error) {
@@ -5293,6 +5293,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (checkOutTemplate) {
             finalTemplateId = checkOutTemplate.id;
             console.log(`Auto-selected Check Out template: ${checkOutTemplate.id}`);
+          }
+        }
+
+        // Fallback for other inspection types:
+        // if no template was explicitly selected, use the first active template
+        // compatible with the inspection target scope.
+        if (!finalTemplateId) {
+          const targetScope = propertyId ? "property" : "block";
+          const compatibleTemplate = orgTemplates.find(t =>
+            t.isActive &&
+            (t.scope === "both" || t.scope === targetScope)
+          );
+          if (compatibleTemplate) {
+            finalTemplateId = compatibleTemplate.id;
+            console.log(`Auto-selected fallback template (${targetScope}): ${compatibleTemplate.id}`);
           }
         }
       }
@@ -5650,6 +5665,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Inspection must be associated with a property" });
       }
 
+      if (inspection.type !== "check_out") {
+        return res.status(400).json({ message: "Copy from check-in is only available for check-out inspections" });
+      }
+
       // Get most recent check-in
       const checkInInspection = await storage.getMostRecentCheckInInspection(inspection.propertyId);
       if (!checkInInspection) {
@@ -5658,7 +5677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get entries
       const checkInEntries = await storage.getInspectionEntries(checkInInspection.id);
-      const currentEntries = await storage.getInspectionEntries(id);
+      let currentEntries = await storage.getInspectionEntries(id);
 
       console.log(`[Copy] ===== Starting Copy Operation =====`);
       console.log(`[Copy] Check-in inspection ID: ${checkInInspection.id}`);
@@ -5686,6 +5705,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Copy] Template sections found: ${sections.length}`);
       console.log(`[Copy] Template sections:`, sections.map(s => ({ id: s.id, title: s.title, fields: s.fields.map((f: any) => f.id || f.key) })));
+
+      const parseEntryNumeric = (valueJson: any): number | null => {
+        if (valueJson == null) return null;
+        if (typeof valueJson === "number" && Number.isFinite(valueJson)) return valueJson;
+        if (typeof valueJson === "object" && valueJson !== null && "value" in valueJson) {
+          const n = Number((valueJson as any).value);
+          return Number.isFinite(n) ? n : null;
+        }
+        const n = Number(valueJson);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      // Always align "Number of Bedrooms" + repeatable bedroom instances from check-in (authoritative)
+      try {
+        const generalSection = sections.find(
+          (s: any) =>
+            String(s.title || "").toLowerCase().includes("general") ||
+            String(s.id || "").toLowerCase().includes("general"),
+        );
+        const bedroomRepeatSection = sections.find(
+          (s: any) =>
+            s.repeatable &&
+            (String(s.title || "").toLowerCase().includes("bedroom") ||
+              String(s.id || "").toLowerCase().includes("bedroom")),
+        );
+        const checkoutNumField =
+          generalSection &&
+          generalSection.fields.find((f: any) => {
+            const lid = String(f.id || "").toLowerCase();
+            const lkey = String(f.key || "").toLowerCase();
+            const lab = String(f.label || "").toLowerCase();
+            return (
+              lid.includes("num_bedroom") ||
+              lkey.includes("num_bedroom") ||
+              (lab.includes("number") && lab.includes("bedroom"))
+            );
+          });
+        const checkInNumEntry = checkInEntries.find((e: any) =>
+          String(e.fieldKey || "").toLowerCase().includes("num_bedroom"),
+        );
+
+        if (generalSection && bedroomRepeatSection && checkoutNumField && checkInNumEntry) {
+          const raw = parseEntryNumeric(checkInNumEntry.valueJson);
+          if (raw != null && raw >= 1 && Number.isFinite(raw)) {
+            const desired = Math.max(1, Math.min(50, Math.floor(raw)));
+            const genRef = generalSection.id;
+            const fk = checkoutNumField.id || checkoutNumField.key;
+            const valueJson =
+              typeof checkInNumEntry.valueJson === "object" &&
+              checkInNumEntry.valueJson !== null &&
+              "value" in checkInNumEntry.valueJson
+                ? { ...(checkInNumEntry.valueJson as object), value: desired }
+                : desired;
+
+            const numExisting = currentEntries.find(
+              (e: any) => e.sectionRef === genRef && (e.fieldKey === fk || fieldKeysMatch(e.fieldKey, fk)),
+            );
+            if (numExisting) {
+              await storage.updateInspectionEntry(numExisting.id, { valueJson } as any);
+            } else {
+              await storage.createInspectionEntry({
+                inspectionId: id,
+                sectionRef: genRef,
+                fieldKey: fk,
+                fieldType: checkoutNumField.type || "number",
+                valueJson,
+                photos: null,
+                note: null,
+              } as any);
+            }
+
+            const countFieldKey = `__repeatable_count_${bedroomRepeatSection.id}`;
+            const countExisting = currentEntries.find(
+              (e: any) => e.sectionRef === bedroomRepeatSection.id && e.fieldKey === countFieldKey,
+            );
+            if (countExisting) {
+              await storage.updateInspectionEntry(countExisting.id, { valueJson: desired } as any);
+            } else {
+              await storage.createInspectionEntry({
+                inspectionId: id,
+                sectionRef: bedroomRepeatSection.id,
+                fieldKey: countFieldKey,
+                fieldType: "number",
+                valueJson: desired,
+                photos: null,
+                note: null,
+              } as any);
+            }
+
+            currentEntries = await storage.getInspectionEntries(id);
+            console.log(`[Copy] Synced bedroom count from check-in: ${desired}`);
+          }
+        }
+      } catch (bedSyncErr) {
+        console.warn("[Copy] Bedroom count sync from check-in failed:", bedSyncErr);
+      }
 
       const modifiedImageKeys: string[] = [];
       const modifiedNoteKeys: string[] = [];
@@ -5893,22 +6008,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (changed) {
             copiedCount++;
+            const patch: any = { photos, note };
+            if (
+              copyImages &&
+              hasPhotos &&
+              matchingField &&
+              (matchingField.includeCondition || matchingField.includeCleanliness)
+            ) {
+              const out: Record<string, any> = {};
+              if (existingEntry?.valueJson != null) {
+                try {
+                  const cur =
+                    typeof existingEntry.valueJson === "string"
+                      ? JSON.parse(existingEntry.valueJson)
+                      : existingEntry.valueJson;
+                  if (cur && typeof cur === "object") Object.assign(out, cur);
+                } catch {
+                  /* ignore */
+                }
+              }
+              try {
+                const ciVj =
+                  typeof checkInEntry.valueJson === "string"
+                    ? JSON.parse(checkInEntry.valueJson)
+                    : checkInEntry.valueJson;
+                if (ciVj && typeof ciVj === "object") {
+                  if (matchingField.includeCondition && ciVj.condition != null) out.condition = ciVj.condition;
+                  if (matchingField.includeCleanliness && ciVj.cleanliness != null) {
+                    out.cleanliness = ciVj.cleanliness;
+                  }
+                }
+              } catch {
+                /* ignore */
+              }
+              if (Object.keys(out).length > 0) patch.valueJson = out;
+            }
+
             if (existingEntry) {
-              await storage.updateInspectionEntry(existingEntry.id, {
-                photos,
-                note
-              });
+              await storage.updateInspectionEntry(existingEntry.id, patch);
+              existingEntry.photos = photos.length > 0 ? photos : null;
+              existingEntry.note = note === undefined || note === null ? null : note;
+              if (patch.valueJson !== undefined) {
+                existingEntry.valueJson = (patch.valueJson ?? null) as any;
+              }
               console.log(`[Copy] ✓ Updated existing entry ${existingEntry.id} for ${key}`);
             } else {
               const newEntry = await storage.createInspectionEntry({
                 inspectionId: id,
                 sectionRef: targetSectionRef,
                 fieldKey: targetFieldKey,
-                fieldType: matchingField.type || checkInEntry.fieldType || 'text',
+                fieldType: matchingField.type || checkInEntry.fieldType || "text",
                 photos,
                 note,
-                valueJson: null
-              });
+                valueJson: patch.valueJson ?? null,
+              } as any);
+              currentEntries = [...currentEntries, newEntry];
               console.log(`[Copy] ✓ Created new entry ${newEntry.id} for ${key}`);
             }
 
@@ -12646,8 +12800,8 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(403).json({ message: "Unauthorized to update this request" });
       }
 
-      // Only owners and clerks can edit maintenance requests
-      if (user.role !== "owner" && user.role !== "clerk") {
+      // Owners, clerks, and contractors can edit maintenance requests
+      if (user.role !== "owner" && user.role !== "clerk" && user.role !== "contractor") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
@@ -13994,7 +14148,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
   // ==================== ASSET INVENTORY ROUTES ====================
 
-  app.post("/api/asset-inventory", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
+  app.post("/api/asset-inventory", isAuthenticated, requireRole("owner", "clerk", "compliance", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14309,7 +14463,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   });
 
-  app.patch("/api/asset-inventory/:id", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
+  app.patch("/api/asset-inventory/:id", isAuthenticated, requireRole("owner", "clerk", "compliance", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14343,7 +14497,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
     }
   });
 
-  app.delete("/api/asset-inventory/:id", isAuthenticated, requireRole("owner", "clerk", "compliance"), async (req: any, res) => {
+  app.delete("/api/asset-inventory/:id", isAuthenticated, requireRole("owner", "clerk", "compliance", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15420,7 +15574,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   });
 
   // Add tag to asset inventory
-  app.post("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       await storage.addTagToAssetInventory(req.params.assetId, req.params.tagId);
       res.json({ success: true });
@@ -15431,7 +15585,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   });
 
   // Remove tag from asset inventory
-  app.delete("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/asset-inventory/:assetId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       await storage.removeTagFromAssetInventory(req.params.assetId, req.params.tagId);
       res.json({ success: true });
@@ -15453,7 +15607,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   });
 
   // Add tag to maintenance request
-  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       await storage.addTagToMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -15464,7 +15618,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   });
 
   // Remove tag from maintenance request
-  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       await storage.removeTagFromMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -16704,7 +16858,9 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
   // ==================== OBJECT STORAGE ROUTES ====================
 
   app.get("/objects/:objectPath(*)", async (req: any, res) => {
-    const userId = req.user?.claims?.sub || req.user?.id;
+    const sessionAdmin = (req.session as any)?.adminUser;
+    const userId =
+      req.user?.claims?.sub || req.user?.id || sessionAdmin?.id || undefined;
     const objectStorageService = new ObjectStorageService();
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
@@ -17283,9 +17439,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // Set content type early to prevent HTML responses
-    // For successful uploads, return empty body (S3-compatible)
-    // For errors, return JSON
+    // Successful uploads return JSON { url, uploadURL } so clients store paths like /objects/<id>.pdf
 
     let responseSent = false;
     const sendError = (status: number, message: string) => {
@@ -17349,12 +17503,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
 
           if (!responseSent) {
             responseSent = true;
-            // Uppy AwsS3 plugin expects S3-compatible response
-            // Return empty body with just ETag header (S3 standard)
-            // The extractFileUrlFromUploadResponse utility will use the upload URL from metadata
-            // Remove Content-Type header for empty body (S3 doesn't send it)
-            res.removeHeader('Content-Type');
-            res.status(200).end();
+            res.status(200).json({ url: normalizedPath, uploadURL: normalizedPath });
           }
         } catch (error: any) {
           console.error("Error in upload-direct PUT (end handler):", error);

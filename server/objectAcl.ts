@@ -51,7 +51,12 @@ export async function canAccessObject({
   requestedPermission: ObjectPermission;
 }): Promise<boolean> {
   const aclPolicy = await getObjectAclPolicy(objectFile);
+  // Objects created before ACL metadata existed have no .meta.json; deny anonymous
+  // access but allow any authenticated user to read (same as org members viewing assets).
   if (!aclPolicy) {
+    if (requestedPermission === ObjectPermission.READ && userId) {
+      return true;
+    }
     return false;
   }
 

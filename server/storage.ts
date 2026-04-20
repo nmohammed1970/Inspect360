@@ -1182,18 +1182,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMostRecentCheckInInspection(propertyId: string): Promise<Inspection | undefined> {
-    const results = await db
+    const [completed] = await db
       .select()
       .from(inspections)
       .where(
         and(
           eq(inspections.propertyId, propertyId),
-          eq(inspections.type, "check_in" as any)
-        )
+          eq(inspections.type, "check_in" as any),
+          eq(inspections.status, "completed" as any),
+        ),
+      )
+      .orderBy(desc(inspections.completedDate), desc(inspections.scheduledDate))
+      .limit(1);
+    if (completed) return completed;
+
+    const [fallback] = await db
+      .select()
+      .from(inspections)
+      .where(
+        and(eq(inspections.propertyId, propertyId), eq(inspections.type, "check_in" as any)),
       )
       .orderBy(desc(inspections.scheduledDate))
       .limit(1);
-    return results[0];
+    return fallback;
   }
 
   async getInspectionsByBlock(blockId: string): Promise<Inspection[]> {

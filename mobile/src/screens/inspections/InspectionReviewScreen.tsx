@@ -28,7 +28,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { getImageSource, isLocalPath } from '../../services/offline/storage';
-import { ASSIGNED_INVENTORY_CLERK_LABEL } from '../../../../shared/roleLabels';
+import { ASSIGNED_INVENTORY_CLERK_LABEL } from '../../constants/roleLabels';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionReview'>;
 type NavProp = NavigationProp<InspectionsStackParamList>;

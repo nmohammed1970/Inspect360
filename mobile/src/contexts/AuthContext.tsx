@@ -30,6 +30,13 @@ const BIOMETRIC_EMAIL_KEY = 'biometric_email';
 const BIOMETRIC_PASSWORD_KEY = 'biometric_password';
 const LAST_LOGIN_EMAIL_KEY = 'last_login_email';
 
+const MOBILE_APP_ROLES = ['owner', 'clerk', 'contractor'] as const;
+
+function isMobileAppRole(role: string | undefined): boolean {
+  if (!role) return false;
+  return (MOBILE_APP_ROLES as readonly string[]).includes(role);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const queryClient = useQueryClient();
@@ -115,10 +122,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (__DEV__) {
         console.log('[AuthContext] Current user updated, role:', currentUser.role);
       }
-      // Verify the user from server is still a clerk
-      if (currentUser.role !== 'clerk') {
+      // Verify the user from server still has a role allowed for this app
+      if (!isMobileAppRole(currentUser.role)) {
         if (__DEV__) {
-          console.warn('[AuthContext] User from server is not a clerk, clearing session');
+          console.warn('[AuthContext] User from server has disallowed role, clearing session');
         }
         // Clear invalid session if role changed
         setUser(null);
@@ -147,10 +154,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log('[AuthContext] Found stored user, role:', parsedUser.role);
         }
         
-        // Verify the stored user is still a clerk
-        if (parsedUser.role !== 'clerk') {
+        // Verify the stored user still has a role allowed for this app
+        if (!isMobileAppRole(parsedUser.role)) {
           if (__DEV__) {
-            console.warn('[AuthContext] Stored user is not a clerk, clearing session');
+            console.warn('[AuthContext] Stored user has disallowed role, clearing session');
           }
           // Clear invalid session
           await deleteStorageItem(USER_STORAGE_KEY);
@@ -206,19 +213,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Login failed. Please try again.');
         }
       
-        // Check if user is a clerk (inspector)
-        if (userData.role !== 'clerk') {
+        if (!isMobileAppRole(userData.role)) {
           if (__DEV__) {
-            console.warn('[AuthContext] User is not a clerk, role:', userData.role);
+            console.warn('[AuthContext] User role not allowed for mobile app, role:', userData.role);
           }
           // Clear any stored data
           await deleteStorageItem(USER_STORAGE_KEY);
           queryClient.clear();
-          throw new Error('Access denied. This app is only for Inventory Clerk / Inspector users.');
+          throw new Error(
+            'Access denied. This app is for organization owners, inspectors, and contractors.'
+          );
         }
-      
+
         if (__DEV__) {
-          console.log('[AuthContext] Login successful, user is a clerk');
+          console.log('[AuthContext] Login successful, role:', userData.role);
         }
         return userData;
       } catch (error: any) {

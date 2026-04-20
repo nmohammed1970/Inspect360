@@ -927,16 +927,14 @@ export default function InspectionsListScreen() {
                           icon={<Play size={14} color={themeColors.primary.foreground} />}
                         />
                       )}
-                      {inspection.templateSnapshotJson && (
-                        <Button
-                          title="View Report"
-                          onPress={() => navigation.navigate('InspectionReport', { inspectionId: inspection.id })}
-                          variant="outline"
-                          size="sm"
-                          style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
-                          icon={<FileText size={14} color={themeColors.text.primary} />}
-                        />
-                      )}
+                      <Button
+                        title="View Report"
+                        onPress={() => navigation.navigate('InspectionReport', { inspectionId: inspection.id })}
+                        variant="outline"
+                        size="sm"
+                        style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
+                        icon={<FileText size={14} color={themeColors.text.primary} />}
+                      />
                       <Button
                         title="View Details"
                         onPress={() => {

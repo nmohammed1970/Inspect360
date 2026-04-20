@@ -91,7 +91,7 @@ export function AppSidebar() {
       title: "Inspections",
       url: "/inspections",
       icon: ClipboardCheck,
-      roles: ["owner", "clerk"],
+      roles: ["owner", "clerk", "contractor"],
     },
     {
       title: "Comparisons",

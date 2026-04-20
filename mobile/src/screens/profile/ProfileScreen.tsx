@@ -33,7 +33,7 @@ import Input from '../../components/ui/Input';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Moon, Sun, Monitor } from 'lucide-react-native';
-import { getTeamRoleDisplayLabel } from '../../../../shared/roleLabels';
+import { getTeamRoleDisplayLabel } from '../../constants/roleLabels';
 
 const DOCUMENT_TYPES = [
   { value: 'license', label: 'License' },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,17 @@ interface InspectionEntry {
   markedForReview?: boolean;
 }
 
+function entryNumericFieldValue(valueJson: any): number | null {
+  if (valueJson == null) return null;
+  if (typeof valueJson === "number" && Number.isFinite(valueJson)) return valueJson;
+  if (typeof valueJson === "object" && valueJson !== null && "value" in valueJson) {
+    const n = Number((valueJson as any).value);
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(valueJson);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function InspectionCapture() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
@@ -88,6 +99,12 @@ export default function InspectionCapture() {
   // Track what was copied so we can remove it when unchecked
   const [copiedImageKeys, setCopiedImageKeys] = useState<Set<string>>(new Set());
   const [copiedNoteKeys, setCopiedNoteKeys] = useState<Set<string>>(new Set());
+  /** Avoid re-applying check-in bedroom count after user edits or duplicate effect runs */
+  const bedroomCountSeededFromCheckInRef = useRef(false);
+
+  useEffect(() => {
+    bedroomCountSeededFromCheckInRef.current = false;
+  }, [id]);
 
   // Fetch inspection with template snapshot
   const { data: inspection, isLoading } = useQuery<Inspection>({
@@ -455,7 +472,12 @@ export default function InspectionCapture() {
 
       // Invalidate and refetch entries to get updated data
       queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
-      
+      if (inspection?.propertyId) {
+        queryClient.invalidateQueries({
+          queryKey: [`/api/properties/${inspection.propertyId}/most-recent-checkin`],
+        });
+      }
+
       // Wait a bit for the server to finish processing, then refetch
       setTimeout(async () => {
         const result = await queryClient.refetchQueries({ 
@@ -855,6 +877,104 @@ export default function InspectionCapture() {
       });
     }
   };
+
+  // Auto-fill "Number of Bedrooms" on check-out from the latest check-in (same property)
+  useEffect(() => {
+    if (!inspection || inspection.type !== "check_out" || !id) return;
+    if (!checkInData?.entries?.length) return;
+    if (!sections.length) return;
+
+    const generalInfoSection = sections.find(
+      (section) =>
+        section.title?.toLowerCase().includes("general") || section.id?.toLowerCase().includes("general"),
+    );
+    const bedroomsSection = sections.find(
+      (section) =>
+        section.repeatable &&
+        (section.title?.toLowerCase().includes("bedroom") || section.id?.toLowerCase().includes("bedroom")),
+    );
+    if (!generalInfoSection || !bedroomsSection) return;
+
+    const bedroomCountField = generalInfoSection.fields.find((field) => {
+      const labelLower = field.label?.toLowerCase() || "";
+      const fieldIdLower = (field.id || "").toLowerCase();
+      const fieldKeyLower = (field.key || "").toLowerCase();
+      return (
+        (labelLower.includes("number") && labelLower.includes("bedroom")) ||
+        fieldIdLower.includes("num_bedroom") ||
+        fieldKeyLower.includes("num_bedroom")
+      );
+    });
+    if (!bedroomCountField) return;
+
+    const alreadySaved = existingEntries.some((e: any) => {
+      if (e.sectionRef !== generalInfoSection.id || e.fieldKey !== bedroomCountField.id) return false;
+      const n = entryNumericFieldValue(e.valueJson);
+      return n != null && n >= 1;
+    });
+    if (alreadySaved) {
+      bedroomCountSeededFromCheckInRef.current = true;
+      return;
+    }
+    if (bedroomCountSeededFromCheckInRef.current) return;
+
+    const checkInBedroomEntry = checkInData.entries.find((e: any) => {
+      const fk = String(e.fieldKey || "").toLowerCase();
+      return fk.includes("num_bedroom");
+    });
+    if (!checkInBedroomEntry) {
+      bedroomCountSeededFromCheckInRef.current = true;
+      return;
+    }
+
+    const raw = entryNumericFieldValue(checkInBedroomEntry.valueJson);
+    if (raw == null || raw < 1 || !Number.isFinite(raw)) {
+      bedroomCountSeededFromCheckInRef.current = true;
+      return;
+    }
+
+    const desiredCount = Math.max(1, Math.min(50, Math.floor(raw)));
+    const valueJson =
+      typeof checkInBedroomEntry.valueJson === "object" &&
+      checkInBedroomEntry.valueJson !== null &&
+      "value" in checkInBedroomEntry.valueJson
+        ? { ...(checkInBedroomEntry.valueJson as object), value: desiredCount }
+        : desiredCount;
+
+    const entry: InspectionEntry = {
+      sectionRef: generalInfoSection.id,
+      fieldKey: bedroomCountField.id,
+      fieldType: bedroomCountField.type as any,
+      valueJson,
+    };
+
+    bedroomCountSeededFromCheckInRef.current = true;
+
+    const entryKey = `${generalInfoSection.id}-${bedroomCountField.id}`;
+    setEntries((prev) => ({ ...prev, [entryKey]: entry }));
+
+    if (isOnline) {
+      updateEntry.mutate(entry);
+    } else {
+      offlineQueue.enqueue({
+        inspectionId: id,
+        sectionRef: entry.sectionRef,
+        fieldKey: entry.fieldKey,
+        fieldType: entry.fieldType,
+        valueJson: entry.valueJson,
+      });
+      setPendingCount(offlineQueue.getPendingCount());
+    }
+  }, [
+    inspection?.id,
+    inspection?.type,
+    checkInData,
+    sections,
+    existingEntries,
+    isOnline,
+    id,
+    updateEntry,
+  ]);
 
   // Handle field value change
   const handleFieldChange = (fieldKey: string, value: any, note?: string | undefined, photos?: string[] | undefined, instanceIndex?: number) => {

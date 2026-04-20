@@ -31,6 +31,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize } from '../../utils/responsive';
 import { format, formatDistanceToNow } from 'date-fns';
+import { getTeamRoleDisplayLabel } from '../../constants/roleLabels';
 
 type NavigationProp = StackNavigationProp<MaintenanceStackParamList, 'MaintenanceList'>;
 
@@ -66,8 +67,6 @@ export default function MaintenanceListScreen() {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  // Tabs removed - always show requests
-  const activeTab = 'requests';
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [filterProperty, setFilterProperty] = useState<string>('all');
   const [filterBlock, setFilterBlock] = useState<string>('all');
@@ -103,7 +102,7 @@ export default function MaintenanceListScreen() {
       // This is a placeholder - adjust based on your actual API
       return [];
     },
-    enabled: user?.role === 'owner' || user?.role === 'clerk',
+    enabled: user?.role === 'owner' || user?.role === 'clerk' || user?.role === 'contractor',
   });
 
   const { data: teams = [] } = useQuery({
@@ -121,12 +120,6 @@ export default function MaintenanceListScreen() {
       // Placeholder for contractors/contacts endpoint
       return [];
     },
-    enabled: (user?.role === 'owner' || user?.role === 'contractor'),
-  });
-
-  const { data: workOrders = [], isLoading: workOrdersLoading } = useQuery({
-    queryKey: ['/api/work-orders'],
-    queryFn: () => maintenanceService.getWorkOrders(),
     enabled: (user?.role === 'owner' || user?.role === 'contractor'),
   });
 
@@ -304,7 +297,7 @@ export default function MaintenanceListScreen() {
         <View style={styles.requestHeader}>
           <View style={styles.requestTitleRow}>
             <Text style={[styles.requestTitle, { color: themeColors.text.primary }]} numberOfLines={2}>{item.title}</Text>
-            {(user?.role === 'owner' || user?.role === 'clerk') && (
+            {(user?.role === 'owner' || user?.role === 'clerk' || user?.role === 'contractor') && (
               <TouchableOpacity
                 onPress={() => handleEdit(item)}
                 style={styles.editButton}
@@ -345,7 +338,7 @@ export default function MaintenanceListScreen() {
           <View style={styles.reporterInfo}>
             <Text style={[styles.footerText, { color: themeColors.text.secondary }]}>
               Reported by: {item.reportedByUser
-                ? `${item.reportedByUser.firstName} ${item.reportedByUser.lastName}`
+                ? `${item.reportedByUser.firstName} ${item.reportedByUser.lastName}${item.reportedByUser.role ? ` (${getTeamRoleDisplayLabel(item.reportedByUser.role)})` : ''}`
                 : 'Unknown'}
             </Text>
             {item.assignedToUser && (
@@ -400,13 +393,6 @@ export default function MaintenanceListScreen() {
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity
-                style={styles.workOrderButton}
-                onPress={() => handleCreateWorkOrder(item)}
-              >
-                <Clipboard size={16} color={themeColors.text.primary} />
-                <Text style={styles.workOrderButtonText}>Work Order</Text>
-              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -539,7 +525,7 @@ export default function MaintenanceListScreen() {
         </View>
 
         {/* Fixed Search Bar */}
-        {activeTab === 'requests' && user?.role !== 'tenant' && (
+        {user?.role !== 'tenant' && (
           <View style={[
             styles.searchContainer,
             {
@@ -559,7 +545,7 @@ export default function MaintenanceListScreen() {
       </View>
 
       {/* Scrollable Content */}
-      {activeTab === 'requests' && user?.role !== 'tenant' && (
+      {user?.role !== 'tenant' && (
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={[
@@ -672,32 +658,6 @@ export default function MaintenanceListScreen() {
             </View>
           )}
         </ScrollView>
-      )}
-
-      {/* Content for work orders */}
-      {activeTab !== 'requests' && (
-        <FlatList
-          data={workOrders}
-          renderItem={renderWorkOrderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: Math.max(insets.bottom + 80, 32) }
-          ]}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              title="No Work Orders"
-              message={
-                user?.role === 'contractor'
-                  ? "You don't have any assigned work orders yet"
-                  : 'Create work orders from maintenance requests'
-              }
-            />
-          }
-        />
       )}
 
       {/* Status Filter Modal */}

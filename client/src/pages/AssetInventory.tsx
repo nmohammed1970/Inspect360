@@ -13,7 +13,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import { useLocale } from "@/contexts/LocaleContext";
-import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, FileText, MapPin, Tag as TagIcon, ArrowLeft, Filter, X } from "lucide-react";
+import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, FileText, MapPin, Tag as TagIcon, ArrowLeft, Filter, X, ExternalLink, Download } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { AssetInventory, Property, Block } from "@shared/schema";
 import { formatPropertyLocationLabel, formatBlockLocationLabel } from "@shared/locationLabels";
@@ -53,20 +53,22 @@ const assetCategories = [
   "Other",
 ];
 
-// Helper function to normalize photo URLs (convert relative to absolute)
+// Same-origin paths for /objects/* so <img> requests use the SPA host and session cookies.
+// (Absolute URLs to another host:port often 404 or miss auth after deploy / localhost changes.)
+const BARE_OBJECT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[^/]*$/i;
+
 const normalizePhotoUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
 
   const trimmedUrl = url.trim();
   if (!trimmedUrl) return null;
 
-  // For object storage URLs, always use the current app origin so old localhost/IP
-  // combinations don't break authenticated image loading.
-  if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+  if (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://")) {
     try {
       const parsedUrl = new URL(trimmedUrl);
-      if (parsedUrl.pathname.startsWith('/objects/')) {
-        return `${window.location.origin}${parsedUrl.pathname}${parsedUrl.search}`;
+      if (parsedUrl.pathname.startsWith("/objects/")) {
+        return `${parsedUrl.pathname}${parsedUrl.search}`;
       }
       return trimmedUrl;
     } catch {
@@ -74,21 +76,28 @@ const normalizePhotoUrl = (url: string | null | undefined): string | null => {
     }
   }
 
-  // Normalize storage/object paths to absolute URLs
-  if (trimmedUrl.startsWith('/')) {
-    return `${window.location.origin}${trimmedUrl}`;
+  if (trimmedUrl.startsWith("/objects/")) {
+    return trimmedUrl;
   }
 
-  if (trimmedUrl.startsWith('objects/')) {
-    return `${window.location.origin}/${trimmedUrl}`;
+  if (trimmedUrl.startsWith("/")) {
+    return trimmedUrl;
   }
 
-  if (trimmedUrl.includes('/objects/')) {
-    const objectPathIndex = trimmedUrl.indexOf('/objects/');
-    return `${window.location.origin}${trimmedUrl.slice(objectPathIndex)}`;
+  if (trimmedUrl.startsWith("objects/")) {
+    return `/${trimmedUrl}`;
   }
 
-  return `${window.location.origin}/${trimmedUrl.replace(/^\/+/, '')}`;
+  if (trimmedUrl.includes("/objects/")) {
+    const objectPathIndex = trimmedUrl.indexOf("/objects/");
+    return trimmedUrl.slice(objectPathIndex);
+  }
+
+  if (BARE_OBJECT_ID.test(trimmedUrl.replace(/^\.\/+/, ""))) {
+    return `/objects/${trimmedUrl.replace(/^\.\/+/, "")}`;
+  }
+
+  return `/${trimmedUrl.replace(/^\/+/, "")}`;
 };
 
 const roundToTwoDecimals = (value: number): number => Math.round(value * 100) / 100;
@@ -102,9 +111,41 @@ const getYearsUsed = (datePurchased: Date | string | null | undefined): number =
   return Math.max(0, years);
 };
 
-const isPdfFileUrl = (url: string | null | undefined): boolean => {
+/** Filename segment of an object path is clearly an image */
+const IMAGE_OBJECT_SEGMENT_EXT_RE = /\.(jpe?g|png|gif|webp|svg|bmp|ico|tiff?|heic|avif)$/i;
+
+/**
+ * Show the document card (View/Download) for PDFs and for /objects/... files that are not
+ * obvious images — legacy PDFs were often stored without a .pdf suffix.
+ */
+const isAssetDocumentPreviewUrl = (url: string | null | undefined): boolean => {
   if (!url) return false;
-  return url.toLowerCase().split("?")[0].endsWith(".pdf");
+  const candidates = [url, normalizePhotoUrl(url) || url];
+  for (const u of candidates) {
+    const path = u.split("?")[0].toLowerCase();
+    if (path.endsWith(".pdf")) return true;
+  }
+  for (const u of candidates) {
+    const path = u.split("?")[0];
+    const m = path.match(/\/objects\/([^/]+)$/i);
+    if (!m) continue;
+    const segment = m[1];
+    if (IMAGE_OBJECT_SEGMENT_EXT_RE.test(segment)) continue;
+    return true;
+  }
+  return false;
+};
+
+/** Filename for Save As: browsers often ignore Content-Disposition when <a download> has no value. */
+const getAssetDocumentDownloadName = (url: string): string => {
+  const resolved = normalizePhotoUrl(url) || url;
+  const path = resolved.split("?")[0];
+  const segment = path.split("/").filter(Boolean).pop() || "document";
+  const safe = segment.replace(/[<>:"/\\|?*]/g, "_");
+  const lower = safe.toLowerCase();
+  if (lower.endsWith(".pdf")) return safe;
+  if (/\.[a-z0-9]{2,5}$/i.test(safe)) return safe;
+  return `${safe}.pdf`;
 };
 
 export default function AssetInventory() {
@@ -164,6 +205,8 @@ export default function AssetInventory() {
       const currentValue = roundToTwoDecimals(
         Math.max(0, purchasePrice - (depreciationPerYear * yearsUsed)),
       );
+      const depreciationPerYearValue = depreciationPerYear.toFixed(2);
+      const currentValueValue = currentValue.toFixed(2);
       setFormData((prev) => {
         if (
           Number(prev.depreciationPerYear) === depreciationPerYear &&
@@ -173,8 +216,8 @@ export default function AssetInventory() {
         }
         return {
           ...prev,
-          depreciationPerYear,
-          currentValue,
+          depreciationPerYear: depreciationPerYearValue as any,
+          currentValue: currentValueValue as any,
         };
       });
       return;
@@ -480,6 +523,31 @@ export default function AssetInventory() {
     };
 
     saveMutation.mutate(submitData);
+  };
+
+  const renderDocumentCard = (url: string, compact: boolean = true) => {
+    const resolvedUrl = normalizePhotoUrl(url) || url;
+    const downloadName = getAssetDocumentDownloadName(url);
+    return (
+      <div className={`flex w-full flex-col items-center justify-center rounded border bg-muted/40 px-2 text-center ${compact ? "h-24" : "h-full"}`}>
+        <FileText className={`mb-1 text-primary ${compact ? "h-8 w-8" : "h-10 w-10"}`} />
+        <span className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>Document</span>
+        <div className={`mt-1 flex items-center gap-2 ${compact ? "text-xs" : "text-sm"}`}>
+          <a href={resolvedUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+            <ExternalLink className="h-3.5 w-3.5" />
+            View
+          </a>
+          <a
+            href={resolvedUrl}
+            download={downloadName}
+            className="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download
+          </a>
+        </div>
+      </div>
+    );
   };
 
   // Filter assets (search includes linked property/block name and address)
@@ -952,19 +1020,19 @@ export default function AssetInventory() {
                   <div className="grid grid-cols-4 gap-2">
                     {uploadedPhotos.map((url, index) => (
                       <div key={index} className="relative">
-                        {isPdfFileUrl(url) ? (
-                          <a
-                            href={normalizePhotoUrl(url) || url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex h-24 w-full flex-col items-center justify-center rounded border bg-muted/40 px-2 text-center hover:bg-muted"
-                          >
-                            <FileText className="mb-1 h-8 w-8 text-primary" />
-                            <span className="text-xs font-medium">View PDF</span>
-                          </a>
-                        ) : (
-                          <img src={normalizePhotoUrl(url) || url} alt={`Asset file ${index + 1}`} className="w-full h-24 object-cover rounded" />
-                        )}
+                        {(() => {
+                          const resolvedUrl = normalizePhotoUrl(url) || url;
+                          if (isAssetDocumentPreviewUrl(url)) {
+                            return renderDocumentCard(url);
+                          }
+                          return (
+                            <img
+                              src={resolvedUrl}
+                              alt={`Asset file ${index + 1}`}
+                              className="w-full h-24 object-cover rounded"
+                            />
+                          );
+                        })()}
                         <Button
                           type="button"
                           size="icon"
@@ -1264,21 +1332,14 @@ export default function AssetInventory() {
                   const firstPhoto = normalizePhotoUrl(asset.photos[0]);
                   return firstPhoto ? (
                     <div className="relative h-32 rounded overflow-hidden">
-                      {isPdfFileUrl(firstPhoto) ? (
-                        <a
-                          href={firstPhoto}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex h-full w-full flex-col items-center justify-center bg-muted/40 hover:bg-muted"
-                        >
-                          <FileText className="mb-2 h-10 w-10 text-primary" />
-                          <span className="text-sm font-medium">Open PDF</span>
-                        </a>
+                      {isAssetDocumentPreviewUrl(asset.photos[0]) ? (
+                        renderDocumentCard(firstPhoto, false)
                       ) : (
-                        <img src={firstPhoto} alt={asset.name} className="w-full h-full object-cover" onError={(e) => {
-                          console.error('Failed to load image:', firstPhoto);
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }} />
+                        <img
+                          src={firstPhoto}
+                          alt={asset.name}
+                          className="w-full h-full object-cover"
+                        />
                       )}
                       {asset.photos.length > 1 && (
                         <Badge className="absolute top-2 right-2 text-xs">

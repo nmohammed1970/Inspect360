@@ -2,7 +2,7 @@
 import { Response } from "express";
 import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, basename } from "path";
 import { createReadStream, createWriteStream } from "fs";
 import {
   ObjectAclPolicy,
@@ -11,6 +11,44 @@ import {
   getObjectAclPolicy,
   setObjectAclPolicy,
 } from "./objectAcl";
+
+function extensionForMimeType(contentType: string | undefined): string {
+  if (!contentType) return "";
+  const ct = contentType.split(";")[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "text/plain": ".txt",
+  };
+  return map[ct] || "";
+}
+
+/** First bytes → extension when MIME is missing or generic */
+function extensionFromMagicBytes(buffer: Buffer): string {
+  if (buffer.length < 4) return "";
+  if (buffer.subarray(0, 4).toString() === "%PDF") return ".pdf";
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return ".jpg";
+  if (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return ".png";
+  }
+  return "";
+}
+
+async function readFilePrefix(filePath: string, len: number): Promise<Buffer> {
+  const fh = await fs.open(filePath, "r");
+  try {
+    const buf = Buffer.alloc(len);
+    const { bytesRead } = await fh.read(buf, 0, len, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+}
 
 // Local file wrapper that mimics GCS File interface
 export class LocalFile {
@@ -167,10 +205,32 @@ export class ObjectStorageService {
       const [metadata] = await file.getMetadata();
       const aclPolicy = await getObjectAclPolicy(file);
       const isPublic = aclPolicy?.visibility === "public";
-      
+
+      let contentType = metadata.contentType || "application/octet-stream";
+      let filename = basename(file.name);
+
+      if (!filename.includes(".")) {
+        let magicExt = "";
+        try {
+          magicExt = extensionFromMagicBytes(await readFilePrefix(file.name, 16));
+        } catch {
+          /* ignore */
+        }
+        if (magicExt === ".pdf") contentType = "application/pdf";
+        else if (magicExt === ".jpg") contentType = "image/jpeg";
+        else if (magicExt === ".png") contentType = "image/png";
+
+        const ext = extensionForMimeType(contentType) || magicExt;
+        if (ext) filename = `${filename}${ext}`;
+      }
+
+      const safeAscii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "_") || "download";
+      const disposition = `inline; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+
       res.set({
-        "Content-Type": metadata.contentType || "application/octet-stream",
+        "Content-Type": contentType,
         "Content-Length": metadata.size,
+        "Content-Disposition": disposition,
         "Cache-Control": `${
           isPublic ? "public" : "private"
         }, max-age=${cacheTtlSec}`,
@@ -202,6 +262,27 @@ export class ObjectStorageService {
     return `/api/objects/upload-direct?objectId=${objectId}`;
   }
 
+  private getEntityIdCandidates(entityId: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (s: string) => {
+      if (!seen.has(s)) {
+        seen.add(s);
+        out.push(s);
+      }
+    };
+    push(entityId);
+    if (!entityId.includes(".")) {
+      push(`${entityId}.pdf`);
+      push(`${entityId}.jpg`);
+      push(`${entityId}.jpeg`);
+      push(`${entityId}.png`);
+      push(`${entityId}.webp`);
+      push(`${entityId}.gif`);
+    }
+    return out;
+  }
+
   async getObjectEntityFile(objectPath: string): Promise<LocalFile> {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();
@@ -214,14 +295,18 @@ export class ObjectStorageService {
 
     const entityId = parts.slice(1).join("/");
     const privateObjectDir = this.getPrivateObjectDir();
-    const fullPath = join(getStorageDir(), privateObjectDir, entityId);
-    const file = new LocalFile(fullPath);
-    
-    const [exists] = await file.exists();
-    if (!exists) {
-      throw new ObjectNotFoundError();
+    const baseDir = join(getStorageDir(), privateObjectDir);
+
+    for (const name of this.getEntityIdCandidates(entityId)) {
+      const fullPath = join(baseDir, name);
+      const file = new LocalFile(fullPath);
+      const [exists] = await file.exists();
+      if (exists) {
+        return file;
+      }
     }
-    return file;
+
+    throw new ObjectNotFoundError();
   }
 
   normalizeObjectEntityPath(rawPath: string): string {
@@ -288,15 +373,17 @@ export class ObjectStorageService {
   async saveUploadedFile(objectId: string, fileBuffer: Buffer, contentType?: string): Promise<string> {
     await ensureStorageDir();
     const privateObjectDir = this.getPrivateObjectDir();
-    const fileName = `${objectId}`;
+    const ext =
+      extensionForMimeType(contentType) || extensionFromMagicBytes(fileBuffer.subarray(0, Math.min(16, fileBuffer.length)));
+    const fileName = ext ? `${objectId}${ext}` : objectId;
     const fullPath = join(getStorageDir(), privateObjectDir, fileName);
-    
+
     // Ensure directory exists
     await fs.mkdir(dirname(fullPath), { recursive: true });
-    
+
     // Write file
     await fs.writeFile(fullPath, fileBuffer);
-    
+
     // Return normalized path
     return `/objects/${fileName}`;
   }

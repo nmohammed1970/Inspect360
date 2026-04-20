@@ -422,7 +422,11 @@ export default function LoginScreen() {
         errorMessage = 'Connection security error. Please contact support.';
       } 
       // Handle access denied errors
-      else if (err?.message?.includes('Access denied') || err?.message?.includes('This app is only for inspectors')) {
+      else if (
+        err?.message?.includes('Access denied') ||
+        err?.message?.includes('This app is only for') ||
+        err?.message?.includes('This app is for organization owners')
+      ) {
         errorMessage = err.message;
       }
       // Use the error message from API if it's user-friendly

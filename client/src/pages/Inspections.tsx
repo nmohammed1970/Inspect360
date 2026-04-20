@@ -41,7 +41,6 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link, useLocation, useSearch } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
-import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 // Component to display AI Analysis progress for an inspection
@@ -180,8 +179,8 @@ export default function Inspections() {
   });
 
 
-  const { data: clerks = [] } = useQuery<any[]>({
-    queryKey: ["/api/users/clerks"],
+  const { data: teamMembers = [] } = useQuery<any[]>({
+    queryKey: ["/api/team"],
   });
 
   // Fetch active tenants for filter dropdown
@@ -195,6 +194,12 @@ export default function Inspections() {
   });
 
   const hasCredits = (creditBalance?.totalAvailable ?? 0) >= 1;
+  const getInspectionAssigneeRoleLabel = (role?: string) =>
+    role === "contractor" ? "contractor" : "inspector";
+  const inspectionAssignees = useMemo(
+    () => teamMembers.filter((member: any) => ["clerk", "contractor"].includes(member.role)),
+    [teamMembers]
+  );
 
   const form = useForm<CreateInspectionData>({
     resolver: zodResolver(createInspectionSchema),
@@ -843,7 +848,7 @@ export default function Inspections() {
                   name="clerkId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Assign {getTeamRoleDisplayLabel("clerk")} (Optional)</FormLabel>
+                      <FormLabel>Assign Inspector / Contractor (Optional)</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-clerk">
@@ -851,9 +856,9 @@ export default function Inspections() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {clerks.map((clerk: any) => (
-                            <SelectItem key={clerk.id} value={clerk.id}>
-                              {clerk.firstName} {clerk.lastName}
+                          {inspectionAssignees.map((assignee: any) => (
+                            <SelectItem key={assignee.id} value={assignee.id}>
+                              {assignee.firstName} {assignee.lastName} ({getInspectionAssigneeRoleLabel(assignee.role)})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1272,18 +1277,16 @@ export default function Inspections() {
                       {inspection.status === "in_progress" ? "Continue" : "Start"}
                     </Button>
                   )}
-                  {inspection.templateSnapshotJson && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => navigate(`/inspections/${inspection.id}/report`)}
-                      data-testid={`button-view-report-${inspection.id}`}
-                    >
-                      <FileText className="w-4 h-4 mr-2" />
-                      View Report
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => navigate(`/inspections/${inspection.id}/report`)}
+                    data-testid={`button-view-report-${inspection.id}`}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    View Report
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

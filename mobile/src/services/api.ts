@@ -114,6 +114,40 @@ const getBaseUrl = (): string => {
   return apiUrl;
 };
 
+const getExpoHostIp = (): string | null => {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    (Constants as any).debuggerHostUri ||
+    (Constants as any).manifest?.hostUri ||
+    (Constants as any).manifest2?.hostUri ||
+    (Constants as any).expoGoUrl;
+
+  if (!hostUri) return null;
+
+  const cleaned = String(hostUri)
+    .replace(/^https?:\/\//, '')
+    .split('/')[0]
+    .split(':')[0];
+
+  return cleaned || null;
+};
+
+const buildRetryUrlWithExpoHost = (fullUrl: string): string | null => {
+  try {
+    const parsed = new URL(fullUrl);
+    const expoHostIp = getExpoHostIp();
+    if (!expoHostIp) return null;
+
+    const isPrivateIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname);
+    if (!isPrivateIpv4 || parsed.hostname === expoHostIp) return null;
+
+    parsed.hostname = expoHostIp;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
 // Export a getter function that re-evaluates each time (lazy evaluation)
 // This ensures hostUri is available when accessed, not at module load time
 export const getAPI_URL = (): string => {
@@ -281,6 +315,39 @@ export async function apiRequest(
         error.message?.includes('Network request failed') ||
         error.message?.includes('NetworkError') ||
         error.message?.includes('No network connection')) {
+      // If .env has a stale LAN IP, retry once using Expo host IP.
+      const retryUrl = buildRetryUrlWithExpoHost(fullUrl);
+      if (retryUrl) {
+        try {
+          if (isDevelopment) {
+            console.warn(`[API] Retrying with Expo host IP: ${retryUrl}`);
+          }
+          const retryRes = await fetch(retryUrl, {
+            method,
+            headers: data
+              ? {
+                  "Content-Type": "application/json",
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  "Pragma": "no-cache",
+                  "Accept": "application/json",
+                }
+              : {
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  "Pragma": "no-cache",
+                  "Accept": "application/json",
+                },
+            body: data ? JSON.stringify(data) : undefined,
+            credentials: "include",
+          });
+          await throwIfResNotOk(retryRes);
+          return retryRes;
+        } catch (retryError: any) {
+          if (isDevelopment) {
+            console.error('[API] Retry with Expo host IP failed:', retryError?.message || retryError);
+          }
+        }
+      }
+
       const baseUrl = getBaseUrl();
       const hint = isDevelopment && (baseUrl.includes('192.') || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'))
         ? ` (Cannot reach ${baseUrl}. Ensure phone and PC are on same Wi‑Fi, server is running, and firewall allows the port.)`

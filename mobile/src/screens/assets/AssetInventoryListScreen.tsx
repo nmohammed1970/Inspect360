@@ -95,6 +95,7 @@ const assetCategories = [
 
 const normalizePhotoUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
+  const apiBase = getAPI_URL();
 
   // Replace localhost URLs with API_URL for mobile compatibility
   // On mobile devices, localhost refers to the device itself, not the server
@@ -103,33 +104,44 @@ const normalizePhotoUrl = (url: string | null | undefined): string | null => {
     try {
       const urlObj = new URL(url);
       const path = urlObj.pathname + urlObj.search;
-      return `${getAPI_URL()}${path}`;
+      return `${apiBase}${path}`;
     } catch {
       // If URL parsing fails, try to extract path manually
       const match = url.match(/(localhost|127\.0\.0\.1)[:\d]*(\/.*)/);
       if (match && match[2]) {
-        return `${getAPI_URL()}${match[2]}`;
+        return `${apiBase}${match[2]}`;
       }
     }
   }
 
-  // If already absolute URL, return as is
+  // If already absolute URL, keep it unless it points to a stale host for object files.
   if (url.startsWith('http://') || url.startsWith('https://')) {
+    try {
+      const sourceUrl = new URL(url);
+      const currentApiUrl = new URL(apiBase);
+
+      // Rebase object URLs to current API host/IP to handle LAN IP changes.
+      if (sourceUrl.pathname.startsWith('/objects/') && sourceUrl.host !== currentApiUrl.host) {
+        return `${currentApiUrl.origin}${sourceUrl.pathname}${sourceUrl.search}`;
+      }
+    } catch {
+      // Fall through and return original URL if parsing fails.
+    }
     return url;
   }
 
   // If relative path starting with /, make it absolute
   if (url.startsWith('/')) {
-    return `${getAPI_URL()}${url}`;
+    return `${apiBase}${url}`;
   }
 
   // If it's an object path like /objects/xxx, make it absolute
   if (url.startsWith('objects/')) {
-    return `${getAPI_URL()}/${url}`;
+    return `${apiBase}/${url}`;
   }
 
   // Otherwise, assume it's a relative path and prepend API_URL
-  return `${getAPI_URL()}/${url}`;
+  return `${apiBase}/${url}`;
 };
 
 export default function AssetInventoryListScreen() {
