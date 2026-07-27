@@ -260,6 +260,7 @@ export function FieldWidget({
   // Auto-save auto-populated field values when they first render with autoContext
   useEffect(() => {
     if (!autoContext) return;
+    if (autoSaveTriggeredRef.current) return;
 
     const isAutoField = field.type.startsWith("auto_");
     if (!isAutoField) return;
@@ -281,7 +282,13 @@ export function FieldWidget({
         break;
     }
 
-    if (!autoValue) return;
+    // Wait until inspector name is resolved before locking this field
+    if (field.type === "auto_inspector" && !autoValue) return;
+
+    if (!autoValue) {
+      autoSaveTriggeredRef.current = true;
+      return;
+    }
 
     const savedValue =
       typeof value === "string"
@@ -292,28 +299,32 @@ export function FieldWidget({
             ? String(value)
             : "";
 
-    // Inspector name must always match the assigned inspector/contractor
-    // (fixes stale saves that used company username as the display name)
+    // One-shot only: prevents Maximum update depth (#185) when parent
+    // re-renders recreate autoContext/onChange and entries refetch overwrites value
+    autoSaveTriggeredRef.current = true;
+
     if (field.type === "auto_inspector") {
       if (savedValue !== autoValue) {
         setLocalValue(autoValue);
         onChange(autoValue, undefined, undefined);
       }
-      autoSaveTriggeredRef.current = true;
       return;
     }
 
-    if (autoSaveTriggeredRef.current) return;
-
     // Only auto-save if there's no existing saved value
     if (!savedValue) {
-      autoSaveTriggeredRef.current = true;
       setLocalValue(autoValue);
       onChange(autoValue, undefined, undefined);
-    } else {
-      autoSaveTriggeredRef.current = true;
     }
-  }, [field.type, autoContext, value, onChange]);
+  }, [
+    field.type,
+    autoContext?.inspectorName,
+    autoContext?.address,
+    autoContext?.tenantNames,
+    autoContext?.inspectionDate,
+    value,
+    onChange,
+  ]);
 
   const composeValue = (val: any, condition?: string, cleanliness?: string, explicitAudioUrls?: string[] | null) => {
     const urls = explicitAudioUrls !== undefined ? (explicitAudioUrls ?? []) : audioUrlsRef.current;
