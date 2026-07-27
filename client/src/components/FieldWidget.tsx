@@ -18,6 +18,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import SignatureCanvas from "react-signature-canvas";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
+import { createSignatureValue, parseSignatureValue, formatSignerDisplayName } from "@shared/signature";
 import { useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -256,10 +257,9 @@ export function FieldWidget({
   // Track if auto-save has been triggered for this field instance
   const autoSaveTriggeredRef = useRef(false);
 
-  // Auto-save auto-populated field values ONCE when they first render with autoContext
+  // Auto-save auto-populated field values when they first render with autoContext
   useEffect(() => {
     if (!autoContext) return;
-    if (autoSaveTriggeredRef.current) return; // Only trigger once per field instance
 
     const isAutoField = field.type.startsWith("auto_");
     if (!isAutoField) return;
@@ -281,14 +281,36 @@ export function FieldWidget({
         break;
     }
 
-    // Only auto-save if there's no existing saved value (not localValue, but original value prop)
-    // and we have an auto value to populate
-    if (!value && autoValue) {
+    if (!autoValue) return;
+
+    const savedValue =
+      typeof value === "string"
+        ? value
+        : value && typeof value === "object" && "value" in value
+          ? String((value as any).value ?? "")
+          : value != null
+            ? String(value)
+            : "";
+
+    // Inspector name must always match the assigned inspector/contractor
+    // (fixes stale saves that used company username as the display name)
+    if (field.type === "auto_inspector") {
+      if (savedValue !== autoValue) {
+        setLocalValue(autoValue);
+        onChange(autoValue, undefined, undefined);
+      }
+      autoSaveTriggeredRef.current = true;
+      return;
+    }
+
+    if (autoSaveTriggeredRef.current) return;
+
+    // Only auto-save if there's no existing saved value
+    if (!savedValue) {
       autoSaveTriggeredRef.current = true;
       setLocalValue(autoValue);
       onChange(autoValue, undefined, undefined);
-    } else if (value) {
-      // If there's already a saved value, just mark as triggered to prevent overwrites
+    } else {
       autoSaveTriggeredRef.current = true;
     }
   }, [field.type, autoContext, value, onChange]);
@@ -422,28 +444,13 @@ export function FieldWidget({
         });
       }
 
-      // Invalidate organization query to update credit balance
-      if (user?.organizationId) {
-        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
-      }
     } catch (error: any) {
       console.error("Error getting AI condition suggestion:", error);
-      // Check for insufficient credits error
-      const errorMessage = error?.message?.toLowerCase() || "";
-      if (errorMessage.includes("insufficient") || errorMessage.includes("credit")) {
-        toast({
-          title: "AI Suggestion Unavailable",
-          description: "Insufficient credits. Please set condition/cleanliness manually.",
-          variant: "default",
-        });
-      } else {
-        // Show generic error for other failures
-        toast({
-          title: "AI Analysis Failed",
-          description: "Could not analyze photo. Please set condition/cleanliness manually.",
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: "AI Analysis Failed",
+        description: "Could not analyze photo. Please set condition/cleanliness manually.",
+        variant: "destructive",
+      });
     } finally {
       setAnalyzingCondition(false);
     }
@@ -601,8 +608,9 @@ export function FieldWidget({
                 reject(new Error('Failed to compress image'));
                 return;
               }
-              // Create a new File object with compressed data
-              const compressedFile = new File([blob], file.name, {
+              // Keep original name but use .jpg when re-encoding
+              const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
+              const compressedFile = new File([blob], `${baseName}.jpg`, {
                 type: 'image/jpeg',
                 lastModified: Date.now(),
               });
@@ -620,6 +628,32 @@ export function FieldWidget({
     });
   };
 
+  /** Allow large phone photos, then compress anything over 10MB down toward that size. */
+  const compressImageIfOverLimit = async (
+    file: File,
+    maxBytes: number = 10 * 1024 * 1024,
+  ): Promise<File> => {
+    if (!file.type.startsWith("image/") || file.size <= maxBytes) {
+      return file;
+    }
+
+    const originalSize = file.size;
+    let result = file;
+    let quality = 0.72;
+    let maxDim = 1920;
+
+    for (let attempt = 0; attempt < 6 && result.size > maxBytes; attempt++) {
+      result = await compressImage(result, maxDim, maxDim, quality);
+      quality = Math.max(0.35, quality - 0.1);
+      maxDim = Math.max(1024, Math.floor(maxDim * 0.85));
+    }
+
+    console.log(
+      `[FieldWidget] Compressed image from ${(originalSize / 1024 / 1024).toFixed(2)}MB to ${(result.size / 1024 / 1024).toFixed(2)}MB`,
+    );
+    return result;
+  };
+
   const handlePhotoFilesSelected = async (files: File[]) => {
     if (files.length === 0) return;
 
@@ -630,14 +664,17 @@ export function FieldWidget({
       for (let i = 0; i < files.length; i++) {
         let file = files[i];
 
-        // Compress image if it's an image file and larger than 1MB
-        if (file.type.startsWith('image/') && file.size > 1024 * 1024) {
+        // Allow large phone photos; compress anything over 10MB down toward that size.
+        // Lightly compress mid-size images for faster uploads.
+        if (file.type.startsWith('image/')) {
           try {
-            file = await compressImage(file, 1920, 1920, 0.7);
-            console.log(`[FieldWidget] Compressed image from ${(files[i].size / 1024 / 1024).toFixed(2)}MB to ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+            if (file.size > 10 * 1024 * 1024) {
+              file = await compressImageIfOverLimit(file, 10 * 1024 * 1024);
+            } else if (file.size > 1024 * 1024) {
+              file = await compressImage(file, 1920, 1920, 0.7);
+            }
           } catch (compressError) {
             console.warn('[FieldWidget] Image compression failed, using original:', compressError);
-            // Continue with original file if compression fails
           }
         }
 
@@ -795,7 +832,7 @@ export function FieldWidget({
       restrictions: {
         maxNumberOfFiles: maxFiles,
         allowedFileTypes: ["image/*"],
-        maxFileSize: 10485760, // 10MB
+        maxFileSize: 50 * 1024 * 1024, // Allow large phone photos; compressed before upload if >10MB
       },
       autoProceed: false,
     })
@@ -1343,7 +1380,7 @@ export function FieldWidget({
 
       toast({
         title: "Analysis Complete",
-        description: "AI analysis generated successfully (1 credit used)",
+        description: "AI analysis generated successfully",
       });
     } catch (error: any) {
       toast({
@@ -1628,7 +1665,7 @@ export function FieldWidget({
               <ModernFilePickerInline
                 onFilesSelected={handlePhotoFilesSelected}
                 maxFiles={10}
-                maxFileSize={10485760}
+                maxFileSize={50 * 1024 * 1024}
                 accept="image/*"
                 multiple={true}
                 isUploading={isUploadingPhoto}
@@ -1700,7 +1737,9 @@ export function FieldWidget({
         const handleSaveSignature = () => {
           if (signaturePadRef.current && !signaturePadRef.current.isEmpty()) {
             const signatureData = signaturePadRef.current.toDataURL();
-            handleValueChange(signatureData);
+            const signerName = formatSignerDisplayName(user);
+            const signaturePayload = createSignatureValue(signatureData, signerName);
+            handleValueChange(signaturePayload);
             toast({
               title: "Signature saved",
               description: "Your signature has been captured successfully.",
@@ -1708,17 +1747,23 @@ export function FieldWidget({
           }
         };
 
+        const parsedSignature = parseSignatureValue(localValue);
+        const isTenantSig = `${field.label || ""} ${field.key || ""} ${field.id || ""}`
+          .toLowerCase()
+          .includes("tenant");
+
         return (
           <div className="space-y-3">
-            {localValue ? (
+            {parsedSignature?.image ? (
               <Card>
                 <CardContent className="p-4">
                   <div className="space-y-3">
                     <div data-testid={`img-signature-${field.id}`}>
                       <SignatureDisplay
-                        signature={typeof localValue === "string" ? localValue : null}
+                        signature={parsedSignature}
                         className="max-w-none w-full"
-                        imageClassName="w-full h-40"
+                        imageClassName="w-full h-48 min-h-48"
+                        nameLabel={isTenantSig ? "Tenant Name" : "Inspector Name"}
                       />
                     </div>
                     <Button
@@ -1742,7 +1787,7 @@ export function FieldWidget({
                         key={signatureCanvasKey}
                         ref={signaturePadRef}
                         canvasProps={{
-                          className: "w-full h-40 cursor-crosshair",
+                          className: "w-full h-48 cursor-crosshair",
                           "data-testid": `canvas-signature-${field.id}`
                         }}
                         backgroundColor="transparent"
@@ -1779,7 +1824,7 @@ export function FieldWidget({
         );
 
       case "auto_inspector":
-        const inspectorValue = localValue || autoContext?.inspectorName || "";
+        const inspectorValue = autoContext?.inspectorName || localValue || "";
         return (
           <Input
             value={inspectorValue}

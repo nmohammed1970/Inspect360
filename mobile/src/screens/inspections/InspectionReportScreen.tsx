@@ -45,6 +45,7 @@ import { inspectionsService } from '../../services/inspections';
 import { inspectionsOffline } from '../../services/offline/inspectionsOffline';
 import { getAPI_URL } from '../../services/api';
 import type { InspectionsStackParamList } from '../../navigation/types';
+import { buildInspectionPdfFilename } from '../../../../shared/inspectionPdfFilename';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -464,8 +465,18 @@ const InspectionReportScreen = () => {
             }
 
             // Save to file system
-            const propertyName = (inspection.property?.name || inspection.block?.name || 'inspection').replace(/[^a-zA-Z0-9]/g, '_');
-            const fileName = `${propertyName}_report_${new Date().toISOString().split('T')[0]}.pdf`;
+            const assigned = inspection.inspector || inspection.clerk;
+            const assigneeName = assigned
+                ? `${assigned.firstName || ''} ${assigned.lastName || ''}`.trim()
+                    || assigned.username
+                    || assigned.email
+                    || null
+                : null;
+            const fileName = buildInspectionPdfFilename({
+                locationName: inspection.property?.name || inspection.block?.name || 'inspection',
+                date: inspection.completedDate || inspection.scheduledDate,
+                inspectorName: assigneeName,
+            });
             const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
             // Use encoding as string literal (FileSystem.EncodingType might not be available)

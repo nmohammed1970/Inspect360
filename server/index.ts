@@ -1,41 +1,61 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { serveStatic, log } from "./static";
 
 const app = express();
+
+// Required behind Caddy (or any reverse proxy) so secure cookies and
+// req.protocol / X-Forwarded-Proto behave correctly over HTTPS.
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
+app.get("/api/health", (_req: Request, res: Response) => {
+  res.status(200).json({ ok: true, service: "inspect360" });
+});
 
 // CORS middleware - Allow requests from Expo dev server and mobile apps
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
 
+  const envOrigins = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (process.env.BASE_URL) {
+    envOrigins.push(process.env.BASE_URL.replace(/\/$/, ""));
+  }
+
   // Allow requests from Expo dev server (localhost:8081) and other common dev origins
   const allowedOrigins = [
-    'http://localhost:8081',
-    'http://localhost:19006',
-    'http://localhost:19000',
-    'http://localhost:5005',
-    'http://localhost:5000',
+    "http://localhost:8081",
+    "http://localhost:19006",
+    "http://localhost:19000",
+    "http://localhost:5005",
+    "http://localhost:5000",
+    "https://portal.inspect360.ai",
+    ...envOrigins,
   ];
 
   // In development, allow any localhost origin, local network IPs, or requests without origin (mobile apps)
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
+  const isDevelopment = process.env.NODE_ENV === "development";
+  const isLocalhost = origin?.includes("localhost") || origin?.includes("127.0.0.1");
   const isLocalNetwork = isDevelopment && origin && /^http:\/\/192\.168\.\d+\.\d+/.test(origin);
   const isAllowed = isDevelopment
-    ? (isLocalhost || isLocalNetwork || !origin)
-    : allowedOrigins.includes(origin || '');
+    ? isLocalhost || isLocalNetwork || !origin
+    : !origin || allowedOrigins.includes(origin);
 
-  if (isAllowed || !origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma, Expires');
-    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie, ETag');
+  if (isAllowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma, Expires");
+    res.setHeader("Access-Control-Expose-Headers", "Set-Cookie, ETag");
   }
 
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
 
@@ -108,6 +128,8 @@ app.use((req, res, next) => {
     // doesn't interfere with the other routes
     const viteStartTime = Date.now();
     if (app.get("env") === "development") {
+      // Dynamic import keeps vite out of the production Docker image
+      const { setupVite } = await import("./vite");
       await setupVite(app, server);
       console.log(`✅ Vite setup completed (took ${Date.now() - viteStartTime}ms)`);
     } else {

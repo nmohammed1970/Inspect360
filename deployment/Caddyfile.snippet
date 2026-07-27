@@ -1,0 +1,27 @@
+# =============================================================================
+# Caddy snippet for Inspect360
+# =============================================================================
+# Location on Contabo: /etc/caddy/Caddyfile (SHARED — edit carefully)
+#
+# Before applying:
+#   1. cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%F)
+#   2. Add ONLY the site block below (do not wipe other apps' blocks)
+#   3. caddy validate --config /etc/caddy/Caddyfile
+#   4. systemctl reload caddy
+#
+# Prerequisites:
+#   - Docker network `caddy` exists
+#   - Container `inspect360` is on that network and listens on :5000
+#   - DNS for portal.inspect360.ai points to this server (for HTTPS / Let's Encrypt)
+#
+# WebSockets: Caddy reverse_proxy upgrades /ws automatically.
+
+portal.inspect360.ai {
+	encode gzip
+	reverse_proxy inspect360:5000
+}
+
+# Optional temporary health check by IP (remove after DNS cutover):
+# :80 {
+# 	respond "Caddy is up on Contabo" 200
+# }

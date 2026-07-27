@@ -38,6 +38,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
+import { formatSignerDisplayName } from "@shared/signature";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link, useLocation, useSearch } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -1244,11 +1245,12 @@ export default function Inspections() {
                         : "Not scheduled"}
                     </span>
                   </div>
-                  {inspection.clerk && (
+                  {(inspection.clerk || inspection.inspector) && (
                     <div className="flex items-center gap-2 text-sm">
                       <User className="w-4 h-4 text-muted-foreground" />
                       <span className="text-muted-foreground">
-                        {inspection.clerk.email}
+                        {formatSignerDisplayName(inspection.inspector || inspection.clerk) ||
+                          "Unassigned"}
                       </span>
                     </div>
                   )}

@@ -31,6 +31,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { FieldWidget } from '../../components/inspections/FieldWidget';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
+import { formatSignerDisplayName } from '../../../../shared/signature';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
@@ -177,6 +178,14 @@ export default function InspectionCaptureScreen() {
     retry: 1,
     staleTime: 60000,
   });
+
+  // Prefer first/last name over username (username is often the company name from registration)
+  const assignedInspector =
+    inspector ||
+    (effectiveInspection as any)?.inspector ||
+    (effectiveInspection as any)?.clerk ||
+    null;
+  const resolvedInspectorName = formatSignerDisplayName(assignedInspector);
 
   // Fetch tenants (only when online and inspection exists)
   const { data: tenants = [] } = useQuery({
@@ -1506,7 +1515,7 @@ export default function InspectionCaptureScreen() {
                                   markedForReview={entry?.markedForReview || false}
                                   disabled={effectiveInspection?.status === 'completed' || isDeleted}
                                   autoContext={{
-                                    inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
+                                    inspectorName: resolvedInspectorName,
                                     address: property
                                       ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
                                       : block
@@ -1619,7 +1628,7 @@ export default function InspectionCaptureScreen() {
                             markedForReview={entry?.markedForReview || false}
                             disabled={effectiveInspection?.status === 'completed' || isDeleted}
                             autoContext={{
-                              inspectorName: inspector?.fullName || inspector?.username || inspector?.firstName || '',
+                              inspectorName: resolvedInspectorName,
                               address: property
                                 ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
                                 : block

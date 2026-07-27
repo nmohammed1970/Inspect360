@@ -392,8 +392,14 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
         );
       case "signature":
         return (
-          <div className="w-64 h-20 border-2 border-dashed border-muted-foreground/30 rounded-lg flex items-center justify-center text-muted-foreground text-sm">
-            Signature Pad
+          <div className="w-full max-w-xl space-y-2">
+            <div className="w-full h-48 border-2 border-dashed border-muted-foreground/30 rounded-lg flex items-center justify-center text-muted-foreground text-sm">
+              Signature Pad
+            </div>
+            <div className="text-xs text-muted-foreground space-y-1">
+              <div>Name: [Auto from signer]</div>
+              <div>Date Signed: [Auto on save]</div>
+            </div>
           </div>
         );
       case "auto_inspector":

@@ -458,7 +458,7 @@ function RegistrationSettings() {
             <div className="flex items-start gap-3 p-3 border rounded-lg">
               <Badge variant="outline" className="mt-0.5">Credit Usage</Badge>
                   <p className="text-sm text-muted-foreground" data-testid="text-credit-usage-info">
-                 1 credit is consumed per AI-powered photo analysis during inspections. Welcome credits allow new users to complete approximately 5 AI photo analyses for free.
+                 Credits are consumed when an inspection is completed (1 base credit + 1 per 250 images). In-inspection AI tools do not deduct separate credits.
                </p>
             </div>
             <div className="flex items-start gap-3 p-3 border rounded-lg">

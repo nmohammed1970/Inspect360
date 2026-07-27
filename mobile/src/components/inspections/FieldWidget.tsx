@@ -33,6 +33,11 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
 // No offline functionality - app requires server connection
 import { format } from 'date-fns';
+import {
+  createSignatureValue,
+  parseSignatureValue,
+  isTenantSignatureField,
+} from '../../../../shared/signature';
 
 function bytesToBase64(bytes: Uint8Array): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -335,7 +340,6 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   // Auto-populate auto fields
   useEffect(() => {
     if (!autoContext) return;
-    if (autoSaveTriggeredRef.current) return;
 
     const isAutoField = safeField.type.startsWith('auto_');
     if (!isAutoField) return;
@@ -356,11 +360,33 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         break;
     }
 
-    if (!value && autoValue) {
+    if (!autoValue) return;
+
+    const savedValue =
+      typeof value === 'string'
+        ? value
+        : value && typeof value === 'object' && 'value' in value
+          ? String((value as any).value ?? '')
+          : value != null
+            ? String(value)
+            : '';
+
+    if (safeField.type === 'auto_inspector') {
+      if (savedValue !== autoValue) {
+        setLocalValue(autoValue);
+        onChange(autoValue, undefined, undefined);
+      }
+      autoSaveTriggeredRef.current = true;
+      return;
+    }
+
+    if (autoSaveTriggeredRef.current) return;
+
+    if (!savedValue) {
       autoSaveTriggeredRef.current = true;
       setLocalValue(autoValue);
       onChange(autoValue, undefined, undefined);
-    } else if (value) {
+    } else {
       autoSaveTriggeredRef.current = true;
     }
   }, [safeField.type, autoContext, value, onChange]);
@@ -1178,16 +1204,44 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           />
         );
 
-      case 'signature':
+      case 'signature': {
+        const parsedSignature = parseSignatureValue(localValue);
+        const signatureUri = parsedSignature?.image || (typeof localValue === 'string' ? localValue : '');
+        const isTenantSig = isTenantSignatureField(safeField);
+        const nameLabel = isTenantSig ? 'Tenant Name' : 'Inspector Name';
+        const displayName =
+          parsedSignature?.signedByName ||
+          (!isTenantSig ? autoContext?.inspectorName : autoContext?.tenantNames) ||
+          '';
+        const displayDate = parsedSignature?.signedAt
+          ? format(new Date(parsedSignature.signedAt), 'PPP')
+          : '';
+
         return (
           <View style={styles.signatureContainer}>
             <Text style={[styles.label, { color: themeColors.text.primary }]}>
               {safeField.label}
               {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
             </Text>
-            {localValue ? (
+            {signatureUri ? (
               <View style={styles.signaturePreview}>
-                <Image source={{ uri: localValue }} style={styles.signatureImage as ImageStyle} />
+                <Image source={{ uri: signatureUri }} style={styles.signatureImage as ImageStyle} />
+                {(displayName || displayDate) ? (
+                  <View style={styles.signatureMeta}>
+                    {!!displayName && (
+                      <Text style={[styles.signatureMetaText, { color: themeColors.text.primary }]}>
+                        <Text style={styles.signatureMetaLabel}>{nameLabel}: </Text>
+                        {displayName}
+                      </Text>
+                    )}
+                    {!!displayDate && (
+                      <Text style={[styles.signatureMetaText, { color: themeColors.text.primary }]}>
+                        <Text style={styles.signatureMetaLabel}>Date Signed: </Text>
+                        {displayDate}
+                      </Text>
+                    )}
+                  </View>
+                ) : null}
                 <Button
                   title="Clear"
                   onPress={() => {
@@ -1208,16 +1262,21 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             )}
           </View>
         );
+      }
 
       case 'auto_inspector':
       case 'auto_address':
       case 'auto_tenant_names':
       case 'auto_inspection_date':
-        const autoValue = localValue ||
-          (safeField.type === 'auto_inspector' ? autoContext?.inspectorName :
-            safeField.type === 'auto_address' ? autoContext?.address :
-              safeField.type === 'auto_tenant_names' ? autoContext?.tenantNames :
-                autoContext?.inspectionDate) || '';
+        const autoValue =
+          (safeField.type === 'auto_inspector'
+            ? autoContext?.inspectorName || localValue
+            : localValue ||
+              (safeField.type === 'auto_address'
+                ? autoContext?.address
+                : safeField.type === 'auto_tenant_names'
+                  ? autoContext?.tenantNames
+                  : autoContext?.inspectionDate)) || '';
         return (
             <Input
               label={safeField.label}
@@ -1822,7 +1881,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     signatureRef.current = ref;
                   }}
                   onOK={(signature) => {
-                    handleValueChange(signature);
+                    const isTenantSig = isTenantSignatureField(safeField);
+                    const signerName = isTenantSig
+                      ? (autoContext?.tenantNames || '')
+                      : (autoContext?.inspectorName || '');
+                    handleValueChange(createSignatureValue(signature, signerName || undefined));
                     setShowSignature(false);
                   }}
                   onClear={() => {
@@ -2204,10 +2267,22 @@ const styles = StyleSheet.create({
   },
   signatureImage: {
     width: '100%',
-    height: 150,
+    height: 200,
     borderRadius: borderRadius.md,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border.DEFAULT,
+    backgroundColor: colors.card.DEFAULT,
+  },
+  signatureMeta: {
+    width: '100%',
+    gap: spacing[1],
+    marginTop: spacing[2],
+  },
+  signatureMetaText: {
+    fontSize: typography.sizes.sm,
+  },
+  signatureMetaLabel: {
+    fontWeight: '600',
   },
   signatureModalContainer: {
     flex: 1,

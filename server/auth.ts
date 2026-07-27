@@ -104,15 +104,18 @@ export function getSessionStore(): session.Store {
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const sessionStore = getSessionStore();
+  const isProduction = process.env.NODE_ENV === "production";
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false, // Changed to false to prevent unnecessary session updates
     saveUninitialized: false,
     rolling: true, // Reset expiration on activity
+    proxy: isProduction, // Trust X-Forwarded-* from Caddy
     cookie: {
       httpOnly: true,
-      secure: false, // Disable secure in development
+      // Secure cookies required behind Caddy HTTPS in production
+      secure: isProduction,
       sameSite: 'lax',
       maxAge: sessionTtl,
     },

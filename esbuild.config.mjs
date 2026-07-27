@@ -12,6 +12,8 @@ const config = {
   format: 'esm',
   outdir: 'dist',
   packages: 'external',
+  // Keep Vite dev middleware out of the production bundle entirely
+  external: ['./vite', './vite.ts', 'vite', '../vite.config', '../vite.config.ts'],
   resolveExtensions: ['.ts', '.js', '.tsx', '.jsx', '.mjs', '.cjs'],
   mainFields: ['module', 'main'],
   conditions: ['import', 'node', 'default'],

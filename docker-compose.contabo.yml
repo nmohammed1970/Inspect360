@@ -1,0 +1,46 @@
+# Inspect360 app only — joins shared Caddy network + shared postgres.
+# No public ports: Caddy is the only entry on 80/443.
+#
+# On Contabo:
+#   docker network create caddy   # once
+#   docker network connect caddy postgres
+#   mkdir -p /opt/inspect360 && place .env there
+#   docker compose -f docker-compose.contabo.yml up -d
+
+services:
+  inspect360:
+    image: ${IMAGE:-ghcr.io/ORG/inspect360:latest}
+    container_name: inspect360
+    restart: unless-stopped
+    env_file:
+      - /opt/inspect360/.env
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      HOST: "0.0.0.0"
+      RUNNING_IN_DOCKER: "true"
+      LOCAL_STORAGE_DIR: /app/storage
+    volumes:
+      - inspect360_storage:/app/storage
+    networks:
+      - caddy
+    # NO ports: mapping — route via Caddy only
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  inspect360_storage:
+
+networks:
+  caddy:
+    external: true

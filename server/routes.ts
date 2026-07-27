@@ -409,6 +409,8 @@ import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
+import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
+import { formatSignerDisplayName } from "@shared/signature";
 import { extractTextFromFile, findRelevantChunks } from "./documentProcessor";
 import {
   insertBlockSchema,
@@ -480,13 +482,15 @@ import { pricingService } from "./pricingService";
 // Initialize OpenAI using Replit AI Integrations (lazy initialization)
 // Using gpt-5 for vision analysis - the newest OpenAI model (released August 7, 2025), supports images and provides excellent results
 
-// Detect if running in a cloud/sandboxed environment (AWS Lambda, Vercel, Netlify, Replit)
+// Detect if running in a cloud/sandboxed/Docker environment
 const isCloudEnvironment = !!(
   process.env.AWS_LAMBDA_FUNCTION_NAME ||
   process.env.VERCEL ||
   process.env.NETLIFY ||
   process.env.REPLIT_ENVIRONMENT ||
-  process.env.REPLIT_CLUSTER
+  process.env.REPLIT_CLUSTER ||
+  process.env.RUNNING_IN_DOCKER === "true" ||
+  process.env.USE_SPARTICUZ_CHROMIUM === "true"
 );
 
 // Helper function to launch Puppeteer with appropriate configuration
@@ -821,7 +825,6 @@ async function processInspectionAIAnalysis(
   }
 
   let processedCount = 0;
-  let totalCreditsUsed = 0;
 
   for (const entry of entriesWithPhotos) {
     try {
@@ -973,17 +976,7 @@ Be thorough but concise, specific, and objective about "${inspectionPointTitle}"
 
       await storage.updateInspectionEntry(entry.id, { note: newNote });
 
-      // Deduct credit
-      // Consume credit using credit batch system
-      const { subscriptionService } = await import("./subscriptionService");
-      await subscriptionService.consumeCredits(
-        organization.id,
-        1,
-        "inspection",
-        inspectionId,
-        `InspectAI full report analysis: ${fieldLabel}`
-      );
-      totalCreditsUsed++;
+      // Credits are deducted only when the inspection is completed
 
       processedCount++;
 
@@ -1011,7 +1004,7 @@ Be thorough but concise, specific, and objective about "${inspectionPointTitle}"
     aiAnalysisError: null
   } as any);
 
-  console.log(`[FullInspectAI] Completed analysis for inspection ${inspectionId}. Processed ${processedCount} entries, used ${totalCreditsUsed} credits.`);
+  console.log(`[FullInspectAI] Completed analysis for inspection ${inspectionId}. Processed ${processedCount} entries.`);
 }
 
 // Helper function to get the base URL from request, respecting proxy headers
@@ -5262,10 +5255,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let inspectorId = userId;
 
       if (clerkId) {
-        // Validate that the clerk belongs to the same organization
+        // Validate assignee is an inspector (clerk) or contractor in the same organization
         const clerk = await storage.getUser(clerkId);
-        if (!clerk || clerk.organizationId !== currentUser.organizationId) {
-          return res.status(400).json({ message: "Invalid clerk assignment - clerk must belong to your organization" });
+        if (
+          !clerk ||
+          clerk.organizationId !== currentUser.organizationId ||
+          !["clerk", "contractor"].includes(clerk.role)
+        ) {
+          return res.status(400).json({
+            message: "Invalid assignment - must be an inspector or contractor in your organization",
+          });
         }
         inspectorId = clerkId;
       }
@@ -6184,6 +6183,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         property,
         block,
         clerk,
+        // Report UI and PDF expect `inspector`; keep `clerk` for older clients
+        inspector: clerk,
       };
 
       res.json(response);
@@ -6214,12 +6215,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Fetch property and inspector data
+      // Fetch property/block and inspector data
       let property = null;
+      let block = null;
       let inspector = null;
 
       if (inspection.propertyId) {
         property = await storage.getProperty(inspection.propertyId);
+      }
+
+      if (inspection.blockId) {
+        block = await storage.getBlock(inspection.blockId);
       }
 
       if (inspection.inspectorId) {
@@ -6248,11 +6254,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } : undefined;
 
       // Build full inspection object with relations
+      // Always attach property/block so PDF HTML can resolve location for either type
       const fullInspection = {
         ...inspection,
         property: property || undefined,
+        block: block || undefined,
         inspector: inspector || undefined,
       };
+
+      if (inspection.blockId && !block) {
+        console.warn(`[PDF] Inspection ${id} has blockId ${inspection.blockId} but block was not found`);
+      }
+      if (!property && !block) {
+        console.warn(`[PDF] Inspection ${id} has no property or block loaded (propertyId=${inspection.propertyId}, blockId=${inspection.blockId})`);
+      }
 
       // Get inspection entries
       const entries = await storage.getInspectionEntries(id);
@@ -6297,9 +6312,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       const pdfBuffer = await generateInspectionPDF(fullInspection as any, entriesForPDF as any, baseUrl, branding, maintenanceRequests, reportConfig);
 
-      // Set headers for PDF download
-      const propertyName = property?.name || "inspection";
-      const filename = `${propertyName.replace(/[^a-zA-Z0-9]/g, "_")}_inspection_report.pdf`;
+      // Set headers for PDF download: Location_Date_InspectorName.pdf
+      const locationName = property?.name || block?.name || "inspection";
+      const inspectorName = formatSignerDisplayName(inspector) || null;
+      const filename = buildInspectionPdfFilename({
+        locationName,
+        date: inspection.completedDate || inspection.scheduledDate,
+        inspectorName,
+      });
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -6361,6 +6381,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({
           message: "Invalid request data",
           errors: validation.error.errors
+        });
+      }
+
+      // Completed inspections cannot be moved back to an earlier status
+      if (
+        inspection.status === "completed" &&
+        validation.data.status &&
+        validation.data.status !== "completed"
+      ) {
+        return res.status(400).json({
+          message: "Completed inspections cannot be changed to a previous status",
         });
       }
 
@@ -6553,6 +6584,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Completed inspections cannot be moved back to an earlier status
+      if (
+        inspection.status === "completed" &&
+        req.body.status &&
+        req.body.status !== "completed"
+      ) {
+        return res.status(400).json({
+          message: "Completed inspections cannot be changed to a previous status",
+        });
+      }
+
       // Handle credit consumption when inspection is completed
       const updates: any = {};
       if (req.body.status === "completed" &&
@@ -6685,6 +6727,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const inspection = await storage.getInspection(id);
       if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      // Completed inspections cannot be moved back to an earlier status
+      if (inspection.status === "completed" && status && status !== "completed") {
+        return res.status(400).json({
+          message: "Completed inspections cannot be changed to a previous status",
+        });
       }
 
       // Handle credit consumption when inspection is completed/submitted
@@ -7151,12 +7200,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied: Inspection item does not belong to your organization" });
       }
 
-      // Check credits AFTER verifying ownership
-      const creditBalance = await storage.getCreditBalance(user.organizationId);
-      if (creditBalance.total < 1) {
-        return res.status(402).json({ message: "Insufficient credits" });
-      }
-
       // Convert photo to base64 data URL
       console.log("[Inspection Item Analysis] Converting photo to base64:", item.photoUrl);
 
@@ -7243,15 +7286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update the item with AI analysis
       await storage.updateInspectionItemAI(itemId, analysis);
 
-      // Consume credit using credit batch system
-      const { subscriptionService } = await import("./subscriptionService");
-      await subscriptionService.consumeCredits(
-        user.organizationId,
-        1,
-        "inspection",
-        item.inspectionId,
-        `AI photo analysis: ${item.category} - ${item.itemName}`
-      );
+      // Credits are deducted only when the inspection is completed
 
       res.json({ analysis });
     } catch (error: any) {
@@ -7316,12 +7351,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Verify organization ownership
       if (ownerOrgId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied: Inspection does not belong to your organization" });
-      }
-
-      // Check credits (1 credit per field inspection)
-      const creditBalance = await storage.getCreditBalance(user.organizationId);
-      if (creditBalance.total < 1) {
-        return res.status(402).json({ message: "Insufficient credits" });
       }
 
       // Construct image data URLs - download images and convert to base64
@@ -7644,15 +7673,7 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
         .replace(/\n{3,}/g, '\n\n') // Collapse multiple newlines
         .trim();
 
-      // Consume credit using credit batch system
-      const { subscriptionService } = await import("./subscriptionService");
-      await subscriptionService.consumeCredits(
-        user.organizationId,
-        1,
-        "inspection",
-        inspectionId,
-        `InspectAI field analysis: ${fieldLabel}`
-      );
+      // Credits are deducted only when the inspection is completed
 
       res.json({ analysis });
     } catch (error: any) {
@@ -7749,15 +7770,8 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
         return res.status(400).json({ message: "No photos found in inspection entries to analyze" });
       }
 
-      // Get organization for credits check
-      const creditBalance = await storage.getCreditBalance(user.organizationId);
-      if (creditBalance.total < entriesWithPhotos.length) {
-        return res.status(402).json({
-          message: `Insufficient credits. You need ${entriesWithPhotos.length} credits but have ${creditBalance.total}`
-        });
-      }
-
       // Update inspection status to processing
+      // Credits are deducted only when the inspection is completed
       await storage.updateInspection(inspectionId, {
         aiAnalysisStatus: "processing",
         aiAnalysisProgress: 0,
@@ -7837,12 +7851,6 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
-      }
-
-      // Check credits
-      const creditBalance = await storage.getCreditBalance(user.organizationId);
-      if (creditBalance.total < 1) {
-        return res.status(402).json({ message: "Insufficient credits" });
       }
 
       // Convert photo to base64 if it's from object storage
@@ -7942,16 +7950,7 @@ Cleanliness guidelines:
         suggestion.cleanliness = "Good";
       }
 
-      // Deduct credit (0.5 credit for quick analysis, but charge 1 minimum)
-      // Consume credit using credit batch system
-      const { subscriptionService } = await import("./subscriptionService");
-      await subscriptionService.consumeCredits(
-        user.organizationId,
-        1,
-        "ai_analysis",
-        `condition_suggestion_${Date.now()}`,
-        `AI condition suggestion: ${fieldLabel || 'Field analysis'}`
-      );
+      // Credits are deducted only when the inspection is completed
 
       console.log("[AI Suggest Condition] Analysis complete:", {
         fieldLabel,
@@ -16689,12 +16688,6 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(404).json({ message: "Inspection not found" });
       }
 
-      // Check if organization has credits
-      const creditBalance = await storage.getCreditBalance(user.organizationId);
-      if (creditBalance.total < 1) {
-        return res.status(402).json({ message: "Insufficient AI credits" });
-      }
-
       // Convert image URL to base64 data URL (for internal object storage)
       console.log("[Individual Photo Analysis] Processing photo:", imageUrl);
 
@@ -16786,18 +16779,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       // Strip markdown asterisks from the response
       analysisText = analysisText.replace(/\*\*/g, '');
 
-      // Consume credit using credit batch system
-      const { subscriptionService } = await import("./subscriptionService");
-      await subscriptionService.consumeCredits(
-        user.organizationId,
-        1,
-        "ai_analysis",
-        inspectionId || inspectionEntryId || "individual_photo",
-        "Individual photo AI analysis"
-      );
-
-      // Get updated credit balance for response
-      const updatedBalance = await storage.getCreditBalance(user.organizationId);
+      // Credits are deducted only when the inspection is completed
 
       // Save analysis
       const validatedData = insertAiImageAnalysisSchema.parse({
@@ -16810,7 +16792,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       });
       const analysis = await storage.createAiImageAnalysis(validatedData);
 
-      res.status(201).json({ ...analysis, remainingCredits: updatedBalance.total });
+      res.status(201).json(analysis);
     } catch (error: any) {
       // Safely log error without circular reference issues
       const errorMessage = error?.message || String(error);

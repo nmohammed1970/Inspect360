@@ -79,6 +79,62 @@ export function QuickAddMaintenanceSheet({
     }
   }, [initialPhotos, open]);
 
+  const compressImage = (file: File, maxWidth = 1920, maxHeight = 1920, quality = 0.7): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width *= ratio;
+            height *= ratio;
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Failed to get canvas context"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error("Failed to compress image"));
+                return;
+              }
+              const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
+              resolve(new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: Date.now() }));
+            },
+            "image/jpeg",
+            quality,
+          );
+        };
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const compressImageIfOverLimit = async (file: File, maxBytes = 10 * 1024 * 1024): Promise<File> => {
+    if (!file.type.startsWith("image/") || file.size <= maxBytes) return file;
+    let result = file;
+    let quality = 0.72;
+    let maxDim = 1920;
+    for (let attempt = 0; attempt < 6 && result.size > maxBytes; attempt++) {
+      result = await compressImage(result, maxDim, maxDim, quality);
+      quality = Math.max(0.35, quality - 0.1);
+      maxDim = Math.max(1024, Math.floor(maxDim * 0.85));
+    }
+    return result;
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -87,7 +143,7 @@ export function QuickAddMaintenanceSheet({
     const uploadPromises: Promise<{ url: string; isOffline: boolean }>[] = [];
 
     for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+      let file = files[i];
       
       // Validate file
       if (!file.type.startsWith('image/')) {
@@ -99,10 +155,24 @@ export function QuickAddMaintenanceSheet({
         continue;
       }
 
+      // Allow large phone photos; compress anything over 10MB (reject only if still huge after compress)
       if (file.size > 10 * 1024 * 1024) {
+        try {
+          file = await compressImageIfOverLimit(file, 10 * 1024 * 1024);
+        } catch {
+          toast({
+            title: "Compression failed",
+            description: `Could not compress ${file.name}. Try a smaller photo.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+      }
+
+      if (file.size > 50 * 1024 * 1024) {
         toast({
           title: "File too large",
-          description: `${file.name} exceeds 10MB limit`,
+          description: `${file.name} is still over 50MB after compression`,
           variant: "destructive",
         });
         continue;
@@ -441,7 +511,7 @@ export function QuickAddMaintenanceSheet({
                 </Button>
               )}
               <p className="text-xs text-muted-foreground">
-                Max 10MB per file, up to 5 photos
+                Max 50MB per file (auto-compressed if over 10MB), up to 5 photos
               </p>
             </div>
 

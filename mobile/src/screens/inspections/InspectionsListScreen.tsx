@@ -45,6 +45,7 @@ import DatePicker from '../../components/ui/DatePicker';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import EmptyState from '../../components/ui/EmptyState';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
+import { formatSignerDisplayName } from '../../../../shared/signature';
 import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
 import { useWindowDimensions } from 'react-native';
@@ -907,11 +908,14 @@ export default function InspectionsListScreen() {
                       </View>
                     )}
 
-                    {/* Inspector */}
-                    {inspection.clerk && (
+                    {/* Inspector / Contractor */}
+                    {(inspection.clerk || (inspection as any).inspector) && (
                       <View style={styles.infoRow}>
                         <User size={14} color={themeColors.text.secondary} />
-                        <Text style={[styles.infoText, { color: themeColors.text.secondary }]}>{inspection.clerk.email}</Text>
+                        <Text style={[styles.infoText, { color: themeColors.text.secondary }]}>
+                          {formatSignerDisplayName((inspection as any).inspector || inspection.clerk) ||
+                            'Unassigned'}
+                        </Text>
                       </View>
                     )}
 

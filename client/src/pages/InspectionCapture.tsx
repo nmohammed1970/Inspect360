@@ -19,6 +19,7 @@ import { InspectionQuickActions } from "@/components/InspectionQuickActions";
 import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
 import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
+import { formatSignerDisplayName } from "@shared/signature";
 
 interface AIAnalysisStatus {
   status: "idle" | "processing" | "completed" | "failed";
@@ -128,6 +129,14 @@ export default function InspectionCapture() {
     queryKey: [`/api/users/${inspection?.inspectorId}`],
     enabled: !!inspection?.inspectorId,
   });
+
+  // Prefer first/last name over username (username is often the company name from registration)
+  const assignedInspector =
+    inspector ||
+    (inspection as any)?.inspector ||
+    (inspection as any)?.clerk ||
+    null;
+  const resolvedInspectorName = formatSignerDisplayName(assignedInspector);
 
   // Fetch tenant information for property - use existing /api/properties/:id/tenants endpoint
   const { data: tenants = [] } = useQuery<any[]>({
@@ -1544,7 +1553,7 @@ export default function InspectionCapture() {
                       };
                       
                       const autoContext = {
-                        inspectorName: inspector?.fullName || inspector?.username || "",
+                        inspectorName: resolvedInspectorName,
                         address: getAddress(),
                         tenantNames: getTenantNames(),
                         inspectionDate: inspection?.scheduledDate 
@@ -1627,7 +1636,7 @@ export default function InspectionCapture() {
                 };
                 
                 const autoContext = {
-                  inspectorName: inspector?.fullName || inspector?.username || "",
+                  inspectorName: resolvedInspectorName,
                   address: getAddress(),
                   tenantNames: getTenantNames(),
                   inspectionDate: inspection?.scheduledDate 

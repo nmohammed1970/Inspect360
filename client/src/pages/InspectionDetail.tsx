@@ -117,7 +117,7 @@ export default function InspectionDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
       toast({
         title: "Success",
-        description: "AI analysis completed (1 credit used)",
+        description: "AI analysis completed",
       });
     },
     onError: (error: any) => {
@@ -661,7 +661,7 @@ export default function InspectionDetail() {
                         className="w-full"
                       >
                         <Sparkles className="w-4 h-4 mr-2" />
-                        {analyzePhotoMutation.isPending ? "Analyzing..." : "Analyze with AI (1 credit)"}
+                        {analyzePhotoMutation.isPending ? "Analyzing..." : "Analyze with AI"}
                       </Button>
                     )}
                   </CardContent>

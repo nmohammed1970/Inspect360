@@ -2,11 +2,15 @@ import puppeteerCore from "puppeteer-core";
 import puppeteer from "puppeteer";
 import chromium from "@sparticuz/chromium";
 import { format } from "date-fns";
+import { parseSignatureValue, isTenantSignatureField, formatSignerDisplayName } from "@shared/signature";
 
-// Detect if running in Replit or serverless environment
+// Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
 const isReplit = process.env.REPL_ID || process.env.REPLIT;
 const isServerless = process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL || process.env.NETLIFY;
-const useChromium = isReplit || isServerless;
+const isDocker =
+  process.env.RUNNING_IN_DOCKER === "true" ||
+  process.env.USE_SPARTICUZ_CHROMIUM === "true";
+const useChromium = !!(isReplit || isServerless || isDocker);
 
 // Convert image URL to base64 data URL for embedding in PDF
 async function imageUrlToBase64(url: string, baseUrl?: string): Promise<string | null> {
@@ -246,6 +250,8 @@ interface Inspection {
     email: string;
     firstName?: string;
     lastName?: string;
+    username?: string;
+    role?: string;
   };
 }
 
@@ -260,6 +266,7 @@ interface InspectionEntry {
   condition?: string;
   cleanliness?: string;
   markedForReview?: boolean;
+  updatedAt?: string | Date;
 }
 
 interface TrademarkInfo {
@@ -493,12 +500,27 @@ function generateInspectionHTML(
   const templateStructure = inspection.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
 
-  const propertyName = inspection.property?.name || "Unknown Property";
-  const propertyAddress = inspection.property?.address || "No address";
-  const inspectorName = inspection.inspector
-    ? `${inspection.inspector.firstName || ""} ${inspection.inspector.lastName || ""}`.trim() ||
-      inspection.inspector.email
-    : "Unknown Inspector";
+  // Prefer block details for block inspections (property may be unset)
+  const isBlockInspection = Boolean(inspection.blockId) && !inspection.propertyId;
+  const locationEntity = isBlockInspection
+    ? inspection.block || inspection.property
+    : inspection.property || inspection.block;
+  const propertyName =
+    locationEntity?.name ||
+    inspection.block?.name ||
+    inspection.property?.name ||
+    (isBlockInspection ? "Unknown Block" : "Unknown Property");
+  const propertyAddress =
+    locationEntity?.address ||
+    inspection.block?.address ||
+    inspection.property?.address ||
+    "No address";
+  const locationAddressLabel = isBlockInspection || (!inspection.property && inspection.block)
+    ? "Block Address"
+    : "Property Address";
+  const assigneeRoleLabel = inspection.inspector?.role === "contractor" ? "Contractor" : "Inspector";
+  const inspectorName =
+    formatSignerDisplayName(inspection.inspector) || `Unknown ${assigneeRoleLabel}`;
   const inspectionDate = inspection.completedDate || inspection.scheduledDate || inspection.startedAt;
   const formattedDate = inspectionDate ? format(new Date(inspectionDate), "PPP") : "Not specified";
   
@@ -613,14 +635,20 @@ function generateInspectionHTML(
     // Parse value to extract condition, cleanliness, and description
     let condition: string | null = null;
     let cleanliness: string | null = null;
-    let description: string | null = null;
+    let description: any = null;
 
     if (valueData !== undefined && valueData !== null) {
       if (typeof valueData === 'object' && !Array.isArray(valueData)) {
         // Extract from structured object (for fields with condition/cleanliness)
         condition = (valueData as any).condition || null;
         cleanliness = (valueData as any).cleanliness || null;
-        description = (valueData as any).value || null;
+        if (field.type === "signature") {
+          description = (valueData as any).value !== undefined && (valueData as any).value !== null
+            ? (valueData as any).value
+            : valueData;
+        } else {
+          description = (valueData as any).value || null;
+        }
       } else if (typeof valueData === 'string') {
         description = valueData;
       } else if (typeof valueData === 'boolean') {
@@ -630,20 +658,69 @@ function generateInspectionHTML(
       }
     }
 
+    // Always use the assigned inspector/contractor name — never a saved email/username leftover
+    if (field.type === "auto_inspector") {
+      description = inspectorName;
+    }
+
+    // Also fix entries that stored an email in a field labeled Inspector Name
+    if (
+      field.type !== "auto_inspector" &&
+      typeof description === "string" &&
+      description.includes("@") &&
+      /inspector|contractor/i.test(`${field.label || ""} ${field.key || ""} ${field.id || ""}`)
+    ) {
+      description = inspectorName;
+    }
+
     // Get scores for ratings
     const conditionScore = getConditionScore(condition);
     const cleanlinessScore = getCleanlinessScore(cleanliness);
     const photoCount = photos.length;
 
     // Determine description value - check if it's a signature (base64 image)
-    const isSignature = field.type === 'signature' || 
+    const signaturePayload = field.type === "signature" ? parseSignatureValue(description ?? valueData) : null;
+    const isSignature = !!signaturePayload ||
                        (typeof description === 'string' && description.startsWith('data:image'));
     
     let descriptionHTML = '-';
-    if (description !== null && description !== '') {
-      if (isSignature && typeof description === 'string') {
-        // Render signature as image
-        descriptionHTML = `<img src="${description}" alt="Signature" style="max-width: 200px; max-height: 80px; border: 1px solid #e5e7eb; border-radius: 4px;" />`;
+    if (signaturePayload || (description !== null && description !== '')) {
+      if (isSignature) {
+        const sigImage = signaturePayload?.image || (typeof description === 'string' ? description : '');
+        const isTenant = isTenantSignatureField(field);
+        const nameLabel = isTenant
+          ? "Tenant Name"
+          : (inspection.inspector?.role === "contractor" ? "Contractor Name" : "Inspector Name");
+        const signerName = signaturePayload?.signedByName || (!isTenant ? inspectorName : "");
+        const signedAtRaw = signaturePayload?.signedAt || entry?.updatedAt;
+        const signedAtFormatted = signedAtRaw
+          ? format(new Date(signedAtRaw), "PPP")
+          : "";
+
+        const metaHtml = `
+          <div style="margin-top: 10px; font-size: 12px; color: #333; line-height: 1.5;">
+            ${signerName ? `<div><strong>${escapeHtml(nameLabel)}:</strong> ${escapeHtml(signerName)}</div>` : ""}
+            ${signedAtFormatted ? `<div><strong>Date Signed:</strong> ${escapeHtml(signedAtFormatted)}</div>` : ""}
+          </div>
+        `;
+
+        if (sigImage.startsWith("data:image/")) {
+          descriptionHTML = `
+            <div>
+              <img src="${sigImage}" alt="Signature" style="max-width: 420px; width: 100%; height: 180px; object-fit: contain; border: 2px solid #e5e7eb; border-radius: 6px; background: #fff; padding: 8px;" />
+              ${metaHtml}
+            </div>
+          `;
+        } else {
+          descriptionHTML = `
+            <div>
+              <div style="max-width: 420px; min-height: 120px; border: 2px solid #e5e7eb; border-radius: 6px; padding: 16px; font-size: 22px; font-style: italic; font-family: cursive;">
+                ${escapeHtml(sigImage)}
+              </div>
+              ${metaHtml}
+            </div>
+          `;
+        }
       } else if (typeof description === 'string') {
         const descriptionValue = description.length > 50 ? description.substring(0, 50) + '...' : description;
         descriptionHTML = escapeHtml(descriptionValue);
@@ -709,7 +786,7 @@ function generateInspectionHTML(
                 <table style="width: 100%; border-collapse: collapse; font-size: 12px; border-top: 1px solid #e5e7eb;">
                   <tr>
                     <td style="padding: 8px 12px; color: #666; width: 60%;">Provided by</td>
-                    <td style="padding: 8px 12px; color: #333; font-weight: 500; text-align: right;">Inspector</td>
+                    <td style="padding: 8px 12px; color: #333; font-weight: 500; text-align: right;">${escapeHtml(inspectorName)}</td>
                   </tr>
                   <tr>
                     <td style="padding: 8px 12px; color: #666;">Captured (Certified by inspector)</td>
@@ -1422,10 +1499,10 @@ function generateInspectionHTML(
         </div>
       </div>
 
-      <!-- Property Information - 3 column grid for landscape -->
+      <!-- Location Information - 3 column grid for landscape -->
       <div class="info-grid">
         <div class="info-item">
-          <div class="info-label">Property Address</div>
+          <div class="info-label">${escapeHtml(locationAddressLabel)}</div>
           <div class="info-value">${escapeHtml(propertyAddress)}</div>
         </div>
         <div class="info-item">
@@ -1437,7 +1514,7 @@ function generateInspectionHTML(
           <div class="info-value">${escapeHtml(inspection.status.charAt(0).toUpperCase() + inspection.status.slice(1))}</div>
         </div>
         <div class="info-item">
-          <div class="info-label">Inspector</div>
+          <div class="info-label">${escapeHtml(assigneeRoleLabel)}</div>
           <div class="info-value">${escapeHtml(inspectorName)}</div>
         </div>
         <div class="info-item">

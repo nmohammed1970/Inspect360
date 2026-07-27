@@ -59,6 +59,8 @@ npm ci --production
 
 ## IIS Setup Checklist
 
+> **Contabo / Caddy production:** see [CONTABO_RUNBOOK.md](./CONTABO_RUNBOOK.md), [CUTOVER_CHECKLIST.md](./CUTOVER_CHECKLIST.md).
+
 1. [ ] Install Node.js 20.x (64-bit)
 2. [ ] Install iisnode module
 3. [ ] Install URL Rewrite module

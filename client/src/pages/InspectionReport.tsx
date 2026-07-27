@@ -27,8 +27,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
   ArrowLeft,
-  Printer,
-  Download,
   Edit2,
   Save,
   X,
@@ -53,6 +51,12 @@ import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
 import { ReportVoiceRecordingWidget } from "@/components/ReportVoiceRecordingWidget";
 import { useLocale } from "@/contexts/LocaleContext";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
+import {
+  formatSignerDisplayName,
+  isTenantSignatureField,
+  parseSignatureValue,
+} from "@shared/signature";
+import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
 
 interface TemplateField {
   id: string;
@@ -112,6 +116,16 @@ interface Inspection {
     email: string;
     firstName?: string;
     lastName?: string;
+    username?: string;
+    role?: string;
+  };
+  clerk?: {
+    id: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    username?: string;
+    role?: string;
   };
 }
 
@@ -432,10 +446,10 @@ export default function InspectionReport() {
         description: "Inspection status updated successfully",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to update inspection status",
+        description: error?.message || "Failed to update inspection status",
         variant: "destructive",
       });
     },
@@ -712,11 +726,20 @@ export default function InspectionReport() {
         throw new Error("Failed to generate PDF");
       }
 
+      const assigned = inspection.inspector || inspection.clerk;
+      const assigneeName = formatSignerDisplayName(assigned) || null;
+      const locationName = inspection.property?.name || inspection.block?.name || "inspection";
+      const reportDate = inspection.completedDate || inspection.scheduledDate;
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${inspection.property?.name?.replace(/[^a-zA-Z0-9]/g, "_") || "inspection"}_report.pdf`;
+      a.download = buildInspectionPdfFilename({
+        locationName,
+        date: reportDate,
+        inspectorName: assigneeName,
+      });
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -892,7 +915,31 @@ export default function InspectionReport() {
 
   const degradations = inspection?.type === 'check_out' ? calculateDegradations() : [];
 
-  const renderFieldValue = (value: any, field: TemplateField) => {
+  const getSignatureMeta = (field: TemplateField, entry?: any) => {
+    const parsed = parseSignatureValue(entry?.valueJson ?? entry?.value);
+    const isTenant = isTenantSignatureField(field);
+    const tenantName =
+      tenantAssignment?.tenant
+        ? formatSignerDisplayName({
+            firstName: tenantAssignment.tenant.firstName,
+            lastName: tenantAssignment.tenant.lastName,
+            email: tenantAssignment.tenant.email,
+          }) || tenantAssignment.tenant.name
+        : tenantAssignment?.name || "";
+
+    const inspectorPerson = inspection?.inspector || inspection?.clerk;
+    const inspectorNameResolved = formatSignerDisplayName(inspectorPerson);
+    const roleNameLabel =
+      inspectorPerson?.role === "contractor" ? "Contractor Name" : "Inspector Name";
+
+    return {
+      signedByName: parsed?.signedByName || (isTenant ? tenantName : inspectorNameResolved) || null,
+      signedAt: parsed?.signedAt || entry?.updatedAt || null,
+      nameLabel: isTenant ? "Tenant Name" : roleNameLabel,
+    };
+  };
+
+  const renderFieldValue = (value: any, field: TemplateField, entry?: any) => {
     if (value === null || value === undefined) {
       return <span className="text-muted-foreground italic">Not recorded</span>;
     }
@@ -935,13 +982,24 @@ export default function InspectionReport() {
         displayValue = actualValue ? locale.formatDate(new Date(actualValue)) : <span className="text-muted-foreground italic">Not set</span>;
         break;
       case "auto_inspector":
+        displayValue = inspectorName || <span className="text-muted-foreground italic">Not available</span>;
+        break;
       case "auto_address":
       case "auto_tenant_names":
         displayValue = actualValue || <span className="text-muted-foreground italic">Not available</span>;
         break;
-      case "signature":
-        displayValue = <SignatureDisplay signature={typeof actualValue === "string" ? actualValue : null} />;
+      case "signature": {
+        const meta = getSignatureMeta(field, entry ?? { valueJson: value, value });
+        displayValue = (
+          <SignatureDisplay
+            signature={typeof actualValue === "string" || (actualValue && typeof actualValue === "object") ? actualValue : value}
+            signedByName={meta.signedByName}
+            signedAt={meta.signedAt}
+            nameLabel={meta.nameLabel}
+          />
+        );
         break;
+      }
       default:
         // Handle objects that don't match composite structure
         if (typeof actualValue === 'object' && actualValue !== null) {
@@ -1004,9 +1062,17 @@ export default function InspectionReport() {
     );
   };
 
-  const renderSignatureAwareDescription = (field: any, value: string, note?: string | null) => {
+  const renderSignatureAwareDescription = (field: any, value: any, note?: string | null, entry?: any) => {
     if (field.type === "signature") {
-      return <SignatureDisplay signature={value || note || null} />;
+      const meta = getSignatureMeta(field, entry ?? { valueJson: value, value, updatedAt: entry?.updatedAt });
+      return (
+        <SignatureDisplay
+          signature={value || note || null}
+          signedByName={meta.signedByName}
+          signedAt={meta.signedAt}
+          nameLabel={meta.nameLabel}
+        />
+      );
     }
 
     return value || note || "-";
@@ -1052,12 +1118,16 @@ export default function InspectionReport() {
     );
   }
 
-  const inspectorName = inspection.inspector
-    ? `${inspection.inspector.firstName || ''} ${inspection.inspector.lastName || ''}`.trim() || inspection.inspector.email
-    : "Unknown Inspector";
+  const assignedInspector = inspection.inspector || inspection.clerk;
+  const assigneeRoleLabel = assignedInspector?.role === "contractor" ? "Contractor" : "Inspector";
+  const inspectorName =
+    formatSignerDisplayName(assignedInspector) || `Unknown ${assigneeRoleLabel}`;
 
-  const propertyName = inspection.property?.name || inspection.block?.name || "Unknown Property";
+  const isBlockInspection = Boolean(inspection.blockId) && !inspection.propertyId;
+  const propertyName = inspection.property?.name || inspection.block?.name || (isBlockInspection ? "Unknown Block" : "Unknown Property");
   const propertyAddress = inspection.property?.address || inspection.block?.address || "No address";
+  const locationLabel = isBlockInspection || (!inspection.property && inspection.block) ? "Block" : "Property";
+  const locationAddressLabel = locationLabel === "Block" ? "Block Address" : "Property Address";
 
   return (
     <div className="min-h-screen bg-background">
@@ -1155,12 +1225,12 @@ export default function InspectionReport() {
             </div>
           )}
 
-          {/* Property Information */}
+          {/* Location Information */}
           <div className="space-y-6 pt-8 border-t-2" style={{ borderColor: '#E5E7EB' }}>
             <div className="space-y-2">
-              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Property</div>
+              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">{locationLabel}</div>
               <div className="text-2xl font-bold text-gray-900" style={{ color: '#000' }}>
-                {propertyName || "Property Not Specified"}
+                {propertyName || `${locationLabel} Not Specified`}
               </div>
               {propertyAddress && propertyAddress !== "No address" && (
                 <div className="text-lg text-gray-600" style={{ color: '#666' }}>
@@ -1184,15 +1254,15 @@ export default function InspectionReport() {
               </div>
             )}
 
-            {/* Inspector Information */}
+            {/* Inspector / Contractor Information */}
             <div className="space-y-2 pt-6">
-              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Inspector</div>
+              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">{assigneeRoleLabel}</div>
               <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
-                {inspectorName || "Inspector Not Assigned"}
+                {inspectorName || `${assigneeRoleLabel} Not Assigned`}
               </div>
-              {inspection.inspector?.email && (
+              {assignedInspector?.email && (
                 <div className="text-base text-gray-600" style={{ color: '#666' }}>
-                  {inspection.inspector.email}
+                  {assignedInspector.email}
                 </div>
               )}
             </div>
@@ -1319,8 +1389,8 @@ export default function InspectionReport() {
               onClick={handlePrint}
               data-testid="button-print-report"
             >
-              <Printer className="w-4 h-4 mr-2" />
-              Print
+              <FileText className="w-4 h-4 mr-2" />
+              View PDF Report
             </Button>
           </div>
         </div>
@@ -1338,7 +1408,7 @@ export default function InspectionReport() {
                   {propertyName}
                 </CardDescription>
               </div>
-              {canEdit ? (
+              {canEdit && inspection.status !== "completed" ? (
                 <div className="flex flex-col gap-1 min-w-[180px]">
                   <Label className="text-xs text-muted-foreground">Status</Label>
                   <Select
@@ -1358,9 +1428,12 @@ export default function InspectionReport() {
                 </div>
               ) : (
                 inspection.status && (
-                  <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
-                    {inspection.status.replace(/_/g, ' ').toUpperCase()}
-                  </Badge>
+                  <div className="flex flex-col gap-1 items-end">
+                    <Label className="text-xs text-muted-foreground">Status</Label>
+                    <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
+                      {inspection.status.replace(/_/g, ' ').toUpperCase()}
+                    </Badge>
+                  </div>
                 )
               )}
             </div>
@@ -1370,7 +1443,7 @@ export default function InspectionReport() {
               <div className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
                 <div>
-                  <div className="text-sm font-medium">Property Address</div>
+                  <div className="text-sm font-medium">{locationAddressLabel}</div>
                   <div className="text-sm text-muted-foreground">{propertyAddress}</div>
                 </div>
               </div>
@@ -1388,7 +1461,7 @@ export default function InspectionReport() {
               <div className="flex items-start gap-3">
                 <User className="w-5 h-5 text-muted-foreground mt-0.5" />
                 <div>
-                  <div className="text-sm font-medium">Inspector</div>
+                  <div className="text-sm font-medium">{assigneeRoleLabel}</div>
                   <div className="text-sm text-muted-foreground">{inspectorName}</div>
                 </div>
               </div>
@@ -1728,7 +1801,13 @@ export default function InspectionReport() {
                                     if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
                                       condition = entry.valueJson.condition || null;
                                       cleanliness = entry.valueJson.cleanliness || null;
-                                      description = entry.valueJson.value || '';
+                                      if (field.type === "signature") {
+                                        description = entry.valueJson.value !== undefined && entry.valueJson.value !== null
+                                          ? entry.valueJson.value
+                                          : entry.valueJson;
+                                      } else {
+                                        description = entry.valueJson.value || '';
+                                      }
                                     } else if (typeof entry.valueJson === 'string') {
                                       description = entry.valueJson;
                                     }
@@ -1761,7 +1840,7 @@ export default function InspectionReport() {
                                           {field.label}
                                         </div>
                                         <div className={`col-span-${descriptionCols} text-muted-foreground text-xs ${field.type === "signature" ? "" : "truncate"}`}>
-                                          {renderSignatureAwareDescription(field, description, entry?.note)}
+                                          {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                         </div>
                                         {sectionHasCondition && (
                                           <div className="col-span-2 flex items-center justify-center gap-1">
@@ -1850,7 +1929,7 @@ export default function InspectionReport() {
                                               <div className="font-medium text-foreground mb-1">{field.label}</div>
                                               <div className="flex justify-between">
                                                 <span>Provided by</span>
-                                                <span className="font-medium text-foreground">Inspector</span>
+                                                <span className="font-medium text-foreground">{inspectorName}</span>
                                               </div>
                                               <div className="flex justify-between">
                                                 <span>Captured (Certified by inspector)</span>
@@ -1919,7 +1998,13 @@ export default function InspectionReport() {
                             if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
                               condition = entry.valueJson.condition || null;
                               cleanliness = entry.valueJson.cleanliness || null;
-                              description = entry.valueJson.value || '';
+                              if (field.type === "signature") {
+                                description = entry.valueJson.value !== undefined && entry.valueJson.value !== null
+                                  ? entry.valueJson.value
+                                  : entry.valueJson;
+                              } else {
+                                description = entry.valueJson.value || '';
+                              }
                             } else if (typeof entry.valueJson === 'string') {
                               description = entry.valueJson;
                             }
@@ -1939,7 +2024,7 @@ export default function InspectionReport() {
                                   {field.label}
                                 </div>
                                 <div className={`col-span-${descriptionCols} text-muted-foreground text-xs ${field.type === "signature" ? "" : "truncate"}`}>
-                                  {renderSignatureAwareDescription(field, description, entry?.note)}
+                                  {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                 </div>
                                 {sectionHasCondition && (
                                   <div className="col-span-2 flex items-center justify-center gap-1">
@@ -2017,7 +2102,7 @@ export default function InspectionReport() {
                                           <div className="text-xs space-y-0.5 text-muted-foreground bg-background rounded p-2 border">
                                             <div className="flex justify-between">
                                               <span>Provided by</span>
-                                              <span className="font-medium text-foreground">Inspector</span>
+                                              <span className="font-medium text-foreground">{inspectorName}</span>
                                             </div>
                                             <div className="flex justify-between">
                                               <span>Captured (Certified by inspector)</span>
@@ -2230,7 +2315,7 @@ export default function InspectionReport() {
                                       </div>
                                     </td>
                                     <td className="py-2 px-3 text-muted-foreground text-xs">
-                                      {renderSignatureAwareDescription(field, checkInDescription, checkInEntry?.note)}
+                                      {renderSignatureAwareDescription(field, checkInDescription, checkInEntry?.note, checkInEntry)}
                                     </td>
                                     <td className="py-2 px-3 text-center">
                                       {checkInCondition ? (
@@ -2266,7 +2351,7 @@ export default function InspectionReport() {
                                     </td>
                                     <td className="py-2 px-3">
                                       <div className="text-xs">
-                                        {renderSignatureAwareDescription(field, checkOutDescription, checkOutEntry?.note)}
+                                        {renderSignatureAwareDescription(field, checkOutDescription, checkOutEntry?.note, checkOutEntry)}
                                       </div>
                                       {/* Responsibility Badge */}
                                       {degradation && (
@@ -2367,7 +2452,7 @@ export default function InspectionReport() {
                                         <div className="text-xs space-y-0.5 text-muted-foreground">
                                           <div className="flex justify-between">
                                             <span>Provided by</span>
-                                            <span className="font-medium text-foreground">Inspector</span>
+                                            <span className="font-medium text-foreground">{inspectorName}</span>
                                           </div>
                                           <div className="flex justify-between">
                                             <span>Captured</span>
