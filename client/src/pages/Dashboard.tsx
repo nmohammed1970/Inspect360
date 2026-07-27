@@ -71,6 +71,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -448,29 +453,50 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => refetchStats()}
-              data-testid="button-refresh-stats"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button 
-              onClick={() => setTagSearchOpen(true)} 
-              variant="outline"
-              size="sm"
-              data-testid="button-search-tags"
-            >
-              <Search className="h-4 w-4 mr-2" />
-              Search
-            </Button>
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" data-testid="button-dashboard-settings">
-                  <Settings className="h-4 w-4" />
+            <UiTooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => refetchStats()}
+                  data-testid="button-refresh-stats"
+                >
+                  <RefreshCw className="h-4 w-4" />
                 </Button>
-              </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Refresh dashboard stats and alerts</p>
+              </TooltipContent>
+            </UiTooltip>
+            <UiTooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  onClick={() => setTagSearchOpen(true)} 
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-search-tags"
+                >
+                  <Search className="h-4 w-4 mr-2" />
+                  Search
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Search properties, blocks, and inspections by tags</p>
+              </TooltipContent>
+            </UiTooltip>
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" data-testid="button-dashboard-settings">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Show or hide dashboard sections</p>
+                </TooltipContent>
+              </UiTooltip>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Dashboard Settings</DialogTitle>
@@ -504,89 +530,124 @@ export default function Dashboard() {
 
         {/* Filter Row - Desktop */}
         <div className="hidden md:flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-            <Select value={filterBlockId} onValueChange={(val) => setFilterBlockId(val === "__all__" ? "" : val)}>
-              <SelectTrigger className="w-[180px]" data-testid="filter-block">
-                <SelectValue placeholder="All Blocks" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All Blocks</SelectItem>
-                {blocks.map((block) => (
-                  <SelectItem key={block.id} value={block.id}>
-                    {block.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Home className="h-4 w-4 text-muted-foreground" />
-            <Select value={filterPropertyId} onValueChange={(val) => setFilterPropertyId(val === "__all__" ? "" : val)}>
-              <SelectTrigger className="w-[180px]" data-testid="filter-property">
-                <SelectValue placeholder="All Properties" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All Properties</SelectItem>
-                {filteredProperties.map((property) => (
-                  <SelectItem key={property.id} value={property.id}>
-                    {property.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <Select value={filterBlockId} onValueChange={(val) => setFilterBlockId(val === "__all__" ? "" : val)}>
+                  <SelectTrigger className="w-[180px]" data-testid="filter-block">
+                    <SelectValue placeholder="All Blocks" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Blocks</SelectItem>
+                    {blocks.map((block) => (
+                      <SelectItem key={block.id} value={block.id}>
+                        {block.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Filter dashboard metrics by block</p>
+            </TooltipContent>
+          </UiTooltip>
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2">
+                <Home className="h-4 w-4 text-muted-foreground" />
+                <Select value={filterPropertyId} onValueChange={(val) => setFilterPropertyId(val === "__all__" ? "" : val)}>
+                  <SelectTrigger className="w-[180px]" data-testid="filter-property">
+                    <SelectValue placeholder="All Properties" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Properties</SelectItem>
+                    {filteredProperties.map((property) => (
+                      <SelectItem key={property.id} value={property.id}>
+                        {property.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Filter dashboard metrics by property</p>
+            </TooltipContent>
+          </UiTooltip>
           {hasActiveFilters && (
-            <Button 
-              variant="ghost" 
-              size="sm"
-              onClick={() => {
-                setFilterBlockId("");
-                setFilterPropertyId("");
-              }}
-              data-testid="button-clear-filters"
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              Clear Filters
-            </Button>
+            <UiTooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => {
+                    setFilterBlockId("");
+                    setFilterPropertyId("");
+                  }}
+                  data-testid="button-clear-filters"
+                >
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Clear Filters
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Reset block and property filters</p>
+              </TooltipContent>
+            </UiTooltip>
           )}
           {hasActiveFilters && (
             <Badge variant="secondary" className="text-xs">
               Filtered View
             </Badge>
           )}
-          <Button
-            onClick={handleExportDashboardPDF}
-            disabled={isExportingPDF}
-            variant="default"
-            className="ml-auto"
-            data-testid="button-export-dashboard-pdf"
-          >
-            {isExportingPDF ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Export PDF Report
-              </>
-            )}
-          </Button>
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleExportDashboardPDF}
+                disabled={isExportingPDF}
+                variant="default"
+                className="ml-auto"
+                data-testid="button-export-dashboard-pdf"
+              >
+                {isExportingPDF ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export PDF Report
+                  </>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Download a PDF summary of current dashboard metrics</p>
+            </TooltipContent>
+          </UiTooltip>
         </div>
 
         {/* Filter Row - Mobile */}
         <div className="flex md:hidden gap-2 items-center mb-4">
           <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="shrink-0">
-                <Filter className="w-4 h-4" />
-                {hasActiveFilters && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-                )}
-              </Button>
-            </SheetTrigger>
+            <UiTooltip>
+              <TooltipTrigger asChild>
+                <SheetTrigger asChild>
+                  <Button variant="outline" size="icon" className="shrink-0 relative">
+                    <Filter className="w-4 h-4" />
+                    {hasActiveFilters && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                    )}
+                  </Button>
+                </SheetTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Filter dashboard by block or property</p>
+              </TooltipContent>
+            </UiTooltip>
             <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
               <SheetHeader>
                 <SheetTitle>Filters</SheetTitle>
@@ -643,157 +704,220 @@ export default function Dashboard() {
               </div>
             </SheetContent>
           </Sheet>
-          <Button
-            onClick={handleExportDashboardPDF}
-            disabled={isExportingPDF}
-            variant="default"
-            className="flex-1"
-            data-testid="button-export-dashboard-pdf-mobile"
-          >
-            {isExportingPDF ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Export PDF
-              </>
-            )}
-          </Button>
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleExportDashboardPDF}
+                disabled={isExportingPDF}
+                variant="default"
+                className="flex-1"
+                data-testid="button-export-dashboard-pdf-mobile"
+              >
+                {isExportingPDF ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export PDF
+                  </>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Download a PDF summary of current dashboard metrics</p>
+            </TooltipContent>
+          </UiTooltip>
         </div>
       </div>
 
       {/* Critical Alerts Banner */}
       {totalAlerts > 0 && (
-        <Card className="border-destructive/50 bg-destructive/5" data-testid="panel-critical-alerts">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-destructive" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-destructive">
-                  {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {stats?.alerts.overdueInspections || 0} overdue inspections, {stats?.alerts.overdueCompliance || 0} expired compliance, {stats?.alerts.urgentMaintenance || 0} urgent maintenance
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Card className="border-destructive/50 bg-destructive/5" data-testid="panel-critical-alerts">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-destructive">
+                      {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {stats?.alerts.overdueInspections || 0} overdue inspections, {stats?.alerts.overdueCompliance || 0} expired compliance, {stats?.alerts.urgentMaintenance || 0} urgent maintenance
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Overdue inspections, expired compliance docs, and urgent maintenance</p>
+          </TooltipContent>
+        </UiTooltip>
       )}
 
       {/* Credits Low Alert */}
       {creditsLow && user?.role === "owner" && (
-        <Card className="border-yellow-500/50 bg-yellow-500/5">
-          <CardContent className="flex items-center justify-between gap-4 p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
-                <CreditCard className="w-5 h-5 text-yellow-600" />
-              </div>
-              <div>
-                <p className="font-semibold text-yellow-700 dark:text-yellow-400">AI Credits Running Low</p>
-                <p className="text-sm text-muted-foreground">{creditsRemaining} credits remaining</p>
-              </div>
-            </div>
-            <Link href="/billing?action=topup">
-              <Button size="sm" data-testid="button-purchase-credits">Purchase Credits</Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Card className="border-yellow-500/50 bg-yellow-500/5">
+              <CardContent className="flex items-center justify-between gap-4 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
+                    <CreditCard className="w-5 h-5 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-yellow-700 dark:text-yellow-400">AI Credits Running Low</p>
+                    <p className="text-sm text-muted-foreground">{creditsRemaining} credits remaining</p>
+                  </div>
+                </div>
+                <Link href="/billing?action=topup">
+                  <Button size="sm" data-testid="button-purchase-credits">Purchase Credits</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Credits are used for AI features — top up to keep using them</p>
+          </TooltipContent>
+        </UiTooltip>
       )}
 
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="panel-kpis">
-        <Card data-testid="kpi-occupancy">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <Home className="h-4 w-4 text-muted-foreground" />
-              {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
-            </div>
-            <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
-              {stats?.kpis?.occupancyRate ?? 0}%
-            </p>
-            <p className="text-xs text-muted-foreground">Occupancy Rate</p>
-          </CardContent>
-        </Card>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Card data-testid="kpi-occupancy">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Home className="h-4 w-4 text-muted-foreground" />
+                  {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
+                </div>
+                <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
+                  {stats?.kpis?.occupancyRate ?? 0}%
+                </p>
+                <p className="text-xs text-muted-foreground">Occupancy Rate</p>
+              </CardContent>
+            </Card>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Percentage of properties currently occupied</p>
+          </TooltipContent>
+        </UiTooltip>
 
-        <Link href="/compliance">
-          <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
-              </div>
-              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}`}>
-                {stats?.kpis?.complianceRate ?? 0}%
-              </p>
-              <p className="text-xs text-muted-foreground">Compliance Rate</p>
-            </CardContent>
-          </Card>
-        </Link>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Link href="/compliance">
+              <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                    {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
+                  </div>
+                  <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}`}>
+                    {stats?.kpis?.complianceRate ?? 0}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">Compliance Rate</p>
+                </CardContent>
+              </Card>
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Share of compliance documents that are currently valid — click to view</p>
+          </TooltipContent>
+        </UiTooltip>
 
-        <Link href="/inspections">
-          <Card className="hover-elevate cursor-pointer" data-testid="kpi-inspection-completion">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                {getKpiIcon(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
-              </div>
-              <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}`}>
-                {stats?.kpis?.inspectionCompletionRate ?? 0}%
-              </p>
-              <p className="text-xs text-muted-foreground">Inspection Rate (90d)</p>
-            </CardContent>
-          </Card>
-        </Link>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Link href="/inspections">
+              <Card className="hover-elevate cursor-pointer" data-testid="kpi-inspection-completion">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                    {getKpiIcon(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
+                  </div>
+                  <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}`}>
+                    {stats?.kpis?.inspectionCompletionRate ?? 0}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">Inspection Rate (90d)</p>
+                </CardContent>
+              </Card>
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Inspections completed in the last 90 days — click to view</p>
+          </TooltipContent>
+        </UiTooltip>
 
-        <Link href="/maintenance">
-          <Card className="hover-elevate cursor-pointer" data-testid="kpi-resolution-time">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <Timer className="h-4 w-4 text-muted-foreground" />
-                {getKpiIcon(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
-              </div>
-              <p className="text-2xl font-bold">
-                {stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d
-              </p>
-              <p className="text-xs text-muted-foreground">Avg Resolution Time</p>
-            </CardContent>
-          </Card>
-        </Link>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Link href="/maintenance">
+              <Card className="hover-elevate cursor-pointer" data-testid="kpi-resolution-time">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Timer className="h-4 w-4 text-muted-foreground" />
+                    {getKpiIcon(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
+                  </div>
+                  <p className="text-2xl font-bold">
+                    {stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d
+                  </p>
+                  <p className="text-xs text-muted-foreground">Avg Resolution Time</p>
+                </CardContent>
+              </Card>
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Average days to close maintenance requests — click to view</p>
+          </TooltipContent>
+        </UiTooltip>
 
-        <Link href="/maintenance?status=open">
-          <Card className="hover-elevate cursor-pointer" data-testid="kpi-open-maintenance">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <Wrench className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <p className="text-2xl font-bold">
-                {stats?.kpis?.openMaintenanceCount ?? 0}
-              </p>
-              <p className="text-xs text-muted-foreground">Open Requests</p>
-            </CardContent>
-          </Card>
-        </Link>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Link href="/maintenance?status=open">
+              <Card className="hover-elevate cursor-pointer" data-testid="kpi-open-maintenance">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Wrench className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <p className="text-2xl font-bold">
+                    {stats?.kpis?.openMaintenanceCount ?? 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Open Requests</p>
+                </CardContent>
+              </Card>
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Open maintenance requests awaiting action — click to view</p>
+          </TooltipContent>
+        </UiTooltip>
 
-        <Link href="/maintenance?status=in_progress">
-          <Card className="hover-elevate cursor-pointer" data-testid="kpi-in-progress">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <p className="text-2xl font-bold">
-                {stats?.kpis?.inProgressMaintenanceCount ?? 0}
-              </p>
-              <p className="text-xs text-muted-foreground">In Progress</p>
-            </CardContent>
-          </Card>
-        </Link>
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Link href="/maintenance?status=in_progress">
+              <Card className="hover-elevate cursor-pointer" data-testid="kpi-in-progress">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Activity className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <p className="text-2xl font-bold">
+                    {stats?.kpis?.inProgressMaintenanceCount ?? 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">In Progress</p>
+                </CardContent>
+              </Card>
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Maintenance requests currently being worked on — click to view</p>
+          </TooltipContent>
+        </UiTooltip>
       </div>
       )}
 
@@ -806,10 +930,17 @@ export default function Dashboard() {
           <Card data-testid="panel-alerts-detail">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-destructive" />
-                  Action Required
-                </CardTitle>
+                <UiTooltip>
+                  <TooltipTrigger asChild>
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2 cursor-help">
+                      <AlertCircle className="h-5 w-5 text-destructive" />
+                      Action Required
+                    </CardTitle>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Overdue inspections, expired compliance, and urgent maintenance</p>
+                  </TooltipContent>
+                </UiTooltip>
                 <Badge variant="destructive" className="text-xs">
                   {totalAlerts} items
                 </Badge>
@@ -970,10 +1101,17 @@ export default function Dashboard() {
           {visibleWidgets.trends && (
           <Card data-testid="panel-trends">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-primary" />
-                Activity Trends (12 Weeks)
-              </CardTitle>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2 cursor-help">
+                    <TrendingUp className="h-5 w-5 text-primary" />
+                    Activity Trends (12 Weeks)
+                  </CardTitle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Scheduled, completed, and overdue inspections over the last 12 weeks</p>
+                </TooltipContent>
+              </UiTooltip>
             </CardHeader>
             <CardContent>
               <div className="h-[250px]">
@@ -1043,51 +1181,86 @@ export default function Dashboard() {
           {visibleWidgets.upcoming && (
           <Card data-testid="panel-upcoming">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-yellow-600" />
-                Upcoming Due
-              </CardTitle>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2 cursor-help">
+                    <CalendarClock className="h-5 w-5 text-yellow-600" />
+                    Upcoming Due
+                  </CardTitle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Inspections and compliance items due soon</p>
+                </TooltipContent>
+              </UiTooltip>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Link href="/inspections?due=7">
-                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-inspections-7d">
-                  <div className="flex items-center gap-3">
-                    <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Inspections (7 days)</span>
-                  </div>
-                  <Badge variant="secondary">{stats?.upcoming?.inspectionsDueNext7Days ?? 0}</Badge>
-                </div>
-              </Link>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/inspections?due=7">
+                    <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-inspections-7d">
+                      <div className="flex items-center gap-3">
+                        <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Inspections (7 days)</span>
+                      </div>
+                      <Badge variant="secondary">{stats?.upcoming?.inspectionsDueNext7Days ?? 0}</Badge>
+                    </div>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Inspections scheduled within the next 7 days</p>
+                </TooltipContent>
+              </UiTooltip>
               
-              <Link href="/inspections?due=30">
-                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-inspections-30d">
-                  <div className="flex items-center gap-3">
-                    <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Inspections (30 days)</span>
-                  </div>
-                  <Badge variant="secondary">{stats?.upcoming?.inspectionsDueNext30Days ?? 0}</Badge>
-                </div>
-              </Link>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/inspections?due=30">
+                    <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-inspections-30d">
+                      <div className="flex items-center gap-3">
+                        <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Inspections (30 days)</span>
+                      </div>
+                      <Badge variant="secondary">{stats?.upcoming?.inspectionsDueNext30Days ?? 0}</Badge>
+                    </div>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Inspections scheduled within the next 30 days</p>
+                </TooltipContent>
+              </UiTooltip>
 
-              <Link href="/compliance?expiring=30">
-                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-compliance-30d">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Compliance (30 days)</span>
-                  </div>
-                  <Badge variant="secondary">{stats?.upcoming?.complianceExpiringNext30Days ?? 0}</Badge>
-                </div>
-              </Link>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/compliance?expiring=30">
+                    <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-compliance-30d">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Compliance (30 days)</span>
+                      </div>
+                      <Badge variant="secondary">{stats?.upcoming?.complianceExpiringNext30Days ?? 0}</Badge>
+                    </div>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Compliance documents expiring within 30 days</p>
+                </TooltipContent>
+              </UiTooltip>
 
-              <Link href="/compliance?expiring=90">
-                <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-compliance-90d">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Compliance (90 days)</span>
-                  </div>
-                  <Badge variant="secondary">{stats?.upcoming?.complianceExpiringNext90Days ?? 0}</Badge>
-                </div>
-              </Link>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/compliance?expiring=90">
+                    <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid="upcoming-compliance-90d">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Compliance (90 days)</span>
+                      </div>
+                      <Badge variant="secondary">{stats?.upcoming?.complianceExpiringNext90Days ?? 0}</Badge>
+                    </div>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Compliance documents expiring within 90 days</p>
+                </TooltipContent>
+              </UiTooltip>
             </CardContent>
           </Card>
           )}
@@ -1096,10 +1269,17 @@ export default function Dashboard() {
           {visibleWidgets.risk && (
           <Card data-testid="panel-risk">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <ShieldAlert className="h-5 w-5 text-red-600" />
-                At Risk
-              </CardTitle>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2 cursor-help">
+                    <ShieldAlert className="h-5 w-5 text-red-600" />
+                    At Risk
+                  </CardTitle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Properties or blocks with overdue inspections or compliance</p>
+                </TooltipContent>
+              </UiTooltip>
               <CardDescription className="text-xs">
                 Properties or blocks with overdue items
               </CardDescription>
@@ -1175,10 +1355,17 @@ export default function Dashboard() {
           {visibleWidgets.portfolio && (
           <Card data-testid="panel-portfolio">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-primary" />
-                Portfolio Overview
-              </CardTitle>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2 cursor-help">
+                    <Building2 className="h-5 w-5 text-primary" />
+                    Portfolio Overview
+                  </CardTitle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Totals across your properties, blocks, inspections, and more</p>
+                </TooltipContent>
+              </UiTooltip>
             </CardHeader>
             <CardContent className="space-y-3">
               <Link href="/properties">

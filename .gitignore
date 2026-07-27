@@ -4,6 +4,8 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+*.tar
+inspect360-local.tar
 
 # Environment variables
 .env

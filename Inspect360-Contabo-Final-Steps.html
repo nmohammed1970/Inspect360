@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inspect360 Contabo — What’s Left</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #fff;
+      --ink: #1a1d23;
+      --muted: #5c6570;
+      --line: #dde2e8;
+      --accent: #0b6e4f;
+      --accent-soft: #e6f4ef;
+      --done: #166534;
+      --done-bg: #dcfce7;
+      --todo: #b45309;
+      --todo-bg: #fffbeb;
+      --warn: #9a3412;
+      --warn-bg: #fff7ed;
+      --pc: #1d4ed8;
+      --pc-bg: #eff6ff;
+      --server: #7c3aed;
+      --server-bg: #f5f3ff;
+      --web: #0e7490;
+      --web-bg: #ecfeff;
+      --shadow: 0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.06);
+      --font: "Segoe UI", system-ui, sans-serif;
+      --mono: Consolas, "Cascadia Code", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 400px at 0% 0%, #dcefe8, transparent 50%),
+        radial-gradient(700px 300px at 100% 0%, #dbeafe, transparent 45%),
+        var(--bg);
+      line-height: 1.55;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 36px 18px 72px; }
+    header {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 28px 30px;
+      box-shadow: var(--shadow);
+      margin-bottom: 22px;
+    }
+    header h1 { margin: 0 0 8px; font-size: 1.65rem; letter-spacing: -.02em; }
+    header p { margin: 0; color: var(--muted); max-width: 62ch; }
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill {
+      font-size: .78rem; font-weight: 600;
+      padding: 4px 11px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--bg);
+    }
+    .pill.ok { background: var(--done-bg); border-color: #86efac; color: var(--done); }
+    .pill.next { background: var(--todo-bg); border-color: #fcd34d; color: var(--todo); }
+
+    nav, section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 22px 24px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow);
+    }
+    nav h2, section > h2 { margin: 0 0 8px; font-size: 1.2rem; }
+    nav ol { margin: 0; padding-left: 1.2rem; }
+    nav a { color: var(--accent); text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    .lede { color: var(--muted); margin: 0 0 14px; }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    @media (max-width: 700px) { .status-grid { grid-template-columns: 1fr; } }
+    .status-card {
+      border-radius: 10px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      font-size: .92rem;
+    }
+    .status-card.done { background: var(--done-bg); border-color: #86efac; }
+    .status-card.todo { background: var(--todo-bg); border-color: #fcd34d; }
+    .status-card h3 {
+      margin: 0 0 8px;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .status-card ul { margin: 0; padding-left: 1.1rem; }
+    .status-card li { margin: 3px 0; }
+
+    .tag {
+      display: inline-block;
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      padding: 3px 7px;
+      border-radius: 6px;
+      margin-right: 5px;
+    }
+    .tag-pc { background: var(--pc-bg); color: var(--pc); }
+    .tag-server { background: var(--server-bg); color: var(--server); }
+    .tag-web { background: var(--web-bg); color: var(--web); }
+    .tag-done { background: var(--done-bg); color: var(--done); }
+    .tag-todo { background: var(--todo-bg); color: var(--todo); }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 12px 0;
+      background: #fafbfc;
+    }
+    .step.done-step {
+      opacity: .72;
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+    .step h3 {
+      margin: 0 0 8px;
+      font-size: .98rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .num {
+      background: var(--accent);
+      color: #fff;
+      min-width: 26px; height: 26px;
+      padding: 0 6px;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .75rem;
+      font-weight: 700;
+    }
+    .why, .callout {
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: .9rem;
+      margin: 10px 0 0;
+    }
+    .why {
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+    }
+    .why strong {
+      display: block;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 3px;
+    }
+    .callout.warn {
+      background: var(--warn-bg);
+      border: 1px solid #fed7aa;
+      color: var(--warn);
+    }
+    .callout.info {
+      background: var(--accent-soft);
+      border: 1px solid #a7d7c5;
+      color: #065f46;
+    }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 12px 14px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: .82rem;
+      line-height: 1.45;
+      margin: 8px 0 10px;
+    }
+    code.inline {
+      font-family: var(--mono);
+      font-size: .85em;
+      background: #eef2f7;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .9rem;
+      margin: 10px 0;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f1f5f9;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+    }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: .85rem;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Inspect360 Contabo — What’s Left</h1>
+      <p>
+        Updated for your current server state. Compose is already on Contabo.
+        <strong>You are here:</strong> build the Docker image on your PC, then start the container.
+      </p>
+      <div class="pills">
+        <span class="pill ok">Compose copied ✓</span>
+        <span class="pill ok">Env on server ✓</span>
+        <span class="pill ok">Network = caddy ✓</span>
+        <span class="pill ok">Caddy in Docker ✓</span>
+        <span class="pill next">Next: docker build</span>
+      </div>
+    </header>
+
+    <nav>
+      <h2 style="font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px">Jump to</h2>
+      <ol>
+        <li><a href="#progress">Progress board (done vs left)</a></li>
+        <li><a href="#now">Do next — Build &amp; start image</a></li>
+        <li><a href="#caddy">Then — Caddy route for portal.inspect360.ai</a></li>
+        <li><a href="#test">Then — Hosts-file test</a></li>
+        <li><a href="#data">Later — DB + storage migrate</a></li>
+        <li><a href="#dns">Later — DNS + Stripe cutover</a></li>
+        <li><a href="#facts">Server facts (don’t change these)</a></li>
+      </ol>
+    </nav>
+
+    <section id="progress">
+      <h2>Progress board</h2>
+      <p class="lede">As of your last steps (compose scp succeeded).</p>
+      <div class="status-grid">
+        <div class="status-card done">
+          <h3 style="color:var(--done)">Done</h3>
+          <ul>
+            <li>SSH access to Contabo (<code class="inline">169.58.40.94</code>)</li>
+            <li>Coolify Traefik removed; ports free</li>
+            <li>Caddy running as Docker container on network <code class="inline">caddy</code></li>
+            <li>Postgres up; on network <code class="inline">caddy</code></li>
+            <li>HeyTeam app already deployed (separate container)</li>
+            <li><code class="inline">/opt/inspect360/.env</code> created (<code class="inline">PORT=5000</code>, <code class="inline">BASE_URL</code> set)</li>
+            <li><code class="inline">docker-compose.contabo.yml</code> copied to <code class="inline">/opt/inspect360/</code></li>
+            <li>Confirmed: Inspect360 can use internal port <strong>5000</strong> (no conflict with HeyTeam)</li>
+          </ul>
+        </div>
+        <div class="status-card todo">
+          <h3 style="color:var(--todo)">Still left</h3>
+          <ul>
+            <li><strong>Build</strong> Docker image on your PC</li>
+            <li><strong>Upload</strong> image tar to Contabo + <code class="inline">docker load</code></li>
+            <li><strong>Start</strong> <code class="inline">inspect360</code> container</li>
+            <li><strong>Add</strong> Caddy site block for <code class="inline">portal.inspect360.ai</code></li>
+            <li><strong>Test</strong> via Windows hosts file</li>
+            <li><strong>Restore</strong> DB dump + copy <code class="inline">storage/</code></li>
+            <li><strong>DNS</strong> cutover + Stripe webhook</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="facts">
+      <h2>Server facts (locked)</h2>
+      <table>
+        <thead><tr><th>Item</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Caddy network</td><td><code class="inline">caddy</code> (use this for Inspect360)</td></tr>
+          <tr><td>Postgres networks</td><td><code class="inline">caddy</code> + <code class="inline">infra_internal</code></td></tr>
+          <tr><td>HeyTeam network</td><td><code class="inline">infra_internal</code> (ignore for Inspect360)</td></tr>
+          <tr><td>Inspect360 port inside container</td><td><code class="inline">5000</code> (same number as HeyTeam is fine)</td></tr>
+          <tr><td>Compose path</td><td><code class="inline">/opt/inspect360/docker-compose.contabo.yml</code></td></tr>
+          <tr><td>Env path</td><td><code class="inline">/opt/inspect360/.env</code></td></tr>
+          <tr><td>Domain</td><td><code class="inline">portal.inspect360.ai</code></td></tr>
+        </tbody>
+      </table>
+      <div class="callout info">
+        <code class="inline">DATABASE_URL</code> must use host <strong>postgres</strong> and DB <strong>inspect360</strong>, not localhost.
+      </div>
+    </section>
+
+    <!-- NOW -->
+    <section id="now">
+      <h2><span class="tag tag-todo">You are here</span> Build &amp; start Inspect360</h2>
+      <p class="lede">Compose is already on the server. Do these on your PC first, then Contabo.</p>
+
+      <div class="step">
+        <h3><span class="num">1</span> Build image <span class="tag tag-pc">Your PC — PowerShell</span></h3>
+<pre>cd "d:\Work-Projects\New Server\Inspect360NewServer"
+docker build -t inspect360:local .</pre>
+        <p>Wait until you see <code class="inline">Successfully tagged inspect360:local</code>. First build can take 10–30 minutes.</p>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">2</span> Save image to a file <span class="tag tag-pc">Your PC</span></h3>
+<pre>docker save inspect360:local -o inspect360-local.tar</pre>
+        <p>Creates a large <code class="inline">.tar</code> file in the project folder.</p>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">3</span> Upload tar to Contabo <span class="tag tag-pc">Your PC</span></h3>
+<pre>scp inspect360-local.tar root@169.58.40.94:/tmp/</pre>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">4</span> Load image on server <span class="tag tag-server">Contabo SSH</span></h3>
+<pre>docker load -i /tmp/inspect360-local.tar
+docker images | grep inspect360</pre>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">5</span> Start the container <span class="tag tag-server">Contabo</span></h3>
+<pre>cd /opt/inspect360
+IMAGE=inspect360:local docker compose -f docker-compose.contabo.yml up -d
+
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker logs --tail 100 inspect360
+docker inspect inspect360 --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}'</pre>
+        <p>Expect:</p>
+        <ul>
+          <li>Container named <code class="inline">inspect360</code> is <strong>Up</strong></li>
+          <li>Network shows <code class="inline">caddy</code></li>
+          <li>Logs show server start (no DB connection errors)</li>
+        </ul>
+        <div class="callout warn">
+          If DB fails: confirm <code class="inline">DATABASE_URL</code> host is <code class="inline">postgres</code>,
+          and both <code class="inline">inspect360</code> + <code class="inline">postgres</code> are on network <code class="inline">caddy</code>.
+        </div>
+      </div>
+    </section>
+
+    <!-- CADDY -->
+    <section id="caddy">
+      <h2><span class="tag tag-todo">After container is Up</span> Caddy route</h2>
+      <p class="lede">Caddy is already a Docker container. Add a site block so the domain reaches Inspect360.</p>
+
+      <div class="step">
+        <h3><span class="num">6</span> Find Caddyfile location <span class="tag tag-server">Contabo</span></h3>
+<pre>docker inspect caddy --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'</pre>
+        <p>Edit the <strong>Source</strong> path on the host (that’s the real file).</p>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">7</span> Backup + add site block <span class="tag tag-server">Contabo</span></h3>
+<pre># Example — use YOUR Source path from step 6
+cp /path/to/Caddyfile /path/to/Caddyfile.bak.$(date +%F)
+nano /path/to/Caddyfile</pre>
+        <p>Add this block (keep existing HeyTeam / other blocks):</p>
+<pre>portal.inspect360.ai {
+    encode gzip
+    reverse_proxy inspect360:5000
+}</pre>
+        <div class="why">
+          <strong>Why this works</strong>
+          Caddy and Inspect360 share Docker network <code class="inline">caddy</code>,
+          so Caddy can resolve hostname <code class="inline">inspect360</code>.
+          Port 5000 inside the container does not conflict with HeyTeam.
+        </div>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">8</span> Reload Caddy <span class="tag tag-server">Contabo</span></h3>
+<pre>docker exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker exec caddy caddy reload --config /etc/caddy/Caddyfile</pre>
+        <p>If validate fails, check the Destination path from step 6 and use that instead of <code class="inline">/etc/caddy/Caddyfile</code>.</p>
+      </div>
+    </section>
+
+    <!-- TEST -->
+    <section id="test">
+      <h2><span class="tag tag-todo">Next</span> Test before real DNS</h2>
+
+      <div class="step">
+        <h3><span class="num">9</span> Windows hosts file <span class="tag tag-pc">Your PC</span></h3>
+        <p>Open Notepad <strong>as Administrator</strong>:</p>
+<pre>notepad C:\Windows\System32\drivers\etc\hosts</pre>
+        <p>Add:</p>
+<pre>169.58.40.94   portal.inspect360.ai</pre>
+        <p>Then open:</p>
+<pre>https://portal.inspect360.ai/api/health
+https://portal.inspect360.ai</pre>
+        <p>Try login. If HTTPS cert isn’t ready yet, try <code class="inline">http://</code> or check Caddy logs.</p>
+<pre>docker logs --tail 50 caddy
+docker logs --tail 50 inspect360</pre>
+      </div>
+    </section>
+
+    <!-- DATA -->
+    <section id="data">
+      <h2><span class="tag tag-todo">Later</span> Restore DB + copy storage</h2>
+      <p class="lede">Do this after the empty app boots cleanly. Prefer a dry run before DNS cutover.</p>
+
+      <div class="step">
+        <h3><span class="num">10</span> Dump old DB + restore <span class="tag tag-pc">PC</span> → <span class="tag tag-server">Contabo</span></h3>
+<pre># On machine that can reach current production DB
+pg_dump -Fc -h OLD_HOST -U OLD_USER -d OLD_DB -f inspect360.dump
+scp inspect360.dump root@169.58.40.94:/tmp/</pre>
+<pre># On Contabo
+docker compose -f /opt/inspect360/docker-compose.contabo.yml stop inspect360
+docker cp /tmp/inspect360.dump postgres:/tmp/inspect360.dump
+docker exec -it postgres pg_restore --clean --if-exists --no-owner --no-acl \
+  -U creativecloud -d inspect360 /tmp/inspect360.dump
+docker compose -f /opt/inspect360/docker-compose.contabo.yml start inspect360</pre>
+        <p>Adjust <code class="inline">-U creativecloud</code> if your admin user differs. Do not run <code class="inline">db:push</code> after a full restore.</p>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">11</span> Copy uploads <span class="tag tag-pc">PC</span> → <span class="tag tag-server">Contabo</span></h3>
+<pre># Pack live storage folder
+tar -czf storage-backup.tgz -C "PATH\TO\APP" storage
+scp storage-backup.tgz root@169.58.40.94:/tmp/</pre>
+<pre># On Contabo
+docker compose -f /opt/inspect360/docker-compose.contabo.yml stop inspect360
+VOL=$(docker volume inspect inspect360_storage -f '{{.Mountpoint}}')
+tar -xzf /tmp/storage-backup.tgz -C /tmp
+rsync -a /tmp/storage/ "$VOL"/
+chown -R 1000:1000 "$VOL"
+docker compose -f /opt/inspect360/docker-compose.contabo.yml start inspect360</pre>
+      </div>
+    </section>
+
+    <!-- DNS -->
+    <section id="dns">
+      <h2><span class="tag tag-todo">Go-live</span> DNS + Stripe</h2>
+      <p class="lede">Only after hosts-file testing works (login, upload, PDF).</p>
+
+      <div class="step">
+        <h3><span class="num">12</span> Point DNS <span class="tag tag-web">DNS panel</span></h3>
+        <table>
+          <thead><tr><th>Type</th><th>Name</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>A</td><td>portal.inspect360.ai</td><td><code class="inline">169.58.40.94</code></td></tr>
+          </tbody>
+        </table>
+        <p>Remove the temporary hosts-file line afterward.</p>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">13</span> Stripe webhook <span class="tag tag-web">Stripe</span> + <span class="tag tag-server">Contabo</span></h3>
+<pre>https://portal.inspect360.ai/api/webhooks/stripe</pre>
+        <p>Paste new <code class="inline">whsec_...</code> into <code class="inline">/opt/inspect360/.env</code> as <code class="inline">STRIPE_WEBHOOK_SECRET</code>, then:</p>
+<pre>cd /opt/inspect360
+docker compose -f docker-compose.contabo.yml up -d --force-recreate</pre>
+      </div>
+
+      <div class="step">
+        <h3><span class="num">14</span> Keep GoDaddy warm 48–72h</h3>
+        <p>If Contabo fails, flip DNS back to GoDaddy for rollback.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Already finished (don’t redo)</h2>
+      <div class="step done-step">
+        <h3><span class="tag tag-done">Done</span> Copy compose</h3>
+<pre>scp docker-compose.contabo.yml root@169.58.40.94:/opt/inspect360/</pre>
+        <p>Completed successfully.</p>
+      </div>
+      <div class="step done-step">
+        <h3><span class="tag tag-done">Done</span> Env + network discovery</h3>
+        <p><code class="inline">PORT=5000</code>, <code class="inline">BASE_URL=https://portal.inspect360.ai</code>, Docker network <code class="inline">caddy</code>.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Right now — one command</h2>
+      <p class="lede">Run this on your PC if you haven’t started the build yet:</p>
+<pre>cd "d:\Work-Projects\New Server\Inspect360NewServer"
+docker build -t inspect360:local .</pre>
+      <div class="callout info">
+        When build finishes → steps 2–5 (save, scp, load, compose up).
+        Paste <code class="inline">docker logs --tail 100 inspect360</code> here if it fails.
+      </div>
+    </section>
+
+    <footer>
+      Inspect360 Contabo — What’s Left · Updated after compose scp · Next: docker build
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inspect360 — Contabo Ubuntu Migration Plan</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --ink: #1a1d23;
+      --muted: #5c6570;
+      --line: #dde2e8;
+      --accent: #0b6e4f;
+      --accent-soft: #e6f4ef;
+      --code-bg: #0f172a;
+      --code-fg: #e2e8f0;
+      --warn: #9a3412;
+      --warn-bg: #fff7ed;
+      --server: #1d4ed8;
+      --server-bg: #eff6ff;
+      --code-tag: #7c3aed;
+      --code-tag-bg: #f5f3ff;
+      --you: #b45309;
+      --you-bg: #fffbeb;
+      --external: #0e7490;
+      --external-bg: #ecfeff;
+      --current: #475569;
+      --current-bg: #f1f5f9;
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.06);
+      --radius: 12px;
+      --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+      --mono: "Cascadia Code", "Consolas", "SF Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #dcefe8 0%, transparent 55%),
+        radial-gradient(900px 400px at 100% 0%, #dbeafe 0%, transparent 50%),
+        var(--bg);
+      line-height: 1.55;
+    }
+
+    .wrap { max-width: 980px; margin: 0 auto; padding: 40px 20px 80px; }
+
+    header.hero {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 36px 36px 28px;
+      box-shadow: var(--shadow);
+      margin-bottom: 28px;
+    }
+    header.hero h1 {
+      margin: 0 0 8px;
+      font-size: 1.85rem;
+      letter-spacing: -0.02em;
+    }
+    header.hero .sub {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin: 0 0 20px;
+      max-width: 68ch;
+    }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border: 1px solid var(--line);
+      background: var(--bg);
+    }
+    .pill.emph {
+      background: var(--you-bg);
+      border-color: #fcd34d;
+      color: var(--you);
+    }
+
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 28px;
+      box-shadow: var(--shadow);
+    }
+    nav.toc h2 {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    nav.toc ol {
+      margin: 0;
+      padding-left: 1.2rem;
+      columns: 2;
+      column-gap: 28px;
+    }
+    nav.toc a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    nav.toc a:hover { text-decoration: underline; }
+    nav.toc li { margin: 4px 0; break-inside: avoid; }
+
+    section.block {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 28px 30px;
+      margin-bottom: 22px;
+      box-shadow: var(--shadow);
+    }
+    section.block > h2 {
+      margin: 0 0 6px;
+      font-size: 1.35rem;
+      letter-spacing: -0.015em;
+    }
+    section.block > .lede {
+      color: var(--muted);
+      margin: 0 0 20px;
+    }
+
+    h3 { margin: 28px 0 10px; font-size: 1.08rem; }
+    h3:first-of-type { margin-top: 8px; }
+    p { margin: 0 0 12px; }
+    ul, ol { margin: 0 0 14px; padding-left: 1.25rem; }
+    li { margin: 4px 0; }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+      margin: 16px 0 8px;
+    }
+    .legend-item {
+      border-radius: 10px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      font-size: 0.88rem;
+    }
+    .legend-item strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 6px;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .tag-server { background: var(--server-bg); color: var(--server); }
+    .tag-code { background: var(--code-tag-bg); color: var(--code-tag); }
+    .tag-you { background: var(--you-bg); color: var(--you); }
+    .tag-external { background: var(--external-bg); color: var(--external); }
+    .tag-current { background: var(--current-bg); color: var(--current); }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px 18px 14px;
+      margin: 14px 0;
+      background: #fafbfc;
+    }
+    .step-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      padding: 0 4px;
+      min-width: 28px;
+    }
+    .step-title {
+      font-weight: 700;
+      font-size: 1rem;
+      flex: 1;
+      min-width: 180px;
+    }
+    .why, .where, .compare {
+      margin: 10px 0 0;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 0.92rem;
+    }
+    .why { background: var(--accent-soft); border-left: 3px solid var(--accent); }
+    .where { background: var(--server-bg); border-left: 3px solid var(--server); }
+    .compare { background: var(--current-bg); border-left: 3px solid var(--current); }
+    .why strong, .where strong, .compare strong {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+      opacity: 0.85;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 12px 0 18px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f1f5f9;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    tr:nth-child(even) td { background: #fafbfc; }
+
+    pre, code { font-family: var(--mono); font-size: 0.84rem; }
+    pre {
+      background: var(--code-bg);
+      color: var(--code-fg);
+      padding: 14px 16px;
+      border-radius: 10px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+      line-height: 1.45;
+    }
+    code.inline {
+      background: #eef2f7;
+      color: #0f172a;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.85em;
+    }
+
+    .callout {
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 14px 0;
+      font-size: 0.92rem;
+    }
+    .callout.warn {
+      background: var(--warn-bg);
+      border: 1px solid #fed7aa;
+      color: var(--warn);
+    }
+    .callout.info {
+      background: var(--accent-soft);
+      border: 1px solid #a7d7c5;
+      color: #065f46;
+    }
+
+    .arch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin: 16px 0;
+    }
+    @media (max-width: 720px) {
+      .arch { grid-template-columns: 1fr; }
+      nav.toc ol { columns: 1; }
+      header.hero { padding: 24px 20px; }
+      section.block { padding: 22px 18px; }
+    }
+    .arch-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      background: #fff;
+    }
+    .arch-card h3 { margin: 0 0 10px; font-size: 0.95rem; }
+    .arch-card.old { border-top: 3px solid #94a3b8; }
+    .arch-card.new { border-top: 3px solid var(--accent); }
+    .flow {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.7;
+      color: var(--muted);
+      white-space: pre-wrap;
+    }
+
+    .timeline {
+      border-left: 3px solid var(--accent);
+      margin: 12px 0 0 6px;
+      padding-left: 18px;
+    }
+    .timeline .day {
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .timeline .day::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      background: var(--accent);
+      border-radius: 50%;
+      position: absolute;
+      left: -24px;
+      top: 6px;
+    }
+    .timeline .day strong { display: block; margin-bottom: 2px; }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 28px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <header class="hero">
+      <h1>Inspect360 → Contabo Ubuntu Migration Plan</h1>
+      <p class="sub">
+        Full ownership guide: you have Contabo server access, so <strong>you do every step</strong> —
+        code, Docker, Caddy, Postgres, data migration, DNS, and cutover.
+        Each step explains <em>what</em>, <em>why</em>, <em>where</em> (code vs server vs GoDaddy),
+        and how it compares to the current Windows/IIS setup.
+      </p>
+      <div class="meta">
+        <span class="pill emph">You own everything (full server access)</span>
+        <span class="pill">From: GoDaddy Windows / IIS</span>
+        <span class="pill">To: Contabo Ubuntu / Docker + Caddy</span>
+        <span class="pill">One app container + shared Postgres</span>
+        <span class="pill">Domain: portal.inspect360.ai</span>
+      </div>
+    </header>
+
+    <nav class="toc">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#legend">How to read this document</a></li>
+        <li><a href="#overview">What is changing</a></li>
+        <li><a href="#assumptions">Assumptions</a></li>
+        <li><a href="#checklist">Master checklist (you do all)</a></li>
+        <li><a href="#phase0">Phase 0 — Access &amp; inventory</a></li>
+        <li><a href="#phase1">Phase 1 — Code / repo changes</a></li>
+        <li><a href="#phase2">Phase 2 — Server preparation</a></li>
+        <li><a href="#phase3">Phase 3 — Data migration</a></li>
+        <li><a href="#phase4">Phase 4 — Cutover</a></li>
+        <li><a href="#phase5">Phase 5 — After migration</a></li>
+        <li><a href="#risks">Risks &amp; mitigations</a></li>
+        <li><a href="#timeline">Suggested timeline</a></li>
+        <li><a href="#next">What to do next</a></li>
+      </ol>
+    </nav>
+
+    <section class="block" id="legend">
+      <h2>1. How to read this document</h2>
+      <p class="lede">
+        There is no separate “boss does this” column. Tags only tell you <strong>where</strong> the work happens.
+        You still perform every action.
+      </p>
+
+      <div class="legend">
+        <div class="legend-item" style="background:var(--you-bg)">
+          <strong style="color:var(--you)">You</strong>
+          Owner of every step — code, Contabo, GoDaddy, DNS, Stripe.
+        </div>
+        <div class="legend-item" style="background:var(--code-tag-bg)">
+          <strong style="color:var(--code-tag)">In code / repo</strong>
+          Dockerfile, GitHub Actions, cookie/proxy fixes, templates.
+        </div>
+        <div class="legend-item" style="background:var(--server-bg)">
+          <strong style="color:var(--server)">On Contabo server</strong>
+          Docker, Caddyfile, Postgres, env file, volumes, deploy key.
+        </div>
+        <div class="legend-item" style="background:var(--current-bg)">
+          <strong style="color:var(--current)">On GoDaddy (current)</strong>
+          Dump DB, copy storage, inventory secrets, later decommission.
+        </div>
+        <div class="legend-item" style="background:var(--external-bg)">
+          <strong style="color:var(--external)">External dashboards</strong>
+          DNS registrar, Stripe, Resend, GitHub secrets.
+        </div>
+      </div>
+
+      <p style="margin-top:16px">Each step also has:</p>
+      <ul>
+        <li><strong>Why</strong> — what breaks if you skip it.</li>
+        <li><strong>Where</strong> — exact place you work (repo, Contabo SSH, GoDaddy, Stripe, etc.).</li>
+        <li><strong>vs current</strong> — difference from today’s GoDaddy Windows/IIS hosting.</li>
+      </ul>
+    </section>
+
+    <section class="block" id="overview">
+      <h2>2. What is changing (big picture)</h2>
+      <p class="lede">
+        The product stays the same (Node API + React UI + WebSockets + Postgres).
+        What changes is <strong>how you host, route, and deploy it</strong> — and you configure all of that yourself on Contabo.
+      </p>
+
+      <div class="arch">
+        <div class="arch-card old">
+          <h3><span class="tag tag-current">Current</span> GoDaddy Windows</h3>
+          <div class="flow">Users
+  → IIS (80/443) + SSL
+  → iisnode → Node (~5000)
+  → .env / IIS env vars
+  → Postgres (Windows host)
+  → Files on disk (./storage)</div>
+          <p style="margin-top:12px;font-size:0.9rem;color:var(--muted)">
+            Deploy: build → copy to <code class="inline">C:\inetpub\wwwroot\inspect360</code> → recycle IIS.
+          </p>
+        </div>
+        <div class="arch-card new">
+          <h3><span class="tag tag-server">New</span> Contabo Ubuntu</h3>
+          <div class="flow">Users
+  → Caddy (80/443) + auto SSL
+  → Docker container inspect360:5000
+  → /opt/inspect360/.env
+  → Postgres via Docker name “postgres”
+  → Docker volume (/app/storage)</div>
+          <p style="margin-top:12px;font-size:0.9rem;color:var(--muted)">
+            Deploy: push <code class="inline">main</code> → GitHub Actions builds image → SSH → restart container (~1–2 min).
+          </p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <strong>Single container for the app</strong> = API + React SPA + WebSocket in one Inspect360 container.
+        Postgres and Caddy stay as separate shared services on the server (infra rule).
+        You do not put the database inside your app image.
+      </div>
+
+      <h3>What stays the same</h3>
+      <ul>
+        <li>Same codebase: Express + Vite/React monolith.</li>
+        <li>Same DB: PostgreSQL + Drizzle.</li>
+        <li>Same integrations: Stripe, Resend, OpenAI, Maps, Fixflo.</li>
+        <li>Same domain goal: <code class="inline">portal.inspect360.ai</code>.</li>
+      </ul>
+
+      <h3>What you must change</h3>
+      <ul>
+        <li>No more IIS / iisnode / <code class="inline">web.config</code> for production.</li>
+        <li>Only Caddy is public (80/443). App has <strong>no public port mapping</strong>.</li>
+        <li>App DB host = <code class="inline">postgres</code> (Docker service name), not <code class="inline">localhost</code>.</li>
+        <li>Your personal GUI (DBeaver) still uses SSH tunnel → <code class="inline">localhost:5432</code>.</li>
+        <li>Secrets only in server env / <code class="inline">.env</code> on Contabo — never in git.</li>
+      </ul>
+    </section>
+
+    <section class="block" id="assumptions">
+      <h2>3. Assumptions</h2>
+      <p class="lede">Adjust in Phase 0 if something on the server differs.</p>
+      <table>
+        <thead>
+          <tr><th>Assumption</th><th>Why it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>You have full Contabo access (SSH, Docker, Caddy, Postgres)</td>
+            <td>You create DB, edit Caddyfile, set env, deploy keys — no waiting on anyone else.</td>
+          </tr>
+          <tr>
+            <td>One app container; shared <code class="inline">postgres</code> + shared Caddy</td>
+            <td>Matches server infra rules and “single container” for the app.</td>
+          </tr>
+          <tr>
+            <td>Domain <code class="inline">portal.inspect360.ai</code></td>
+            <td>SSL, Stripe webhooks, Resend links, mobile API.</td>
+          </tr>
+          <tr>
+            <td>Internal app port <code class="inline">5000</code></td>
+            <td>Caddy reverse_proxies to <code class="inline">inspect360:5000</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        The Caddyfile is shared with other apps. You edit it yourself, but always backup first,
+        make a minimal change, run <code class="inline">caddy validate</code>, then reload.
+      </div>
+    </section>
+
+    <section class="block" id="checklist">
+      <h2>4. Master checklist (you do all of this)</h2>
+      <p class="lede">Same work as before — reorganized so every row is yours. “Location” says where to do it.</p>
+      <table>
+        <thead>
+          <tr><th>Task</th><th>What you do</th><th>Location</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Discover Docker / Caddy / Postgres / network</td>
+            <td><code class="inline">docker ps</code>, <code class="inline">docker network ls</code>, find Caddyfile path</td>
+            <td><span class="tag tag-server">Contabo</span></td>
+          </tr>
+          <tr>
+            <td>Create DB + user <code class="inline">inspect360</code></td>
+            <td><code class="inline">docker exec</code> into postgres → create role/DB</td>
+            <td><span class="tag tag-server">Contabo</span></td>
+          </tr>
+          <tr>
+            <td>Caddy site for subdomain</td>
+            <td>Add <code class="inline">reverse_proxy inspect360:5000</code>; validate; reload</td>
+            <td><span class="tag tag-server">Contabo</span></td>
+          </tr>
+          <tr>
+            <td>Dockerfile, compose, GitHub Actions</td>
+            <td>Implement in repo; push to main</td>
+            <td><span class="tag tag-code">Repo</span></td>
+          </tr>
+          <tr>
+            <td>Registry + deploy SSH + GH secrets</td>
+            <td>Create deploy key; add GitHub secrets</td>
+            <td><span class="tag tag-server">Contabo</span> <span class="tag tag-external">GitHub</span></td>
+          </tr>
+          <tr>
+            <td>Production env file</td>
+            <td>Write <code class="inline">/opt/inspect360/.env</code> from GoDaddy secrets</td>
+            <td><span class="tag tag-server">Contabo</span></td>
+          </tr>
+          <tr>
+            <td>DB dump + restore</td>
+            <td><code class="inline">pg_dump</code> old → <code class="inline">pg_restore</code> via SSH tunnel</td>
+            <td><span class="tag tag-current">GoDaddy</span> → <span class="tag tag-server">Contabo</span></td>
+          </tr>
+          <tr>
+            <td>Copy uploads</td>
+            <td>rsync/scp <code class="inline">storage/</code> into Docker volume</td>
+            <td><span class="tag tag-current">GoDaddy</span> → <span class="tag tag-server">Contabo</span></td>
+          </tr>
+          <tr>
+            <td>HTTPS cookie / trust proxy</td>
+            <td>Fix <code class="inline">server/auth.ts</code> + Express trust proxy</td>
+            <td><span class="tag tag-code">Repo</span></td>
+          </tr>
+          <tr>
+            <td>DNS cutover</td>
+            <td>Point A/AAAA to Contabo IP</td>
+            <td><span class="tag tag-external">DNS</span></td>
+          </tr>
+          <tr>
+            <td>Stripe + Resend</td>
+            <td>Update webhook URL/secret; confirm email domain</td>
+            <td><span class="tag tag-external">Dashboards</span> + env</td>
+          </tr>
+          <tr>
+            <td>Cutover QA + rollback window</td>
+            <td>Smoke test; keep GoDaddy 48–72h</td>
+            <td>All locations</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="block" id="phase0">
+      <h2>5. Phase 0 — Access &amp; inventory</h2>
+      <p class="lede">Do this before writing Docker files. Prove Contabo is ready and document what lives on GoDaddy.</p>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">1</span>
+          <span class="step-title">SSH in and map Docker / Caddy / Postgres / network</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>Confirm Docker is running, find the Postgres container, find Caddy, and record the shared Docker network name.</p>
+<pre>docker ps
+docker network ls
+docker network inspect &lt;network-name&gt;
+# Find Caddyfile path (common: /etc/caddy/Caddyfile)</pre>
+        <div class="why"><strong>Why</strong>Your app container must join the same network as Caddy and Postgres, or routing and DB connections fail.</div>
+        <div class="where"><strong>Where</strong>Contabo via SSH. No code change yet.</div>
+        <div class="compare"><strong>vs current</strong>Today you use RDP / IIS Manager on Windows. On Contabo you manage containers with Docker CLI and Caddy config files.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">2</span>
+          <span class="step-title">Set up DBeaver / pgAdmin via SSH tunnel</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>In your SQL tool: enable SSH tunnel to Contabo, then connect:</p>
+        <ul>
+          <li>Host: <code class="inline">localhost</code></li>
+          <li>Port: <code class="inline">5432</code></li>
+          <li>Database: <code class="inline">mind</code> (to see all DBs)</li>
+          <li>Enable “Show all databases”</li>
+        </ul>
+        <div class="why"><strong>Why</strong>Postgres is not public. SSH tunnel is how you create DBs, restore dumps, and debug safely.</div>
+        <div class="where"><strong>Where</strong>Your laptop SQL GUI + Contabo SSH. Not inside the Node app.</div>
+        <div class="compare"><strong>vs current</strong>GUI access path changes to SSH-tunnel → localhost. App code later uses host <code class="inline">postgres</code>, not localhost.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3</span>
+          <span class="step-title">Inventory GoDaddy production</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-current">GoDaddy</span>
+        </div>
+        <ul>
+          <li>Live <code class="inline">DATABASE_URL</code> / IIS env vars</li>
+          <li>Path + size of <code class="inline">storage/private</code> and <code class="inline">storage/public</code></li>
+          <li>Stripe, Resend, OpenAI, Maps, <code class="inline">SESSION_SECRET</code>, <code class="inline">BASE_URL</code></li>
+          <li>Live domain + whether mobile hardcodes API URL</li>
+        </ul>
+        <div class="why"><strong>Why</strong>Most migrations fail from a forgotten secret, upload folder, or webhook — inventory first.</div>
+        <div class="where"><strong>Where</strong>GoDaddy Windows / current <code class="inline">.env</code>. Store secrets in a password manager — never commit.</div>
+        <div class="compare"><strong>vs current</strong>Documenting as-is so Contabo can behave the same with different hosting plumbing.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4</span>
+          <span class="step-title">Lock naming conventions</span>
+          <span class="tag tag-you">You</span>
+        </div>
+        <ul>
+          <li>Image: e.g. <code class="inline">ghcr.io/&lt;org&gt;/inspect360</code></li>
+          <li>Container: <code class="inline">inspect360</code></li>
+          <li>Database: <code class="inline">inspect360</code></li>
+          <li>Port: <code class="inline">5000</code></li>
+          <li>Docker network: exact name from step 1</li>
+        </ul>
+        <div class="why"><strong>Why</strong>Caddyfile, compose, Actions, and <code class="inline">DATABASE_URL</code> must match. Renaming later breaks routing.</div>
+        <div class="where"><strong>Where</strong>Your notes → then reflected in repo + Contabo config.</div>
+        <div class="compare"><strong>vs current</strong>IIS site folder path is replaced by container / image / network names.</div>
+      </div>
+    </section>
+
+    <section class="block" id="phase1">
+      <h2>6. Phase 1 — Code / repo changes</h2>
+      <p class="lede">Work in the Inspect360 Git repo so the app becomes a Docker image with auto-deploy.</p>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">1.1</span>
+          <span class="step-title">Add multi-stage Dockerfile (single app process)</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-code">Repo</span>
+        </div>
+        <ul>
+          <li>Base: <code class="inline">node:20-bookworm-slim</code></li>
+          <li>Install Linux libs for Chromium (PDF), <code class="inline">sharp</code>, ffmpeg</li>
+          <li><code class="inline">npm ci</code> → <code class="inline">npm run build</code> → <code class="inline">node dist/index.js</code></li>
+          <li><code class="inline">PORT=5000</code>, uploads at <code class="inline">/app/storage</code></li>
+        </ul>
+        <div class="why"><strong>Why</strong>Docker needs a build recipe. Missing Chromium deps = PDF breaks on Linux. No storage path = uploads vanish on restart.</div>
+        <div class="where"><strong>Where</strong>New <code class="inline">Dockerfile</code> in the repo. Built by GitHub Actions; runs on Contabo.</div>
+        <div class="compare"><strong>vs current</strong>Replaces IIS/iisnode + <code class="inline">web.config</code> packaging for Windows.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">1.2</span>
+          <span class="step-title">Add compose fragment (no public ports)</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-code">Repo</span>
+          <span class="tag tag-server">Used on Contabo</span>
+        </div>
+        <ul>
+          <li><strong>No</strong> <code class="inline">ports:</code> published to the internet</li>
+          <li>Join existing external Docker network (name from Phase 0)</li>
+          <li>Named volume for <code class="inline">/app/storage</code></li>
+          <li>Env from <code class="inline">/opt/inspect360/.env</code></li>
+        </ul>
+<pre>services:
+  inspect360:
+    image: ghcr.io/ORG/inspect360:latest
+    container_name: inspect360
+    restart: unless-stopped
+    env_file: /opt/inspect360/.env
+    volumes:
+      - inspect360_storage:/app/storage
+    networks:
+      - caddy   # use real network name from Phase 0
+    # NO ports: mapping
+
+volumes:
+  inspect360_storage:
+
+networks:
+  caddy:
+    external: true</pre>
+<pre>DATABASE_URL=postgresql://USER:PASSWORD@postgres:5432/inspect360</pre>
+        <div class="callout warn">
+          Inside Docker, host must be <strong>postgres</strong>, not localhost.
+          localhost is only for your DBeaver SSH tunnel.
+        </div>
+        <div class="why"><strong>Why</strong>Publishing ports bypasses Caddy and breaks the security model. Host <code class="inline">postgres</code> uses Docker DNS to reach the DB privately.</div>
+        <div class="where"><strong>Where</strong>Compose in repo (or deploy folder on server). Env file only on Contabo disk.</div>
+        <div class="compare"><strong>vs current</strong>IIS binds 80/443 on the machine. In Docker, only Caddy is public; app talks to DB by service name.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">1.3</span>
+          <span class="step-title">Add GitHub Actions + create deploy credentials</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-code">Repo</span>
+          <span class="tag tag-server">Contabo key</span>
+          <span class="tag tag-external">GitHub secrets</span>
+        </div>
+        <p>On push to <code class="inline">main</code>: build image → push registry → SSH Contabo → pull → recreate container.</p>
+        <p>You also create:</p>
+        <ul>
+          <li>Limited SSH deploy key/user on Contabo</li>
+          <li>GitHub secrets: registry token, <code class="inline">SSH_HOST</code>, <code class="inline">SSH_USER</code>, <code class="inline">SSH_KEY</code></li>
+        </ul>
+        <div class="why"><strong>Why</strong>Target flow is “live in ~1–2 minutes, no manual copy.” Without CI you still deploy like GoDaddy.</div>
+        <div class="where"><strong>Where</strong>Workflow YAML in repo; key on Contabo; secrets in GitHub Settings.</div>
+        <div class="compare"><strong>vs current</strong>Replaces manual RDP/file-copy + IIS recycle.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">1.4</span>
+          <span class="step-title">Fix HTTPS cookies + trust proxy</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-code">Repo</span>
+        </div>
+        <p>Today <code class="inline">server/auth.ts</code> has <code class="inline">secure: false</code>. Behind Caddy HTTPS you must:</p>
+        <ul>
+          <li>Enable Express <code class="inline">trust proxy</code></li>
+          <li>Set cookie <code class="inline">secure: true</code> in production</li>
+        </ul>
+        <div class="why"><strong>Why</strong>Without this, browsers may drop session cookies over HTTPS — site “works” but users cannot stay logged in.</div>
+        <div class="where"><strong>Where</strong>Application source (<code class="inline">server/auth.ts</code>, <code class="inline">server/index.ts</code>). Not an OS setting.</div>
+        <div class="compare"><strong>vs current</strong>Code still has insecure cookie defaults; fix as part of proper HTTPS behind Caddy.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">1.5</span>
+          <span class="step-title">Add Caddyfile site block (you edit carefully)</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+<pre>portal.inspect360.ai {
+    reverse_proxy inspect360:5000
+}</pre>
+        <ol>
+          <li>Backup the current Caddyfile</li>
+          <li>Add only this site block</li>
+          <li>Run <code class="inline">caddy validate --config /path/to/Caddyfile</code></li>
+          <li>Reload Caddy</li>
+          <li>Test <code class="inline">/ws</code> after deploy</li>
+        </ol>
+        <div class="why"><strong>Why</strong>Caddy is the only public entry and auto-issues Let’s Encrypt certs. Without this block, nothing reaches your container on HTTPS.</div>
+        <div class="where"><strong>Where</strong>Contabo Caddy config. Snippet can also live in repo docs for reference.</div>
+        <div class="compare"><strong>vs current</strong>Replaces IIS SSL bindings (and any nginx sample). Shared Caddyfile means extra care vs editing a single-app IIS site.</div>
+      </div>
+    </section>
+
+    <section class="block" id="phase2">
+      <h2>7. Phase 2 — Server preparation (you on Contabo)</h2>
+      <p class="lede">Get the empty/staging stack running before moving real data.</p>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">2.1</span>
+          <span class="step-title">Create Postgres database and user</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>Inside the shared Postgres container, create role + database <code class="inline">inspect360</code>. Verify in DBeaver over SSH tunnel.</p>
+        <div class="why"><strong>Why</strong>App needs its own DB. Do not use shared admin DB <code class="inline">mind</code> for application data.</div>
+        <div class="where"><strong>Where</strong><code class="inline">docker exec</code> / psql into Contabo Postgres. Credentials go into server env only.</div>
+        <div class="compare"><strong>vs current</strong>Same idea as creating a DB on GoDaddy; access path is Docker + tunnel.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">2.2</span>
+          <span class="step-title">Create <code class="inline">/opt/inspect360/.env</code></span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <table>
+          <thead><tr><th>Variable</th><th>Value</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code class="inline">DATABASE_URL</code></td>
+              <td><code class="inline">postgresql://USER:PASS@postgres:5432/inspect360</code></td>
+              <td>DB over Docker network</td>
+            </tr>
+            <tr>
+              <td><code class="inline">SESSION_SECRET</code></td>
+              <td>New random 64-char string</td>
+              <td>Session encryption; changing logs everyone out</td>
+            </tr>
+            <tr>
+              <td><code class="inline">BASE_URL</code></td>
+              <td><code class="inline">https://portal.inspect360.ai</code></td>
+              <td>Emails, redirects, absolute URLs</td>
+            </tr>
+            <tr>
+              <td><code class="inline">PORT</code> / <code class="inline">NODE_ENV</code></td>
+              <td><code class="inline">5000</code> / <code class="inline">production</code></td>
+              <td>Listen port + production behavior</td>
+            </tr>
+            <tr>
+              <td>Stripe / Resend / OpenAI / Maps</td>
+              <td>From GoDaddy; update webhook after DNS</td>
+              <td>Payments, email, AI, geocoding</td>
+            </tr>
+            <tr>
+              <td><code class="inline">LOCAL_STORAGE_DIR</code></td>
+              <td><code class="inline">/app/storage</code></td>
+              <td>Upload path inside container</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="why"><strong>Why</strong>Secrets must live outside the image. Containers are replaceable; env files are not.</div>
+        <div class="where"><strong>Where</strong>File on Contabo only. Template may live in repo; real values must not.</div>
+        <div class="compare"><strong>vs current</strong>Same secrets as Windows <code class="inline">.env</code> / IIS env; new location + DB host name <code class="inline">postgres</code>.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">2.3</span>
+          <span class="step-title">Start container, join network, reload Caddy</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>Bring the container up with compose, confirm it is on the Caddy network, apply the Caddy site block, reload, check logs.</p>
+        <div class="why"><strong>Why</strong>Prove the stack boots before DNS cutover so go-live is a traffic switch, not a first-time firefight.</div>
+        <div class="where"><strong>Where</strong>Contabo Docker + Caddy. Optional hosts-file test from your PC.</div>
+        <div class="compare"><strong>vs current</strong>Like testing a new IIS site on a staging host before flipping DNS.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">2.4</span>
+          <span class="step-title">Create deploy SSH key for GitHub Actions</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+          <span class="tag tag-external">GitHub</span>
+        </div>
+        <p>Create a limited Linux user/key used only by CI to pull images and recreate the app container. Add it to GitHub secrets.</p>
+        <div class="why"><strong>Why</strong>Automates deploy without putting your personal root credentials in CI.</div>
+        <div class="where"><strong>Where</strong>Contabo <code class="inline">authorized_keys</code> + GitHub repo secrets.</div>
+        <div class="compare"><strong>vs current</strong>Replaces your manual RDP deploy access with a narrow CI key.</div>
+      </div>
+    </section>
+
+    <section class="block" id="phase3">
+      <h2>8. Phase 3 — Data migration</h2>
+      <p class="lede">Move database rows and uploaded files. Always dry-run before the real cutover.</p>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3.1</span>
+          <span class="step-title">Schedule a low-write / maintenance window</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-current">GoDaddy</span>
+        </div>
+        <div class="why"><strong>Why</strong>Writes during dump cause Contabo to miss latest rows/files.</div>
+        <div class="where"><strong>Where</strong>Operational decision on GoDaddy. Not a code change.</div>
+        <div class="compare"><strong>vs current</strong>Same risk on any server move — OS change does not remove need for a clean cut.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3.2</span>
+          <span class="step-title">Dump current Postgres</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-current">GoDaddy</span>
+        </div>
+<pre>pg_dump -Fc -d &lt;old_db&gt; -f inspect360.dump</pre>
+        <div class="why"><strong>Why</strong>Full app state (users, inspections, billing, sessions). Code alone is not enough.</div>
+        <div class="where"><strong>Where</strong>Against current GoDaddy DB from your laptop or the Windows server.</div>
+        <div class="compare"><strong>vs current</strong>Exporting the old host so Contabo becomes source of truth.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3.3</span>
+          <span class="step-title">Restore into Contabo via SSH tunnel</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>Restore into empty <code class="inline">inspect360</code> with <code class="inline">pg_restore</code> or DBeaver through the tunnel.</p>
+        <div class="why"><strong>Why</strong>Loads production data without exposing Postgres publicly.</div>
+        <div class="where"><strong>Where</strong>Your CLI/GUI → SSH tunnel → Contabo Postgres. Not done by the Node app.</div>
+        <div class="compare"><strong>vs current</strong>Same schema/engine; new Dockerized host.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3.4</span>
+          <span class="step-title">Copy storage/ uploads</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-current">GoDaddy</span>
+          <span class="tag tag-server">Contabo volume</span>
+        </div>
+        <p>Sync <code class="inline">storage/private</code> and <code class="inline">storage/public</code> into the volume at <code class="inline">/app/storage</code>.</p>
+        <div class="why"><strong>Why</strong>Photos/docs live on disk. DB-only migration breaks existing inspections.</div>
+        <div class="where"><strong>Where</strong>File copy GoDaddy → Contabo volume. Compose defines the volume; you populate it.</div>
+        <div class="compare"><strong>vs current</strong>Same files; Windows path → Linux Docker volume.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3.5</span>
+          <span class="step-title">Schema check</span>
+          <span class="tag tag-you">You</span>
+        </div>
+        <ul>
+          <li>Full dump restore → do not blindly run <code class="inline">db:push</code>.</li>
+          <li>Empty DB → apply schema/migrations, then import data.</li>
+        </ul>
+        <div class="why"><strong>Why</strong>Wrong order can alter or conflict with restored tables.</div>
+        <div class="where"><strong>Where</strong>DB tooling against Contabo. Schema files live in repo but are applied to the server DB.</div>
+        <div class="compare"><strong>vs current</strong>Prefer full dump restore for production cutover.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">3.6</span>
+          <span class="step-title">Smoke-test Contabo before DNS</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>Hosts file or temp hostname → Contabo. Test login, upload, WebSocket, PDF, billing pages.</p>
+        <div class="why"><strong>Why</strong>Finds cookie/storage/Chromium/DB issues while GoDaddy still serves real users.</div>
+        <div class="where"><strong>Where</strong>Your browser → Contabo (bypass public DNS). GoDaddy stays live.</div>
+        <div class="compare"><strong>vs current</strong>Parallel run: old = production, new = staging until cutover.</div>
+      </div>
+    </section>
+
+    <section class="block" id="phase4">
+      <h2>9. Phase 4 — Cutover (go live)</h2>
+      <p class="lede">Short planned switch of public traffic from GoDaddy to Contabo — all by you.</p>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.1</span>
+          <span class="step-title">Final incremental dump / file sync</span>
+          <span class="tag tag-you">You</span>
+        </div>
+        <div class="why"><strong>Why</strong>Minimizes data gap since the dry run.</div>
+        <div class="where"><strong>Where</strong>GoDaddy → Contabo (same tools as Phase 3).</div>
+        <div class="compare"><strong>vs current</strong>Last moment GoDaddy is write master.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.2</span>
+          <span class="step-title">Point DNS to Contabo public IP</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-external">DNS</span>
+        </div>
+        <p>Update A/AAAA for <code class="inline">portal.inspect360.ai</code>. Lower TTL 24h earlier for faster propagation.</p>
+        <div class="why"><strong>Why</strong>DNS is how users reach Contabo. Until this changes, the new stack is invisible publicly.</div>
+        <div class="where"><strong>Where</strong>Domain registrar / DNS panel — not in app code or Docker.</div>
+        <div class="compare"><strong>vs current</strong>DNS currently points at GoDaddy; after this it points at Contabo.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.3</span>
+          <span class="step-title">Confirm Let’s Encrypt via Caddy</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <div class="why"><strong>Why</strong>Broken SSL blocks cookies, Stripe, and trust.</div>
+        <div class="where"><strong>Where</strong>Caddy on Contabo auto-provisions certs — no certbot.</div>
+        <div class="compare"><strong>vs current</strong>Replaces IIS/manual SSL install on GoDaddy.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.4</span>
+          <span class="step-title">Live smoke test</span>
+          <span class="tag tag-you">You</span>
+        </div>
+        <ul>
+          <li>Login / logout</li>
+          <li>Upload image</li>
+          <li>WebSocket <code class="inline">/ws</code></li>
+          <li>PDF export</li>
+          <li>Stripe webhook test event</li>
+        </ul>
+        <div class="why"><strong>Why</strong>These catch the highest-risk Linux/Docker gaps.</div>
+        <div class="where"><strong>Where</strong>Browser + Stripe against live Contabo.</div>
+        <div class="compare"><strong>vs current</strong>Same features, proven on the new host.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.5</span>
+          <span class="step-title">Update Stripe webhook</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-external">Stripe</span>
+        </div>
+<pre>https://portal.inspect360.ai/api/webhooks/stripe</pre>
+        <p>Paste new signing secret into Contabo <code class="inline">STRIPE_WEBHOOK_SECRET</code>; recreate container if needed.</p>
+        <div class="why"><strong>Why</strong>If webhook still hits GoDaddy or uses an old secret, billing events stop.</div>
+        <div class="where"><strong>Where</strong>Stripe Dashboard + Contabo env file.</div>
+        <div class="compare"><strong>vs current</strong>Same path; destination server/secret changes at cutover.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.6</span>
+          <span class="step-title">Confirm Resend + mobile API URL</span>
+          <span class="tag tag-you">You</span>
+        </div>
+        <div class="why"><strong>Why</strong>Wrong links or a hardcoded mobile host can keep traffic on GoDaddy.</div>
+        <div class="where"><strong>Where</strong>Resend dashboard; possibly <code class="inline">mobile/</code> config + app release.</div>
+        <div class="compare"><strong>vs current</strong>If mobile already uses <code class="inline">portal.inspect360.ai</code>, DNS alone is enough.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">4.7</span>
+          <span class="step-title">Keep GoDaddy warm 48–72 hours</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-current">Rollback</span>
+        </div>
+        <div class="why"><strong>Why</strong>If Contabo fails, flip DNS back and restore service from GoDaddy.</div>
+        <div class="where"><strong>Where</strong>Leave GoDaddy running idle; DNS is the switch.</div>
+        <div class="compare"><strong>vs current</strong>GoDaddy becomes standby, not primary.</div>
+      </div>
+    </section>
+
+    <section class="block" id="phase5">
+      <h2>10. Phase 5 — After migration</h2>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">5.1</span>
+          <span class="step-title">Monitor container logs</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+<pre>docker logs -f inspect360</pre>
+        <div class="why"><strong>Why</strong>Catch DB/env/Chromium/webhook errors early.</div>
+        <div class="where"><strong>Where</strong>Contabo SSH / Docker CLI.</div>
+        <div class="compare"><strong>vs current</strong>Replaces IIS / iisnode log hunting on Windows.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">5.2</span>
+          <span class="step-title">Security check: only Caddy is public</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-server">Contabo</span>
+        </div>
+        <p>Confirm Postgres is not public and the app has no published host ports — only Caddy 80/443.</p>
+        <div class="why"><strong>Why</strong>Matches the required security model and reduces attack surface.</div>
+        <div class="where"><strong>Where</strong>Contabo firewall + <code class="inline">docker ps</code> publish columns.</div>
+        <div class="compare"><strong>vs current</strong>Standardizes “proxy only” instead of whatever was exposed on GoDaddy.</div>
+      </div>
+
+      <div class="step">
+        <div class="step-head">
+          <span class="step-num">5.3</span>
+          <span class="step-title">Decommission GoDaddy</span>
+          <span class="tag tag-you">You</span>
+          <span class="tag tag-current">GoDaddy</span>
+        </div>
+        <p>After confidence: final backup of old DB + storage, stop IIS/Node, then shut down old hosting.</p>
+        <div class="why"><strong>Why</strong>Stops cost and accidental writes if something still pointed at the old server.</div>
+        <div class="where"><strong>Where</strong>GoDaddy. Keep Contabo rollback image tag documented first.</div>
+        <div class="compare"><strong>vs current</strong>End of Windows hosting for this app.</div>
+      </div>
+    </section>
+
+    <section class="block" id="risks">
+      <h2>11. Risks &amp; how you avoid them</h2>
+      <table>
+        <thead>
+          <tr><th>Risk</th><th>Why</th><th>What you do</th><th>Where</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Caddyfile breaks other apps</td>
+            <td>Shared reverse proxy</td>
+            <td>Backup; minimal edit; <code class="inline">caddy validate</code>; reload</td>
+            <td>Contabo</td>
+          </tr>
+          <tr>
+            <td>PDF export fails</td>
+            <td>Missing Chromium libs</td>
+            <td>Install deps in Dockerfile; test PDF before cutover</td>
+            <td>Repo</td>
+          </tr>
+          <tr>
+            <td>Cannot stay logged in</td>
+            <td>Insecure cookies behind HTTPS</td>
+            <td><code class="inline">trust proxy</code> + secure cookies</td>
+            <td>Repo</td>
+          </tr>
+          <tr>
+            <td>Missing photos</td>
+            <td>Forgot volume or file copy</td>
+            <td>Named volume + rsync checksums</td>
+            <td>Contabo + copy</td>
+          </tr>
+          <tr>
+            <td>App cannot reach DB</td>
+            <td>Used localhost in app env</td>
+            <td>Host <code class="inline">postgres</code> in <code class="inline">DATABASE_URL</code></td>
+            <td>Contabo env</td>
+          </tr>
+          <tr>
+            <td>WebSocket broken</td>
+            <td>Proxy upgrade issue</td>
+            <td>Test <code class="inline">/ws</code> after Caddy reload</td>
+            <td>Contabo + app</td>
+          </tr>
+          <tr>
+            <td>Billing events stop</td>
+            <td>Webhook still on GoDaddy</td>
+            <td>Update Stripe URL + secret at cutover</td>
+            <td>Stripe + env</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="block" id="timeline">
+      <h2>12. Suggested timeline</h2>
+      <div class="timeline">
+        <div class="day">
+          <strong>Day 1 — Inventory + server skeleton</strong>
+          Map Docker/Caddy/Postgres; create DB; write env skeleton; draft Caddy block.
+        </div>
+        <div class="day">
+          <strong>Day 1–2 — Code ready</strong>
+          Dockerfile, compose, Actions, cookie/proxy fix merged.
+        </div>
+        <div class="day">
+          <strong>Day 2 — First Contabo deploy</strong>
+          Image runs; Caddy routes; deploy key + GH secrets set.
+        </div>
+        <div class="day">
+          <strong>Day 3 — Dry-run migration</strong>
+          Dump/restore + storage copy + full QA (DNS still GoDaddy).
+        </div>
+        <div class="day">
+          <strong>Day 4 — Cutover</strong>
+          Final sync, DNS flip, SSL, Stripe webhook, live smoke tests.
+        </div>
+        <div class="day">
+          <strong>Day 5–7 — Watch &amp; retire GoDaddy</strong>
+          Monitor logs; then stop IIS after confidence.
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="next">
+      <h2>13. What you should do next</h2>
+      <ol>
+        <li>
+          <span class="tag tag-server">Contabo</span>
+          SSH in; record Docker network name, Postgres container name, Caddyfile path.
+        </li>
+        <li>
+          <span class="tag tag-server">Contabo</span>
+          Create DB/user <code class="inline">inspect360</code> (or your chosen name).
+        </li>
+        <li>
+          <span class="tag tag-current">GoDaddy</span>
+          Export current <code class="inline">.env</code> / IIS secrets; note <code class="inline">storage/</code> size.
+        </li>
+        <li>
+          <span class="tag tag-external">DNS</span>
+          Confirm domain <code class="inline">portal.inspect360.ai</code>; lower TTL 24h before cutover.
+        </li>
+        <li>
+          <span class="tag tag-code">Repo</span>
+          Start implementation: Dockerfile, GitHub Actions, HTTPS cookie fix, then apply Caddy site block.
+        </li>
+      </ol>
+
+      <div class="callout info" style="margin-top:18px">
+        <strong>Two different DB hosts — both used by you</strong><br />
+        • DBeaver GUI: SSH tunnel → <code class="inline">localhost:5432</code><br />
+        • App inside Docker: <code class="inline">DATABASE_URL=...@postgres:5432/inspect360</code>
+      </div>
+    </section>
+
+    <footer>
+      Inspect360 Contabo Migration Plan · You own all steps (full server access) ·
+      GoDaddy Windows/IIS → Contabo Ubuntu/Docker/Caddy
+    </footer>
+  </div>
+</body>
+</html>
