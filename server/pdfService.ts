@@ -707,14 +707,14 @@ function generateInspectionHTML(
         if (sigImage.startsWith("data:image/")) {
           descriptionHTML = `
             <div>
-              <img src="${sigImage}" alt="Signature" style="max-width: 420px; width: 100%; height: 180px; object-fit: contain; border: 2px solid #e5e7eb; border-radius: 6px; background: #fff; padding: 8px;" />
+              <img src="${sigImage}" alt="Signature" style="max-width: 560px; width: 100%; height: 220px; object-fit: contain; border: 2px solid #e5e7eb; border-radius: 6px; background: #fff; padding: 6px;" />
               ${metaHtml}
             </div>
           `;
         } else {
           descriptionHTML = `
             <div>
-              <div style="max-width: 420px; min-height: 120px; border: 2px solid #e5e7eb; border-radius: 6px; padding: 16px; font-size: 22px; font-style: italic; font-family: cursive;">
+              <div style="max-width: 560px; min-height: 160px; border: 2px solid #e5e7eb; border-radius: 6px; padding: 20px; font-size: 28px; font-style: italic; font-family: cursive;">
                 ${escapeHtml(sigImage)}
               </div>
               ${metaHtml}
@@ -731,25 +731,27 @@ function generateInspectionHTML(
 
     let rowHTML = `
       <tr>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500;">
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500; vertical-align: top; width: 22%;">
           ${escapeHtml(field.label)}
         </td>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;">
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;${isSignature ? " width: 78%;" : ""}" ${isSignature ? `colspan="${1 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1}"` : ""}>
           ${descriptionHTML}
         </td>
-        ${sectionHasCondition ? `
+        ${!isSignature && sectionHasCondition ? `
           <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
             ${field.includeCondition && condition ? formatRating(condition, conditionScore) : '<span style="color: #999;">-</span>'}
           </td>
         ` : ''}
-        ${sectionHasCleanliness ? `
+        ${!isSignature && sectionHasCleanliness ? `
           <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
             ${field.includeCleanliness && cleanliness ? formatRating(cleanliness, cleanlinessScore) : '<span style="color: #999;">-</span>'}
           </td>
         ` : ''}
+        ${!isSignature ? `
         <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
           ${photoCount > 0 ? `<span style="color: #00D5CC; font-weight: 500;">${photoCount} photo${photoCount > 1 ? 's' : ''}</span>` : '<span style="color: #999;">-</span>'}
         </td>
+        ` : ''}
       </tr>
     `;
 

@@ -1078,6 +1078,20 @@ export default function InspectionReport() {
     return value || note || "-";
   };
 
+  /** Tailwind needs full class names at build time — do not use `col-span-${n}` */
+  const descriptionColClass = (cols: number) => {
+    switch (cols) {
+      case 8:
+        return "col-span-8";
+      case 6:
+        return "col-span-6";
+      case 4:
+        return "col-span-4";
+      default:
+        return "col-span-8";
+    }
+  };
+
   const canEdit = currentUser?.role === 'owner' || currentUser?.role === 'compliance';
 
   // Show loading while checking authentication
@@ -1763,7 +1777,7 @@ export default function InspectionReport() {
                       {/* Table Header */}
                       <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground border-b pb-2 px-2">
                         <div className="col-span-3">Room/Space</div>
-                        <div className={`col-span-${descriptionCols}`}>Description</div>
+                        <div className={descriptionColClass(descriptionCols)}>Description</div>
                         {sectionHasCondition && <div className="col-span-2 text-center">Condition</div>}
                         {sectionHasCleanliness && <div className="col-span-2 text-center">Cleanliness</div>}
                         <div className="col-span-1 text-center">Photos</div>
@@ -1832,6 +1846,19 @@ export default function InspectionReport() {
                                   return (
                                     <div key={field.id || field.key || field.label}>
                                       {/* Main Row */}
+                                      {field.type === "signature" ? (
+                                        <div
+                                          className="grid grid-cols-12 gap-3 py-3 border-b items-start text-sm px-2 hover:bg-muted/30"
+                                          data-testid={`field-${field.id || field.key}`}
+                                        >
+                                          <div className="col-span-3 font-medium text-primary pt-2">
+                                            {field.label}
+                                          </div>
+                                          <div className="col-span-9">
+                                            {renderSignatureAwareDescription(field, description, entry?.note, entry)}
+                                          </div>
+                                        </div>
+                                      ) : (
                                       <div
                                         className="grid grid-cols-12 gap-2 py-2.5 border-b items-center text-sm px-2 hover:bg-muted/30"
                                         data-testid={`field-${field.id || field.key}`}
@@ -1839,7 +1866,7 @@ export default function InspectionReport() {
                                         <div className="col-span-3 font-medium text-primary">
                                           {field.label}
                                         </div>
-                                        <div className={`col-span-${descriptionCols} text-muted-foreground text-xs ${field.type === "signature" ? "" : "truncate"}`}>
+                                        <div className={`${descriptionColClass(descriptionCols)} text-muted-foreground text-xs truncate`}>
                                           {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                         </div>
                                         {sectionHasCondition && (
@@ -1873,6 +1900,7 @@ export default function InspectionReport() {
                                           ) : <span className="text-muted-foreground text-xs">-</span>}
                                         </div>
                                       </div>
+                                      )}
 
                                       {/* Edit Mode Notes */}
                                       {editMode && (
@@ -2016,6 +2044,19 @@ export default function InspectionReport() {
                           return (
                             <div key={field.id || field.key || field.label}>
                               {/* Main Row */}
+                              {field.type === "signature" ? (
+                                <div
+                                  className="grid grid-cols-12 gap-3 py-3 border-b items-start text-sm px-2 hover:bg-muted/30"
+                                  data-testid={`field-${field.id || field.key}`}
+                                >
+                                  <div className="col-span-3 font-medium text-primary pt-2">
+                                    {field.label}
+                                  </div>
+                                  <div className="col-span-9">
+                                    {renderSignatureAwareDescription(field, description, entry?.note, entry)}
+                                  </div>
+                                </div>
+                              ) : (
                               <div
                                 className="grid grid-cols-12 gap-2 py-2.5 border-b items-center text-sm px-2 hover:bg-muted/30"
                                 data-testid={`field-${field.id || field.key}`}
@@ -2023,7 +2064,7 @@ export default function InspectionReport() {
                                 <div className="col-span-3 font-medium text-primary hover:underline cursor-pointer" onClick={() => photoCount > 0 && togglePhotoExpansion(photoKey)}>
                                   {field.label}
                                 </div>
-                                <div className={`col-span-${descriptionCols} text-muted-foreground text-xs ${field.type === "signature" ? "" : "truncate"}`}>
+                                <div className={`${descriptionColClass(descriptionCols)} text-muted-foreground text-xs truncate`}>
                                   {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                 </div>
                                 {sectionHasCondition && (
@@ -2061,6 +2102,7 @@ export default function InspectionReport() {
                                   ) : <span className="text-muted-foreground text-xs">-</span>}
                                 </div>
                               </div>
+                              )}
 
                               {/* Expanded Photos Section */}
                               {isPhotoExpanded && photoCount > 0 && (
