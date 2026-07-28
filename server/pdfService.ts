@@ -533,10 +533,10 @@ function generateInspectionHTML(
     : sanitizeUrl(logoUrl, baseUrl);
   const logoHtml = hasLogo && logoSrc
     ? `<img src="${logoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
-    : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-  
-  const companyNameHtml = hasLogo 
-    ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>` 
+    : '';
+
+  const presentedByHtml = companyName
+    ? `<div class="cover-presented-by">Presented by: ${escapeHtml(companyName)}</div>`
     : '';
   
   const contactParts: string[] = [];
@@ -964,14 +964,12 @@ function generateInspectionHTML(
     <!-- Cover Page -->
     <div class="cover-page">
       <div class="cover-content">
-        <div class="cover-logo-container">
-          ${logoHtml}
-          ${companyNameHtml}
-        </div>
+        ${logoHtml ? `<div class="cover-logo-container">${logoHtml}</div>` : ''}
+        <div class="cover-property">${escapeHtml(propertyName)}</div>
+        ${presentedByHtml}
         <div class="cover-divider"></div>
         <div class="cover-title">${escapeHtml(coverTitle)}</div>
         ${coverSubtitle ? `<div class="cover-subtitle">${escapeHtml(coverSubtitle)}</div>` : ''}
-        <div class="cover-property">${escapeHtml(propertyName)}</div>
         <div class="cover-details">
           <div class="cover-detail-item">
             <span>${escapeHtml(formattedDate)}</span>
@@ -1278,61 +1276,56 @@ function generateInspectionHTML(
     }
 
     .cover-logo-container {
-      margin-bottom: 40px;
+      margin-bottom: 28px;
     }
 
     .cover-logo-img {
-      max-height: 120px;
-      max-width: 320px;
+      max-height: 96px;
+      max-width: 280px;
       width: auto;
       height: auto;
       object-fit: contain;
       filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
     }
 
-    .cover-logo-text {
-      font-size: 64px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    .cover-property {
+      font-size: 52px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+      max-width: 85%;
+      line-height: 1.15;
     }
 
-    .cover-company-name {
-      font-size: 28px;
-      font-weight: 600;
-      margin-top: 16px;
-      opacity: 0.95;
-      letter-spacing: 1px;
+    .cover-presented-by {
+      font-size: 16px;
+      font-weight: 400;
+      margin-bottom: 8px;
+      opacity: 0.9;
+      letter-spacing: 0.3px;
     }
 
     .cover-divider {
       width: 120px;
       height: 3px;
       background: rgba(255, 255, 255, 0.5);
-      margin: 32px 0;
+      margin: 28px 0;
       border-radius: 2px;
     }
 
     .cover-title {
-      font-size: 42px;
-      font-weight: 700;
+      font-size: 28px;
+      font-weight: 600;
       margin-bottom: 12px;
       letter-spacing: 0.5px;
+      opacity: 0.95;
     }
 
     .cover-subtitle {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 400;
       margin-bottom: 20px;
       opacity: 0.9;
-    }
-
-    .cover-property {
-      font-size: 28px;
-      font-weight: 400;
-      margin-bottom: 32px;
-      opacity: 0.95;
-      max-width: 80%;
     }
 
     .cover-details {
