@@ -20,6 +20,7 @@ import { ObjectUploader } from "@/components/ObjectUploader";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useLocale } from "@/contexts/LocaleContext";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 /** Username input removed from UI; API still requires username — derive a safe value from email. */
 function defaultUsernameFromEmail(email: string): string {
@@ -454,16 +455,11 @@ export default function Team() {
           <Filter className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-semibold">Filter Team Members</h2>
           {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
+            <ClearFiltersButton
               onClick={clearFilters}
               className="ml-auto"
               data-testid="button-clear-filters"
-            >
-              <X className="w-4 h-4 mr-1" />
-              Clear Filters
-            </Button>
+            />
           )}
         </div>
         
@@ -613,14 +609,10 @@ export default function Team() {
               </div>
 
               {hasActiveFilters && (
-                <Button 
-                  variant="outline" 
+                <ClearFiltersButton
                   className="w-full"
                   onClick={clearFilters}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>
@@ -743,10 +735,7 @@ export default function Team() {
                   <p className="text-muted-foreground mb-4">
                     No team members match your current filters. Try adjusting your search criteria.
                   </p>
-                  <Button onClick={clearFilters} variant="outline">
-                    <X className="mr-2 h-4 w-4" />
-                    Clear Filters
-                  </Button>
+                  <ClearFiltersButton onClick={clearFilters} />
                 </>
               ) : (
                 <>

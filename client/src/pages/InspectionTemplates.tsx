@@ -18,6 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { insertInspectionTemplateSchema, insertTemplateCategorySchema, type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { z } from "zod";
 import { TemplateBuilder } from "../components/TemplateBuilder";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 // Form schemas
 const templateFormSchema = insertInspectionTemplateSchema.extend({
@@ -47,6 +49,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
   const [filterScope, setFilterScope] = useState<string>("all");
   const [filterActive, setFilterActive] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("name-asc");
+  const [templateToDelete, setTemplateToDelete] = useState<InspectionTemplate | null>(null);
 
   // Fetch templates (server-side filtering)
   const { data: rawTemplates, isLoading: templatesLoading } = useQuery<InspectionTemplate[]>({
@@ -159,6 +162,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
         title: "Success",
         description: "Template deleted successfully",
       });
+      setTemplateToDelete(null);
       if (selectedTemplate) {
         setSelectedTemplate(null);
       }
@@ -395,15 +399,10 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
                 )}
               </div>
               {hasActiveFilters && (
-                <Button
-                  variant="outline"
-                  size="sm"
+                <ClearFiltersButton
                   onClick={clearAllFilters}
                   data-testid="button-clear-filters"
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear Filters
-                </Button>
+                />
               )}
             </div>
           </div>
@@ -440,10 +439,10 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
                   <p className="text-muted-foreground mb-6">
                     Try adjusting your search or filter criteria
                   </p>
-                  <Button variant="outline" onClick={clearAllFilters} data-testid="button-clear-filters-empty">
-                    <X className="w-4 h-4 mr-2" />
-                    Clear All Filters
-                  </Button>
+                  <ClearFiltersButton
+                    onClick={clearAllFilters}
+                    data-testid="button-clear-filters-empty"
+                  />
                 </>
               ) : (
                 <>
@@ -523,14 +522,10 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        if (confirm("Are you sure you want to delete this template?")) {
-                          deleteTemplateMutation.mutate(template.id);
-                        }
-                      }}
+                      onClick={() => setTemplateToDelete(template)}
                       data-testid={`button-delete-template-${template.id}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
                   </div>
                 </CardContent>
@@ -663,6 +658,20 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
           )}
         </DialogContent>
       </Dialog>
+
+      <DeleteConfirmDialog
+        open={!!templateToDelete}
+        onOpenChange={(open) => {
+          if (!open) setTemplateToDelete(null);
+        }}
+        title="Delete template?"
+        description="This cannot be undone. You are about to delete"
+        itemName={templateToDelete?.name}
+        isPending={deleteTemplateMutation.isPending}
+        onConfirm={() => {
+          if (templateToDelete) deleteTemplateMutation.mutate(templateToDelete.id);
+        }}
+      />
     </>
   );
 

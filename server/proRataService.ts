@@ -1,6 +1,11 @@
+import { billingNowUtc, utcDaysRemaining } from "@shared/billingClock";
+
 /**
  * Pro-Rata Billing Service
- * Calculates prorated prices for module purchases mid-billing-cycle
+ * Calculates prorated prices for module purchases mid-billing-cycle.
+ * Remaining-day math uses UTC instants (shared/billingClock.ts).
+ * Plan/tier money proration is owned by Stripe (always_invoice) — this helper
+ * is for module/bundle Checkout estimates only.
  */
 
 export interface ProRataResult {
@@ -12,13 +17,13 @@ export interface ProRataResult {
 }
 
 /**
- * Calculate remaining days in the current billing cycle
+ * Calculate remaining days in the current billing cycle (UTC).
  */
 export function calculateRemainingDays(
   subscriptionStartDate: Date | string,
   subscriptionRenewalDate: Date | string | null | undefined,
   billingCycle: "monthly" | "annual",
-  currentDate: Date = new Date()
+  currentDate: Date = billingNowUtc()
 ): number {
   const start = typeof subscriptionStartDate === 'string' 
     ? new Date(subscriptionStartDate) 
@@ -26,33 +31,20 @@ export function calculateRemainingDays(
   
   const now = currentDate;
   
-  // If renewal date is provided, use it
+  // If renewal date is provided, use it (UTC instant comparison)
   if (subscriptionRenewalDate) {
-    const renewal = typeof subscriptionRenewalDate === 'string' 
-      ? new Date(subscriptionRenewalDate) 
-      : subscriptionRenewalDate;
-    
-    const msRemaining = renewal.getTime() - now.getTime();
-    const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
-    return Math.max(0, daysRemaining);
+    return utcDaysRemaining(subscriptionRenewalDate, now);
   }
   
-  // Otherwise, calculate based on billing cycle
+  // Otherwise, calculate based on billing cycle from start (UTC month/year add)
   if (billingCycle === "annual") {
-    // Calculate next renewal date (1 year from start)
-    const nextRenewal = new Date(start);
-    nextRenewal.setFullYear(nextRenewal.getFullYear() + 1);
-    
-    // Days remaining until renewal
-    const msRemaining = nextRenewal.getTime() - now.getTime();
-    return Math.max(0, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+    const nextRenewal = new Date(start.getTime());
+    nextRenewal.setUTCFullYear(nextRenewal.getUTCFullYear() + 1);
+    return utcDaysRemaining(nextRenewal, now);
   } else {
-    // Monthly: Calculate next renewal (1 month from start)
-    const nextRenewal = new Date(start);
-    nextRenewal.setMonth(nextRenewal.getMonth() + 1);
-    
-    const msRemaining = nextRenewal.getTime() - now.getTime();
-    return Math.max(0, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+    const nextRenewal = new Date(start.getTime());
+    nextRenewal.setUTCMonth(nextRenewal.getUTCMonth() + 1);
+    return utcDaysRemaining(nextRenewal, now);
   }
 }
 
@@ -93,7 +85,7 @@ export function calculateProRata(
   subscriptionStartDate: Date | string,
   subscriptionRenewalDate: Date | string | null | undefined,
   billingCycle: "monthly" | "annual",
-  currentDate: Date = new Date()
+  currentDate: Date = billingNowUtc()
 ): ProRataResult {
   const remainingDays = calculateRemainingDays(
     subscriptionStartDate,

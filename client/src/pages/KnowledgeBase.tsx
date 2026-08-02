@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ModernFilePickerInline } from '@/components/ModernFilePickerInline';
 import { extractFileUrlFromUploadResponse } from '@/lib/utils';
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 export default function KnowledgeBase() {
   const [, navigate] = useLocation();
@@ -457,29 +458,17 @@ export default function KnowledgeBase() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Document</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete "{selectedDoc?.title}"? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => selectedDoc && deleteMutation.mutate(selectedDoc.id)}
-              disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete"
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={deleteDialog}
+        onOpenChange={setDeleteDialog}
+        title="Delete document?"
+        description="This cannot be undone. You are about to delete"
+        itemName={selectedDoc?.title}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (selectedDoc) deleteMutation.mutate(selectedDoc.id);
+        }}
+      />
     </div>
   );
 }

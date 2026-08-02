@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inspect360 Billing — Complete Guide & Edge Cases</title>
+  <style>
+    :root {
+      --ink: #0f1c2e;
+      --muted: #5a6a7e;
+      --line: #d7e0ea;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --accent: #0d7377;
+      --accent-soft: #e6f4f4;
+      --warn: #b45309;
+      --warn-bg: #fff7ed;
+      --danger: #b91c1c;
+      --danger-bg: #fef2f2;
+      --ok: #047857;
+      --ok-bg: #ecfdf5;
+      --info: #1d4ed8;
+      --info-bg: #eff6ff;
+      --code: #1e293b;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #d9eef0 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #e8eef8 0%, transparent 50%),
+        var(--bg);
+      line-height: 1.55;
+    }
+
+    .wrap { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+    header.hero {
+      padding: 2rem 0 1.5rem;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 1.5rem;
+    }
+    .brand {
+      font-size: 0.8rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+      margin: 0 0 0.5rem;
+    }
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.75rem, 4vw, 2.35rem);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+    .lede { color: var(--muted); font-size: 1.05rem; max-width: 42rem; margin: 0; }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .chip {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #b7d9da;
+      font-weight: 600;
+    }
+
+    nav.toc {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2rem;
+    }
+    nav.toc h2 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+    nav.toc ol {
+      margin: 0;
+      padding-left: 1.25rem;
+      columns: 2;
+      column-gap: 2rem;
+    }
+    nav.toc a {
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+    @media (max-width: 640px) {
+      nav.toc ol { columns: 1; }
+    }
+
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1.35rem 1.4rem 1.5rem;
+      margin-bottom: 1.15rem;
+      scroll-margin-top: 1rem;
+    }
+    section h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.25rem;
+      letter-spacing: -0.01em;
+      padding-bottom: 0.55rem;
+      border-bottom: 1px solid var(--line);
+    }
+    section h3 {
+      margin: 1.25rem 0 0.5rem;
+      font-size: 1.02rem;
+    }
+    p { margin: 0.55rem 0; }
+    ul, ol { margin: 0.4rem 0 0.6rem; padding-left: 1.25rem; }
+    li { margin: 0.3rem 0; }
+    strong { font-weight: 650; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.75rem 0;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 0.55rem 0.7rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f0f5fa;
+      font-weight: 650;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+    }
+    tr:nth-child(even) td { background: #fafcfe; }
+
+    .callout {
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      margin: 0.85rem 0;
+      border: 1px solid;
+      font-size: 0.92rem;
+    }
+    .callout strong { display: block; margin-bottom: 0.2rem; }
+    .callout.warn { background: var(--warn-bg); border-color: #fdba74; color: #7c2d12; }
+    .callout.danger { background: var(--danger-bg); border-color: #fecaca; color: #7f1d1d; }
+    .callout.ok { background: var(--ok-bg); border-color: #a7f3d0; color: #065f46; }
+    .callout.info { background: var(--info-bg); border-color: #bfdbfe; color: #1e3a8a; }
+
+    .flow {
+      display: grid;
+      gap: 0.5rem;
+      margin: 0.75rem 0;
+    }
+    .flow-step {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.75rem;
+      align-items: start;
+      padding: 0.65rem 0.8rem;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .n {
+      width: 1.6rem; height: 1.6rem;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      display: grid; place-items: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .example {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+      font-size: 0.88rem;
+      margin: 0.75rem 0;
+      overflow-x: auto;
+    }
+    .example .title {
+      color: #94a3b8;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.5rem;
+    }
+    .example .line { margin: 0.2rem 0; }
+    .example .hl { color: #5eead4; }
+    .example .dim { color: #94a3b8; }
+
+    .matrix td.yes { color: var(--ok); font-weight: 650; }
+    .matrix td.no { color: var(--danger); font-weight: 650; }
+    .matrix td.maybe { color: var(--warn); font-weight: 650; }
+
+    footer {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    code {
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      font-size: 0.86em;
+      background: #eef2f7;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+    .example code { background: transparent; color: inherit; padding: 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <p class="brand">Inspect360</p>
+      <h1>Billing — Complete Guide &amp; Edge Cases</h1>
+      <p class="lede">
+        How plans, inspection credits, packs, modules, renewals, upgrades, and expiry work in the live product —
+        including the edge cases that usually trip people up.
+      </p>
+      <div class="meta">
+        <span class="chip">Billing Spec v2.0</span>
+        <span class="chip">Credits wallet model</span>
+        <span class="chip">Plan leftovers → bonus</span>
+        <span class="chip">Updated Jul 2026</span>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="Table of contents">
+      <h2>Contents</h2>
+      <ol>
+        <li><a href="#overview">1. Big picture</a></li>
+        <li><a href="#tiers">2. Tiers &amp; pricing</a></li>
+        <li><a href="#credits">3. What a “credit” is</a></li>
+        <li><a href="#wallet">4. Credit wallet &amp; sources</a></li>
+        <li><a href="#consume">5. Consume order</a></li>
+        <li><a href="#signup">6. Signup &amp; free trial</a></li>
+        <li><a href="#subscribe">7. Subscribe / checkout</a></li>
+        <li><a href="#currency">7b. Supported currencies</a></li>
+        <li><a href="#change">8. Upgrade &amp; downgrade</a></li>
+        <li><a href="#proration">8b. Money proration (Stripe)</a></li>
+        <li><a href="#renewal">9. Renewal &amp; monthly reset</a></li>
+        <li><a href="#timezone">9b. Renewal timezone (UTC)</a></li>
+        <li><a href="#packs">10. Top-up packs</a></li>
+        <li><a href="#modules">11. Add-on modules</a></li>
+        <li><a href="#status">12. Subscription statuses</a></li>
+        <li><a href="#blocks">13. When actions are blocked</a></li>
+        <li><a href="#matrix">14. Edge-case matrix</a></li>
+        <li><a href="#examples">15. Worked examples</a></li>
+        <li><a href="#faq">16. Quick FAQ</a></li>
+      </ol>
+    </nav>
+
+    <!-- 1 -->
+    <section id="overview">
+      <h2>1. Big picture</h2>
+      <p>
+        Billing has two layers that work together:
+      </p>
+      <ul>
+        <li><strong>Subscription (Stripe)</strong> — what plan you pay for, how often (monthly/annual), renewal date, and modules.</li>
+        <li><strong>Credit wallet (batches)</strong> — the actual inspection balance. Credits come from several sources and may expire on different dates.</li>
+      </ul>
+      <p>
+        The Billing page shows wallet truth: <strong>Credits Left = all usable batches</strong>
+        (plan + signup/bonus + packs), not plan-only.
+      </p>
+      <div class="callout info">
+        <strong>Rule of thumb</strong>
+        Paying for a plan grants a monthly/annual <em>quota</em> of plan credits. Buying packs or receiving bonuses adds extra batches.
+        Completing an inspection spends from the wallet in a fixed priority order.
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section id="tiers">
+      <h2>2. Tiers &amp; pricing</h2>
+      <p>Self-serve tiers are chosen by how many inspections/month you need on the slider (10–200).</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Tier</th>
+            <th>Inspections / month</th>
+            <th>Rate (GBP / credit)</th>
+            <th>Checkout</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Starter</td>
+            <td>10 – 29</td>
+            <td>£4.90</td>
+            <td>Self-serve</td>
+          </tr>
+          <tr>
+            <td>Growth</td>
+            <td>30 – 74</td>
+            <td>£4.30</td>
+            <td>Self-serve</td>
+          </tr>
+          <tr>
+            <td>Professional</td>
+            <td>75 – <strong>199</strong></td>
+            <td>£3.70</td>
+            <td>Self-serve</td>
+          </tr>
+          <tr>
+            <td>Enterprise</td>
+            <td><strong>200+</strong></td>
+            <td>No published rate</td>
+            <td>Quote only</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok">
+        <strong>Enterprise boundary — LOCKED</strong>
+        <ul>
+          <li><strong>199 = Professional</strong> (last self-serve priced volume)</li>
+          <li><strong>200 = Enterprise</strong> (quote-only; no published £ rate)</li>
+          <li><strong>Slider maximum = 200</strong> — the slider <em>may</em> land on 200</li>
+          <li>At <strong>200+</strong>, CTA becomes <strong>Request a quote</strong> (not Subscribe / Upgrade)</li>
+        </ul>
+        Do <strong>not</strong> cap the slider at 199. Reaching 200 is how users enter the Enterprise quote flow.
+        Constants: <code>SELF_SERVE_MAX=199</code>, <code>QUOTE_GATE=ENTERPRISE_MIN=200</code>, <code>SLIDER_MAX=200</code>
+        in <code>billingTiers.ts</code>.
+      </div>
+
+      <h3>Plan price formulas</h3>
+      <ul>
+        <li><strong>Monthly:</strong> <code>n × tierRate</code></li>
+        <li><strong>Annual (billed):</strong> <code>n × tierRate × 12 × 0.80</code> — always apply the 20% annual discount</li>
+      </ul>
+
+      <div class="callout ok">
+        <strong>Locked rule — Growth 30 example</strong>
+        Monthly = 30 × £4.30 = <strong>£129 / month</strong><br />
+        Annual billed = £129 × 12 × 0.80 = <strong>£1,238.40 / year</strong><br />
+        You save £309.60 vs paying monthly all year (£1,548).
+      </div>
+
+      <div class="callout danger">
+        <strong>Do not use the undiscounted “Annual value”</strong>
+        Some older spec tables showed “Annual £1,548” (= £129 × 12 with <em>no</em> 0.80).
+        That figure is only the <em>list</em> cost of 12 months at the monthly rate.
+        It is <strong>not</strong> what we charge or show as “Billed annually”.
+        Source of truth: <code>annual = monthly × 12 × 0.80</code>.
+      </div>
+
+      <h3>Slider behaviour</h3>
+      <ul>
+        <li>Min <strong>10</strong>, max <strong>200</strong> (= quote gate). Not capped at 199.</li>
+        <li>Near tier boundaries (within 3 of a snap point: 10 / 30 / 75 / 200) the slider snaps to that point.</li>
+        <li><strong>1–199:</strong> self-serve price + Subscribe / Upgrade / Change plan.</li>
+        <li><strong>≥200:</strong> CTA becomes <strong>Request a quote</strong> — no self-serve published Enterprise rate.</li>
+      </ul>
+    </section>
+
+    <!-- 3 -->
+    <section id="credits">
+      <h2>3. What a “credit” is (BILL-08)</h2>
+      <p>
+        One inspection credit covers <strong>up to 300 photos</strong>.
+        Larger inspections consume more credits:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Photos</th><th>Credits consumed</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1 – 300</td><td>1</td></tr>
+          <tr><td>301 – 600</td><td>2</td></tr>
+          <tr><td>601 – 900</td><td>3</td></tr>
+          <tr><td>…</td><td><code>MAX(1, CEIL(photos / 300))</code></td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>Edge: zero / empty photo count</strong>
+        Completing still requires at least <strong>1 credit</strong> even if photo count is 0
+        (<code>creditsConsumed(0) → 1</code>).
+      </div>
+      <p>UI warns around <strong>280 photos</strong> that you are approaching the next credit.</p>
+      <p>Some features cost fixed credits (e.g. comparison reports may require 2).</p>
+    </section>
+
+    <!-- 4 -->
+    <section id="wallet">
+      <h2>4. Credit wallet &amp; sources</h2>
+      <p>Every grant creates a <strong>batch</strong> with: quantity, remaining, source, granted date, optional expiry.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>How you get it</th>
+            <th>Expires?</th>
+            <th>On plan change</th>
+            <th>On period renewal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>plan_inclusion</code></td>
+            <td>Included with subscription quota</td>
+            <td>Yes — usually period end / renewal date</td>
+            <td><strong>Converted to bonus</strong> (keeps same expiry)</td>
+            <td><strong>Expired / wiped</strong>, then new quota granted</td>
+          </tr>
+          <tr>
+            <td><code>admin_grant</code> (bonus)</td>
+            <td>Signup welcome (5), admin grants, leftovers converted from plan</td>
+            <td>Signup: <strong>never</strong>. Converted leftovers: <strong>original plan expiry</strong></td>
+            <td>Untouched</td>
+            <td>Only if <code>expiresAt</code> has passed; signup bonus survives renewal</td>
+          </tr>
+          <tr>
+            <td><code>addon_pack</code></td>
+            <td>Purchased credit packs</td>
+            <td>Yes — aligned to subscription renewal date</td>
+            <td>Untouched (still packs)</td>
+            <td><strong>Expired</strong> with plan reset (no pack rollover)</td>
+          </tr>
+          <tr>
+            <td><code>topup</code></td>
+            <td>Legacy / one-time top-up orders</td>
+            <td>Depends on grant</td>
+            <td>Untouched</td>
+            <td>Expires if date passed</td>
+          </tr>
+          <tr>
+            <td><code>refund</code> / <code>adjustment</code></td>
+            <td>Corrections / ledger adjustments</td>
+            <td>Depends</td>
+            <td>Untouched</td>
+            <td>Expires if date passed</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout ok">
+        <strong>Key product decision (Jul 2026)</strong>
+        Mid-cycle upgrade/downgrade does <em>not</em> wipe leftover plan credits.
+        They are reclassified as <strong>bonus</strong> and still reset/expire when their original expiry date arrives.
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="consume">
+      <h2>5. Consume order</h2>
+      <p>When an inspection (or other billed action) spends N credits, batches are used in this order:</p>
+      <div class="flow">
+        <div class="flow-step"><span class="n">1</span><div><strong>Bonus first</strong> — <code>admin_grant</code>, <code>refund</code>, <code>adjustment</code> (including converted leftovers + signup)</div></div>
+        <div class="flow-step"><span class="n">2</span><div><strong>Packs / top-ups</strong> — <code>addon_pack</code>, <code>topup</code></div></div>
+        <div class="flow-step"><span class="n">3</span><div><strong>Plan last</strong> — <code>plan_inclusion</code></div></div>
+      </div>
+      <p>Within the same group: <strong>earliest expiry first</strong>, then oldest grant (FIFO).</p>
+      <div class="callout info">
+        <strong>Why this order?</strong>
+        Time-limited or free/bonus credits burn before paid plan quota, so customers don’t lose expiring value while plan credits sit unused.
+      </div>
+      <div class="callout danger">
+        <strong>Insufficient credits</strong>
+        If the wallet total &lt; credits needed, the action is blocked (create/complete inspection, some AI/report features).
+        Having an active subscription with 0 remaining still blocks until you renew, buy a pack, or receive a grant.
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section id="signup">
+      <h2>6. Signup &amp; free trial</h2>
+      <table>
+        <thead>
+          <tr><th>Concept</th><th>Value</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Signup reward</td>
+            <td><strong>5 credits</strong></td>
+            <td>Granted once as <code>admin_grant</code>. <strong>No expiry</strong>. Idempotent (won’t double-grant).</td>
+          </tr>
+          <tr>
+            <td>Free trial messaging</td>
+            <td><strong>3 inspections</strong></td>
+            <td>Marketing/UI bridge: “run up to 3 free” while you still have signup credits and no plan.</td>
+          </tr>
+          <tr>
+            <td>No plan required</td>
+            <td>—</td>
+            <td>You can spend signup credits with <code>status: none</code>. CTA is <strong>Subscribe &amp; Pay</strong>.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>Edge: trial vs wallet</strong>
+        Trial “used” is inferred from signup credits spent (≥3 of the 5), or once any plan exists.
+        Remaining signup credits after “trial” still sit in the wallet until spent — they do not auto-expire.
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section id="subscribe">
+      <h2>7. Subscribe / checkout</h2>
+      <div class="flow">
+        <div class="flow-step"><span class="n">1</span><div>User picks inspections + monthly/annual on Billing.</div></div>
+        <div class="flow-step"><span class="n">2</span><div>Stripe Checkout creates/updates the subscription.</div></div>
+        <div class="flow-step"><span class="n">3</span><div>On success: instance subscription stored (tier, quota, renewal, currency, status).</div></div>
+        <div class="flow-step"><span class="n">4</span><div>Plan credits granted as <code>plan_inclusion</code> with expiry ≈ period end / renewal.</div></div>
+      </div>
+      <ul>
+        <li>Active modules can be included / prorated on checkout.</li>
+        <li>Currency: supported set is <strong>GBP, USD, EUR, AED</strong> (base catalogue = GBP). Locked while a subscription is active — see §7b.</li>
+        <li>Enterprise (200+) uses quotation flow, not published slider rates.</li>
+      </ul>
+    </section>
+
+    <!-- 7b -->
+    <section id="currency">
+      <h2>7b. Supported currencies — locked</h2>
+      <p>
+        Multi-region billing uses an explicit currency list. Do not assume “any ISO code” works.
+      </p>
+
+      <div class="callout ok">
+        <strong>Supported (self-serve)</strong>
+        <code>GBP</code>, <code>USD</code>, <code>EUR</code>, <code>AED</code>
+        — defined in <code>shared/billingCurrencies.ts</code>.
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Code</th><th>Symbol</th><th>Role</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>GBP</strong></td><td>£</td><td><strong>Base / catalogue</strong> — signed-off rates authored in GBP</td></tr>
+          <tr><td>USD</td><td>$</td><td>Supported display + Stripe charge currency</td></tr>
+          <tr><td>EUR</td><td>€</td><td>Supported display + Stripe charge currency</td></tr>
+          <tr><td>AED</td><td>د.إ</td><td>Supported display + Stripe charge currency</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout danger">
+        <strong>Not supported</strong>
+        <code>ZAR</code> and any other ISO code not listed above.
+        Requests to set an unsupported preferred currency are rejected.
+      </div>
+
+      <h3>Rules</h3>
+      <ul>
+        <li><strong>Base:</strong> all catalogue / signed-off plan rates are GBP; convert for display and checkout.</li>
+        <li><strong>Live FX:</strong> <code>currencyService</code> (exchangerate-api, base GBP); fallbacks in <code>BILLING_FALLBACK_RATES_FROM_GBP</code>.</li>
+        <li><strong>Lock:</strong> cannot change preferred/registration currency while an <em>active</em> subscription exists.</li>
+        <li><strong>Org default:</strong> <code>preferredCurrency</code> (default GBP); subscription stores <code>registrationCurrency</code>.</li>
+      </ul>
+    </section>
+
+    <!-- 8 -->
+    <section id="change">
+      <h2>8. Upgrade &amp; downgrade (plan change)</h2>
+      <p>Applies to tier-based change, legacy change-plan, and Stripe subscription updates that change quota.</p>
+      <div class="flow">
+        <div class="flow-step"><span class="n">1</span><div>Stripe / DB subscription updated to new tier + quota + period.</div></div>
+        <div class="flow-step"><span class="n">2</span><div><strong>Convert</strong> remaining <code>plan_inclusion</code> batches → <code>admin_grant</code> (bonus). Quantity &amp; <code>expiresAt</code> unchanged.</div></div>
+        <div class="flow-step"><span class="n">3</span><div><strong>Grant full new plan quota</strong> as fresh <code>plan_inclusion</code>.</div></div>
+      </div>
+
+      <div class="callout ok">
+        <strong>Leftovers → bonus</strong>
+        Example: 4 plan credits left, expire in 12 days. After upgrade those 4 become bonus, still expire in 12 days.
+        You also get the full new monthly allocation immediately.
+      </div>
+
+      <h3>What does <em>not</em> convert</h3>
+      <ul>
+        <li>Existing signup bonus / other admin grants</li>
+        <li>Purchased addon packs</li>
+        <li>Already-expired batches</li>
+      </ul>
+
+      <h3>CTA labels</h3>
+      <ul>
+        <li>Higher tier → <strong>Upgrade plan</strong></li>
+        <li>Lower tier or period change → <strong>Change plan</strong></li>
+        <li>Same tier + same period → disabled: “This is your current plan”</li>
+        <li><code>past_due</code> → payment method path</li>
+      </ul>
+
+      <div class="callout warn">
+        <strong>Edge: double balance after change</strong>
+        Wallet can temporarily show <em>converted leftovers + full new quota</em>.
+        That is intentional. Leftovers still die on their original expiry; they are not permanent extras.
+      </div>
+    </section>
+
+    <!-- 8b -->
+    <section id="proration">
+      <h2>8b. Money proration (Stripe) — locked policy</h2>
+      <p>
+        Plan-change <em>money</em> is calculated by <strong>Stripe</strong>, not by hand-rolled day math in our app.
+        Every <code>subscriptions.update</code> for a plan/tier change <strong>must</strong> use the same behaviour.
+      </p>
+
+      <div class="callout ok">
+        <strong>Locked constant</strong>
+        <code>proration_behavior = "always_invoice"</code><br />
+        Defined in <code>shared/stripeProrationPolicy.ts</code> → <code>PLAN_CHANGE_PRORATION_BEHAVIOR</code>.
+        Use <code>planChangeStripeUpdateParams()</code> — do not hard-code other values on plan changes.
+      </div>
+
+      <h3>Why <code>always_invoice</code> (not the other options)</h3>
+      <table>
+        <thead>
+          <tr><th>Value</th><th>What it does</th><th>Inspect360?</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>create_prorations</code></td>
+            <td>Creates proration line items; they often wait until the next invoice</td>
+            <td class="no">Not for plan changes — money timing ambiguous</td>
+          </tr>
+          <tr>
+            <td><code>always_invoice</code></td>
+            <td>Creates prorations <em>and</em> finalises an invoice immediately</td>
+            <td class="yes">Required for all plan/tier changes</td>
+          </tr>
+          <tr>
+            <td><code>none</code></td>
+            <td>No money adjustment for the rest of the period</td>
+            <td class="no">Forbidden for plan changes</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>How Stripe calculates (we do not re-implement)</h3>
+      <div class="flow">
+        <div class="flow-step"><span class="n">1</span><div><strong>Credit</strong> — unused time remaining on the <em>old</em> price</div></div>
+        <div class="flow-step"><span class="n">2</span><div><strong>Charge</strong> — new price for the <em>remaining</em> days in the period</div></div>
+        <div class="flow-step"><span class="n">3</span><div><strong>Invoice now</strong> — net = charge − credit (via <code>always_invoice</code>)</div></div>
+      </div>
+
+      <h3>Answers developers need</h3>
+      <table>
+        <thead>
+          <tr><th>Question</th><th>Answer</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Upgrade today → customer pays what?</td>
+            <td><strong>The net prorated difference today</strong> (immediate Stripe invoice). Unused old-plan time is credited against the new plan for the rest of the period.</td>
+          </tr>
+          <tr>
+            <td>Downgrade today → refund?</td>
+            <td><strong>No cash refund.</strong> Unused old-plan time becomes a Stripe <em>customer credit / balance</em>.</td>
+          </tr>
+          <tr>
+            <td>Downgrade today → credit?</td>
+            <td><strong>Yes</strong> — account credit applied automatically on future invoices.</td>
+          </tr>
+          <tr>
+            <td>What about the next invoice?</td>
+            <td>At renewal, customer is billed the <strong>full new plan price</strong>; any remaining credit balance is applied by Stripe.</td>
+          </tr>
+          <tr>
+            <td>Does period end move?</td>
+            <td>Same interval (monthly→monthly / annual→annual): <strong>period end stays</strong>. Changing monthly ↔ annual follows Stripe interval-change rules.</td>
+          </tr>
+          <tr>
+            <td>Inspection credits vs money?</td>
+            <td><strong>Separate.</strong> Money = Stripe proration. Credits = convert leftovers to bonus + grant new quota (see §8).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="example">
+        <div class="title">Example — upgrade mid-month</div>
+        <div class="line">Was: Growth £129/mo. Day 10 of 30-day cycle → ~20 days left.</div>
+        <div class="line">Upgrade to Professional £277.50/mo equivalent for remaining days.</div>
+        <div class="line">Stripe credits unused Growth time, charges Professional for remaining days,</div>
+        <div class="line">invoices the <span class="hl">net difference today</span>.</div>
+        <div class="line dim">Exact pence come from Stripe’s clock — trust the invoice line items.</div>
+      </div>
+
+      <div class="example">
+        <div class="title">Example — downgrade mid-month</div>
+        <div class="line">Was: Professional. Downgrade to Growth with days left.</div>
+        <div class="line">Stripe credits unused Professional time, charges Growth for remaining days.</div>
+        <div class="line">Net is usually a <span class="hl">credit</span> — no bank refund; applies to next invoice(s).</div>
+      </div>
+
+      <div class="callout danger">
+        <strong>Do not invent parallel formulas</strong>
+        Module mid-cycle purchases may still use <code>proRataService</code> for one-off Checkout line items.
+        Plan/tier <em>subscription updates</em> must not mix in custom day-count money math — Stripe + <code>always_invoice</code> only.
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section id="renewal">
+      <h2>9. Renewal &amp; monthly reset</h2>
+      <p>Triggered by Stripe <code>invoice.paid</code> (tier renewal) and/or the scheduled monthly reset job when renewal date ≤ now (<strong>UTC</strong> — see §9b).</p>
+
+      <h3>What happens on renewal</h3>
+      <ol>
+        <li><code>processCreditExpiry</code> — expire any batch where <code>expiresAt &lt;= now</code> (<strong>UTC timestamps only</strong>; includes converted bonus leftovers that hit their date).</li>
+        <li>Force-expire remaining <code>plan_inclusion</code> (no plan rollover into the next cycle).</li>
+        <li>Force-expire remaining <code>addon_pack</code> (packs do not roll into the next cycle).</li>
+        <li>Grant new <code>plan_inclusion</code> = current quota, with new period expiry.</li>
+        <li>Advance <code>subscriptionRenewalDate</code> by 1 month or 1 year.</li>
+      </ol>
+
+      <div class="callout danger">
+        <strong>Critical distinction</strong>
+        <ul>
+          <li><strong>Mid-cycle plan change</strong> → leftovers convert to bonus (keep expiry).</li>
+          <li><strong>Period renewal</strong> → leftover <em>plan</em> and <em>packs</em> are reset (no rollover). Converted bonus only drops if its expiry date has arrived.</li>
+        </ul>
+      </div>
+
+      <div class="callout info">
+        <strong>Signup bonus on renewal</strong>
+        Signup’s 5 credits have <code>expiresAt = null</code>, so renewal does not wipe them.
+        They remain until spent.
+      </div>
+    </section>
+
+    <!-- 9b -->
+    <section id="timezone">
+      <h2>9b. Renewal timezone — locked to UTC</h2>
+      <p>
+        Billing must never leave timezone undefined. Inspect360 uses <strong>UTC only</strong>
+        for renewal, period-end, and credit-expiry decisions.
+      </p>
+
+      <div class="callout ok">
+        <strong>Locked constant</strong>
+        <code>BILLING_TIMEZONE = "UTC"</code> in <code>shared/billingClock.ts</code>.
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Question</th><th>Answer</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Timezone?</td>
+            <td><strong>UTC</strong> — always.</td>
+          </tr>
+          <tr>
+            <td>Customer timezone?</td>
+            <td><strong>Not used</strong> for charging, renewal eligibility, or credit expiry.</td>
+          </tr>
+          <tr>
+            <td>Server OS timezone?</td>
+            <td><strong>Not used</strong> — do not rely on host local time.</td>
+          </tr>
+          <tr>
+            <td>Source of truth for period end?</td>
+            <td>Stripe <code>current_period_end</code> (Unix seconds → UTC). Mirrored to <code>subscription_renewal_date</code>.</td>
+          </tr>
+          <tr>
+            <td>When is renewal “due”?</td>
+            <td><code>subscription_renewal_date &lt;= billingNowUtc()</code> (instant compare).</td>
+          </tr>
+          <tr>
+            <td>Credit expiry rule?</td>
+            <td><code>expiresAt &lt;= now</code> — <strong>UTC timestamps only</strong> (both sides absolute instants via <code>isAtOrPastBillingInstant</code> / <code>billingNowUtc</code>).</td>
+          </tr>
+          <tr>
+            <td>UI display?</td>
+            <td>Show UTC calendar date via <code>formatBillingDateUtcLocale()</code> (e.g. <code>31 Jul 2026 UTC</code>). Display conversion must still force <code>timeZone: "UTC"</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <strong>Credit expiry comparison</strong>
+        Rule: <code>expiresAt &lt;= now</code>. Both values are <strong>UTC timestamps only</strong>.
+        Never interpret <code>expiresAt</code> as a local calendar date — that causes off-by-one timezone bugs.
+      </div>
+
+      <div class="callout danger">
+        <strong>Forbidden</strong>
+        <ul>
+          <li><code>toLocaleDateString()</code> without <code>timeZone: "UTC"</code> for billing dates</li>
+          <li><code>setMonth</code> / <code>setFullYear</code> in local time when advancing renewals — use <code>nextRenewalUtc()</code></li>
+          <li>Per-org or per-user “office hours” timezone for period boundaries</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section id="packs">
+      <h2>10. Top-up packs</h2>
+      <p>Available for self-serve tiers (not Enterprise quote-only). Pricing (v2):</p>
+      <ul>
+        <li>Top-up rate = <code>tierRate × 1.10</code></li>
+        <li>Pack sizes: 20 / 50 / 100 with discounts 0% / 5% / 9%</li>
+        <li><code>packTotal = round(topUpRate × discount × size)</code> (nearest £1)</li>
+      </ul>
+      <table>
+        <thead>
+          <tr><th>Pack size</th><th>Discount multiplier</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>20</td><td>1.00 (list)</td></tr>
+          <tr><td>50</td><td>0.95</td></tr>
+          <tr><td>100</td><td>0.91</td></tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>Granted as <code>addon_pack</code>.</li>
+        <li>Expiry set to current subscription renewal date.</li>
+        <li>Consumed after bonus, before plan.</li>
+        <li>Unused pack credits are cleared on period reset (no rollover).</li>
+        <li>Purchase flow is idempotent (won’t double-grant the same Stripe session).</li>
+      </ul>
+    </section>
+
+    <!-- 11 -->
+    <section id="modules">
+      <h2>11. Add-on modules</h2>
+      <p>Modules are billed separately (monthly or annual with the same 0.8 annual multiplier). Minimum tier gates apply.</p>
+      <table>
+        <thead>
+          <tr><th>Module</th><th>Min tier</th><th>Pricing</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Tenant Portal</td>
+            <td>Growth</td>
+            <td>By units under management bands (£100 / £175 / £250 / £300)</td>
+          </tr>
+          <tr>
+            <td>Dispute Portal</td>
+            <td>Growth</td>
+            <td>£150 / month</td>
+          </tr>
+          <tr>
+            <td>Extended Evidence Retention</td>
+            <td>Growth</td>
+            <td>48 mo £75 / 72 mo £150 / Unlimited £250</td>
+          </tr>
+          <tr>
+            <td>IVY Tenant Maintenance Bot</td>
+            <td>Professional</td>
+            <td>£100 / month</td>
+          </tr>
+          <tr>
+            <td>IVY HQ Operations Bot</td>
+            <td>Professional</td>
+            <td>£50 / month</td>
+          </tr>
+          <tr>
+            <td>White Labelling</td>
+            <td>Professional</td>
+            <td>£250 / month</td>
+          </tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>Mid-cycle purchase can be <strong>pro-rated</strong> for remaining days in the cycle.</li>
+        <li>Disable can be immediate or at end of billing period (<code>cancel_at_period_end</code>).</li>
+        <li>Modules covered by bundles are excluded from double-charging.</li>
+        <li>Usage upgrade banner shows when ≥80% of included plan credits are used.</li>
+      </ul>
+    </section>
+
+    <!-- 12 -->
+    <section id="status">
+      <h2>12. Subscription statuses</h2>
+      <table>
+        <thead>
+          <tr><th>Status</th><th>Meaning</th><th>Billing UI</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>none</code></td>
+            <td>No paid plan</td>
+            <td>Can use signup credits; CTA Subscribe &amp; Pay</td>
+          </tr>
+          <tr>
+            <td><code>trialing</code> / trial</td>
+            <td>Trial subscription (if present)</td>
+            <td>Treated as having a plan for trial-used logic</td>
+          </tr>
+          <tr>
+            <td><code>active</code></td>
+            <td>Paid &amp; healthy</td>
+            <td>Normal upgrade/change; renewal grants credits</td>
+          </tr>
+          <tr>
+            <td><code>past_due</code></td>
+            <td>Payment failed</td>
+            <td>Update payment method; plan change CTAs constrained</td>
+          </tr>
+          <tr>
+            <td><code>canceled</code></td>
+            <td>Ended</td>
+            <td>Final invoice may expire remaining timed credits; wallet may still hold non-expiring bonus until spent</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 13 -->
+    <section id="blocks">
+      <h2>13. When actions are blocked</h2>
+      <ul>
+        <li><strong>Create / complete inspection</strong> — blocked if wallet &lt; credits needed for photo count.</li>
+        <li><strong>Comparison reports / some AI</strong> — fixed credit costs; 402 if insufficient.</li>
+        <li><strong>Enterprise self-serve</strong> — must request quote (≥200).</li>
+        <li><strong>Currency change</strong> — blocked while an active subscription exists.</li>
+        <li><strong>Packs on Enterprise / no plan</strong> — self-serve packs are for active self-serve tiers.</li>
+      </ul>
+    </section>
+
+    <!-- 14 -->
+    <section id="matrix">
+      <h2>14. Edge-case matrix</h2>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>Situation</th>
+            <th>What happens</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Upgrade with 7 plan credits left</td>
+            <td class="yes">7 become bonus (same expiry) + full new plan quota granted</td>
+          </tr>
+          <tr>
+            <td>Downgrade with 20 plan credits left</td>
+            <td class="yes">Same as upgrade — convert leftovers to bonus, then grant new (smaller) quota</td>
+          </tr>
+          <tr>
+            <td>Converted bonus hits expiry date</td>
+            <td class="yes">Remaining quantity expires / resets to zero for that batch</td>
+          </tr>
+          <tr>
+            <td>Period renews; unused plan credits</td>
+            <td class="no">Wiped (no plan rollover); new quota granted</td>
+          </tr>
+          <tr>
+            <td>Period renews; unused pack credits</td>
+            <td class="no">Wiped with plan reset</td>
+          </tr>
+          <tr>
+            <td>Period renews; unused signup bonus</td>
+            <td class="yes">Kept (no expiry)</td>
+          </tr>
+          <tr>
+            <td>Period renews; converted leftover bonus not yet expired</td>
+            <td class="maybe">Kept until its original <code>expiresAt</code>, then expires</td>
+          </tr>
+          <tr>
+            <td>No subscription, 5 signup credits</td>
+            <td class="yes">Can run inspections until wallet empty</td>
+          </tr>
+          <tr>
+            <td>Active plan, 0 credits left</td>
+            <td class="no">Inspections blocked until pack purchase, renewal, or grant</td>
+          </tr>
+          <tr>
+            <td>901 photos on one inspection</td>
+            <td class="yes">Consumes 4 credits if available</td>
+          </tr>
+          <tr>
+            <td>Partial batch consume</td>
+            <td class="yes">Only remainingQuantity reduced; ledger records consumption</td>
+          </tr>
+          <tr>
+            <td>Double Stripe webhook / session retry</td>
+            <td class="yes">Idempotent checks avoid double-granting packs / signup</td>
+          </tr>
+          <tr>
+            <td>Change monthly ↔ annual same tier</td>
+            <td class="yes">Treated as plan change CTA; leftovers convert; new quota granted per change path</td>
+          </tr>
+          <tr>
+            <td>Cancel at period end</td>
+            <td class="maybe">Access until period ends; timed credits expire via expiry/final invoice paths</td>
+          </tr>
+          <tr>
+            <td>Past due</td>
+            <td class="no">Focus on updating payment; not a normal upgrade path</td>
+          </tr>
+          <tr>
+            <td>Admin grants extra credits</td>
+            <td class="yes"><code>admin_grant</code> — consumed first like other bonus</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 15 -->
+    <section id="examples">
+      <h2>15. Worked examples</h2>
+
+      <div class="example">
+        <div class="title">Example — Annual billing (Growth 30)</div>
+        <div class="line">Monthly = 30 × £4.30 = <span class="hl">£129 / month</span></div>
+        <div class="line">Annual billed = £129 × 12 × 0.80 = <span class="hl">£1,238.40 / year</span></div>
+        <div class="line">Save £309.60 vs paying monthly all year</div>
+        <div class="line dim">£1,548 (= £129 × 12 with no 0.80) is list-only — never show it as the annual bill.</div>
+      </div>
+
+      <div class="example">
+        <div class="title">Example A — New org, then subscribe</div>
+        <div class="line">Day 0: signup → <span class="hl">5 bonus</span> (no expiry). Wallet = 5.</div>
+        <div class="line">Day 2: complete 2 inspections (1 credit each) → wallet = 3. Trial messaging may show used.</div>
+        <div class="line">Day 5: subscribe Starter 10/mo → grant <span class="hl">10 plan</span> (expire period end).</div>
+        <div class="line">Wallet = 3 bonus + 10 plan = <span class="hl">13</span>.</div>
+        <div class="line dim">Next spends burn the 3 bonus first, then plan.</div>
+      </div>
+
+      <div class="example">
+        <div class="title">Example B — Mid-cycle upgrade with leftovers</div>
+        <div class="line">Plan: Growth 30. Used 26. Leftover plan = <span class="hl">4</span> (expire 12 Apr).</div>
+        <div class="line">Also: signup leftover 1 + pack 10.</div>
+        <div class="line">Upgrade to Professional 75.</div>
+        <div class="line">→ 4 plan become <span class="hl">bonus</span> still expiring 12 Apr.</div>
+        <div class="line">→ Grant <span class="hl">75 new plan</span>.</div>
+        <div class="line">Wallet ≈ 1 signup + 4 converted + 10 pack + 75 plan = <span class="hl">90</span>.</div>
+        <div class="line dim">Consume order: signup/converted → pack → plan.</div>
+        <div class="line">On 12 Apr: converted 4 expire if unused. Signup (no expiry) stays. Pack/plan follow renewal rules.</div>
+      </div>
+
+      <div class="example">
+        <div class="title">Example C — Renewal vs plan change</div>
+        <div class="line"><span class="hl">Plan change (mid-cycle):</span> leftovers → bonus, keep expiry, + new quota.</div>
+        <div class="line"><span class="hl">Renewal (period end):</span> leftover plan wiped, packs wiped, new quota only.</div>
+        <div class="line dim">Do not confuse these two paths — they intentionally differ.</div>
+      </div>
+
+      <div class="example">
+        <div class="title">Example D — Photo overage</div>
+        <div class="line">Wallet = 2. Inspection has 650 photos → needs <span class="hl">3</span> credits.</div>
+        <div class="line">Result: <span class="hl">blocked</span> until another credit is available.</div>
+      </div>
+    </section>
+
+    <!-- 16 -->
+    <section id="faq">
+      <h2>16. Quick FAQ</h2>
+      <h3>Do unused plan credits roll into next month?</h3>
+      <p><strong>No.</strong> On renewal they reset. Mid-cycle leftovers only survive by converting to bonus — and that bonus still expires on the old date.</p>
+
+      <h3>Do packs roll over?</h3>
+      <p><strong>No.</strong> Packs expire with the subscription period / are cleared on monthly reset.</p>
+
+      <h3>Does the signup bonus expire?</h3>
+      <p><strong>No</strong> — unless you spend it. It has no <code>expiresAt</code>.</p>
+
+      <h3>After upgrade, why did my balance go up a lot?</h3>
+      <p>You keep leftovers (as bonus) <em>and</em> receive the full new quota. Leftovers are temporary until their expiry.</p>
+
+      <h3>Upgrade today — what do I pay?</h3>
+      <p>The <strong>prorated net difference today</strong> (Stripe invoice via <code>always_invoice</code>). Unused old-plan time is credited against the new plan for the rest of the period.</p>
+
+      <h3>Downgrade today — refund or credit?</h3>
+      <p><strong>Credit only — no cash refund.</strong> Unused time becomes Stripe customer balance and reduces future invoices. Next renewal is the full new (lower) plan price.</p>
+
+      <h3>What timezone is renewal?</h3>
+      <p><strong>UTC only.</strong> Not customer timezone, not server OS timezone. Stripe <code>current_period_end</code> (Unix) is mirrored to <code>subscription_renewal_date</code>. UI shows dates with a UTC label via <code>formatBillingDateUtcLocale()</code>.</p>
+
+      <h3>Which currencies are supported?</h3>
+      <p><strong>GBP, USD, EUR, AED.</strong> Base catalogue is GBP. <strong>ZAR is not supported.</strong> Currency is locked while a subscription is active. See <code>shared/billingCurrencies.ts</code>.</p>
+
+      <h3>Which credits get used first?</h3>
+      <p>Bonus → packs/top-ups → plan. Within each group, soonest-to-expire first.</p>
+
+      <h3>What is Enterprise?</h3>
+      <p>
+        <strong>199 = Professional</strong> (self-serve). <strong>200+ = Enterprise</strong> (quote-only).
+        The slider maximum is <strong>200</strong> so users can land on the quote gate;
+        at 200 the CTA is <strong>Request a quote</strong>, not Subscribe. No published Enterprise rate or standard pack UI.
+      </p>
+
+      <h3>Where is this implemented?</h3>
+      <ul>
+        <li>Client: <code>client/src/config/billingTiers.ts</code>, <code>billingModules.ts</code>, <code>useBillingState.ts</code>, <code>Billing.tsx</code></li>
+        <li>Credits: <code>server/subscriptionService.ts</code></li>
+        <li>Renewal job: <code>server/monthlyResetService.ts</code></li>
+        <li>Stripe / change-plan: <code>server/routes.ts</code> (must use <code>planChangeStripeUpdateParams()</code>)</li>
+        <li>Proration policy: <code>shared/stripeProrationPolicy.ts</code></li>
+        <li>Billing clock (UTC): <code>shared/billingClock.ts</code></li>
+        <li>Currencies: <code>shared/billingCurrencies.ts</code></li>
+        <li>Units: <code>shared/billingUnits.ts</code></li>
+      </ul>
+    </section>
+
+    <footer>
+      Inspect360 Billing Complete Guide — derived from Billing Spec v2.0 and current server/client behaviour.
+      Open this file in any browser. For product changes, update this doc alongside code.
+    </footer>
+  </div>
+</body>
+</html>

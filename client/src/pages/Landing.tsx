@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Building2, ClipboardCheck, Sparkles, Shield, Users, TrendingUp } from "lucide-react";
 import { useLocation } from "wouter";
 import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { SIGNUP_CREDIT_GRANT } from "@/config/billingTiers";
 
 export default function Landing() {
   const [, navigate] = useLocation();
@@ -58,7 +59,7 @@ export default function Landing() {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground">
-            No credit card required • Start with 10 free AI credits
+            No credit card required • Start with {SIGNUP_CREDIT_GRANT} free inspection credits
           </p>
         </div>
       </section>

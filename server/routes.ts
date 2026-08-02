@@ -478,6 +478,12 @@ import {
   type User,
 } from "@shared/schema";
 import { pricingService } from "./pricingService";
+import { planChangeStripeUpdateParams } from "@shared/stripeProrationPolicy";
+import {
+  BILLING_FALLBACK_RATES_FROM_GBP,
+  isSupportedBillingCurrency,
+  BILLING_BASE_CURRENCY,
+} from "@shared/billingCurrencies";
 
 // Initialize OpenAI using Replit AI Integrations (lazy initialization)
 // Using gpt-5 for vision analysis - the newest OpenAI model (released August 7, 2025), supports images and provides excellent results
@@ -1467,7 +1473,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           organizationId: organization.id,
           name: "Block A",
           address: "123 Sample Street, Sample City, SC 12345",
-          notes: "Sample block created automatically for demonstration purposes",
         });
         console.log(`✓ Created sample Block A for organization ${organization.id}`);
 
@@ -3303,6 +3308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             existingStripeSubscription.id,
             {
               items: updateItems,
+              ...planChangeStripeUpdateParams(),
               metadata: {
                 ...existingStripeSubscription.metadata,
                 tierId: selectedTier.id,
@@ -3317,7 +3323,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 moduleNames: moduleNames.join(","),
                 totalProratedCredit: totalProratedCredit.toString()
               },
-              proration_behavior: "create_prorations" // Apply proration for changes
             }
           );
           
@@ -3720,7 +3725,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get currency from subscription or organization, fallback to GBP
       const org = await storage.getOrganization(organizationId);
       const currency = instanceSub.registrationCurrency || org?.preferredCurrency || "GBP";
-      const packs = await storage.getAddonPacks();
+      // Spec v2: ensure 20 / 50 / 100 packs exist (100 was often missing from older DBs)
+      const packs = await storage.ensureDefaultAddonPacks();
       const tiers = await storage.getSubscriptionTiers();
       const currentTier = tiers.find(t => t.id === instanceSub.currentTierId);
 
@@ -3728,49 +3734,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Current tier not found" });
       }
 
-      // Get pricing for each pack based on current tier
-      const packsWithPricing = await Promise.all(
-        packs.filter(p => p.isActive).map(async (pack) => {
-          const pricing = await storage.getAddonPackPricing(pack.id, currentTier.id, currency);
-          
-          if (!pricing) {
-            return null;
-          }
+      // Spec v2 volume ladder: round total to nearest £1, derive display rate from total
+      // Signed-off rates — no Enterprise published rate
+      const TIER_RATES_GBP: Record<string, number> = {
+        starter: 4.90,
+        growth: 4.30,
+        professional: 3.70,
+      };
+      const PACK_DISCOUNTS: Record<number, number> = { 20: 1.00, 50: 0.95, 100: 0.91 };
+      const TOPUP_MULTIPLIER = 1.10;
+      const FX: Record<string, number> = { ...BILLING_FALLBACK_RATES_FROM_GBP };
+
+      const tierCode = (currentTier.code || currentTier.name || "").toLowerCase();
+      const tierRateKey = Object.keys(TIER_RATES_GBP).find((k) => tierCode.includes(k));
+      if (!tierRateKey) {
+        // Enterprise / unknown — no self-serve packs
+        return res.json({
+          packs: [],
+          bestValuePackId: null,
+          currentTier: { id: currentTier.id, name: currentTier.name, code: currentTier.code },
+          currency,
+        });
+      }
+      const baseRateGbp = TIER_RATES_GBP[tierRateKey];
+      const fx = FX[currency.toUpperCase()] || 1;
+
+      const packsWithPricing = packs
+        .filter((p) => p.isActive)
+        // Spec v2 ladder only — 20 / 50 / 100
+        .filter((p) => PACK_DISCOUNTS[p.inspectionQuantity] !== undefined)
+        .map((pack) => {
+          const discount = PACK_DISCOUNTS[pack.inspectionQuantity] ?? 1;
+          const topUpRate = baseRateGbp * TOPUP_MULTIPLIER;
+          const totalGbp = Math.round(topUpRate * discount * pack.inspectionQuantity);
+          const displayRateGbp = Math.round((totalGbp / pack.inspectionQuantity) * 100) / 100;
+          const totalMajor = totalGbp * fx;
+          const unitMajor = displayRateGbp * fx;
+          const pricePerInspection = Math.round(unitMajor * 100);
+          const totalPackPrice = Math.round(totalMajor * 100);
 
           return {
             id: pack.id,
             name: pack.name,
             inspectionQuantity: pack.inspectionQuantity,
             packOrder: pack.packOrder,
-            pricePerInspection: pricing.pricePerInspection,
-            totalPackPrice: pricing.totalPackPrice,
-            currency: currency,
-            tierName: currentTier.name
+            pricePerInspection,
+            totalPackPrice,
+            currency,
+            tierName: currentTier.name,
+            discountApplied: discount,
           };
         })
-      );
+        .sort((a, b) => a.packOrder - b.packOrder);
 
-      // Filter out nulls and sort by packOrder
-      const validPacks = packsWithPricing.filter((p): p is NonNullable<typeof p> => p !== null).sort((a, b) => a.packOrder - b.packOrder);
-
-      // Find best value (lowest price per inspection)
-      const bestValuePack = validPacks.reduce((best, pack) => {
+      // Lowest unit rate pack earns the badge
+      const bestValuePack = packsWithPricing.reduce((best, pack) => {
         if (!best) return pack;
-        if (!pack) return best;
-        const bestPricePerUnit = best.pricePerInspection / best.inspectionQuantity;
-        const packPricePerUnit = pack.pricePerInspection / pack.inspectionQuantity;
-        return packPricePerUnit < bestPricePerUnit ? pack : best;
-      }, undefined as typeof validPacks[0] | undefined);
+        return pack.pricePerInspection < best.pricePerInspection ? pack : best;
+      }, undefined as (typeof packsWithPricing)[0] | undefined);
 
       res.json({
-        packs: validPacks,
+        packs: packsWithPricing,
         bestValuePackId: bestValuePack?.id,
         currentTier: {
           id: currentTier.id,
           name: currentTier.name,
-          code: currentTier.code
+          code: currentTier.code,
         },
-        currency
+        currency,
       });
     } catch (error: any) {
       console.error("Error fetching add-on packs:", error);
@@ -3810,13 +3841,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Add-on pack has invalid inspection quantity" });
       }
 
-      // Get tier-specific pricing
-      const pricing = await storage.getAddonPackPricing(packId, instanceSub.currentTierId, currency);
-      if (!pricing) {
+      // Get tier-specific pricing via v2 volume ladder (nearest £1)
+      const TIER_RATES_GBP: Record<string, number> = {
+        starter: 4.90,
+        growth: 4.30,
+        professional: 3.70,
+      };
+      const PACK_DISCOUNTS: Record<number, number> = { 20: 1.00, 50: 0.95, 100: 0.91 };
+      const TOPUP_MULTIPLIER = 1.10;
+      const FX: Record<string, number> = { ...BILLING_FALLBACK_RATES_FROM_GBP };
+
+      const tiers = await storage.getSubscriptionTiers();
+      const currentTier = tiers.find(t => t.id === instanceSub.currentTierId);
+      if (!currentTier) {
+        return res.status(400).json({ message: "Current tier not found" });
+      }
+      const tierCode = (currentTier.code || currentTier.name || "").toLowerCase();
+      const tierRateKey = Object.keys(TIER_RATES_GBP).find((k) => tierCode.includes(k));
+      if (!tierRateKey) {
+        return res.status(400).json({ message: "Self-serve add-on packs are not available on Enterprise. Contact support for contract overage." });
+      }
+      const baseRateGbp = TIER_RATES_GBP[tierRateKey];
+      const fx = FX[currency.toUpperCase()] || 1;
+      const discount = PACK_DISCOUNTS[pack.inspectionQuantity] ?? 1;
+      const topUpRate = baseRateGbp * TOPUP_MULTIPLIER;
+      const totalGbp = Math.round(topUpRate * discount * pack.inspectionQuantity);
+      const displayRateGbp = Math.round((totalGbp / pack.inspectionQuantity) * 100) / 100;
+      const pricePerInspection = Math.round(displayRateGbp * fx * 100);
+      const totalPackPrice = Math.round(totalGbp * fx * 100);
+
+      const finalPricePerInspection = pricePerInspection;
+      const finalTotalPackPrice = totalPackPrice;
+      if (!finalPricePerInspection || !finalTotalPackPrice) {
         return res.status(400).json({ message: "Pricing not configured for this pack and tier" });
       }
 
-      console.log(`[Addon Pack Purchase] Pack ${packId}: name=${pack.name}, inspectionQuantity=${pack.inspectionQuantity}, pricePerInspection=${pricing.pricePerInspection}, totalPrice=${pricing.totalPackPrice}`);
+      console.log(`[Addon Pack Purchase] Pack ${packId}: name=${pack.name}, inspectionQuantity=${pack.inspectionQuantity}, pricePerInspection=${finalPricePerInspection}, totalPrice=${finalTotalPackPrice}`);
 
       // Create Stripe checkout session (one-time payment)
       const { getUncachableStripeClient } = await import("./stripeClient");
@@ -3831,9 +3891,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               currency: currency.toLowerCase(),
               product_data: {
                 name: `${pack.name} Add-On Pack`,
-                description: `${pack.inspectionQuantity} additional inspections (${pricing.pricePerInspection / 100} ${currency} per inspection)`,
+                description: `${pack.inspectionQuantity} additional inspections (${(finalPricePerInspection / 100).toFixed(2)} ${currency} per inspection)`,
               },
-              unit_amount: pricing.totalPackPrice,
+              unit_amount: finalTotalPackPrice,
             },
             quantity: 1,
           },
@@ -3847,11 +3907,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           packId,
           tierIdAtPurchase: instanceSub.currentTierId,
           type: "addon_pack_purchase",
-          quantity: pack.inspectionQuantity.toString(), // This is the number of inspection credits to grant
-          pricePerInspection: pricing.pricePerInspection.toString(),
-          totalPrice: pricing.totalPackPrice.toString(),
+          quantity: pack.inspectionQuantity.toString(),
+          pricePerInspection: finalPricePerInspection.toString(),
+          totalPrice: finalTotalPackPrice.toString(),
           currency: currency,
-          packName: pack.name // Add pack name for debugging
+          packName: pack.name
         },
       });
 
@@ -4724,6 +4784,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error updating property:", error);
       res.status(500).json({ error: "Failed to update property" });
+    }
+  });
+
+  app.delete("/api/properties/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+
+      const existing = await storage.getProperty(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const tenantAssignments = await storage.getTenantAssignmentsByProperty(req.params.id, user.organizationId);
+      const activeTenants = tenantAssignments.filter((ta: any) => {
+        const nested = ta.assignment;
+        const raw =
+          nested?.isActive !== undefined && nested?.isActive !== null
+            ? nested.isActive
+            : ta.isActive !== undefined && ta.isActive !== null
+              ? ta.isActive
+              : (ta as any).is_active;
+        if (raw === false || raw === 0 || raw === "false" || raw === "f") return false;
+        if (raw === true || raw === 1 || raw === "true" || raw === "t") return true;
+        if (raw === null || raw === undefined) return true;
+        return ta.status === "active" || ta.status === "current";
+      });
+      if (activeTenants.length > 0) {
+        return res.status(409).json({
+          error: "Property is in use",
+          message: "This property has active tenants. Remove them before deleting.",
+        });
+      }
+
+      const inspections = await storage.getInspectionsByProperty(req.params.id);
+      const pendingInspections = inspections.filter(
+        (i) => i.status === "scheduled" || i.status === "in_progress",
+      );
+      if (pendingInspections.length > 0) {
+        return res.status(409).json({
+          error: "Property is in use",
+          message: "This property has pending inspections. Complete or cancel them before deleting.",
+        });
+      }
+
+      await storage.deleteProperty(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting property:", error);
+      res.status(500).json({ error: "Failed to delete property" });
     }
   });
 
@@ -13042,7 +13159,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(403).json({ error: "No organization found" });
       }
 
-      const block = await storage.getBlock(req.params.id);
+      const block = await storage.getBlockWithStats(req.params.id);
       if (!block) {
         return res.status(404).json({ error: "Block not found" });
       }
@@ -13272,8 +13389,8 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         return res.status(403).json({ error: "Access denied" });
       }
 
-      // Validate request body (partial update) with Zod
-      const parseResult = insertBlockSchema.partial().safeParse(req.body);
+      // Validate request body (partial update) with Zod — includes imageUrl
+      const parseResult = updateBlockSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({
           error: "Invalid request data",
@@ -13304,6 +13421,33 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       }
       if (existing.organizationId !== user.organizationId) {
         return res.status(403).json({ error: "Access denied" });
+      }
+
+      const blockProperties = await storage.getPropertiesByBlock(req.params.id);
+      if (blockProperties.length > 0) {
+        return res.status(409).json({
+          error: "Block is in use",
+          message: `This block has ${blockProperties.length} propert${blockProperties.length === 1 ? "y" : "ies"}. Remove them before deleting the block.`,
+        });
+      }
+
+      const blockInspections = await storage.getInspectionsByBlock(req.params.id);
+      const pendingBlockInspections = blockInspections.filter(
+        (i) => i.status === "scheduled" || i.status === "in_progress",
+      );
+      if (pendingBlockInspections.length > 0) {
+        return res.status(409).json({
+          error: "Block is in use",
+          message: "This block has pending inspections. Complete or cancel them before deleting.",
+        });
+      }
+
+      const tenantStats = await storage.getBlockTenantStats(req.params.id);
+      if (tenantStats.occupiedUnits > 0) {
+        return res.status(409).json({
+          error: "Block is in use",
+          message: "This block has active tenants. Remove tenant assignments before deleting.",
+        });
       }
 
       await storage.deleteBlock(req.params.id);
@@ -17986,6 +18130,12 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
       // IMPORTANT: Prevent currency changes if there's an active subscription
       // Currency changes mid-subscription can cause billing inconsistencies
       if (preferredCurrency && preferredCurrency !== org.preferredCurrency) {
+        if (!isSupportedBillingCurrency(preferredCurrency)) {
+          return res.status(400).json({
+            message: `Unsupported currency. Supported: GBP, USD, EUR, AED. Base catalogue currency is ${BILLING_BASE_CURRENCY}.`,
+            error: "UNSUPPORTED_CURRENCY",
+          });
+        }
         // Check if organization has an active subscription
         const instanceSub = await storage.getInstanceSubscription(req.params.id);
         const legacySub = await storage.getSubscriptionByOrganization(req.params.id);
@@ -22492,28 +22642,15 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
                       inspectionQuotaIncluded: newQuota,
                     });
 
-                    // If quota changed, reset credits (expire old, grant new)
+                    // If quota changed: convert leftover plan credits to bonus, then grant new quota
                     if (instanceSub.inspectionQuotaIncluded !== newQuota) {
                       const { subscriptionService: subService } = await import("./subscriptionService");
-                      const existingBatches = await storage.getCreditBatchesByOrganization(organizationId);
-                      const planBatches = existingBatches.filter(b => 
-                        b.grantSource === 'plan_inclusion' && 
-                        b.remainingQuantity > 0 &&
-                        !b.rolled
+                      const converted = await subService.convertRemainingPlanCreditsToBonus(
+                        organizationId,
+                        `Leftover plan credits after tier change to ${tier.name}`,
                       );
-
-                      if (planBatches.length > 0) {
-                        console.log(`[Subscription Update] Resetting ${planBatches.length} existing plan_inclusion batches for org ${organizationId} due to tier change`);
-                        for (const batch of planBatches) {
-                          await storage.expireCreditBatch(batch.id);
-                          await storage.createCreditLedgerEntry({
-                            organizationId,
-                            source: "expiry" as any,
-                            quantity: -batch.remainingQuantity,
-                            batchId: batch.id,
-                            notes: `Expired ${batch.remainingQuantity} credits due to tier change to ${tier.name} (preserving ${additionalInspections} additional inspections)`
-                          });
-                        }
+                      if (converted > 0) {
+                        console.log(`[Subscription Update] Converted ${converted} leftover plan credits to bonus for org ${organizationId}`);
                       }
 
                       // Grant new quota (tier + preserved additional)
@@ -22632,14 +22769,15 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         }
       }
 
-      // Get expired batches
+      // Get expired batches — UTC timestamps only: expiresAt < now
+      const { billingNowUtc } = await import("@shared/billingClock");
       const expiredBatches = await db
         .select()
         .from(creditBatches)
         .where(
           and(
             eq(creditBatches.organizationId, user.organizationId),
-            lt(creditBatches.expiresAt, new Date()),
+            lt(creditBatches.expiresAt, billingNowUtc()),
             gt(creditBatches.remainingQuantity, 0)
           )
         );
@@ -25230,10 +25368,10 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         }
       }
 
-      // Update Stripe subscription
+      // Update Stripe subscription (LOCKED proration — shared/stripeProrationPolicy.ts)
       await stripe.subscriptions.update(stripeSubscription.id, {
         items: updateItems,
-        proration_behavior: "always_invoice",
+        ...planChangeStripeUpdateParams(),
         metadata: {
           ...stripeSubscription.metadata,
           organizationId: organizationId,
@@ -25258,27 +25396,14 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         subscriptionStatus: "active",
       });
 
-      // Reset credits to new quota
+      // Convert leftover plan credits to bonus (keep expiry); then grant new plan quota
       const { subscriptionService: subService } = await import("./subscriptionService");
-      const existingBatches = await storage.getCreditBatchesByOrganization(organizationId);
-      const planBatches = existingBatches.filter(b => 
-        b.grantSource === 'plan_inclusion' && 
-        b.remainingQuantity > 0 &&
-        !b.rolled
+      const converted = await subService.convertRemainingPlanCreditsToBonus(
+        organizationId,
+        `Leftover plan credits after change to ${selectedTier.code}`,
       );
-
-      if (planBatches.length > 0) {
-        console.log(`[Plan Change] Resetting ${planBatches.length} existing plan_inclusion batches for org ${organizationId}`);
-        for (const batch of planBatches) {
-          await storage.expireCreditBatch(batch.id);
-          await storage.createCreditLedgerEntry({
-            organizationId: organizationId,
-            source: "expiry" as any,
-            quantity: -batch.remainingQuantity,
-            batchId: batch.id,
-            notes: `Expired ${batch.remainingQuantity} credits due to plan change to ${selectedTier.code}`
-          });
-        }
+      if (converted > 0) {
+        console.log(`[Plan Change] Converted ${converted} leftover plan credits to bonus for org ${organizationId}`);
       }
 
       // Grant new quota
@@ -25570,7 +25695,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         // Update subscription metadata with module information
         await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
           items: updateItems,
-        proration_behavior: isUpgrade ? "create_prorations" : "none",
+          ...planChangeStripeUpdateParams(),
           metadata: {
             ...stripeSubscription.metadata,
             moduleCount: moduleNames.length.toString(),
@@ -25581,7 +25706,7 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
         // No instance subscription, just update tier
         await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
           items: updateItems,
-          proration_behavior: isUpgrade ? "create_prorations" : "none",
+          ...planChangeStripeUpdateParams(),
         });
       }
 
@@ -25625,27 +25750,14 @@ Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what
             billingCycle: isAnnual ? "annual" : "monthly" as any,
           });
 
-          // Reset credits to new quota (expire old plan_inclusion batches, grant new)
+          // Convert leftover plan credits to bonus (keep expiry); then grant new plan quota
           const { subscriptionService: subService } = await import("./subscriptionService");
-          const existingBatches = await storage.getCreditBatchesByOrganization(user.organizationId);
-          const planBatches = existingBatches.filter(b => 
-            b.grantSource === 'plan_inclusion' && 
-            b.remainingQuantity > 0 &&
-            !b.rolled
+          const converted = await subService.convertRemainingPlanCreditsToBonus(
+            user.organizationId,
+            `Leftover plan credits after change to ${newPlan.code}`,
           );
-
-          if (planBatches.length > 0) {
-            console.log(`[Plan Change] Resetting ${planBatches.length} existing plan_inclusion batches for org ${user.organizationId}`);
-            for (const batch of planBatches) {
-              await storage.expireCreditBatch(batch.id);
-              await storage.createCreditLedgerEntry({
-                organizationId: user.organizationId,
-                source: "expiry" as any,
-                quantity: -batch.remainingQuantity,
-                batchId: batch.id,
-                notes: `Expired ${batch.remainingQuantity} credits due to plan change to ${newPlan.code}`
-              });
-            }
+          if (converted > 0) {
+            console.log(`[Plan Change] Converted ${converted} leftover plan credits to bonus for org ${user.organizationId}`);
           }
 
           // Grant new quota

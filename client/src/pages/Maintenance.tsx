@@ -64,6 +64,7 @@ import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
   property?: { name: string; address: string };
@@ -877,7 +878,6 @@ export default function Maintenance() {
                     <ModernFilePickerInline
                       onFilesSelected={handleImageFilesSelected}
                       maxFiles={5}
-                      maxFileSize={10 * 1024 * 1024}
                       accept="image/*"
                       multiple={true}
                       isUploading={isUploadingImages}
@@ -1330,18 +1330,13 @@ export default function Maintenance() {
 
                 {/* Clear Filters */}
                 {(filterBlock !== "all" || filterProperty !== "all") && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <ClearFiltersButton
                     onClick={() => {
                       setFilterBlock("all");
                       setFilterProperty("all");
                     }}
                     data-testid="button-clear-filters"
-                  >
-                    <X className="w-4 h-4 mr-1" />
-                    Clear
-                  </Button>
+                  />
                 )}
               </div>
 
@@ -1418,18 +1413,14 @@ export default function Maintenance() {
                       </div>
 
                       {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
-                        <Button
-                          variant="outline"
+                        <ClearFiltersButton
                           className="w-full"
                           onClick={() => {
                             setSelectedStatus("all");
                             setFilterBlock("all");
                             setFilterProperty("all");
                           }}
-                        >
-                          <X className="w-4 h-4 mr-2" />
-                          Clear All Filters
-                        </Button>
+                        />
                       )}
                     </div>
                   </SheetContent>

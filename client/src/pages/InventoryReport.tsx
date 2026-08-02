@@ -35,6 +35,7 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 export default function InventoryReport() {
   const { toast } = useToast();
@@ -436,8 +437,7 @@ export default function InventoryReport() {
               </div>
 
               {(filterBlock !== "all" || filterProperty !== "all" || filterCategory !== "all" || filterCondition !== "all") && (
-                <Button 
-                  variant="outline" 
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterBlock("all");
@@ -445,10 +445,7 @@ export default function InventoryReport() {
                     setFilterCategory("all");
                     setFilterCondition("all");
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>

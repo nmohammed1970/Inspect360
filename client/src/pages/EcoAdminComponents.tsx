@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 // Currency Management Component
 export function CurrencyManagement() {
@@ -630,7 +631,7 @@ export function SubscriptionTierManagement() {
                           await apiRequest("DELETE", `/api/admin/subscription-tiers/${selectedTierId}/pricing/${p.id}`);
                           queryClient.invalidateQueries({ queryKey: ["/api/admin/subscription-tiers", selectedTierId, "pricing"] });
                         }}>
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     );
@@ -916,7 +917,7 @@ export function AddonPackManagement() {
                           variant="destructive" 
                           onClick={() => setDeleteConfirmOpen(pack.id)}
                         >
-                          <Trash2 className="h-4 w-4 mr-1" />
+                          <Trash2 className="h-4 w-4 mr-1 text-destructive" />
                           Delete
                         </Button>
                       </div>
@@ -932,29 +933,18 @@ export function AddonPackManagement() {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirmOpen} onOpenChange={(open) => !open && setDeleteConfirmOpen(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Pack</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this pack? This action cannot be undone. 
-              If there are active purchases for this pack, it cannot be deleted.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmOpen(null)}>
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={() => deleteConfirmOpen && deleteMutation.mutate(deleteConfirmOpen)}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={!!deleteConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirmOpen(null);
+        }}
+        title="Delete pack?"
+        description="This cannot be undone. If there are active purchases for this pack, it cannot be deleted."
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteConfirmOpen) deleteMutation.mutate(deleteConfirmOpen);
+        }}
+      />
 
       {selectedPackId && (
         <Card>
@@ -1083,7 +1073,7 @@ export function AddonPackManagement() {
                                 onClick={() => deletePricingMutation.mutate(p.id)}
                                 disabled={deletePricingMutation.isPending}
                               >
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
                           </TableCell>
@@ -1354,7 +1344,7 @@ export function ExtensiveInspectionManagement() {
                         await apiRequest("DELETE", `/api/admin/extensive-inspections/${selectedTypeId}/pricing/${p.id}`);
                         queryClient.invalidateQueries({ queryKey: ["/api/admin/extensive-inspections", selectedTypeId, "pricing"] });
                       }}>
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
                   ))
@@ -1984,7 +1974,7 @@ export function ModuleBundleManagement() {
                             await apiRequest("DELETE", `/api/admin/module-bundles/${selectedBundleId}/modules/${bm.moduleId}`);
                             queryClient.invalidateQueries({ queryKey: ["/api/admin/module-bundles", selectedBundleId, "modules"] });
                           }}>
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
                       );
@@ -2066,7 +2056,7 @@ export function ModuleBundleManagement() {
                           await apiRequest("DELETE", `/api/admin/module-bundles/${selectedBundleId}/pricing/${p.id}`);
                           queryClient.invalidateQueries({ queryKey: ["/api/admin/module-bundles", selectedBundleId, "pricing"] });
                         }}>
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     ))

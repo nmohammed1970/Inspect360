@@ -23,7 +23,6 @@ import {
   EyeOff,
   Clock,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   CalendarClock,
   ShieldAlert,
@@ -79,6 +78,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import type { Property, Block } from "@shared/schema";
 
 interface DashboardStats {
@@ -468,22 +468,6 @@ export default function Dashboard() {
                 <p>Refresh dashboard stats and alerts</p>
               </TooltipContent>
             </UiTooltip>
-            <UiTooltip>
-              <TooltipTrigger asChild>
-                <Button 
-                  onClick={() => setTagSearchOpen(true)} 
-                  variant="outline"
-                  size="sm"
-                  data-testid="button-search-tags"
-                >
-                  <Search className="h-4 w-4 mr-2" />
-                  Search
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Search properties, blocks, and inspections by tags</p>
-              </TooltipContent>
-            </UiTooltip>
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
               <UiTooltip>
                 <TooltipTrigger asChild>
@@ -576,21 +560,32 @@ export default function Dashboard() {
               <p>Filter dashboard metrics by property</p>
             </TooltipContent>
           </UiTooltip>
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                onClick={() => setTagSearchOpen(true)} 
+                variant="outline"
+                size="sm"
+                data-testid="button-search-tags"
+              >
+                <Search className="h-4 w-4 mr-2" />
+                Search
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Search properties, blocks, and inspections by tags</p>
+            </TooltipContent>
+          </UiTooltip>
           {hasActiveFilters && (
             <UiTooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
+                <ClearFiltersButton
                   onClick={() => {
                     setFilterBlockId("");
                     setFilterPropertyId("");
                   }}
                   data-testid="button-clear-filters"
-                >
-                  <XCircle className="h-4 w-4 mr-1" />
-                  Clear Filters
-                </Button>
+                />
               </TooltipTrigger>
               <TooltipContent>
                 <p>Reset block and property filters</p>
@@ -689,21 +684,34 @@ export default function Dashboard() {
                   </Select>
                 </div>
                 {hasActiveFilters && (
-                  <Button 
-                    variant="outline" 
+                  <ClearFiltersButton
                     className="w-full"
                     onClick={() => {
                       setFilterBlockId("");
                       setFilterPropertyId("");
                     }}
-                  >
-                    <XCircle className="w-4 h-4 mr-2" />
-                    Clear All Filters
-                  </Button>
+                  />
                 )}
               </div>
             </SheetContent>
           </Sheet>
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() => setTagSearchOpen(true)}
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                data-testid="button-search-tags-mobile"
+              >
+                <Search className="h-4 w-4 mr-2" />
+                Search
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Search properties, blocks, and inspections by tags</p>
+            </TooltipContent>
+          </UiTooltip>
           <UiTooltip>
             <TooltipTrigger asChild>
               <Button

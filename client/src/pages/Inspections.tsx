@@ -43,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Link, useLocation, useSearch } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -1010,9 +1011,7 @@ export default function Inspections() {
               </div>
             </div>
             {(filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon || filterTenantId) && (
-              <Button
-                variant="outline"
-                size="sm"
+              <ClearFiltersButton
                 onClick={() => {
                   setFilterBlockId("");
                   setFilterPropertyId("");
@@ -1022,9 +1021,7 @@ export default function Inspections() {
                   setFilterTenantId("");
                 }}
                 data-testid="button-clear-filters"
-              >
-                Clear Filters
-              </Button>
+              />
             )}
           </div>
         </CardContent>
@@ -1145,8 +1142,7 @@ export default function Inspections() {
               </div>
 
               {(filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon || filterTenantId) && (
-                <Button 
-                  variant="outline" 
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterBlockId("");
@@ -1156,10 +1152,7 @@ export default function Inspections() {
                     setFilterOverdue(false);
                     setFilterDueSoon(false);
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>

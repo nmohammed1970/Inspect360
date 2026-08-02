@@ -32,6 +32,7 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { FieldWidget } from '../../components/inspections/FieldWidget';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { formatSignerDisplayName } from '../../../../shared/signature';
+import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
@@ -716,6 +717,16 @@ export default function InspectionCaptureScreen() {
     return { totalFields: total, completedFields: completed, progress: prog };
   }, [sections, entries, repeatableCounts]);
 
+  // BILL-08: warn before capture completes when approaching multi-credit threshold
+  const totalPhotoCount = useMemo(() => {
+    return Object.values(entries).reduce((sum, entry) => {
+      const photos = entry.photos;
+      return sum + (Array.isArray(photos) ? photos.length : 0);
+    }, 0);
+  }, [entries]);
+  const estimatedCredits = creditsConsumed(totalPhotoCount);
+  const showMultiCreditWarning = totalPhotoCount >= PHOTO_WARN_THRESHOLD;
+
   const currentSection = sections[currentSectionIndex] || null;
 
   // Safety check: ensure currentSectionIndex is valid (only when sections change)
@@ -1017,6 +1028,24 @@ export default function InspectionCaptureScreen() {
             </View>
           </View>
         </View>
+
+        {/* BILL-08: multi-credit warning at 280 photos */}
+        {showMultiCreditWarning && (
+          <Card style={[
+            styles.offlineBanner,
+            {
+              backgroundColor: `${themeColors.warning}15`,
+              borderColor: `${themeColors.warning}40`,
+            }
+          ]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 }}>
+              <AlertCircle size={18} color={themeColors.warning} />
+              <Text style={{ flex: 1, color: themeColors.text.primary, fontSize: 13 }}>
+                This inspection will use {estimatedCredits} of your monthly credits ({totalPhotoCount} photos).
+              </Text>
+            </View>
+          </Card>
+        )}
 
         {/* Offline/Sync Status Banner */}
         {!isOnline && (

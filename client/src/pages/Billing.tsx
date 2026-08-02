@@ -26,7 +26,9 @@ import {
   Coins,
   ChevronRight,
   ArrowUpRight,
-  Loader2
+  Loader2,
+  Lock,
+  ArrowUp,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -39,6 +41,48 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { Star, ShoppingCart } from "lucide-react";
+import { useBillingState, type BillingPeriod } from "@/hooks/useBillingState";
+import {
+  TIERS,
+  ANNUAL_MULTIPLIER,
+  SLIDER_MIN,
+  SLIDER_MAX,
+  QUOTE_GATE,
+  PHOTOS_PER_CREDIT,
+  getTierByInspections,
+  getNextTier,
+  getTierById,
+  compareTiers,
+  computePlanPrice,
+  computePackPricing,
+} from "@/config/billingTiers";
+import {
+  MODULES,
+  moduleMonthlyPrice,
+  moduleAnnualPrice,
+  resolveTenantPortalPrice,
+} from "@/config/billingModules";
+import { formatBillingDateUtcLocale } from "@shared/billingClock";
+import {
+  SUPPORTED_BILLING_CURRENCIES,
+  BILLING_CURRENCY_SYMBOLS,
+  BILLING_FALLBACK_RATES_FROM_GBP,
+} from "@shared/billingCurrencies";
+
+/** Lightweight billing analytics — wire to a real pipeline when available */
+function trackBillingEvent(name: string, props?: Record<string, unknown>) {
+  try {
+    window.dispatchEvent(new CustomEvent("inspect360:billing", { detail: { name, ...props, at: Date.now() } }));
+    if (typeof (window as any).gtag === "function") {
+      (window as any).gtag("event", name, props);
+    }
+    console.info(`[billing-analytics] ${name}`, props || {});
+  } catch { /* no-op */ }
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Tier {
   id: string;
@@ -49,6 +93,7 @@ interface Tier {
   basePriceMonthly: number;
   basePriceAnnual: number;
   tierOrder: number;
+  isActive?: boolean;
 }
 
 interface PricingResult {
@@ -84,120 +129,130 @@ interface PricingResult {
   };
 }
 
-// Tier per-inspection price from config (fallbacks provided)
-// Simple currency conversion rates (approximate, will be replaced by API conversion)
-// These are fallback rates if API conversion fails
-const FALLBACK_RATES: Record<string, number> = {
-  USD: 1.27,
-  EUR: 1.17,
-  AED: 4.67,
-  GBP: 1.0,
-};
+// ---------------------------------------------------------------------------
+// Currency helpers — supported list locked in shared/billingCurrencies.ts
+// ---------------------------------------------------------------------------
+
+const FALLBACK_RATES: Record<string, number> = { ...BILLING_FALLBACK_RATES_FROM_GBP };
+const CURRENCY_SYMBOLS: Record<string, string> = { ...BILLING_CURRENCY_SYMBOLS };
 
 const getPerInspectionPriceFromConfig = (tierName: string, selectedCurrency: string, config: any): number => {
   try {
     if (config?.tierPricing && config?.tiers) {
       const tier = config.tiers.find((t: any) => t.name === tierName);
       if (tier) {
-        // First try to get price for selected currency
         let pricingRow = config.tierPricing.find((p: any) => p.tierId === tier.id && p.currencyCode === selectedCurrency);
-        if (pricingRow?.perInspectionPrice) {
-          return pricingRow.perInspectionPrice;
-        }
-        
-        // If not found, get GBP price and convert
+        if (pricingRow?.perInspectionPrice) return pricingRow.perInspectionPrice;
+
         pricingRow = config.tierPricing.find((p: any) => p.tierId === tier.id && p.currencyCode === "GBP");
         if (pricingRow?.perInspectionPrice) {
-          const gbpPrice = pricingRow.perInspectionPrice;
           const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
-          return Math.round(gbpPrice * rate);
+          return Math.round(pricingRow.perInspectionPrice * rate);
         }
       }
     }
   } catch { }
-  // Fallback defaults (GBP) - convert to selected currency
   let basePrice = 550;
   switch (tierName) {
-    case "Starter":
-      basePrice = 1200;
-      break;
-    case "Growth":
-      basePrice = 1000;
-      break;
-    case "Professional":
-      basePrice = 900;
-      break;
-    case "Enterprise":
-      basePrice = 550;
-      break;
+    case "Starter": basePrice = 1200; break;
+    case "Growth": basePrice = 1000; break;
+    case "Professional": basePrice = 900; break;
+    case "Enterprise": basePrice = 550; break;
   }
-  // Convert from GBP to selected currency
   const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
   return Math.round(basePrice * rate);
 };
+
+const formatCurrencyValue = (amount: number, currency: string) => {
+  const symbol = CURRENCY_SYMBOLS[currency] || currency;
+  const currencyInMajor = amount > 1000 ? amount / 100 : amount;
+  return `${symbol}${currencyInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const formatMajor = (amount: number, currency: string) => {
+  const symbol = CURRENCY_SYMBOLS[currency] || currency;
+  return `${symbol}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const MODULE_ICONS: Record<string, React.ReactNode> = {
+  tenant_portal: <Users className="h-5 w-5" />,
+  dispute_portal: <ShieldCheck className="h-5 w-5" />,
+  retention_ext: <Clock className="h-5 w-5" />,
+  ivy_tenant: <Sparkles className="h-5 w-5" />,
+  ivy_hq: <Layout className="h-5 w-5" />,
+  white_label: <Globe className="h-5 w-5" />,
+};
+
+// ---------------------------------------------------------------------------
+// Main Billing Page
+// ---------------------------------------------------------------------------
 
 export default function Billing() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
-  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
-  const [inspectionsNeeded, setInspectionsNeeded] = useState<number>(10);
-  // Use organization currency from user, fallback to GBP
+
+  const {
+    currentPlan,
+    selectedPlan,
+    billingPeriod,
+    setBillingPeriod,
+    inspectionsNeeded,
+    setInspectionsNeeded,
+    setInspectionsNeededRaw,
+    ctaState,
+    showUpgradeBanner,
+    usageRatio,
+    inspectionsLeft,
+    inspectionsTotal,
+    trialAvailable,
+    trialUsed,
+    subscription,
+    balance,
+    isLoading: subLoading,
+  } = useBillingState();
+
+  // Currency
   const organizationCurrency = (user as any)?.organizationCurrency || (user as any)?.organization?.preferredCurrency || "GBP";
   const [selectedCurrency, setSelectedCurrency] = useState<string>(organizationCurrency);
-  const [debouncedInspections, setDebouncedInspections] = useState<number>(10);
-  const [quotationDialogOpen, setQuotationDialogOpen] = useState(false);
-  const [exactInspectionsCount, setExactInspectionsCount] = useState<number>(500);
-  const [quotationNotes, setQuotationNotes] = useState<string>("");
-  const sliderContainerRef = useRef<HTMLDivElement>(null);
-  const getPositionPercent = (value: number) => {
-    return ((value - 10) / (500 - 10)) * 100;
-  };
-
-  // Update currency when user/organization data loads
   useEffect(() => {
     const orgCurrency = (user as any)?.organizationCurrency || (user as any)?.organization?.preferredCurrency;
-    if (orgCurrency && orgCurrency !== selectedCurrency) {
-      setSelectedCurrency(orgCurrency);
-    }
-    // Only depend on user, not selectedCurrency to avoid unnecessary updates
+    if (orgCurrency && orgCurrency !== selectedCurrency) setSelectedCurrency(orgCurrency);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // Debounce inspectionsNeeded to avoid too many API calls while dragging
+  // Debounced inspections for API calls (UI updates immediately; keep API ≤100ms per spec)
+  const [debouncedInspections, setDebouncedInspections] = useState<number>(SLIDER_MIN);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedInspections(inspectionsNeeded);
-    }, 300); // 300ms debounce
-
+    const timer = setTimeout(() => setDebouncedInspections(inspectionsNeeded), 100);
     return () => clearTimeout(timer);
   }, [inspectionsNeeded]);
 
-  // Force invalidate pricing query when inspectionsNeeded or currency changes to prevent stale data
   useEffect(() => {
-    queryClient.invalidateQueries({
-      queryKey: ["/api/pricing/calculate"],
-      exact: false
-    });
-  }, [inspectionsNeeded, selectedCurrency, queryClient]);
-  // Fetch pricing configuration (tiers and currencies)
-  const { data: config } = useQuery<{ tiers: Tier[], currencies: any[] }>({
+    queryClient.invalidateQueries({ queryKey: ["/api/pricing/calculate"], exact: false });
+  }, [inspectionsNeeded, selectedCurrency]);
+
+  // Slider ref
+  const sliderContainerRef = useRef<HTMLDivElement>(null);
+  const getPositionPercent = (value: number) => ((value - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
+
+  // Quotation dialog
+  const [quotationDialogOpen, setQuotationDialogOpen] = useState(false);
+  const [exactInspectionsCount, setExactInspectionsCount] = useState<number>(QUOTE_GATE);
+  const [quotationNotes, setQuotationNotes] = useState<string>("");
+
+  // --- Queries ---
+  const { data: config } = useQuery<{ tiers: Tier[]; currencies: any[]; tierPricing?: any[] }>({
     queryKey: ["/api/pricing/config"],
   });
 
-  // Calculate pricing based on slider (using debounced value for API, but immediate for display)
-  const { data: pricing, isLoading: pricingLoading, isError, error: pricingError } = useQuery<PricingResult>({
+  const { data: pricing, isError, error: pricingError } = useQuery<PricingResult>({
     queryKey: ["/api/pricing/calculate", debouncedInspections, selectedCurrency, billingPeriod],
     queryFn: async () => {
-      // Add cache-busting query parameter
       const cacheBuster = `&_t=${Date.now()}`;
       const res = await fetch(`/api/pricing/calculate?inspections=${debouncedInspections}&currency=${selectedCurrency}${cacheBuster}`, {
-        cache: 'no-store', // Disable browser cache
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate", Pragma: "no-cache", Expires: "0" },
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ message: "API Error" }));
@@ -209,33 +264,18 @@ export default function Billing() {
     retry: false,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
-    staleTime: 0, // Always consider data stale to force refetch
-    gcTime: 0, // Don't cache, always fetch fresh data
+    staleTime: 0,
+    gcTime: 0,
     refetchOnReconnect: true,
   });
 
-  // Fetch current subscription
-  const { data: subscription, isLoading: subLoading } = useQuery<any>({
-    queryKey: ["/api/billing/subscription"],
-  });
-
-  // Fetch inspection balance
-  const { data: balance } = useQuery<any>({
-    queryKey: ["/api/billing/inspection-balance"],
-  });
-
-  // Fetch enabled modules to get their names
-  const { data: myModules } = useQuery<any[]>({
-    queryKey: ["/api/marketplace/my-modules"],
-  });
-
-  // Fetch pending quotation
+  const { data: myModules } = useQuery<any[]>({ queryKey: ["/api/marketplace/my-modules"] });
   const { data: quotationData, refetch: refetchQuotation } = useQuery<{ request: any; quotation: any }>({
     queryKey: ["/api/quotations/pending"],
     retry: false,
   });
 
-  // Quotation request mutation
+  // --- Mutations ---
   const quotationRequestMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/quotations/request", {
@@ -247,95 +287,119 @@ export default function Billing() {
       return res.json();
     },
     onSuccess: () => {
-      toast({
-        title: "Quotation Request Submitted",
-        description: "We've received your request. Our team will prepare a custom quote for you.",
-      });
+      toast({ title: "Quotation Request Submitted", description: "We've received your request. Our team will prepare a custom quote for you." });
       setQuotationDialogOpen(false);
       setQuotationNotes("");
       refetchQuotation();
     },
     onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to submit quotation request",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to submit quotation request", variant: "destructive" });
     },
   });
 
-  // Quotation checkout mutation
   const quotationCheckoutMutation = useMutation({
     mutationFn: async (quotationId: string) => {
-      const res = await apiRequest("POST", "/api/billing/quotation-checkout", {
-        quotationId,
-      });
+      const res = await apiRequest("POST", "/api/billing/quotation-checkout", { quotationId });
       return res.json();
     },
     onSuccess: (data) => {
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to initiate checkout",
-          variant: "destructive",
-        });
-      }
+      if (data.url) window.location.href = data.url;
+      else toast({ title: "Error", description: "Failed to initiate checkout", variant: "destructive" });
     },
     onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to initiate checkout",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to initiate checkout", variant: "destructive" });
     },
   });
 
+  // --- Pricing breakdown (reactive to slider) ---
+  const pricingBreakdown = useMemo(() => {
+    if (pricing?.calculations) {
+      let tierPrice = billingPeriod === "monthly" ? pricing.calculations.baseMonthly : pricing.calculations.baseAnnual;
+      let additionalInspections = 0;
+      let additionalCost = 0;
+      const currentTierName = pricing?.tier?.name || "";
+      const tierIncluded = pricing?.tier?.included_inspections || 0;
+
+      if (pricing.additional_inspections) {
+        additionalInspections = pricing.additional_inspections.count || 0;
+        const pricePerInspectionMinor = Math.round((pricing.additional_inspections.price_per_inspection || 0) * 100);
+        additionalCost = additionalInspections * pricePerInspectionMinor;
+      } else {
+        additionalInspections = Math.max(0, inspectionsNeeded - tierIncluded);
+        const perInspectionPrice = getPerInspectionPriceFromConfig(currentTierName, selectedCurrency, config);
+        additionalCost = additionalInspections * perInspectionPrice;
+      }
+
+      const totalCost = tierPrice + additionalCost;
+
+      return { tierPrice, additionalInspections, additionalCost, currentTierName, tierIncluded, moduleCost: 0, totalCost, tierCodeForCheckout: pricing?.tier?.code || "" };
+    }
+
+    // Fallback local calculation
+    const activeTiers = (config?.tiers || []).filter((t: Tier) => t.isActive !== false);
+    const sortedTiers = [...activeTiers].sort((a: Tier, b: Tier) => a.includedInspections - b.includedInspections);
+    const minCount = Math.max(inspectionsNeeded, SLIDER_MIN);
+
+    let detectedTier: Tier | undefined;
+    if (minCount >= QUOTE_GATE) {
+      detectedTier = undefined; // quote only — no local price
+    } else {
+      for (let i = 0; i < sortedTiers.length; i++) {
+        const cur = sortedTiers[i];
+        const next = sortedTiers[i + 1];
+        if (!next) { if (minCount >= cur.includedInspections) { detectedTier = cur; break; } }
+        else if (minCount >= cur.includedInspections && minCount < next.includedInspections) { detectedTier = cur; break; }
+      }
+      if (!detectedTier && sortedTiers.length > 0) detectedTier = sortedTiers[sortedTiers.length - 1];
+    }
+
+    let tierPrice = 0, additionalInspections = 0, additionalCost = 0, currentTierName = "", tierIncluded = 0, tierCodeForCheckout = "";
+
+    if (detectedTier) {
+      currentTierName = detectedTier.name;
+      tierIncluded = detectedTier.includedInspections;
+      tierCodeForCheckout = detectedTier.code;
+      const basePrice = billingPeriod === "monthly" ? detectedTier.basePriceMonthly : detectedTier.basePriceAnnual;
+      const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+      tierPrice = selectedCurrency === "GBP" ? basePrice : Math.round(basePrice * rate);
+      additionalInspections = Math.max(0, minCount - tierIncluded);
+      additionalCost = additionalInspections * getPerInspectionPriceFromConfig(currentTierName, selectedCurrency, config);
+    }
+
+    return { tierPrice, additionalInspections, additionalCost, currentTierName, tierIncluded, moduleCost: 0, totalCost: tierPrice + additionalCost, tierCodeForCheckout };
+  }, [inspectionsNeeded, billingPeriod, selectedCurrency, config?.tiers, config?.tierPricing, pricing]);
+
   const checkoutMutation = useMutation({
     mutationFn: async (planCode: string) => {
-      console.log("[Billing] Initiating checkout for plan:", planCode);
-      // totalCost, tierPrice, additionalCost, and moduleCost are already in minor units (pence/cents)
-      // from the pricing calculations, so we send them directly
-      console.log("[Billing] Sending total price (minor units):", pricingBreakdown.totalCost);
-      console.log("[Billing] Breakdown - Tier:", pricingBreakdown.tierPrice, "Additional:", pricingBreakdown.additionalCost, "Modules:", pricingBreakdown.moduleCost);
+      const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+      const price = computePlanPrice(inspectionsNeeded, billingPeriod);
+      // Prefer config formula (n × rate); fall back to API breakdown
+      const tierPriceMajor = price
+        ? (billingPeriod === "annual" ? price.annual : price.monthly)
+        : (pricingBreakdown.tierPrice > 1000 ? pricingBreakdown.tierPrice / 100 : pricingBreakdown.tierPrice);
+      const tierPriceMinor = Math.round(tierPriceMajor * rate * 100);
       const res = await apiRequest("POST", "/api/billing/checkout", {
         planCode,
         billingPeriod,
         currency: selectedCurrency,
         inspectionCount: inspectionsNeeded,
-        totalPrice: Math.round(pricingBreakdown.totalCost), // Already in minor units (excludes modules)
-        tierPrice: Math.round(pricingBreakdown.tierPrice), // Already in minor units
-        additionalCost: Math.round(pricingBreakdown.additionalCost), // Already in minor units
-        moduleCost: 0 // Modules are separate subscriptions, not included in tier checkout
+        totalPrice: tierPriceMinor,
+        tierPrice: tierPriceMinor,
+        additionalCost: 0,
+        moduleCost: 0,
       });
-      const data = await res.json();
-      console.log("[Billing] Checkout response data:", data);
-      return data;
+      return await res.json();
     },
     onSuccess: (data) => {
-      if (data.url) {
-        console.log("[Billing] Redirecting to Checkout URL:", data.url);
-        window.location.href = data.url;
-      } else {
-        console.warn("[Billing] No URL returned in checkout response");
-        toast({
-          title: "Stripe Error",
-          description: "We couldn't generate a checkout link. Please check your Stripe configuration.",
-          variant: "destructive"
-        });
-      }
+      if (data.url) window.location.href = data.url;
+      else toast({ title: "Stripe Error", description: "We couldn't generate a checkout link. Please check your Stripe configuration.", variant: "destructive" });
     },
     onError: (error: any) => {
-      console.error("[Billing] Checkout mutation error:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to initiate checkout",
-        variant: "destructive",
-      });
-    }
+      toast({ title: "Error", description: error.message || "Failed to initiate checkout", variant: "destructive" });
+    },
   });
 
+  // Process payment callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session_id");
@@ -343,241 +407,73 @@ export default function Billing() {
     const isSuccess = paymentStatus === "success" || params.get("success") === "true";
 
     if (isSuccess && sessionId) {
-      console.log("[Billing] Success parameter detected, sessionId:", sessionId);
-
       const processSession = async () => {
-        // Clear the URL parameters IMMEDIATELY using replaceState
-        window.history.replaceState({}, '', window.location.pathname);
-
+        window.history.replaceState({}, "", window.location.pathname);
         try {
           const response = await apiRequest("POST", "/api/billing/process-session", { sessionId });
           const data = await response.json();
-
-          console.log("[Billing] Process session response:", data);
-
-          // Show appropriate success message based on purchase type
-          if (data.creditsGranted) {
-            toast({
-              title: "Purchase Successful",
-              description: `Successfully added ${data.creditsGranted} inspection credits to your account!`,
-            });
-          } else if (data.processed) {
-            toast({
-              title: "Purchase Processed",
-              description: "Your purchase has been processed successfully.",
-            });
-          } else {
-            toast({
-              title: "Success",
-              description: data.message || "Your purchase has been processed successfully.",
-            });
-          }
+          if (data.creditsGranted) toast({ title: "Purchase Successful", description: `Successfully added ${data.creditsGranted} inspection credits to your account!` });
+          else if (data.processed) toast({ title: "Purchase Processed", description: "Your purchase has been processed successfully." });
+          else toast({ title: "Success", description: data.message || "Your purchase has been processed successfully." });
         } catch (e: any) {
-          console.error("[Billing] Session processing failed:", e);
-          toast({
-            title: "Processing Error",
-            description: e.message || "We encountered an issue processing your purchase. Please contact support.",
-            variant: "destructive"
-          });
+          toast({ title: "Processing Error", description: e.message || "We encountered an issue processing your purchase. Please contact support.", variant: "destructive" });
         }
-
-        // Invalidate queries to refresh data
         queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
         queryClient.invalidateQueries({ queryKey: ["/api/billing/inspection-balance"] });
         queryClient.invalidateQueries({ queryKey: ["/api/pricing/calculate"] });
         queryClient.invalidateQueries({ queryKey: ["/api/billing/addon-packs"] });
-        // Also invalidate organization query to refresh credit balance
-        if (user?.organizationId) {
-          queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
-        }
+        if (user?.organizationId) queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
       };
-
       processSession();
     } else if (isSuccess && !sessionId) {
-      // Success but no session ID - might be a cancelled payment or other redirect
-      console.log("[Billing] Success parameter detected but no session_id");
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, "", window.location.pathname);
     }
-  }, [toast, queryClient, user?.organizationId]);
+  }, [toast, user?.organizationId]);
 
-  const formatCurrency = (amount: number, currency: string = selectedCurrency) => {
-    const symbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
-    // Amount might be in minor units (cents/pence) or major units, check if > 1000 assume minor
-    const currencyInMajor = amount > 1000 ? amount / 100 : amount;
-    return `${symbols[currency] || currency}${currencyInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+  // Spec pricing: monthly = n × rate; annual = n × rate × 12 × 0.8 (instant, no API wait)
+  const configPrice = useMemo(
+    () => computePlanPrice(inspectionsNeeded, billingPeriod),
+    [inspectionsNeeded, billingPeriod]
+  );
 
-  // Calculate pricing breakdown based on current slider value (always reactive)
-  // Use API pricing data which includes proper currency conversion
-  const pricingBreakdown = useMemo(() => {
-    // Force recalculation by logging current value
-    console.log(`[Billing] Recalculating pricingBreakdown for ${inspectionsNeeded} inspections, currency: ${selectedCurrency}`);
+  const displayMonthly = configPrice?.monthly ?? (pricingBreakdown.totalCost > 1000 ? pricingBreakdown.totalCost / 100 : pricingBreakdown.totalCost);
+  const displayAnnual = configPrice
+    ? configPrice.annual
+    : displayMonthly * 12 * ANNUAL_MULTIPLIER;
+  const annualSaving = displayMonthly * 12 - displayAnnual;
+  const chargedToday = billingPeriod === "annual" ? displayAnnual : displayMonthly;
+  const monthlyEquivalent = billingPeriod === "annual" ? displayAnnual / 12 : displayMonthly;
 
-    // Use API pricing data which has proper currency conversion
-    // If API data is available, use it (most accurate)
-    if (pricing?.calculations) {
-      let tierPrice = 0;
-      let additionalInspections = 0;
-      let additionalCost = 0;
-      let currentTierName = pricing?.tier?.name || "";
-      let tierIncluded = pricing?.tier?.included_inspections || 0;
+  // Unit price for selected plan
+  const selectedTierConfig = getTierByInspections(inspectionsNeeded);
+  const unitPriceGBP = selectedTierConfig.rate;
+  const unitPriceConverted = unitPriceGBP !== null
+    ? unitPriceGBP * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0)
+    : null;
 
-      // Get tier price from API (already converted)
-      tierPrice = billingPeriod === "monthly" 
-        ? pricing.calculations.baseMonthly 
-        : pricing.calculations.baseAnnual;
+  // Upgrade banner data
+  const nextTierConfig = currentPlan.tier !== "none" ? getNextTier(currentPlan.tier) : null;
+  const currentTierConfig = currentPlan.tier !== "none" ? getTierById(currentPlan.tier) : null;
+  const upgradeDelta =
+    nextTierConfig?.rate != null && currentTierConfig?.rate != null && currentPlan.includedPerMonth > 0
+      ? nextTierConfig.min * nextTierConfig.rate - currentPlan.includedPerMonth * currentTierConfig.rate
+      : null;
 
-      // Get additional inspection cost from API (already converted)
-      if (pricing.additional_inspections) {
-        additionalInspections = pricing.additional_inspections.count || 0;
-        // Calculate: additionalInspections × pricePerInspection
-        // API returns price_per_inspection in major units (e.g., 5.50 for £5.50), convert to minor units (cents/pence)
-        const pricePerInspectionMajor = pricing.additional_inspections.price_per_inspection || 0;
-        const pricePerInspectionMinor = Math.round(pricePerInspectionMajor * 100);
-        additionalCost = additionalInspections * pricePerInspectionMinor;
-      } else {
-        // Calculate locally if API doesn't have it yet - use dynamic tier detection
-        additionalInspections = Math.max(0, inspectionsNeeded - tierIncluded);
-        // Use per-inspection price from config (will be converted by API on next fetch)
-        const perInspectionPrice = getPerInspectionPriceFromConfig(currentTierName, selectedCurrency, config);
-        additionalCost = additionalInspections * perInspectionPrice;
-      }
-
-      // IMPORTANT: Do NOT include module costs in tier subscription checkout
-      // Modules are separate subscriptions and should be purchased/managed separately
-      // Module costs should be 0 for tier subscriptions
-      const moduleCost = 0; // Modules are separate subscriptions, not included in tier checkout
-      
-      const totalCost = tierPrice + additionalCost; // Exclude moduleCost from total
-
-      return {
-        tierPrice,
-        additionalInspections,
-        additionalCost,
-        currentTierName,
-        tierIncluded,
-        moduleCost,
-        totalCost,
-        tierCodeForCheckout: pricing?.tier?.code || ""
-      };
+  // Fire analytics when upgrade banner renders
+  useEffect(() => {
+    if (showUpgradeBanner && nextTierConfig) {
+      trackBillingEvent("upgrade_banner_rendered", {
+        currentTier: currentPlan.tier,
+        nextTier: nextTierConfig.id,
+        used: currentPlan.usedThisPeriod,
+        included: currentPlan.includedPerMonth,
+      });
     }
+  }, [showUpgradeBanner, nextTierConfig?.id, currentPlan.tier, currentPlan.usedThisPeriod, currentPlan.includedPerMonth]);
 
-    // Fallback: Calculate locally if API data not available yet
-    // Use dynamic tier detection similar to backend logic
-    let tierPrice = 0;
-    let additionalInspections = 0;
-    let additionalCost = 0;
-    let currentTierName = "";
-    let tierIncluded = 0;
-    let tierCodeForCheckout = "";
-
-    // Minimum 10 inspections required
-    const minInspectionCount = Math.max(inspectionsNeeded, 10);
-
-    // Get active tiers and sort by included inspections (ascending)
-    const activeTiers = (config?.tiers || []).filter((t: Tier) => t.isActive !== false);
-    const sortedTiers = [...activeTiers].sort((a: Tier, b: Tier) => a.includedInspections - b.includedInspections);
-
-    // Find the appropriate tier dynamically
-    let detectedTier: Tier | undefined;
-    
-    // If count > 500, use the highest tier
-    if (minInspectionCount > 500) {
-      detectedTier = sortedTiers[sortedTiers.length - 1];
-    } else {
-      // Find the tier where minCount falls within its range
-      // Range is from tier's includedInspections up to (but not including) next tier's includedInspections
-      for (let i = 0; i < sortedTiers.length; i++) {
-        const currentTier = sortedTiers[i];
-        const nextTier = sortedTiers[i + 1];
-        
-        // If this is the last tier, use it if count >= its includedInspections
-        if (!nextTier) {
-          if (minInspectionCount >= currentTier.includedInspections) {
-            detectedTier = currentTier;
-            break;
-          }
-        } else {
-          // Check if minCount falls within this tier's range
-          // Range: [currentTier.includedInspections, nextTier.includedInspections)
-          if (minInspectionCount >= currentTier.includedInspections && minInspectionCount < nextTier.includedInspections) {
-            detectedTier = currentTier;
-            break;
-          }
-        }
-      }
-    }
-
-    // Fallback to highest tier if none found
-    if (!detectedTier && sortedTiers.length > 0) {
-      detectedTier = sortedTiers[sortedTiers.length - 1];
-    }
-
-    if (detectedTier) {
-      currentTierName = detectedTier.name;
-      tierIncluded = detectedTier.includedInspections;
-      tierCodeForCheckout = detectedTier.code;
-      
-      // Get tier price
-      const basePrice = billingPeriod === "monthly" ? detectedTier.basePriceMonthly : detectedTier.basePriceAnnual;
-      const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
-      tierPrice = selectedCurrency === "GBP" ? basePrice : Math.round(basePrice * rate);
-      
-      // Calculate additional inspections needed
-      additionalInspections = Math.max(0, minInspectionCount - tierIncluded);
-      additionalCost = additionalInspections * getPerInspectionPriceFromConfig(currentTierName, selectedCurrency, config);
-    }
-
-    // IMPORTANT: Do NOT include module costs in tier subscription checkout
-    // Modules are separate subscriptions and should be purchased/managed separately
-    // Module costs should be 0 for tier subscriptions
-    const moduleCost = 0; // Modules are separate subscriptions, not included in tier checkout
-    const totalCost = tierPrice + additionalCost; // Exclude moduleCost from total
-
-    // tierCodeForCheckout is already set in the dynamic tier detection above
-
-    console.log(`[Billing] Calculated: Tier=${currentTierName}, Additional=${additionalInspections}, Cost=${additionalCost}, TierPrice=${tierPrice}, ModuleCost=${moduleCost}`);
-
-    return {
-      tierPrice,
-      additionalInspections,
-      additionalCost,
-      currentTierName,
-      tierIncluded,
-      moduleCost,
-      totalCost,
-      tierCodeForCheckout
-    };
-  }, [inspectionsNeeded, billingPeriod, selectedCurrency, config?.tiers, config?.tierPricing, pricing]);
-
-  // Determine active module names for display
-  const activeModuleNames = useMemo(() => {
-    if (!pricing?.modules) return [];
-
-    // If we have myModules data, use it to filter enabled modules
-    if (myModules && myModules.length > 0) {
-      // Get enabled module IDs
-      const enabledModuleIds = new Set(
-        myModules
-          .filter(m => m.isEnabled)
-          .map(m => m.moduleId)
-      );
-
-      // Match enabled modules with pricing modules by module_id
-      return pricing.modules
-        .filter(m => enabledModuleIds.has(m.module_id))
-        .map(m => m.module_name)
-        .filter(Boolean); // Remove any undefined/null names
-    }
-
-    // Fallback: if module has a price > 0, assume it's enabled
-    // This handles cases where myModules might not be loaded yet
-    return pricing.modules
-      .filter(m => m.price && m.price > 0)
-      .map(m => m.module_name)
-      .filter(Boolean);
-  }, [pricing?.modules, myModules]);
-
+  // =========================================================================
+  // RENDER
+  // =========================================================================
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-8 mb-24">
 
@@ -585,21 +481,11 @@ export default function Billing() {
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
-              Billing & Subscription
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage your organization's plan, usage, and billing history.
-            </p>
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Billing &amp; Subscription</h1>
+            <p className="text-sm text-muted-foreground mt-1">Manage your organization&apos;s plan, usage, and billing history.</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg border border-border">
-              <button
-                onClick={() => setBillingPeriod("monthly")}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${billingPeriod === "monthly" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                Monthly
-              </button>
               <button
                 onClick={() => setBillingPeriod("annual")}
                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all relative ${billingPeriod === "annual" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
@@ -607,13 +493,22 @@ export default function Billing() {
                 Annual
                 <Badge className="absolute -top-2 -right-2 bg-emerald-500 text-white border-none py-0 px-1.5 text-[9px]">Save 20%</Badge>
               </button>
+              <button
+                onClick={() => setBillingPeriod("monthly")}
+                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${billingPeriod === "monthly" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                Monthly
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Quick Stats Grid */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Header stat cards — all read from currentPlan                       */}
+      {/* ------------------------------------------------------------------ */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Card 1: Current Plan */}
         <Card className="hover-elevate transition-smooth border-primary/10">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
@@ -621,13 +516,20 @@ export default function Billing() {
                 <Zap className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Active Plan</p>
-                <h3 className="text-lg font-bold">{subscription?.planSnapshotJson?.planName || "No Active Plan"}</h3>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Current Plan</p>
+                <h3 className="text-lg font-bold">
+                  {currentPlan.status === "none"
+                    ? "No active plan"
+                    : currentPlan.status === "past_due"
+                      ? `${currentPlan.tierName} · Payment failed`
+                      : `${currentPlan.tierName} · ${currentPlan.billingPeriod === "annual" ? "Annual" : "Monthly"}`}
+                </h3>
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* Card 2: Inspections Left — "X of Y" */}
         <Card className="hover-elevate transition-smooth border-primary/10">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
@@ -635,13 +537,21 @@ export default function Billing() {
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Inspection credits</p>
-                <h3 className="text-lg font-bold">{balance?.totalAvailable || 0} Credits</h3>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Credits Left</p>
+                <h3 className="text-lg font-bold">
+                  {inspectionsLeft} of {inspectionsTotal}
+                </h3>
+                {currentPlan.topUpCredits > 0 && currentPlan.includedPerMonth > 0 && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Includes {currentPlan.includedPerMonth} plan + {currentPlan.topUpCredits} bonus
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* Card 3: Renews / Ends */}
         <Card className="hover-elevate transition-smooth border-primary/10">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
@@ -649,32 +559,105 @@ export default function Billing() {
                 <Clock className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Next Renewal</p>
-                <h3 className="text-lg font-bold">{subscription ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : "N/A"}</h3>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  {currentPlan.status === "canceled" ? "Ends" : "Renews"}
+                </p>
+                <h3 className="text-lg font-bold">
+                  {currentPlan.renewsOn
+                    ? formatBillingDateUtcLocale(currentPlan.renewsOn)
+                    : "N/A"}
+                </h3>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Pricing Slider Section */}
-      <section className="bg-card rounded-3xl p-8 border border-border shadow-sm relative overflow-hidden">
+      {/* ------------------------------------------------------------------ */}
+      {/* Usage-triggered upgrade banner (BILL-05)                           */}
+      {/* ------------------------------------------------------------------ */}
+      {showUpgradeBanner && nextTierConfig && nextTierConfig.rate !== null && (
+        <div className="bg-gradient-to-r from-primary/10 to-emerald-500/10 border border-primary/20 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="flex-1">
+            <p className="font-semibold text-sm">
+              You&apos;ve used {currentPlan.usedThisPeriod} of {currentPlan.includedPerMonth} credits this month.
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {nextTierConfig.label} gives you {nextTierConfig.min} for{" "}
+              {upgradeDelta != null
+                ? `${formatMajor(Math.abs(upgradeDelta) * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)}${upgradeDelta >= 0 ? " more" : " less"}`
+                : "a better rate"}{" "}
+              — and drops your rate to{" "}
+              {formatMajor(nextTierConfig.rate * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)} per inspection.
+            </p>
+          </div>
+          <Button
+            variant="default"
+            className="shrink-0"
+            onClick={() => {
+              trackBillingEvent("upgrade_banner_clicked", {
+                currentTier: currentPlan.tier,
+                nextTier: nextTierConfig.id,
+              });
+              setInspectionsNeededRaw(nextTierConfig.min);
+              document.getElementById("pricing-slider-section")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <ArrowUp className="h-4 w-4 mr-2" />
+            Move to {nextTierConfig.label}
+          </Button>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Empty state / trial bridge (BILL-06)                               */}
+      {/* ------------------------------------------------------------------ */}
+      {trialAvailable && (
+        <div className="bg-gradient-to-br from-primary/5 to-emerald-500/5 border border-primary/20 rounded-2xl p-8 text-center space-y-4">
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mx-auto">
+            <Sparkles className="h-7 w-7" />
+          </div>
+          <h2 className="text-2xl font-bold">Run 3 inspections free</h2>
+          <p className="text-muted-foreground max-w-md mx-auto">No card required. Your reports are yours to keep.</p>
+          <div className="flex flex-col items-center gap-2">
+            <Button
+              size="lg"
+              className="px-8"
+              onClick={() => {
+                trackBillingEvent("trial_cta_clicked");
+                toast({ title: "Free trial ready", description: "You can run up to 3 inspections for free — no card required." });
+                window.location.href = "/inspections";
+              }}
+            >
+              Run 3 inspections free
+            </Button>
+            <button
+              className="text-sm text-primary hover:underline"
+              onClick={() => document.getElementById("pricing-slider-section")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Or choose a plan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Pricing Slider Section                                             */}
+      {/* ------------------------------------------------------------------ */}
+      <section id="pricing-slider-section" className="bg-card rounded-3xl p-8 border border-border shadow-sm relative overflow-hidden">
         <div className="absolute top-0 right-0 p-6 flex gap-3">
           <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-xl border border-border">
             <Coins className="h-4 w-4 text-muted-foreground" />
-            <Select 
-              value={selectedCurrency} 
-              onValueChange={setSelectedCurrency}
-              disabled={false} // Allow changing currency if needed, but default to organization currency
-            >
+            <Select value={selectedCurrency} onValueChange={setSelectedCurrency}>
               <SelectTrigger className="h-7 w-20 border-none bg-transparent font-bold focus:ring-0 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="GBP">GBP (£)</SelectItem>
-                <SelectItem value="USD">USD ($)</SelectItem>
-                <SelectItem value="AED">AED (د.إ)</SelectItem>
-                {/* EUR removed - not supported by database currency enum */}
+                {SUPPORTED_BILLING_CURRENCIES.map((code) => (
+                  <SelectItem key={code} value={code}>
+                    {code} ({BILLING_CURRENCY_SYMBOLS[code]})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -683,427 +666,314 @@ export default function Billing() {
         <div className="max-w-4xl mx-auto space-y-8 py-4">
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-bold">How many inspections do you need per month?</h2>
+            <p className="text-sm text-muted-foreground">Each inspection includes up to {PHOTOS_PER_CREDIT} photos.</p>
           </div>
 
           <div className="space-y-8 py-4">
-            {/* Slider with Tier Boundaries */}
+            {/* Slider with all tier ticks */}
             <div className="relative pt-8 pb-12">
-              {/* Selected Value Display - following the slider thumb */}
+              {/* Floating value label */}
               <div
                 className="absolute -top-4 bg-primary text-white px-4 py-1.5 rounded-full font-bold text-base shadow-lg z-10 whitespace-nowrap"
-                style={{
-                  left: `${getPositionPercent(inspectionsNeeded)}%`,
-                  transform: 'translateX(-50%)',
-                  pointerEvents: 'none'
-                }}
+                style={{ left: `${getPositionPercent(inspectionsNeeded)}%`, transform: "translateX(-50%)", pointerEvents: "none" }}
               >
-                {inspectionsNeeded >= 500 ? "500+" : inspectionsNeeded}
+                {inspectionsNeeded >= QUOTE_GATE ? "200+" : inspectionsNeeded}
               </div>
 
-              {/* Slider Container - ensures markers align with slider track */}
               <div className="relative w-full" ref={sliderContainerRef}>
                 <Slider
-                  value={[Math.min(Math.max(inspectionsNeeded, 10), 500)]}
-                  onValueChange={(v) => {
-                    let value = Math.max(v[0], 10); // Enforce minimum 10
-                    // Snap to tier thresholds when close
-                    const snapPoints = [10, 30, 75, 200, 500];
-                    const snapThreshold = 3; // pixels/units
-
-                    for (const snap of snapPoints) {
-                      if (Math.abs(snap - value) <= snapThreshold) {
-                        value = snap;
-                        break;
-                      }
-                    }
-
-                    setInspectionsNeeded(value);
-                  }}
-                  min={10}
-                  max={500}
+                  value={[Math.min(Math.max(inspectionsNeeded, SLIDER_MIN), SLIDER_MAX)]}
+                  onValueChange={(v) => setInspectionsNeeded(v[0])}
+                  min={SLIDER_MIN}
+                  max={SLIDER_MAX}
                   step={1}
+                  aria-label={`Inspections per month: ${inspectionsNeeded}. Selected plan: ${selectedPlan.tierName}`}
                   className="[&_[role=slider]]:h-6 [&_[role=slider]]:w-6 [&_[role=slider]]:bg-background [&_[role=slider]]:border-primary [&_[role=slider]]:border-2 [&_[role=slider]]:-translate-x-1/2"
                 />
+                <span className="sr-only" aria-live="polite">
+                  Selected plan: {selectedPlan.tierName}, {inspectionsNeeded} inspections per month
+                  {unitPriceConverted != null ? `, ${formatMajor(unitPriceConverted, selectedCurrency)} per inspection` : ""}
+                </span>
 
-                <div className="absolute top-0 left-0 right-0 h-1" style={{ marginTop: '12px' }}>
-                  {[30, 75, 200].map((threshold) => (
+                {/* Tier boundary markers — 10 / 30 / 75 / 200 (200 = Enterprise quote gate) */}
+                <div className="absolute top-0 left-0 right-0 h-1" style={{ marginTop: "12px" }}>
+                  {TIERS.map((tier) => (
                     <div
-                      key={threshold}
+                      key={tier.id}
                       className="absolute flex flex-col items-center gap-1"
-                      style={{
-                        left: `${getPositionPercent(threshold) - (threshold === 200 ? 0.4 : 0)}%`,
-                        transform: 'translateX(-50%)',
-                        pointerEvents: 'none'
-                      }}
+                      style={{ left: `${getPositionPercent(tier.min)}%`, transform: "translateX(-50%)", pointerEvents: "none" }}
                     >
                       <div className="w-0.5 h-6 bg-primary/30" />
-                      <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mt-1">{threshold}</span>
+                      <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mt-1">
+                        {tier.min >= QUOTE_GATE ? "200+" : tier.min}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
 
+              {/* Tier labels under slider */}
               <div className="absolute top-20 left-0 right-0 mt-4 h-8">
-                {[
-                  { threshold: 30, name: "Growth" },
-                  { threshold: 75, name: "Professional" },
-                  { threshold: 200, name: "Enterprise" }
-                ].map((tier) => {
-                  const percent = getPositionPercent(tier.threshold);
-                  const adjustedPercent = tier.threshold === 200 ? percent - 0.4 : percent;
+                {TIERS.map((tier) => {
+                  const pos = getPositionPercent(tier.min);
                   return (
                     <div
-                      key={tier.name}
+                      key={tier.id}
                       className="flex flex-col items-center absolute"
-                      style={{
-                        left: `${adjustedPercent}%`,
-                        transform: 'translateX(-50%)'
-                      }}
+                      style={{ left: `${pos}%`, transform: "translateX(-50%)" }}
                     >
-                      <span className="text-xs font-medium text-foreground whitespace-nowrap">{tier.name}</span>
+                      <span className="text-xs font-medium text-foreground whitespace-nowrap">{tier.label}</span>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Selected Details */}
-            {(() => {
-              // Use tier information from pricingBreakdown (which uses API data or dynamic detection)
-              const currentTierName = pricingBreakdown.currentTierName;
-              const tierIncluded = pricingBreakdown.tierIncluded;
-              const additionalInspections = pricingBreakdown.additionalInspections;
+            {/* Selected plan details — reads from selectedPlan, not currentPlan */}
+            <div className="bg-muted/30 rounded-xl p-6 space-y-2 border border-border">
+              <div className="text-sm space-y-1">
+                <p className="font-semibold">
+                  Selected plan:{" "}
+                  {inspectionsNeeded >= QUOTE_GATE
+                    ? "Enterprise — 200+ inspections/month (quote)"
+                    : `${selectedPlan.tierName} — ${inspectionsNeeded} inspections/month`}
+                </p>
+                {unitPriceConverted !== null && inspectionsNeeded < QUOTE_GATE && (
+                  <p className="text-primary font-medium">
+                    {formatMajor(unitPriceConverted, selectedCurrency)} per inspection · AI analysis included
+                  </p>
+                )}
+              </div>
+            </div>
 
-              return (
-                <div className="bg-muted/30 rounded-xl p-6 space-y-2 border border-border">
-                  <div className="text-sm space-y-1">
-                    <p className="font-semibold">Selected: {inspectionsNeeded >= 500 ? "500+" : inspectionsNeeded} inspections/month</p>
-                    {currentTierName ? (
-                      <>
-                        <p className="text-muted-foreground">
-                          Your Tier: <span className="font-semibold text-foreground">{currentTierName}</span> (includes {tierIncluded})
-                        </p>
-                        {additionalInspections > 0 && (
-                          <p className="text-muted-foreground">
-                            Additional: <span className="font-semibold text-foreground">{additionalInspections} inspections needed</span>
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-muted-foreground">
-                        Additional inspections priced by tier
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Pricing Breakdown */}
+            {/* Pricing Breakdown — prefer config n×rate so UI never waits on API */}
             {isError && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-6 text-center">
-                <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-2" />
-                <h3 className="text-lg font-bold text-destructive text-sm uppercase tracking-wider">Pricing Engine Unavailable</h3>
-                <p className="text-xs text-muted-foreground mt-2">{(pricingError as Error)?.message || "Subscription tiers are not configured."}</p>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-4 text-center mb-2">
+                <p className="text-xs text-muted-foreground">Live pricing API unavailable — showing configured rates.</p>
               </div>
             )}
 
-            {pricingBreakdown && !isError && (() => {
-              // Use pricingBreakdown from useMemo (always reactive to inspectionsNeeded)
-              // This updates immediately when slider changes (no debounce delay)
-              const {
-                tierPrice,
-                additionalInspections,
-                additionalCost,
-                currentTierName,
-                tierIncluded,
-                moduleCost,
-                totalCost,
-                tierCodeForCheckout
-              } = pricingBreakdown;
-
-              return (
-                <div
-                  key={`pricing-${inspectionsNeeded}-${billingPeriod}`}
-                  className="bg-card rounded-2xl p-8 border border-border shadow-sm space-y-4"
-                >
-                  <div className="space-y-3">
-                    {/* Tier Subscription Cost (if applicable) */}
-                    {tierPrice > 0 && (
+            {inspectionsNeeded < QUOTE_GATE && configPrice && (
+              <div className="bg-card rounded-2xl p-8 border border-border shadow-sm space-y-4">
+                <div className="space-y-3">
+                  {/* Annual display: 3 lines per spec — uses n × rate formula */}
+                  {billingPeriod === "annual" ? (
+                    <>
                       <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">
-                          {billingPeriod === "annual" ? "Annual" : "Monthly"} Subscription ({currentTierName}):
-                        </span>
-                        <span className="font-bold text-lg">
-                          {formatCurrency(tierPrice, selectedCurrency)}
-                        </span>
+                        <span className="text-muted-foreground">Billed annually</span>
+                        <span className="font-bold text-2xl">{formatMajor(chargedToday * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)}</span>
                       </div>
-                    )}
-
-                    {/* Per-Inspection Cost */}
-                    {additionalInspections > 0 && (
-                      <>
-                        <div className="flex justify-between items-center">
-                          <span className="text-muted-foreground">
-                            Additional Inspections:
-                          </span>
-                          <span className="font-bold text-lg">
-                            {formatCurrency(additionalCost, selectedCurrency)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground pl-4">
-                          ({additionalInspections} × {(() => {
-                            // Get per-inspection price from API if available, otherwise from config
-                            let pricePerInspectionMajor = 0;
-                            if (pricing?.additional_inspections?.price_per_inspection) {
-                              // API returns price_per_inspection in major units (e.g., 10.00 for £10.00)
-                              pricePerInspectionMajor = pricing.additional_inspections.price_per_inspection;
-                            } else {
-                              // getPerInspectionPriceFromConfig returns in minor units (pence/cents)
-                              // Convert to major units for display
-                              const priceMinor = getPerInspectionPriceFromConfig(pricingBreakdown.currentTierName, selectedCurrency, config);
-                              pricePerInspectionMajor = priceMinor / 100;
-                            }
-                            // Format directly as major units
-                            const symbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
-                            const symbol = symbols[selectedCurrency] || selectedCurrency;
-                            return `${symbol}${pricePerInspectionMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                          })()} per inspection)
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground text-sm">Monthly equivalent</span>
+                        <span className="text-sm text-muted-foreground">{formatMajor(monthlyEquivalent * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)}/mo</span>
+                      </div>
+                      {annualSaving > 0 && (
+                        <p className="text-sm font-medium text-emerald-600">
+                          You save {formatMajor(annualSaving * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)} a year
                         </p>
-                      </>
-                    )}
-
-                    {/* Module Costs - REMOVED: Modules are separate subscriptions, not included in tier checkout */}
-                    {/* Modules should be purchased/managed separately through the marketplace */}
-
-                    <Separator />
-
-                    <div className="flex justify-between items-center">
-                      <span className="font-semibold">
-                        {billingPeriod === "annual" ? "Annual Total" : "Total Monthly"}:
-                      </span>
-                      <span className="font-bold text-2xl">
-                        {formatCurrency(totalCost, selectedCurrency)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Subscribe Button */}
-                  {tierCodeForCheckout && (
-                    <div className="pt-4">
-                      <Button
-                        onClick={() => checkoutMutation.mutate(tierCodeForCheckout)}
-                        disabled={checkoutMutation.isPending || subscription?.currentTierId === config?.tiers?.find((t: Tier) => t.code === tierCodeForCheckout)?.id}
-                        className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-md active:scale-95"
-                      >
-                        {checkoutMutation.isPending ? (
-                          <span className="flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Processing...
-                          </span>
-                        ) : subscription?.currentTierId === config?.tiers?.find((t: Tier) => t.code === tierCodeForCheckout)?.id ? (
-                          "Current Plan"
-                        ) : (
-                          <span className="flex items-center gap-2">
-                            Subscribe & Pay <ChevronRight className="h-4 w-4" />
-                          </span>
-                        )}
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Quotation Section for 500+ */}
-                  {inspectionsNeeded >= 500 && (() => {
-                    const pendingRequest = quotationData?.request;
-                    const quotation = quotationData?.quotation;
-
-                    if (quotation && quotation.status === "sent") {
-                      // Show approved quotation
-                      const priceInMajor = quotation.quotedPrice / 100;
-                      const currencySymbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
-                      const symbol = currencySymbols[quotation.currency] || quotation.currency;
-
-                      return (
-                        <div className="mt-6 p-6 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                          <div className="flex items-start justify-between mb-4">
-                            <div>
-                              <p className="font-semibold text-lg text-emerald-900 dark:text-emerald-100">
-                                Your Custom Quote is Ready!
-                              </p>
-                              <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
-                                {quotation.quotedInspections} inspections per month
-                              </p>
-                            </div>
-                            <Badge className="bg-emerald-500">Quote Ready</Badge>
-                          </div>
-
-                          <div className="mb-4">
-                            <div className="flex items-baseline gap-2">
-                              <span className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
-                                {symbol}{priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                              <span className="text-sm text-emerald-700 dark:text-emerald-300">
-                                /{quotation.billingPeriod === "annual" ? "year" : "month"}
-                              </span>
-                            </div>
-                            {quotation.customerNotes && (
-                              <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-2">
-                                {quotation.customerNotes}
-                              </p>
-                            )}
-                          </div>
-
-                          <Button
-                            onClick={() => quotationCheckoutMutation.mutate(quotation.id)}
-                            disabled={quotationCheckoutMutation.isPending}
-                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-                          >
-                            {quotationCheckoutMutation.isPending ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Processing...
-                              </>
-                            ) : (
-                              <>
-                                Subscribe Now <ChevronRight className="h-4 w-4 ml-2" />
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      );
-                    }
-
-                    if (pendingRequest) {
-                      // Show pending request status
-                      return (
-                        <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Clock className="h-4 w-4 text-amber-600" />
-                            <p className="font-semibold text-sm text-amber-900 dark:text-amber-100">
-                              Quotation Request Pending
-                            </p>
-                          </div>
-                          <p className="text-xs text-amber-700 dark:text-amber-300">
-                            We've received your request for {pendingRequest.requestedInspections} inspections.
-                            Our team is preparing a custom quote for you. You'll receive an email when it's ready.
-                          </p>
-                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                            Requested on {new Date(pendingRequest.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                      );
-                    }
-
-                    // Show request quotation button
-                    return (
-                      <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                        <p className="font-semibold text-sm text-amber-900 dark:text-amber-100 mb-2">
-                          Enterprise Plus - Custom Quote Required
-                        </p>
-                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-4">
-                          For 500+ inspections per month, we'll prepare a custom pricing quote tailored to your needs.
-                        </p>
-                        <Button
-                          onClick={() => {
-                            setExactInspectionsCount(inspectionsNeeded);
-                            setQuotationDialogOpen(true);
-                          }}
-                          className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Monthly charge</span>
+                        <span className="font-bold text-2xl">{formatMajor(chargedToday * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)}</span>
+                      </div>
+                      {annualSaving > 0 && (
+                        <button
+                          onClick={() => setBillingPeriod("annual")}
+                          className="text-sm font-medium text-emerald-600 hover:underline"
                         >
-                          Request Custom Quote
-                        </Button>
-                      </div>
-                    );
-                  })()}
+                          Switch to annual and save {formatMajor(annualSaving * (FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0), selectedCurrency)}
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
-              );
-            })()}
+
+                {/* CTA Button */}
+                <div className="pt-4">
+                  {ctaState.action === "quote" ? null : currentPlan.status === "past_due" ? (
+                    <Button className="w-full h-12 rounded-xl" onClick={async () => {
+                      const res = await apiRequest("POST", "/api/billing/portal");
+                      const data = await res.json();
+                      if (data.url) window.location.href = data.url;
+                    }}>
+                      Update payment method <ChevronRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        const planCode = pricingBreakdown.tierCodeForCheckout || selectedPlan.tier;
+                        checkoutMutation.mutate(planCode);
+                      }}
+                      disabled={ctaState.disabled || checkoutMutation.isPending || !pricingBreakdown.tierCodeForCheckout}
+                      className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-all shadow-md active:scale-95"
+                    >
+                      {checkoutMutation.isPending ? (
+                        <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Processing...</span>
+                      ) : (
+                        <span className="flex items-center gap-2">{ctaState.label} <ChevronRight className="h-4 w-4" /></span>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Quote section for 200+ */}
+            {inspectionsNeeded >= QUOTE_GATE && (
+              <div className="bg-card rounded-2xl p-8 border border-border shadow-sm space-y-4">
+                <QuotationPanel quotationData={quotationData} quotationCheckoutMutation={quotationCheckoutMutation} onRequestQuote={() => { setExactInspectionsCount(Math.max(inspectionsNeeded, QUOTE_GATE)); setQuotationDialogOpen(true); }} />
+              </div>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Features Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { title: "AI Inspections", icon: <FileText className="h-5 w-5" />, desc: "Automatic condition detection and photo analysis included." },
-          { title: "Team Collaboration", icon: <Users className="h-5 w-5" />, desc: "Unlimited clerks, contractors, and internal stakeholders." },
-          { title: "Marketplace Access", icon: <Layout className="h-5 w-5" />, desc: "Unlock White-Label, Portals, and Advanced API integrations." },
-          { title: "Full Ledger", icon: <TrendingUp className="h-5 w-5" />, desc: "Complete audit trail and historical property data storage." }
-        ].map((feat, i) => (
-          <Card key={i} className="group hover-elevate transition-smooth border-border border-dashed">
-            <CardHeader className="p-6">
-              <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center text-muted-foreground group-hover:bg-primary/5 group-hover:text-primary transition-colors mb-4">
-                {feat.icon}
-              </div>
-              <CardTitle className="text-base">{feat.title}</CardTitle>
-              <CardDescription className="text-xs leading-relaxed">{feat.desc}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
+      {/* ------------------------------------------------------------------ */}
+      {/* Module cards — tier-aware (BILL-09)                                 */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {MODULES.map((mod) => {
+          const unlocked = compareTiers(selectedPlan.tier, mod.minTier) >= 0;
+          const lockLabel = TIERS.find((t) => t.id === mod.minTier)?.label || mod.minTier;
+          const monthly =
+            mod.id === "tenant_portal"
+              ? resolveTenantPortalPrice(currentPlan.unitsUnderMgmt)
+              : moduleMonthlyPrice(mod.id, currentPlan.unitsUnderMgmt);
+          const annual = monthly != null ? moduleAnnualPrice(monthly) : null;
+          const rateFx = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+
+          return (
+            <Card key={mod.id} className={`group transition-smooth border-border ${unlocked ? "hover-elevate border-dashed" : "opacity-60 border-dashed"}`}>
+              <CardHeader className="p-6">
+                <div className={`h-10 w-10 rounded-xl flex items-center justify-center mb-4 transition-colors ${unlocked ? "bg-muted text-muted-foreground group-hover:bg-primary/5 group-hover:text-primary" : "bg-muted/50 text-muted-foreground/50"}`}>
+                  {unlocked ? (MODULE_ICONS[mod.id] || <Package className="h-5 w-5" />) : <Lock className="h-5 w-5" />}
+                </div>
+                <CardTitle className="text-base">{mod.label}</CardTitle>
+                <CardDescription className="text-xs leading-relaxed">
+                  {unlocked ? mod.description : `${lockLabel} and above`}
+                </CardDescription>
+                {unlocked && monthly != null && (
+                  <div className="pt-3 text-sm">
+                    <span className="font-semibold">{formatMajor(monthly * rateFx, selectedCurrency)}/mo</span>
+                    {annual != null && (
+                      <span className="text-muted-foreground text-xs ml-2">
+                        or {formatMajor(annual * rateFx, selectedCurrency)}/yr
+                      </span>
+                    )}
+                    {mod.id === "tenant_portal" && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Based on {currentPlan.unitsUnderMgmt} units under management
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardHeader>
+            </Card>
+          );
+        })}
       </div>
 
-      {/* Add-On Pack Purchase Section */}
-      <AddOnPackPurchaseSection />
+      {/* ------------------------------------------------------------------ */}
+      {/* Add-On Packs (BILL-04) — real volume ladder                        */}
+      {/* ------------------------------------------------------------------ */}
+      <AddOnPackPurchaseSection currentPlanTier={currentPlan.tier} selectedCurrency={selectedCurrency} />
 
-      {/* FAQ Accordion */}
+      {/* Stripe Portal / Manage Billing — before FAQ */}
+      <ManageBillingMethodCard />
+
+      {/* ------------------------------------------------------------------ */}
+      {/* FAQ — 8 items (v2)                                                 */}
+      {/* ------------------------------------------------------------------ */}
       <div className="max-w-3xl mx-auto py-8">
         <div className="text-center mb-8">
           <h2 className="text-xl font-bold">Frequently Asked Questions</h2>
-          <p className="text-sm text-muted-foreground mt-1">Everything you need to know about our scaling credits system.</p>
+          <p className="text-sm text-muted-foreground mt-1">Everything you need to know about billing and subscriptions.</p>
         </div>
         <Accordion type="single" collapsible className="w-full space-y-3">
-          <AccordionItem value="item-1" className="border rounded-xl px-4 bg-card shadow-sm">
-            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">
-              What happens if I exceed my monthly allowance?
-            </AccordionTrigger>
+          <AccordionItem value="faq-1" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">What happens if I exceed my monthly allowance?</AccordionTrigger>
             <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
-              If you exhaust your inspections, you can instantly upgrade to a higher tier or buy fixed "Add-On Packs" from the Marketplace. Your account is never frozen; we'll simply notify you to top up.
+              If you exhaust your credits, you can instantly upgrade to a higher tier or buy fixed Add-On Packs. Your account is never frozen; we&apos;ll simply notify you to top up.
             </AccordionContent>
           </AccordionItem>
-          <AccordionItem value="item-2" className="border rounded-xl px-4 bg-card shadow-sm">
-            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">
-              How does the Annual discount work?
-            </AccordionTrigger>
+          <AccordionItem value="faq-2" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">How does the Annual discount work?</AccordionTrigger>
             <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
-              Pre-paying annually grants a 20% discount on both the Platform Fee and the Base Inspection Credit price. Annual plans also receive their full yearly credit allocation upfront.
+              Pre-paying annually grants a 20% discount: annual bill = monthly × 12 × 0.80.
+              Example: Growth 30 is £129/month, or £1,238.40/year (not the undiscounted list of £1,548).
+              Annual plans also receive their full yearly credit allocation upfront.
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="faq-3" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">Do unused inspections roll over?</AccordionTrigger>
+            <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
+              Purchased Add-On Pack credits do not expire and roll over month to month. Your base tier allowance resets each billing period.
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="faq-4" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">Can I change plan mid-month?</AccordionTrigger>
+            <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
+              Yes — upgrades and downgrades take effect immediately. Stripe prorates the rest of the period and invoices now:
+              upgrades charge the net difference today; downgrades issue account credit toward future invoices
+              (no cash refund). Your next renewal is the full new plan price. Leftover inspection credits convert
+              to bonus and still expire on their original date; you also receive the new plan&apos;s full quota.
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="faq-5" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">How do I cancel?</AccordionTrigger>
+            <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
+              You can cancel anytime from the{" "}
+              <button className="text-primary hover:underline font-medium" onClick={async () => {
+                try {
+                  const res = await apiRequest("POST", "/api/billing/portal");
+                  const data = await res.json();
+                  if (data.url) window.location.href = data.url;
+                } catch { }
+              }}>Stripe billing portal</button>.
+              Your plan remains active until the end of the current billing period. All your inspection data is retained.
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="faq-6" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">Can I export my inspection data if I leave?</AccordionTrigger>
+            <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
+              Absolutely. Your inspection reports, photos, and property data belong to you. You can export everything as PDF reports or structured data at any time, whether or not you have an active subscription.
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="faq-7" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">What counts as one inspection?</AccordionTrigger>
+            <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
+              One inspection credit includes up to {PHOTOS_PER_CREDIT} photos. Larger inspections consume additional credits: 1–{PHOTOS_PER_CREDIT} photos = 1 credit, 301–600 = 2 credits, 601–900 = 3 credits, and so on.
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="faq-8" className="border rounded-xl px-4 bg-card shadow-sm">
+            <AccordionTrigger className="hover:no-underline py-4 text-sm font-semibold">How long do you keep my photos and reports?</AccordionTrigger>
+            <AccordionContent className="pb-4 text-sm text-muted-foreground leading-relaxed">
+              We retain photos and reports for 24 months by default. Longer retention is available via the Extended Evidence Retention module (48 months, 72 months, or unlimited).
             </AccordionContent>
           </AccordionItem>
         </Accordion>
       </div>
-
-      {/* External Stripe Portal Link */}
-      <ManageBillingMethodCard />
 
       {/* Quotation Request Dialog */}
       <Dialog open={quotationDialogOpen} onOpenChange={setQuotationDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request Custom Quote</DialogTitle>
-            <DialogDescription>
-              For 500+ inspections per month, we'll prepare a custom pricing quote tailored to your needs.
-            </DialogDescription>
+            <DialogDescription>For 200+ inspections per month, we&apos;ll prepare a custom Enterprise pricing quote tailored to your needs.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="inspections">Number of Inspections Needed</Label>
-              <Input
-                id="inspections"
-                type="number"
-                min={500}
-                value={exactInspectionsCount}
-                onChange={(e) => setExactInspectionsCount(Number(e.target.value))}
-                placeholder="e.g., 600, 1000, 2000"
-              />
-              <p className="text-xs text-muted-foreground">
-                Minimum 500 inspections required for custom quotes
-              </p>
+              <Input id="inspections" type="number" min={QUOTE_GATE} value={exactInspectionsCount} onChange={(e) => setExactInspectionsCount(Number(e.target.value))} placeholder="e.g., 200, 500, 1000" />
+              <p className="text-xs text-muted-foreground">Minimum {QUOTE_GATE} inspections required for Enterprise quotes</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="billing-period">Preferred Billing Period</Label>
-              <Select value={billingPeriod} onValueChange={(v: "monthly" | "annual") => setBillingPeriod(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={billingPeriod} onValueChange={(v: BillingPeriod) => setBillingPeriod(v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="monthly">Monthly</SelectItem>
                   <SelectItem value="annual">Annual (Save 20%)</SelectItem>
@@ -1112,31 +982,13 @@ export default function Billing() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="notes">Additional Notes (Optional)</Label>
-              <Textarea
-                id="notes"
-                value={quotationNotes}
-                onChange={(e) => setQuotationNotes(e.target.value)}
-                placeholder="Any specific requirements or questions..."
-                rows={4}
-              />
+              <Textarea id="notes" value={quotationNotes} onChange={(e) => setQuotationNotes(e.target.value)} placeholder="Any specific requirements or questions..." rows={4} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setQuotationDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => quotationRequestMutation.mutate()}
-              disabled={quotationRequestMutation.isPending || exactInspectionsCount < 500}
-            >
-              {quotationRequestMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                "Submit Request"
-              )}
+            <Button variant="outline" onClick={() => setQuotationDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => quotationRequestMutation.mutate()} disabled={quotationRequestMutation.isPending || exactInspectionsCount < QUOTE_GATE}>
+              {quotationRequestMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting...</>) : "Submit Request"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1145,7 +997,70 @@ export default function Billing() {
   );
 }
 
-// Manage Billing Method Card Component
+// ---------------------------------------------------------------------------
+// Quotation Panel (200+ / Enterprise)
+// ---------------------------------------------------------------------------
+
+function QuotationPanel({ quotationData, quotationCheckoutMutation, onRequestQuote }: {
+  quotationData: { request: any; quotation: any } | undefined;
+  quotationCheckoutMutation: any;
+  onRequestQuote: () => void;
+}) {
+  const pendingRequest = quotationData?.request;
+  const quotation = quotationData?.quotation;
+
+  if (quotation && quotation.status === "sent") {
+    const priceInMajor = quotation.quotedPrice / 100;
+    const symbol = CURRENCY_SYMBOLS[quotation.currency] || quotation.currency;
+    return (
+      <div className="p-6 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="font-semibold text-lg text-emerald-900 dark:text-emerald-100">Your Custom Quote is Ready!</p>
+            <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">{quotation.quotedInspections} inspections per month</p>
+          </div>
+          <Badge className="bg-emerald-500">Quote Ready</Badge>
+        </div>
+        <div className="mb-4">
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">{symbol}{priceInMajor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-sm text-emerald-700 dark:text-emerald-300">/{quotation.billingPeriod === "annual" ? "year" : "month"}</span>
+          </div>
+          {quotation.customerNotes && <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-2">{quotation.customerNotes}</p>}
+        </div>
+        <Button onClick={() => quotationCheckoutMutation.mutate(quotation.id)} disabled={quotationCheckoutMutation.isPending} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
+          {quotationCheckoutMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing...</>) : (<>Subscribe Now <ChevronRight className="h-4 w-4 ml-2" /></>)}
+        </Button>
+      </div>
+    );
+  }
+
+  if (pendingRequest) {
+    return (
+      <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+        <div className="flex items-center gap-2 mb-2">
+          <Clock className="h-4 w-4 text-amber-600" />
+          <p className="font-semibold text-sm text-amber-900 dark:text-amber-100">Quotation Request Pending</p>
+        </div>
+        <p className="text-xs text-amber-700 dark:text-amber-300">We&apos;ve received your request for {pendingRequest.requestedInspections} inspections. Our team is preparing a custom quote for you.</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">Requested on {new Date(pendingRequest.createdAt).toLocaleDateString()}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+      <p className="font-semibold text-sm text-amber-900 dark:text-amber-100 mb-2">Enterprise — Custom Quote Required</p>
+      <p className="text-xs text-amber-700 dark:text-amber-300 mb-4">For 200+ inspections per month, we&apos;ll prepare a custom pricing quote. Enterprise pricing is by quote only.</p>
+      <Button onClick={onRequestQuote} className="w-full bg-amber-600 hover:bg-amber-700 text-white">Request a quote</Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manage Billing Method Card
+// ---------------------------------------------------------------------------
+
 function ManageBillingMethodCard() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -1155,19 +1070,10 @@ function ManageBillingMethodCard() {
       setIsLoading(true);
       const res = await apiRequest("POST", "/api/billing/portal");
       const data = await res.json();
-
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error("No portal URL returned");
-      }
+      if (data.url) window.location.href = data.url;
+      else throw new Error("No portal URL returned");
     } catch (error: any) {
-      console.error("Error opening Stripe portal:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to open billing portal. Please try again or contact support.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to open billing portal. Please try again or contact support.", variant: "destructive" });
       setIsLoading(false);
     }
   };
@@ -1184,51 +1090,32 @@ function ManageBillingMethodCard() {
             <p className="text-xs text-muted-foreground">Update credit cards, download historic PDF invoices, or cancel subscription.</p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          className="h-10 px-6 gap-2"
-          onClick={openStripePortal}
-          disabled={isLoading}
-        >
-          {isLoading ? "Loading..." : (
-            <>
-              Stripe Portal <ArrowUpRight className="h-4 w-4" />
-            </>
-          )}
+        <Button variant="outline" className="h-10 px-6 gap-2" onClick={openStripePortal} disabled={isLoading}>
+          {isLoading ? "Loading..." : (<>Stripe Portal <ArrowUpRight className="h-4 w-4" /></>)}
         </Button>
       </CardContent>
     </Card>
   );
 }
 
-// Add-On Pack Purchase Section Component
-function AddOnPackPurchaseSection() {
+// ---------------------------------------------------------------------------
+// Add-On Pack Purchase Section (BILL-04 — v2 volume ladder)
+// ---------------------------------------------------------------------------
+
+function AddOnPackPurchaseSection({ currentPlanTier, selectedCurrency }: { currentPlanTier: string; selectedCurrency: string }) {
   const { toast } = useToast();
-  const { data: addonPacksData, isLoading } = useQuery<any>({
-    queryKey: ["/api/billing/addon-packs"],
-  });
+  const { data: addonPacksData, isLoading } = useQuery<any>({ queryKey: ["/api/billing/addon-packs"] });
+  const { data: balance } = useQuery<any>({ queryKey: ["/api/billing/inspection-balance"] });
 
   const purchaseMutation = useMutation({
     mutationFn: async (packId: string) => {
       const res = await apiRequest("POST", `/api/billing/addon-packs/${packId}/purchase`);
       return res.json();
     },
-    onSuccess: (data) => {
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    },
+    onSuccess: (data) => { if (data.url) window.location.href = data.url; },
     onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to initiate purchase",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to initiate purchase", variant: "destructive" });
     },
-  });
-
-  const { data: balance } = useQuery<any>({
-    queryKey: ["/api/billing/inspection-balance"],
   });
 
   if (isLoading) {
@@ -1242,75 +1129,84 @@ function AddOnPackPurchaseSection() {
     );
   }
 
-  if (!addonPacksData || !addonPacksData.packs || addonPacksData.packs.length === 0) {
-    return null;
+  // Enterprise / none: no self-serve packs (contract overage)
+  if (currentPlanTier === "none" || currentPlanTier === "enterprise") return null;
+  if (!addonPacksData?.packs?.length) return null;
+
+  const rateFx = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
+  const currency = addonPacksData.currency || selectedCurrency || "GBP";
+  const tierConfig = getTierById(currentPlanTier);
+  const tierLabel = tierConfig?.label || addonPacksData.currentTier?.name || "Current";
+
+  const packsWithLadder = [...addonPacksData.packs]
+    .map((pack: any) => {
+      const qty = pack.inspectionQuantity as number;
+      const priced = computePackPricing(currentPlanTier, qty);
+      const totalMajor = priced != null ? priced.total * rateFx : pack.totalPackPrice / 100;
+      const unitMajor = priced != null ? priced.displayRate * rateFx : pack.pricePerInspection / 100;
+      return { ...pack, unitMajor, totalMajor };
+    })
+    .sort((a: any, b: any) => a.inspectionQuantity - b.inspectionQuantity);
+
+  const largestPack = packsWithLadder[packsWithLadder.length - 1];
+  const smallestPack = packsWithLadder[0];
+  const bestValuePack =
+    packsWithLadder.find((p: any) => p.id === addonPacksData.bestValuePackId) || largestPack;
+
+  let savingsVsSmallest = 0;
+  if (bestValuePack && smallestPack && bestValuePack.id !== smallestPack.id) {
+    const countInSmall = Math.ceil(bestValuePack.inspectionQuantity / smallestPack.inspectionQuantity);
+    savingsVsSmallest = countInSmall * smallestPack.totalMajor - bestValuePack.totalMajor;
   }
-
-  const formatPrice = (amount: number, currency: string) => {
-    const symbols: Record<string, string> = { GBP: "£", USD: "$", AED: "د.إ", EUR: "€" };
-    return `${symbols[currency] || currency}${(amount / 100).toFixed(2)}`;
-  };
-
-  const currency = addonPacksData.currency || "GBP";
-  const currentTier = addonPacksData.currentTier;
 
   return (
     <Card className="border-border">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Need More Inspections?</CardTitle>
-            <CardDescription>
-              Your Plan: <span className="font-semibold">{currentTier?.name || "N/A"}</span>
-              {balance && (
-                <span className="ml-2">
-                  • Used this month: <span className="font-semibold">{balance.totalUsed || 0}</span> / <span className="font-semibold">{balance.tierQuotaIncluded || 0}</span>
-                </span>
-              )}
-            </CardDescription>
-          </div>
-        </div>
+        <CardTitle>Need More Inspections?</CardTitle>
+        <CardDescription>
+          Priced at your <span className="font-semibold">{tierLabel}</span> rate
+          {balance && (
+            <span className="ml-2">
+              · Used this month: <span className="font-semibold">{balance.totalUsed || 0}</span> / <span className="font-semibold">{balance.tierQuotaIncluded || 0}</span>
+            </span>
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-          {addonPacksData.packs.map((pack: any) => {
-            const isBestValue = pack.id === addonPacksData.bestValuePackId;
-            const pricePerUnit = pack.pricePerInspection / pack.inspectionQuantity;
-
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 items-stretch">
+          {packsWithLadder.map((pack: any) => {
+            const isBestValue = pack.id === bestValuePack?.id;
+            const showSavings = isBestValue && savingsVsSmallest > 0.5;
             return (
               <Card
                 key={pack.id}
-                className={`relative border-2 transition-all hover:shadow-lg ${isBestValue ? "border-primary bg-primary/5" : "border-border"
-                  }`}
+                className={`relative flex h-full flex-col border-2 transition-all hover:shadow-lg ${isBestValue ? "border-primary bg-primary/5" : "border-border"}`}
               >
                 {isBestValue && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <Badge className="bg-primary text-white px-3 py-1 flex items-center gap-1">
-                      <Star className="h-3 w-3 fill-white" />
-                      BEST VALUE
+                      <ArrowDown className="h-3 w-3" />
+                      LOWEST RATE
                     </Badge>
                   </div>
                 )}
                 <CardHeader className="pb-3">
                   <CardTitle className="text-xl">{pack.name}</CardTitle>
-                  <CardDescription className="text-sm">
-                    {pack.inspectionQuantity} inspections
-                  </CardDescription>
+                  <CardDescription className="text-sm">{pack.inspectionQuantity} inspections</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="flex flex-1 flex-col gap-4">
                   <div>
-                    <div className="text-3xl font-bold">
-                      {formatPrice(pack.totalPackPrice, currency)}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {formatPrice(pack.pricePerInspection, currency)} per inspection
-                    </div>
+                    <div className="text-3xl font-bold">{formatMajor(pack.totalMajor, currency)}</div>
+                    <div className="text-sm text-muted-foreground">{formatMajor(pack.unitMajor, currency)} per inspection</div>
                   </div>
-                  <div className="text-xs text-muted-foreground pt-2 border-t">
-                    {currentTier?.name} tier pricing applies
-                  </div>
+                  {/* Reserved line so Buy Now stays aligned across cards */}
+                  <p className={`min-h-[2.5rem] text-xs font-medium ${showSavings ? "text-emerald-600" : "invisible"}`}>
+                    {showSavings
+                      ? `Save ${formatMajor(savingsVsSmallest, currency)} against buying ${Math.ceil(bestValuePack.inspectionQuantity / smallestPack.inspectionQuantity)} ${smallestPack.inspectionQuantity}-packs.`
+                      : "\u00a0"}
+                  </p>
                   <Button
-                    className="w-full"
+                    className="mt-auto w-full"
                     variant={isBestValue ? "default" : "outline"}
                     onClick={() => purchaseMutation.mutate(pack.id)}
                     disabled={purchaseMutation.isPending}
@@ -1325,5 +1221,13 @@ function AddOnPackPurchaseSection() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ArrowDown({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" />
+    </svg>
   );
 }

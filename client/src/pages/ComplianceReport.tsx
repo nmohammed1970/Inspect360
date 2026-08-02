@@ -37,6 +37,7 @@ import { Link } from "wouter";
 import { format, differenceInDays, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 export default function ComplianceReport() {
   const { toast } = useToast();
@@ -454,8 +455,7 @@ export default function ComplianceReport() {
               </div>
 
               {(filterBlock !== "all" || filterProperty !== "all" || filterType !== "all" || filterStatus !== "all") && (
-                <Button 
-                  variant="outline" 
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterBlock("all");
@@ -463,10 +463,7 @@ export default function ComplianceReport() {
                     setFilterType("all");
                     setFilterStatus("all");
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>

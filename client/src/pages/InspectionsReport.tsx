@@ -33,6 +33,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -298,8 +299,7 @@ export default function InspectionsReport() {
           </div>
 
           {(filterStatus !== "all" || filterType !== "all" || filterProperty !== "all" || filterBlock !== "all" || dateFrom || dateTo) && (
-            <Button
-              variant="outline"
+            <ClearFiltersButton
               className="mt-4"
               onClick={() => {
                 setFilterStatus("all");
@@ -310,10 +310,7 @@ export default function InspectionsReport() {
                 setDateTo("");
               }}
               data-testid="button-clear-filters"
-            >
-              <X className="w-4 h-4 mr-2" />
-              Clear All Filters
-            </Button>
+            />
           )}
         </CardContent>
       </Card>
@@ -420,8 +417,7 @@ export default function InspectionsReport() {
               </div>
 
               {(filterStatus !== "all" || filterType !== "all" || filterProperty !== "all" || filterBlock !== "all" || dateFrom || dateTo) && (
-                <Button
-                  variant="outline"
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterStatus("all");
@@ -431,10 +427,7 @@ export default function InspectionsReport() {
                     setDateFrom("");
                     setDateTo("");
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>

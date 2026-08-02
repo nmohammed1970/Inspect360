@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/contexts/LocaleContext";
-import { useQuery } from "@tanstack/react-query";
+import { useGoogleMapsConfig } from "@/hooks/useGoogleMapsConfig";
 
 interface AddressInputProps {
   value?: string;
@@ -59,29 +59,6 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
   });
 }
 
-// Fetch Google Maps API key from server
-async function getGoogleMapsApiKey(): Promise<string | null> {
-  try {
-    const response = await fetch('/api/config/google-maps-key', { credentials: 'include' });
-    if (!response.ok) {
-      console.error('[AddressInput] Failed to fetch API key, status:', response.status);
-      // If server error, return null to allow manual input
-      return null;
-    }
-    const data = await response.json();
-    console.log('[AddressInput] API key response:', { 
-      configured: data.configured, 
-      hasApiKey: !!data.apiKey,
-      apiKeyLength: data.apiKey?.length || 0 
-    });
-    // Return null if not configured, so component can work without autocomplete
-    return data.apiKey || null;
-  } catch (error) {
-    console.error('[AddressInput] Error fetching API key:', error);
-    return null;
-  }
-}
-
 export function AddressInput({
   value,
   defaultValue,
@@ -103,26 +80,15 @@ export function AddressInput({
   // Use controlled value if provided, otherwise use internal state
   const currentValue = value !== undefined ? value : internalValue;
 
-  // Fetch API key
-  const { data: apiKey, isLoading: isLoadingKey, error: apiKeyError } = useQuery({
-    queryKey: ['google-maps-api-key'],
-    queryFn: getGoogleMapsApiKey,
-    staleTime: Infinity, // API key doesn't change
-    retry: false, // Don't retry if API key is not configured
-    // Don't block input if API key fetch fails - allow manual entry
-    onError: (error) => {
-      console.warn('[AddressInput] Failed to fetch API key:', error);
+  const { data: mapsConfig, isLoading: isLoadingKey } = useGoogleMapsConfig();
+  const apiKey = mapsConfig?.apiKey ?? null;
+
+  useEffect(() => {
+    if (!isLoadingKey && !apiKey) {
+      console.warn('[AddressInput] Google Maps API key not configured. Address autocomplete will not be available.');
       setIsLoading(false);
-    },
-    onSuccess: (key) => {
-      console.log('[AddressInput] API key fetched:', key ? 'configured' : 'not configured');
-      // If API key is null (not configured), enable input immediately
-      if (!key) {
-        console.warn('[AddressInput] Google Maps API key not configured. Address autocomplete will not be available.');
-        setIsLoading(false);
-      }
-    },
-  });
+    }
+  }, [isLoadingKey, apiKey]);
 
   // Initialize Google Maps Autocomplete
   useEffect(() => {

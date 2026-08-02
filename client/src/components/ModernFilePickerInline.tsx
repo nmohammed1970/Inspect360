@@ -1,12 +1,18 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { X, Upload, Camera, Image as ImageIcon, FileText, Loader2, CheckCircle2 } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { X, Upload, Camera, FileText, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  isImageFile,
+  prepareImageForUpload,
+  NON_IMAGE_MAX_BYTES,
+} from "@/lib/compressImage";
 
 interface ModernFilePickerInlineProps {
   onFilesSelected: (files: File[]) => void;
   maxFiles?: number;
-  maxFileSize?: number; // in bytes
+  /** Applies to non-image files only. Images are accepted at any size and compressed on select. */
+  maxFileSize?: number;
   accept?: string;
   multiple?: boolean;
   isUploading?: boolean;
@@ -18,7 +24,7 @@ interface ModernFilePickerInlineProps {
 export function ModernFilePickerInline({
   onFilesSelected,
   maxFiles = 1,
-  maxFileSize = 10485760, // 10MB default
+  maxFileSize = NON_IMAGE_MAX_BYTES,
   accept = "image/*",
   multiple = false,
   isUploading = false,
@@ -28,63 +34,73 @@ export function ModernFilePickerInline({
 }: ModernFilePickerInlineProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const validateFile = (file: File): string | null => {
-    if (file.size > maxFileSize) {
-      return `File "${file.name}" exceeds maximum size of ${(maxFileSize / 1048576).toFixed(1)}MB`;
-    }
-    return null;
-  };
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
 
-  const handleFiles = useCallback((files: FileList | null) => {
-    if (!files || files.length === 0) return;
+      const fileArray = Array.from(files);
+      const errors: string[] = [];
 
-    const fileArray = Array.from(files);
-    const newFiles: File[] = [];
-    const errors: string[] = [];
-
-    // Check max files limit
-    const totalFiles = selectedFiles.length + fileArray.length;
-    if (totalFiles > maxFiles) {
-      errors.push(`Maximum ${maxFiles} file(s) allowed`);
-    }
-
-    fileArray.forEach((file) => {
-      const validationError = validateFile(file);
-      if (validationError) {
-        errors.push(validationError);
-      } else {
-        newFiles.push(file);
+      const totalFiles = selectedFiles.length + fileArray.length;
+      if (totalFiles > maxFiles) {
+        errors.push(`Maximum ${maxFiles} file(s) allowed`);
+        setError(errors.join(", "));
+        setTimeout(() => setError(null), 5000);
+        return;
       }
-    });
 
-    if (errors.length > 0) {
-      setError(errors.join(", "));
-      setTimeout(() => setError(null), 5000);
-    }
+      setIsPreparing(true);
+      setError(null);
 
-    if (newFiles.length > 0) {
-      const updatedFiles = multiple ? [...selectedFiles, ...newFiles].slice(0, maxFiles) : newFiles.slice(0, 1);
-      setSelectedFiles(updatedFiles);
-      onFilesSelected(updatedFiles);
-    }
-  }, [selectedFiles, maxFiles, maxFileSize, multiple, onFilesSelected]);
+      try {
+        const prepared: File[] = [];
+
+        for (const file of fileArray) {
+          if (isImageFile(file)) {
+            prepared.push(await prepareImageForUpload(file));
+          } else if (file.size > maxFileSize) {
+            errors.push(
+              `File "${file.name}" exceeds maximum size of ${(maxFileSize / 1048576).toFixed(1)}MB`,
+            );
+          } else {
+            prepared.push(file);
+          }
+        }
+
+        if (errors.length > 0) {
+          setError(errors.join(", "));
+          setTimeout(() => setError(null), 5000);
+        }
+
+        if (prepared.length > 0) {
+          const updatedFiles = multiple
+            ? [...selectedFiles, ...prepared].slice(0, maxFiles)
+            : prepared.slice(0, 1);
+          setSelectedFiles(updatedFiles);
+          onFilesSelected(updatedFiles);
+        }
+      } finally {
+        setIsPreparing(false);
+      }
+    },
+    [selectedFiles, maxFiles, maxFileSize, multiple, onFilesSelected],
+  );
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFiles(e.target.files);
-    // Reset input to allow selecting the same file again
+    void handleFiles(e.target.files);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
   const handleCameraInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFiles(e.target.files);
-    // Reset input to allow taking another photo
+    void handleFiles(e.target.files);
     if (cameraInputRef.current) {
       cameraInputRef.current.value = "";
     }
@@ -106,7 +122,7 @@ export function ModernFilePickerInline({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    handleFiles(e.dataTransfer.files);
+    void handleFiles(e.dataTransfer.files);
   };
 
   const removeFile = (index: number) => {
@@ -131,16 +147,23 @@ export function ModernFilePickerInline({
     return (bytes / 1048576).toFixed(1) + " MB";
   };
 
+  const busy = isUploading || isPreparing;
+
   return (
     <div className={cn("space-y-4", className)} style={{ minHeight: `${height}px` }}>
-      {/* Error Message */}
       {error && (
         <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
           {error}
         </div>
       )}
 
-      {/* Upload Progress */}
+      {isPreparing && (
+        <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Compressing image…
+        </div>
+      )}
+
       {isUploading && (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
@@ -156,8 +179,7 @@ export function ModernFilePickerInline({
         </div>
       )}
 
-      {/* Drop Zone */}
-      {!isUploading && (
+      {!busy && (
         <div
           ref={dropZoneRef}
           onDragOver={handleDragOver}
@@ -167,7 +189,7 @@ export function ModernFilePickerInline({
             "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
             isDragging
               ? "border-primary bg-primary/5"
-              : "border-muted-foreground/30 hover:border-primary/50"
+              : "border-muted-foreground/30 hover:border-primary/50",
           )}
           style={{ minHeight: `${height - 100}px` }}
         >
@@ -178,9 +200,7 @@ export function ModernFilePickerInline({
               </div>
             </div>
             <div className="space-y-2">
-              <p className="text-sm font-medium">
-                Drag and drop files here, or
-              </p>
+              <p className="text-sm font-medium">Drag and drop files here, or</p>
               <div className="flex gap-3 justify-center">
                 <Button
                   type="button"
@@ -202,17 +222,15 @@ export function ModernFilePickerInline({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {multiple
-                  ? `Up to ${maxFiles} files, max ${(maxFileSize / 1048576).toFixed(1)}MB each`
-                  : `Max ${(maxFileSize / 1048576).toFixed(1)}MB`}
+                {multiple ? `Up to ${maxFiles} files. ` : ""}
+                Large photos are compressed automatically before upload.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Selected Files Preview */}
-      {selectedFiles.length > 0 && !isUploading && (
+      {selectedFiles.length > 0 && !busy && (
         <div className="space-y-2">
           <p className="text-sm font-medium">Selected Files</p>
           <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -253,17 +271,13 @@ export function ModernFilePickerInline({
         </div>
       )}
 
-      {/* Success State */}
       {isUploading && uploadProgress === 100 && (
         <div className="flex items-center justify-center gap-2 p-4 bg-green-50 dark:bg-green-950 rounded-lg">
           <CheckCircle2 className="h-5 w-5 text-green-600" />
-          <span className="text-sm font-medium text-green-600">
-            Upload complete!
-          </span>
+          <span className="text-sm font-medium text-green-600">Upload complete!</span>
         </div>
       )}
 
-      {/* Hidden File Inputs */}
       <input
         ref={fileInputRef}
         type="file"
@@ -283,4 +297,3 @@ export function ModernFilePickerInline({
     </div>
   );
 }
-

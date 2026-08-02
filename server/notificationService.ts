@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { sendNotificationToUser } from "./websocket";
+import { formatBillingDateUtcLocale } from "@shared/billingClock";
 
 export class NotificationService {
   /**
@@ -142,7 +143,7 @@ export class NotificationService {
         organizationId,
         type: "renewal_reminder",
         title: "Subscription Renewal Upcoming",
-        message: `Your subscription will renew in ${daysUntilRenewal} day(s) on ${renewalDate.toLocaleDateString()}.`,
+        message: `Your subscription will renew in ${daysUntilRenewal} day(s) on ${formatBillingDateUtcLocale(renewalDate)}.`,
         data: {
           renewalDate: renewalDate.toISOString(),
           daysUntilRenewal,

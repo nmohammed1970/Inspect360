@@ -29,6 +29,7 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { AddressInput } from "@/components/AddressInput";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 const categoryFormSchema = insertInspectionCategorySchema.extend({
   name: z.string().min(1, "Category name is required"),
@@ -56,6 +57,8 @@ export default function Settings() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<InspectionCategory | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [trademarkToDelete, setTrademarkToDelete] = useState<OrganizationTrademark | null>(null);
+  const [categoryToDelete, setCategoryToDelete] = useState<InspectionCategory | null>(null);
 
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [trademarkUrl, setTrademarkUrl] = useState<string | null>(null);
@@ -182,6 +185,7 @@ export default function Settings() {
         title: "Success",
         description: "Trademark badge removed successfully",
       });
+      setTrademarkToDelete(null);
     },
     onError: (error: Error) => {
       toast({
@@ -305,6 +309,7 @@ export default function Settings() {
         title: "Success",
         description: "Inspection category deleted successfully",
       });
+      setCategoryToDelete(null);
     },
     onError: (error: Error) => {
       toast({
@@ -575,11 +580,7 @@ export default function Settings() {
                                       size="icon"
                                       variant="destructive"
                                       className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                      onClick={() => {
-                                        if (confirm("Are you sure you want to remove this badge?")) {
-                                          deleteTrademarkMutation.mutate(trademark.id);
-                                        }
-                                      }}
+                                      onClick={() => setTrademarkToDelete(trademark)}
                                       disabled={deleteTrademarkMutation.isPending || !isWhiteLabelEnabled}
                                       data-testid={`button-remove-trademark-${trademark.id}`}
                                     >
@@ -948,11 +949,7 @@ export default function Settings() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                      if (confirm("Are you sure you want to delete this category?")) {
-                                        deleteMutation.mutate(category.id);
-                                      }
-                                    }}
+                                    onClick={() => setCategoryToDelete(category)}
                                     disabled={deleteMutation.isPending}
                                     data-testid={`button-delete-category-${category.id}`}
                                   >
@@ -1095,6 +1092,34 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      <DeleteConfirmDialog
+        open={!!trademarkToDelete}
+        onOpenChange={(open) => {
+          if (!open) setTrademarkToDelete(null);
+        }}
+        title="Remove badge?"
+        description="This cannot be undone. You are about to remove this trademark badge."
+        isPending={deleteTrademarkMutation.isPending}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (trademarkToDelete) deleteTrademarkMutation.mutate(trademarkToDelete.id);
+        }}
+      />
+
+      <DeleteConfirmDialog
+        open={!!categoryToDelete}
+        onOpenChange={(open) => {
+          if (!open) setCategoryToDelete(null);
+        }}
+        title="Delete category?"
+        description="This cannot be undone. You are about to delete"
+        itemName={categoryToDelete?.name}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (categoryToDelete) deleteMutation.mutate(categoryToDelete.id);
+        }}
+      />
     </div>
   );
 }
@@ -1278,6 +1303,7 @@ function ComplianceDocumentsPanel() {
   const [editingDoc, setEditingDoc] = useState<ComplianceDocument | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [documentToDelete, setDocumentToDelete] = useState<ComplianceDocument | null>(null);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -1424,6 +1450,7 @@ function ComplianceDocumentsPanel() {
       queryClient.invalidateQueries({ queryKey: ['/api/compliance'] });
       queryClient.invalidateQueries({ queryKey: ['/api/compliance/expiring'] });
       toast({ title: "Document deleted successfully" });
+      setDocumentToDelete(null);
     },
     onError: (error: any) => {
       toast({
@@ -1490,6 +1517,7 @@ function ComplianceDocumentsPanel() {
   };
 
   return (
+    <>
     <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -1725,11 +1753,7 @@ function ComplianceDocumentsPanel() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to delete this document?")) {
-                            deleteMutation.mutate(doc.id);
-                          }
-                        }}
+                        onClick={() => setDocumentToDelete(doc)}
                         disabled={deleteMutation.isPending}
                       >
                         <Trash2 className="w-4 h-4 text-destructive" />
@@ -1743,5 +1767,20 @@ function ComplianceDocumentsPanel() {
         )}
       </CardContent>
     </Card>
+
+    <DeleteConfirmDialog
+      open={!!documentToDelete}
+      onOpenChange={(open) => {
+        if (!open) setDocumentToDelete(null);
+      }}
+      title="Delete document?"
+      description="This cannot be undone. You are about to delete"
+      itemName={documentToDelete?.documentType}
+      isPending={deleteMutation.isPending}
+      onConfirm={() => {
+        if (documentToDelete) deleteMutation.mutate(documentToDelete.id);
+      }}
+    />
+    </>
   );
 }

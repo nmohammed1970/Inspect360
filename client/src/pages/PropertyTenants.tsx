@@ -22,16 +22,7 @@ import {
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import AddTenantDialog from "@/components/AddTenantDialog";
 import EditTenantDialog from "@/components/EditTenantDialog";
 
@@ -267,7 +258,7 @@ export default function PropertyTenants() {
               onClick={() => handleDelete(tenant)}
               data-testid={`button-delete-${tenant.id}`}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
           </div>
         </CardContent>
@@ -409,28 +400,20 @@ export default function PropertyTenants() {
       </Tabs>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove Tenant Assignment?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove{" "}
-              {selectedTenant && [selectedTenant.firstName, selectedTenant.lastName].filter(Boolean).join(" ")}{" "}
-              from this property. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              className="bg-destructive hover:bg-destructive/90"
-              data-testid="button-confirm-delete"
-            >
-              Remove Tenant
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Remove tenant assignment?"
+        description="This cannot be undone. You are about to remove"
+        itemName={
+          selectedTenant
+            ? [selectedTenant.firstName, selectedTenant.lastName].filter(Boolean).join(" ") || selectedTenant.email
+            : undefined
+        }
+        isPending={deleteMutation.isPending}
+        confirmLabel="Remove Tenant"
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

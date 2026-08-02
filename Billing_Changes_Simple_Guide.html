@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inspect360 Billing Changes — Simple Guide</title>
+  <style>
+    :root {
+      --teal: #0d9488;
+      --ink: #1a1a1a;
+      --muted: #5c6570;
+      --bg: #f7f8fa;
+      --card: #fff;
+      --line: #e5e7eb;
+      --ok: #059669;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+      font-size: 16px;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+    h1 {
+      font-size: 1.75rem;
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      margin: 0 0 2rem;
+      font-size: 0.95rem;
+    }
+    h2 {
+      font-size: 1.15rem;
+      margin: 2rem 0 0.75rem;
+      color: var(--teal);
+      border-bottom: 2px solid var(--teal);
+      padding-bottom: 0.35rem;
+    }
+    p { margin: 0.5rem 0 0.75rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1rem 1.15rem;
+      margin: 0.75rem 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      background: var(--card);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      padding: 0.55rem 0.7rem;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      background: #ecfdf5;
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    ul { margin: 0.4rem 0; padding-left: 1.25rem; }
+    li { margin: 0.35rem 0; }
+    .tag {
+      display: inline-block;
+      background: #ecfdf5;
+      color: var(--ok);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      margin-right: 0.35rem;
+    }
+    .note {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+      font-size: 0.92rem;
+      color: #78350f;
+    }
+    .example {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.88rem;
+      background: #f1f5f9;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      margin: 0.5rem 0;
+    }
+    footer {
+      margin-top: 2.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>New billing page — simple guide</h1>
+    <p class="sub">What changed on <strong>/billing</strong> (Spec v2.0). Written for a quick read.</p>
+
+    <h2>1. One place tells the truth</h2>
+    <div class="card">
+      <p>Before, the page could show different plan names in different places.</p>
+      <p>Now everything uses one state:</p>
+      <ul>
+        <li><strong>Above the slider</strong> = what you have now (current plan)</li>
+        <li><strong>Inside the slider</strong> = what you are looking at (selected plan)</li>
+      </ul>
+      <p>Header cards show: Current plan · Credits left (e.g. 6 of 30) · Renews / Ends</p>
+    </div>
+
+    <h2>2. The four plans (signed-off prices)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Plan</th>
+          <th>Inspections / month</th>
+          <th>£ per inspection</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Starter</td>
+          <td>10 – 29</td>
+          <td>£4.90</td>
+        </tr>
+        <tr>
+          <td>Growth</td>
+          <td>30 – 74</td>
+          <td>£4.30</td>
+        </tr>
+        <tr>
+          <td>Professional</td>
+          <td>75 – 199</td>
+          <td>£3.70</td>
+        </tr>
+        <tr>
+          <td>Enterprise</td>
+          <td>200+</td>
+          <td>By quote only</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Move the slider and you always see the <strong>£ per inspection</strong> under “Selected plan”.</p>
+    <div class="card">
+      <p><span class="tag">Enterprise boundary — locked</span></p>
+      <div class="example">
+        <strong>199</strong> = Professional (last self-serve priced volume)<br />
+        <strong>200</strong> = Enterprise (quote-only)<br />
+        <strong>Slider max = 200</strong> — you can land on 200; CTA becomes <strong>Request a quote</strong><br />
+        Do not cap the slider at 199.
+      </div>
+    </div>
+    <p>At <strong>200+</strong>, prices hide and the button becomes <strong>Request a quote</strong>.</p>
+
+    <h2>3. Annual is the default</h2>
+    <div class="card">
+      <p>New customers see <strong>Annual</strong> selected first (20% off).</p>
+      <p><span class="tag">Example</span> Growth, 30 inspections:</p>
+      <div class="example">
+        Monthly = 30 × £4.30 = £129 / month<br />
+        Annual billed = £129 × 12 × 0.80 = <strong>£1,238.40</strong> / year<br />
+        You save £309.60 vs paying monthly all year<br />
+        <em>Note: £1,548 (= £129 × 12 with no discount) is list-only — never show it as the annual bill.</em>
+      </div>
+      <p>If you already pay monthly, the page keeps Monthly selected for you.</p>
+    </div>
+
+    <h2>4. Top-up packs (extra credits)</h2>
+    <p>Bigger packs cost less per inspection. Growth example:</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Pack</th>
+          <th>Total</th>
+          <th>Per inspection</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>20</td>
+          <td>£95</td>
+          <td>£4.75</td>
+        </tr>
+        <tr>
+          <td>50</td>
+          <td>£225</td>
+          <td>£4.50</td>
+        </tr>
+        <tr>
+          <td>100</td>
+          <td>£430</td>
+          <td>£4.30 <em>(lowest rate)</em></td>
+        </tr>
+      </tbody>
+    </table>
+    <p>The 100-pack badge is <strong>Lowest rate</strong> (not “Best value”). Top-ups are priced from <em>your current plan</em>, not the slider.</p>
+
+    <h2>5. What counts as “one inspection”</h2>
+    <div class="card">
+      <p>One <strong>credit</strong> = up to <strong>300 photos</strong>.</p>
+      <ul>
+        <li>1 – 300 photos → 1 credit</li>
+        <li>301 – 600 photos → 2 credits</li>
+        <li>601 – 900 photos → 3 credits</li>
+      </ul>
+      <p>The header says <strong>Credits left</strong>.</p>
+      <p>On mobile, if you take ~280+ photos, you get a warning before you finish: this job will use more than one credit.</p>
+    </div>
+
+    <h2>6. Extra modules (locked by plan)</h2>
+    <p>Six add-ons. Moving the slider unlocks them:</p>
+    <ul>
+      <li><strong>Starter</strong> — all locked</li>
+      <li><strong>Growth+</strong> — Tenant Portal, Dispute Portal, Extra retention</li>
+      <li><strong>Professional+</strong> — also IVY bots + White labelling</li>
+    </ul>
+    <p>Tenant Portal price depends on how many <strong>properties/units you manage</strong>, not the slider number.</p>
+
+    <h2>7. Helpful bits for buyers</h2>
+    <ul>
+      <li><strong>Trial:</strong> no plan yet? “Run 3 inspections free” (no card)</li>
+      <li><strong>Almost out of credits (80%+):</strong> banner suggests the next plan and moves the slider for you</li>
+      <li><strong>FAQ:</strong> 8 questions, including the 300-photo rule and 24-month photo storage</li>
+    </ul>
+
+    <h2>8. Plan change money (proration) — locked</h2>
+    <div class="card">
+      <p>Every Stripe plan/tier update uses <strong><code>proration_behavior = "always_invoice"</code></strong>
+        (<span class="tag">shared/stripeProrationPolicy.ts</span></p>
+      <div class="example">
+        <strong>Upgrade today</strong> → pay the prorated difference <em>now</em> (Stripe invoice).<br />
+        <strong>Downgrade today</strong> → <em>no cash refund</em>; unused time becomes account credit on the next invoice(s).<br />
+        <strong>Next renewal</strong> → full new plan price (credits applied automatically).<br />
+        Never use <code>none</code> or bare <code>create_prorations</code> for plan changes.
+      </div>
+    </div>
+
+    <h2>9. Renewal timezone — locked UTC</h2>
+    <div class="card">
+      <p>All renewal / expiry decisions use <strong>UTC</strong> (<code>shared/billingClock.ts</code>).</p>
+      <div class="example">
+        Not customer TZ. Not server OS TZ.<br />
+        Source of truth: Stripe <code>current_period_end</code> (Unix → UTC).<br />
+        UI shows dates like <strong>31 Jul 2026 UTC</strong>.
+      </div>
+    </div>
+
+    <h2>10. Currencies — locked list</h2>
+    <div class="card">
+      <p><strong>Supported:</strong> GBP (base), USD, EUR, AED.</p>
+      <p><strong>Not supported:</strong> ZAR (and any other code).</p>
+      <div class="example">
+        Catalogue rates are authored in <strong>GBP</strong>, then converted.<br />
+        Currency is <strong>locked</strong> while a subscription is active.<br />
+        Source: <code>shared/billingCurrencies.ts</code>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>Remember:</strong> Enterprise never shows a public £ rate on the page. From 200 inspections/month upward, it’s quote only.
+    </div>
+
+    <footer>
+      Inspect360 · Billing Spec v2.0 · For internal explanation only
+    </footer>
+  </div>
+</body>
+</html>

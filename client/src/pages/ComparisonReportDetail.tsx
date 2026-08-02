@@ -42,16 +42,7 @@ import {
   Paperclip,
   Trash2
 } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -583,7 +574,7 @@ export default function ComparisonReportDetail() {
                 {deleteMutation.isPending ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 ) : (
-                  <Trash2 className="w-4 h-4 mr-2" />
+                  <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                 )}
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
               </Button>
@@ -1104,7 +1095,7 @@ export default function ComparisonReportDetail() {
                         data-testid="button-clear-signature"
                         className="w-full"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                         Clear Signature
                       </Button>
                     </div>
@@ -1131,7 +1122,7 @@ export default function ComparisonReportDetail() {
                           onClick={handleClearSignature}
                           data-testid="button-clear-signature"
                         >
-                          <Trash2 className="w-4 h-4 mr-2" />
+                          <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                           Clear
                         </Button>
                         <Button
@@ -1177,29 +1168,18 @@ export default function ComparisonReportDetail() {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Comparison Report?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this comparison report? This action cannot be undone and will permanently remove the report and all associated data.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setDeleteDialogOpen(false);
-                deleteMutation.mutate();
-              }}
-              className="bg-destructive hover:bg-destructive/90"
-              data-testid="button-confirm-delete"
-            >
-              Delete Report
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete comparison report?"
+        description="This cannot be undone and will permanently remove the report and all associated data."
+        isPending={deleteMutation.isPending}
+        confirmLabel="Delete Report"
+        onConfirm={() => {
+          setDeleteDialogOpen(false);
+          deleteMutation.mutate();
+        }}
+      />
     </div>
   );
 }

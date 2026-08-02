@@ -381,7 +381,16 @@ export class PricingService {
         }
 
         const baseMonthly = tierPrice?.priceMonthly || 0;
-        const baseAnnual = tierPrice?.priceAnnual || 0;
+        // Spec: annual billed = monthly × 12 × 0.80 (ignore DB list annual if it is undiscounted ×12)
+        const ANNUAL_MULTIPLIER = 0.80;
+        const baseAnnualFromDb = tierPrice?.priceAnnual || 0;
+        const baseAnnualDiscounted = Math.round(baseMonthly * 12 * ANNUAL_MULTIPLIER);
+        // Prefer discounted formula; only keep DB annual if it already looks discounted (within 2%)
+        const baseAnnual =
+          baseAnnualFromDb > 0 &&
+          Math.abs(baseAnnualFromDb - baseAnnualDiscounted) / Math.max(baseAnnualDiscounted, 1) < 0.02
+            ? baseAnnualFromDb
+            : baseAnnualDiscounted;
 
         return {
             tier: {

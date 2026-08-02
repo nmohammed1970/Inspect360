@@ -28,6 +28,7 @@ import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar"
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 // Default document types (fallback if no custom types exist)
 const DEFAULT_DOCUMENT_TYPES = [
@@ -1010,9 +1011,9 @@ export default function Compliance() {
       </div>
 
       {/* Filter and Sort Controls - Desktop */}
-      <div className="hidden md:flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+      <div className="hidden md:flex flex-wrap gap-3 items-center">
         {/* Search Bar */}
-        <div className="flex-1 w-full sm:max-w-md">
+        <div className="flex-1 w-full sm:max-w-md min-w-[200px]">
           <Input
             placeholder="Search by type, property, or block..."
             value={searchTerm}
@@ -1021,6 +1022,52 @@ export default function Compliance() {
           />
         </div>
         
+        {/* Active filter chips */}
+        {filterType !== "all" && (
+          <Badge variant="secondary" className="gap-1">
+            Type: {filterType}
+            <button
+              onClick={() => setFilterType("all")}
+              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        )}
+        {filterStatus !== "all" && (
+          <Badge variant="secondary" className="gap-1">
+            Status: {filterStatus === "current" ? "Current" : filterStatus === "expiring" ? "Expiring Soon" : "Expired"}
+            <button
+              onClick={() => setFilterStatus("all")}
+              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        )}
+        {filterProperty !== "all" && (
+          <Badge variant="secondary" className="gap-1">
+            Property: {getPropertyName(filterProperty) || filterProperty}
+            <button
+              onClick={() => setFilterProperty("all")}
+              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        )}
+        {filterBlock !== "all" && (
+          <Badge variant="secondary" className="gap-1">
+            Block: {getBlockName(filterBlock) || filterBlock}
+            <button
+              onClick={() => setFilterBlock("all")}
+              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        )}
+
         {/* Add Filter Button */}
         <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
           <PopoverTrigger asChild>
@@ -1140,9 +1187,8 @@ export default function Compliance() {
               
               {/* Clear Filters */}
               {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <ClearFiltersButton
+                  className="w-full"
                   onClick={() => {
                     setFilterType("all");
                     setFilterStatus("all");
@@ -1151,15 +1197,23 @@ export default function Compliance() {
                     setSortBy("expiry");
                     setSortOrder("asc");
                   }}
-                  className="w-full"
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </PopoverContent>
         </Popover>
+        {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
+          <ClearFiltersButton
+            onClick={() => {
+              setFilterType("all");
+              setFilterStatus("all");
+              setFilterProperty("all");
+              setFilterBlock("all");
+              setSortBy("expiry");
+              setSortOrder("asc");
+            }}
+          />
+        )}
       </div>
 
       {/* Filter and Sort Controls - Mobile */}
@@ -1288,8 +1342,7 @@ export default function Compliance() {
               
               {/* Clear Filters */}
               {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
-                <Button
-                  variant="outline"
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterType("all");
@@ -1299,19 +1352,16 @@ export default function Compliance() {
                     setSortBy("expiry");
                     setSortOrder("asc");
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>
         </Sheet>
       </div>
-      
-      {/* Active Filters Display */}
+
+      {/* Active filter chips — mobile */}
       {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all") && (
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex md:hidden flex-wrap gap-2 items-center">
           {filterType !== "all" && (
             <Badge variant="secondary" className="gap-1">
               Type: {filterType}

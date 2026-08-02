@@ -762,7 +762,7 @@ export default function TenantComparisonReportDetail() {
                         }}
                         data-testid="button-clear-signature"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                         Clear Signature
                       </Button>
                     </div>
@@ -824,7 +824,7 @@ export default function TenantComparisonReportDetail() {
                           }}
                           data-testid="button-clear-canvas"
                         >
-                          <Trash2 className="w-4 h-4 mr-2" />
+                          <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                           Clear
                         </Button>
                         <Button

@@ -12,6 +12,7 @@ import { ArrowLeft, Users, Home, Percent, Mail, Phone, Building2, Calendar, Mess
 import { format } from "date-fns";
 import { BroadcastDialog } from "@/components/BroadcastDialog";
 import { useLocale } from "@/contexts/LocaleContext";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 interface TenantAssignment {
   user: {
@@ -314,16 +315,13 @@ export default function BlockTenants() {
               <p className="text-muted-foreground text-center">
                 Try adjusting your search or filter criteria
               </p>
-              <Button 
-                variant="outline" 
+              <ClearFiltersButton
                 className="mt-4"
                 onClick={() => {
                   setSearchQuery("");
                   setFilterTags([]);
                 }}
-              >
-                Clear Filters
-              </Button>
+              />
             </CardContent>
           </Card>
         ) : (

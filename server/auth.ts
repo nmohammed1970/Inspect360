@@ -422,7 +422,6 @@ export async function setupAuth(app: Express) {
               organizationId: organization.id,
               name: "Block A",
               address: "123 Sample Street, Sample City, SC 12345",
-              notes: "Sample block created automatically for demonstration purposes",
             });
 
             // Create Property A linked to Block A

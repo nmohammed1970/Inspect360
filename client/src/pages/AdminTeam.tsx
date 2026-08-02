@@ -24,6 +24,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 export default function AdminTeam() {
   const [, navigate] = useLocation();
@@ -252,7 +253,7 @@ export default function AdminTeam() {
                           disabled={currentAdmin?.id === admin.id}
                           data-testid={`button-delete-admin-${admin.id}`}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -420,33 +421,20 @@ export default function AdminTeam() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
-        <DialogContent data-testid="dialog-delete-admin">
-          <DialogHeader>
-            <DialogTitle>Delete Admin User</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete{" "}
-              <span className="font-semibold">
-                {selectedAdmin?.firstName} {selectedAdmin?.lastName}
-              </span>
-              ? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteConfirm}
-              disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete"
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete Admin"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={deleteDialog}
+        onOpenChange={setDeleteDialog}
+        title="Delete admin user?"
+        description="This cannot be undone. You are about to delete"
+        itemName={
+          selectedAdmin
+            ? `${selectedAdmin.firstName || ""} ${selectedAdmin.lastName || ""}`.trim() || selectedAdmin.email
+            : undefined
+        }
+        isPending={deleteMutation.isPending}
+        confirmLabel="Delete Admin"
+        onConfirm={handleDeleteConfirm}
+      />
     </>
   );
 }

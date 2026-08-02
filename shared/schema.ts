@@ -45,7 +45,7 @@ export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "n
 export const maintenanceSourceEnum = pgEnum("maintenance_source", ["manual", "inspection", "tenant_portal", "routine"]);
 export const comparisonReportStatusEnum = pgEnum("comparison_report_status", ["draft", "under_review", "awaiting_signatures", "signed", "filed"]);
 export const comparisonItemStatusEnum = pgEnum("comparison_item_status", ["pending", "reviewed", "disputed", "resolved", "waived"]);
-export const currencyEnum = pgEnum("currency", ["GBP", "USD", "AED"]);
+export const currencyEnum = pgEnum("currency", ["GBP", "USD", "AED", "EUR"]);
 export const planCodeEnum = pgEnum("plan_code", ["starter", "growth", "professional", "enterprise", "enterprise_plus", "freelancer", "btr", "pbsa", "housing_association", "council"]);
 export const creditSourceEnum = pgEnum("credit_source", ["plan_inclusion", "topup", "admin_grant", "refund", "adjustment", "consumption", "expiry", "addon_pack"]);
 export const topupStatusEnum = pgEnum("topup_status", ["pending", "paid", "failed", "refunded"]);
@@ -277,6 +277,7 @@ export const blocks = pgTable("blocks", {
   name: varchar("name").notNull(),
   address: text("address").notNull(),
   notes: text("notes"),
+  imageUrl: text("image_url"), // Block cover / exterior photo
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1772,7 +1773,8 @@ export const updateInspectionSchema = z.object({
 export const updateBlockSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   address: z.string().min(1).optional(),
-  notes: z.string().optional(),
+  notes: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
 });
 
 // Subscription Plans
@@ -2680,6 +2682,7 @@ export const instanceSubscriptions = pgTable("instance_subscriptions", {
   inspectionQuotaIncluded: integer("inspection_quota_included").notNull(),
   billingCycle: billingIntervalEnum("billing_cycle").notNull().default("monthly"),
   subscriptionStartDate: timestamp("subscription_start_date").defaultNow(),
+  /** Period end / next renewal — absolute UTC instant (mirrored from Stripe current_period_end). See shared/billingClock.ts */
   subscriptionRenewalDate: timestamp("subscription_renewal_date"),
   subscriptionStatus: varchar("subscription_status", { length: 20 }).default("active"),
   firstPaymentFailureDate: timestamp("first_payment_failure_date"), // Track first payment failure for grace period

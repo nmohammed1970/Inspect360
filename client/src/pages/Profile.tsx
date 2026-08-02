@@ -22,6 +22,7 @@ import { ObjectUploader } from "@/components/ObjectUploader";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
@@ -36,6 +37,7 @@ export default function Profile() {
   const [newDocExpiry, setNewDocExpiry] = useState<Date | undefined>();
   const [showDocForm, setShowDocForm] = useState(false);
   const [pendingDocFileUrl, setPendingDocFileUrl] = useState<string | null>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<UserDocument | null>(null);
 
   // Fetch current user profile
   const { data: user, isLoading } = useQuery<User>({
@@ -114,6 +116,7 @@ export default function Profile() {
         title: "Success",
         description: "Document deleted successfully",
       });
+      setDocumentToDelete(null);
     },
     onError: (error: Error) => {
       toast({
@@ -629,7 +632,7 @@ export default function Profile() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => deleteDocumentMutation.mutate(doc.id)}
+                      onClick={() => setDocumentToDelete(doc)}
                       disabled={deleteDocumentMutation.isPending}
                       data-testid={`button-delete-doc-${doc.id}`}
                     >
@@ -667,6 +670,20 @@ export default function Profile() {
           </div>
         </CardContent>
       </Card>
+
+      <DeleteConfirmDialog
+        open={!!documentToDelete}
+        onOpenChange={(open) => {
+          if (!open) setDocumentToDelete(null);
+        }}
+        title="Delete document?"
+        description="This cannot be undone. You are about to delete"
+        itemName={documentToDelete?.documentName}
+        isPending={deleteDocumentMutation.isPending}
+        onConfirm={() => {
+          if (documentToDelete) deleteDocumentMutation.mutate(documentToDelete.id);
+        }}
+      />
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, AlertTriangle, Pencil } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, Pencil } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,6 +21,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { ASSIGNED_INVENTORY_CLERK_LABEL } from "@shared/roleLabels";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -31,7 +32,6 @@ export default function InspectionDetail() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [newItem, setNewItem] = useState({
     category: "",
     itemName: "",
@@ -213,9 +213,7 @@ export default function InspectionDetail() {
   };
 
   const handleDeleteInspection = () => {
-    if (deleteConfirmText === "DELETE") {
-      deleteInspectionMutation.mutate();
-    }
+    deleteInspectionMutation.mutate();
   };
 
   const handleAddItem = () => {
@@ -332,7 +330,7 @@ export default function InspectionDetail() {
             onClick={() => setShowDeleteDialog(true)}
             data-testid="button-delete-inspection"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-4 h-4 text-destructive" />
           </Button>
         </div>
       </div>
@@ -674,54 +672,15 @@ export default function InspectionDetail() {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
-        setShowDeleteDialog(open);
-        if (!open) setDeleteConfirmText("");
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="w-5 h-5" />
-              Delete Inspection
-            </DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. This will permanently delete the inspection
-              and all associated items, photos, and data.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              To confirm deletion, type <span className="font-bold text-foreground">DELETE</span> in the box below:
-            </p>
-            <Input
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder="Type DELETE to confirm"
-              data-testid="input-delete-confirm"
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowDeleteDialog(false);
-                setDeleteConfirmText("");
-              }}
-              data-testid="button-cancel-delete"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteInspection}
-              disabled={deleteConfirmText !== "DELETE" || deleteInspectionMutation.isPending}
-              data-testid="button-confirm-delete"
-            >
-              {deleteInspectionMutation.isPending ? "Deleting..." : "Delete Inspection"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title="Delete inspection?"
+        description="This cannot be undone. This will permanently delete the inspection and all associated items, photos, and data."
+        isPending={deleteInspectionMutation.isPending}
+        confirmLabel="Delete Inspection"
+        onConfirm={handleDeleteInspection}
+      />
 
       {/* Edit Inspection Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>

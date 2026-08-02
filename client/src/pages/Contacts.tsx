@@ -16,6 +16,8 @@ import type { Contact, Tag as TagType, Block, Property, TenantAssignment } from 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { parsePhoneNumber, combinePhoneNumber, getPhoneCodeForCountry } from "@shared/phoneCountryCodes";
 import { useLocale } from "@/contexts/LocaleContext";
 
@@ -54,6 +56,7 @@ export default function Contacts() {
   const [filterProperty, setFilterProperty] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactWithTags | null>(null);
+  const [contactToDelete, setContactToDelete] = useState<ContactWithTags | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [newTagName, setNewTagName] = useState("");
   const [phoneValue, setPhoneValue] = useState<string>("");
@@ -112,6 +115,7 @@ export default function Contacts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      setContactToDelete(null);
       toast({
         title: "Success",
         description: "Contact deleted successfully",
@@ -781,18 +785,13 @@ export default function Contacts() {
           </Select>
 
           {(filterBlock !== "all" || filterProperty !== "all") && (
-            <Button 
-              variant="ghost" 
-              size="sm"
+            <ClearFiltersButton
               onClick={() => {
                 setFilterBlock("all");
                 setFilterProperty("all");
               }}
               data-testid="button-clear-location-filters"
-            >
-              <X className="w-4 h-4 mr-1" />
-              Clear location filters
-            </Button>
+            />
           )}
         </div>
 
@@ -904,8 +903,7 @@ export default function Contacts() {
                 </div>
 
                 {(filterType !== "all" || filterTag !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
-                  <Button
-                    variant="outline"
+                  <ClearFiltersButton
                     className="w-full"
                     onClick={() => {
                       setFilterType("all");
@@ -913,10 +911,7 @@ export default function Contacts() {
                       setFilterBlock("all");
                       setFilterProperty("all");
                     }}
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Clear All Filters
-                  </Button>
+                  />
                 )}
               </div>
             </SheetContent>
@@ -994,14 +989,10 @@ export default function Contacts() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 md:h-10 md:w-10"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to delete this contact?")) {
-                            deleteMutation.mutate(contact.id);
-                          }
-                        }}
+                        onClick={() => setContactToDelete(contact)}
                         data-testid={`button-delete-${contact.id}`}
                       >
-                        <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                        <Trash2 className="w-3 h-3 md:w-4 md:h-4 text-destructive" />
                       </Button>
                     </div>
                   </div>
@@ -1087,6 +1078,21 @@ export default function Contacts() {
             ))}
           </div>
         )}
+
+      <DeleteConfirmDialog
+        open={!!contactToDelete}
+        onOpenChange={(open) => {
+          if (!open) setContactToDelete(null);
+        }}
+        title="Delete contact?"
+        description="This will permanently remove the contact and cannot be undone."
+        itemName={contactToDelete ? `${contactToDelete.firstName} ${contactToDelete.lastName}`.trim() : undefined}
+        confirmLabel="Delete contact"
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (contactToDelete) deleteMutation.mutate(contactToDelete.id);
+        }}
+      />
     </div>
   );
 }

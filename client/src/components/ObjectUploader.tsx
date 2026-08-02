@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { ModernFilePicker } from "@/components/ModernFilePicker";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
+import { prepareImageForUpload, NON_IMAGE_MAX_BYTES } from "@/lib/compressImage";
 import type { ButtonProps } from "@/components/ui/button";
 
 interface UploadFile {
@@ -22,6 +23,7 @@ interface UploadResult {
 
 interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
+  /** Applies to non-image files only. Images are compressed on select with no size reject. */
   maxFileSize?: number;
   onGetUploadParameters: () => Promise<{
     method: "PUT";
@@ -37,7 +39,7 @@ interface ObjectUploaderProps {
 
 export function ObjectUploader({
   maxNumberOfFiles = 1,
-  maxFileSize = 10485760, // 10MB default
+  maxFileSize = NON_IMAGE_MAX_BYTES,
   onGetUploadParameters,
   onComplete,
   onModalOpen,
@@ -65,6 +67,9 @@ export function ObjectUploader({
   };
 
   const uploadFile = async (file: File): Promise<UploadFile> => {
+    // Safety net: compress images even if picker already did (no-op for small JPEGs)
+    const uploadBody = await prepareImageForUpload(file);
+
     // Get upload parameters
     const params = await onGetUploadParameters();
     
@@ -80,9 +85,9 @@ export function ObjectUploader({
     // Upload file using PUT request
     const response = await fetch(params.url, {
       method: 'PUT',
-      body: file,
+      body: uploadBody,
       headers: {
-        'Content-Type': file.type,
+        'Content-Type': uploadBody.type,
       },
     });
 
@@ -135,12 +140,12 @@ export function ObjectUploader({
 
     return {
       id: `${Date.now()}-${Math.random()}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
+      name: uploadBody.name,
+      size: uploadBody.size,
+      type: uploadBody.type,
       uploadURL: fileUrl,
       source: fileUrl,
-      data: file,
+      data: uploadBody,
     };
   };
 

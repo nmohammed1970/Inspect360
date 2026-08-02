@@ -20,10 +20,12 @@ import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar"
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { MapPreview } from "@/components/MapPreview";
 import { insertComplianceDocumentSchema } from "@shared/schema";
 import { 
   ArrowLeft, Building2, MapPin, Users, CheckCircle2, Calendar as CalendarIcon, 
-  AlertTriangle, FileCheck, ClipboardCheck, Upload, AlertCircle, ExternalLink, Clock
+  AlertTriangle, FileCheck, ClipboardCheck, Upload, AlertCircle, ExternalLink, Clock,
+  Wrench
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -45,11 +47,25 @@ interface Property {
   stats: PropertyStats;
 }
 
+interface BlockStats {
+  totalProperties: number;
+  totalUnits: number;
+  occupiedUnits: number;
+  occupancyRate: number;
+  complianceRate: number;
+  inspectionsDue: number;
+  overdueInspections: number;
+  pendingInspections?: number;
+}
+
 interface Block {
   id: string;
   name: string;
   address: string;
   notes?: string | null;
+  imageUrl?: string | null;
+  stats?: BlockStats | null;
+  openMaintenance?: number;
 }
 
 interface ComplianceDoc {
@@ -83,6 +99,7 @@ export default function BlockDetail() {
   const [, params] = useRoute("/blocks/:id");
   const blockId = params?.id;
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [blockImageDialogOpen, setBlockImageDialogOpen] = useState(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
   const { toast } = useToast();
 
@@ -107,6 +124,28 @@ export default function BlockDetail() {
       return res.json();
     },
     enabled: !!blockId,
+  });
+
+  const updateBlockImage = useMutation({
+    mutationFn: async (imageUrl: string) => {
+      return await apiRequest("PATCH", `/api/blocks/${blockId}`, { imageUrl });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks", blockId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      setBlockImageDialogOpen(false);
+      toast({
+        title: "Success",
+        description: "Block photo updated successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update block photo",
+        variant: "destructive",
+      });
+    },
   });
 
   const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
@@ -242,32 +281,181 @@ export default function BlockDetail() {
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="mb-6">
+      <div className="flex items-center gap-2 md:gap-4">
         <Link href="/blocks">
-          <Button variant="ghost" className="mb-4" data-testid="button-back-to-blocks">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Blocks
+          <Button variant="ghost" size="sm" className="text-xs md:text-sm" data-testid="button-back-to-blocks">
+            <ArrowLeft className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
+            <span className="hidden sm:inline">Back to Blocks</span>
+            <span className="sm:hidden">Back</span>
           </Button>
         </Link>
-        
+      </div>
+
+      <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2">
+          <div className="space-y-2 flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2 md:gap-3" data-testid="heading-block-name">
               <Building2 className="h-5 w-5 md:h-6 md:w-6 lg:h-8 lg:w-8 text-primary shrink-0" />
               <span className="truncate">{block.name}</span>
             </h1>
-            <p className="text-xs md:text-sm text-muted-foreground mt-2 flex items-center gap-2">
+            <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
               <MapPin className="h-3 w-3 md:h-4 md:w-4 shrink-0" />
-              <span className="truncate">{block.address}</span>
-            </p>
-            {block.notes && (
-              <p className="text-xs md:text-sm text-muted-foreground mt-3 bg-muted p-2 md:p-3 rounded-md">
-                {block.notes}
-              </p>
-            )}
+              <span className="truncate" data-testid="text-block-address">{block.address}</span>
+            </div>
           </div>
         </div>
+
+        {/* Block Image and Map Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="overflow-hidden">
+            {block.imageUrl ? (
+              <div className="relative aspect-video">
+                <img
+                  src={block.imageUrl}
+                  alt={block.name}
+                  className="w-full h-full object-cover"
+                  data-testid="img-block"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="absolute bottom-2 left-2"
+                  onClick={() => setBlockImageDialogOpen(true)}
+                  data-testid="button-change-block-image"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Change Photo
+                </Button>
+              </div>
+            ) : (
+              <div
+                className="aspect-video bg-muted flex items-center justify-center cursor-pointer hover-elevate"
+                onClick={() => setBlockImageDialogOpen(true)}
+                data-testid="button-upload-block-image"
+              >
+                <div className="text-center text-muted-foreground">
+                  <Upload className="h-16 w-16 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-medium">Upload Block Photo</p>
+                  <p className="text-xs">Click to add an image</p>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          <Card className="overflow-hidden">
+            <MapPreview
+              address={block.address}
+              title={block.address ? `Map of ${block.address}` : undefined}
+              testId="map-embed-block"
+              externalLinkTestId="link-map-external-block"
+            />
+          </Card>
+        </div>
+
+        <Dialog open={blockImageDialogOpen} onOpenChange={setBlockImageDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Upload Block Photo</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Upload an image of the block (exterior or common areas) to display on this page.
+              </p>
+              <ObjectUploader
+                maxNumberOfFiles={1}
+                maxFileSize={10 * 1024 * 1024}
+                onGetUploadParameters={async () => {
+                  const response = await fetch("/api/objects/upload", {
+                    method: "POST",
+                    credentials: "include",
+                  });
+                  const { uploadURL } = await response.json();
+                  return {
+                    method: "PUT" as const,
+                    url: uploadURL,
+                  };
+                }}
+                onComplete={async (result) => {
+                  if (result.successful && result.successful.length > 0) {
+                    let fileUrl = result.successful[0].uploadURL;
+                    if (fileUrl) {
+                      if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+                        try {
+                          const urlObj = new URL(fileUrl);
+                          fileUrl = `/objects${urlObj.pathname}`;
+                        } catch {
+                          fileUrl = `/objects/${fileUrl}`;
+                        }
+                      }
+                      updateBlockImage.mutate(fileUrl);
+                    }
+                  }
+                }}
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Select Block Photo
+              </ObjectUploader>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
+
+      {/* Block summary — same pattern as Property detail */}
+      {block.stats && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{block.stats.occupancyRate ?? 0}%</div>
+              <p className="text-xs text-muted-foreground">
+                {block.stats.occupiedUnits ?? 0}/{block.stats.totalUnits ?? 0} units
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Compliance</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{block.stats.complianceRate ?? 0}%</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Inspections</CardTitle>
+              <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {block.stats.pendingInspections ??
+                  (block.stats.inspectionsDue ?? 0) + (block.stats.overdueInspections ?? 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {(block.stats.overdueInspections ?? 0) > 0
+                  ? `${block.stats.overdueInspections} overdue`
+                  : "Pending"}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
+              <Wrench className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{block.openMaintenance ?? 0}</div>
+              <p className="text-xs text-muted-foreground">Open requests</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="space-y-6">

@@ -295,7 +295,7 @@ export function ReportVoiceRecordingWidget({
                                         await onAudioUrlsChange(newUrls);
                                     }}
                                 >
-                                    <Trash2 className="w-4 h-4" />
+                                    <Trash2 className="w-4 h-4 text-destructive" />
                                 </Button>
                             </div>
                         ))}

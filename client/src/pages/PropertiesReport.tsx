@@ -34,6 +34,7 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 export default function PropertiesReport() {
   const { toast } = useToast();
@@ -358,17 +359,13 @@ export default function PropertiesReport() {
               </div>
 
               {(filterBlock !== "all" || filterStatus !== "all") && (
-                <Button 
-                  variant="outline" 
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterBlock("all");
                     setFilterStatus("all");
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>

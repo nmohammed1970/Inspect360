@@ -14,6 +14,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Edit2, Trash2, Users, Mail, X } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { z } from "zod";
 import type { InspectionCategory } from "@shared/schema";
 
@@ -318,7 +319,7 @@ export default function SettingsTeamsPanel() {
                       onClick={() => setDeletingTeam(team)}
                       data-testid={`button-delete-team-${team.id}`}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 </div>
@@ -714,33 +715,20 @@ export default function SettingsTeamsPanel() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deletingTeam} onOpenChange={(open) => !open && setDeletingTeam(null)}>
-        <DialogContent data-testid="dialog-delete-team">
-          <DialogHeader>
-            <DialogTitle>Delete Team</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete "{deletingTeam?.name}"? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeletingTeam(null)}
-              data-testid="button-cancel-delete-team"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deletingTeam && deleteMutation.mutate(deletingTeam.id)}
-              disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete-team"
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete Team"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={!!deletingTeam}
+        onOpenChange={(open) => {
+          if (!open) setDeletingTeam(null);
+        }}
+        title="Delete team?"
+        description="This cannot be undone. You are about to delete"
+        itemName={deletingTeam?.name}
+        isPending={deleteMutation.isPending}
+        confirmLabel="Delete Team"
+        onConfirm={() => {
+          if (deletingTeam) deleteMutation.mutate(deletingTeam.id);
+        }}
+      />
     </div>
   );
 }

@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import type { User, Organization } from "@shared/schema";
+import { SIGNUP_CREDIT_GRANT } from "@/config/billingTiers";
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -107,7 +108,7 @@ const slides: OnboardingSlide[] = [
     iconColor: "text-accent",
     iconBg: "bg-accent/10",
     title: "You're All Set!",
-    subtitle: "Start with 10 free AI credits",
+    subtitle: `Start with ${SIGNUP_CREDIT_GRANT} free inspection credits`,
     features: [
       "Begin your first inspection",
       "Add your properties and blocks",

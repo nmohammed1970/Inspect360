@@ -33,7 +33,6 @@ import {
   Upload,
   Pencil,
   ImageIcon,
-  ExternalLink,
   Mail,
   Phone,
 } from "lucide-react";
@@ -41,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { AddressInput } from "@/components/AddressInput";
 import { useToast } from "@/hooks/use-toast";
+import { MapPreview } from "@/components/MapPreview";
 
 interface Property {
   id: string;
@@ -158,18 +158,6 @@ export default function PropertyDetail() {
     },
     enabled: !!propertyId,
   });
-
-  // Fetch Google Maps API key for embedded map
-  const { data: mapsConfig } = useQuery<{ apiKey: string | null; configured: boolean }>({
-    queryKey: ['google-maps-api-key'],
-    queryFn: async () => {
-      const res = await fetch('/api/config/google-maps-key', { credentials: 'include' });
-      if (!res.ok) return { apiKey: null, configured: false };
-      return res.json();
-    },
-    staleTime: Infinity,
-  });
-
 
   const { data: stats } = useQuery<PropertyStats>({
     queryKey: ["/api/properties", propertyId, "stats"],
@@ -415,49 +403,12 @@ export default function PropertyDetail() {
 
           {/* Embedded Google Map */}
           <Card className="overflow-hidden">
-            <div className="aspect-video relative">
-              {mapsConfig?.apiKey && property?.address ? (
-                <iframe
-                  src={`https://www.google.com/maps/embed/v1/place?key=${mapsConfig.apiKey}&q=${encodeURIComponent(property.address)}&zoom=15`}
-                  className="w-full h-full border-0"
-                  allowFullScreen
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  title={`Map of ${property.address}`}
-                  data-testid="map-embed"
-                  onError={(e) => {
-                    console.error("Error loading map:", e);
-                  }}
-                />
-              ) : (
-                <div className="w-full h-full bg-muted flex items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <MapPin className="h-12 w-12 mx-auto mb-2 text-primary opacity-50" />
-                    <p className="text-sm">Map preview unavailable</p>
-                    {property?.address && (
-                      <p className="text-xs mt-2 opacity-75">{property.address}</p>
-                    )}
-                    {!mapsConfig?.apiKey && (
-                      <p className="text-xs mt-1 opacity-50">Google Maps API key not configured</p>
-                    )}
-                  </div>
-                </div>
-              )}
-              {property?.address && (
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(property.address)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="absolute bottom-2 right-2"
-                  data-testid="link-map-external"
-                >
-                  <Button size="sm" variant="secondary">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Open in Maps
-                  </Button>
-                </a>
-              )}
-            </div>
+            <MapPreview
+              address={property?.address}
+              title={property?.address ? `Map of ${property.address}` : undefined}
+              testId="map-embed"
+              externalLinkTestId="link-map-external"
+            />
           </Card>
         </div>
 

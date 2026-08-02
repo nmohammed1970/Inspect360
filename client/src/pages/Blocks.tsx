@@ -16,8 +16,35 @@ import { Link } from "wouter";
 import { TagInput } from "@/components/TagInput";
 import { TagFilter } from "@/components/TagFilter";
 import { AddressInput } from "@/components/AddressInput";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tag } from "@shared/schema";
 import { Tag as TagIcon } from "lucide-react";
+
+function getBlockDeleteReason(block: Block): string | null {
+  const stats = block.stats;
+  const propertyCount = stats?.totalProperties ?? 0;
+  const occupied = stats?.occupiedUnits ?? 0;
+  const pending =
+    stats?.pendingInspections ??
+    (stats?.inspectionsDue ?? 0) + (stats?.overdueInspections ?? 0);
+
+  const reasons: string[] = [];
+  if (propertyCount > 0) {
+    reasons.push(
+      `${propertyCount} propert${propertyCount === 1 ? "y" : "ies"}`,
+    );
+  }
+  if (occupied > 0) {
+    reasons.push(`${occupied} active tenant${occupied === 1 ? "" : "s"}`);
+  }
+  if (pending > 0) {
+    reasons.push(`${pending} pending inspection${pending === 1 ? "" : "s"}`);
+  }
+  if (reasons.length === 0) return null;
+  return `This block is in use (${reasons.join(", ")}). Remove linked items before deleting.`;
+}
 
 interface BlockStats {
   totalProperties: number;
@@ -27,6 +54,7 @@ interface BlockStats {
   complianceRate: number;
   inspectionsDue: number;
   overdueInspections: number;
+  pendingInspections?: number;
 }
 
 interface Block {
@@ -51,6 +79,7 @@ export default function Blocks() {
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [maintenanceBlockId, setMaintenanceBlockId] = useState<string | null>(null);
+  const [blockToDelete, setBlockToDelete] = useState<Block | null>(null);
   const { toast } = useToast();
 
   const { data: blocks = [], isLoading } = useQuery<Block[]>({
@@ -128,8 +157,8 @@ export default function Blocks() {
       if (selectedTags.length > 0) {
         await updateBlockTags(newBlock.id, selectedTags);
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/blocks/tags"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/blocks/tags"] });
       toast({ title: "Block created successfully" });
       handleCloseDialog();
     },
@@ -151,8 +180,8 @@ export default function Blocks() {
     onSuccess: async (_, variables) => {
       // Update tags for the block
       await updateBlockTags(variables.id, selectedTags);
-      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/blocks/tags"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/blocks/tags"] });
       toast({ title: "Block updated successfully" });
       handleCloseDialog();
     },
@@ -169,9 +198,14 @@ export default function Blocks() {
       queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/blocks/tags"] });
       toast({ title: "Block deleted successfully" });
+      setBlockToDelete(null);
     },
-    onError: () => {
-      toast({ title: "Failed to delete block", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({
+        title: "Cannot delete block",
+        description: error.message || "Failed to delete block",
+        variant: "destructive",
+      });
     },
   });
 
@@ -260,15 +294,21 @@ export default function Blocks() {
           await apiRequest("POST", `/api/blocks/${blockId}/tags/${tag.id}`);
         }
       }
+
+      queryClient.setQueriesData<Record<string, Tag[]>>(
+        { queryKey: ["/api/blocks/tags"] },
+        (old) => ({
+          ...(old || {}),
+          [blockId]: tags,
+        }),
+      );
     } catch (error) {
       console.error("Error updating block tags:", error);
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this block? This cannot be undone.")) {
-      deleteBlockMutation.mutate(id);
-    }
+  const handleDelete = (block: Block) => {
+    setBlockToDelete(block);
   };
 
   return (
@@ -345,14 +385,10 @@ export default function Blocks() {
                   </div>
 
                   {filterTags.length > 0 && (
-                    <Button 
-                      variant="outline" 
+                    <ClearFiltersButton
                       className="w-full"
                       onClick={() => setFilterTags([])}
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Clear All Filters
-                    </Button>
+                    />
                   )}
                 </div>
               </SheetContent>
@@ -401,9 +437,9 @@ export default function Blocks() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
           {filteredBlocks.map((block) => (
-            <Card key={block.id} data-testid={`card-block-${block.id}`} className="glass-card card-hover-lift overflow-hidden">
+            <Card key={block.id} data-testid={`card-block-${block.id}`} className="glass-card card-hover-lift overflow-hidden flex h-full flex-col">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/blocks/${block.id}`} className="flex-1 min-w-0">
@@ -413,7 +449,7 @@ export default function Blocks() {
                       </div>
                       <CardTitle className="text-xl font-bold truncate">{block.name}</CardTitle>
                     </div>
-                    <CardDescription className="line-clamp-2 cursor-pointer mt-3 text-base">{block.address}</CardDescription>
+                    <CardDescription className="line-clamp-2 min-h-[2.75rem] cursor-pointer mt-3 text-base">{block.address}</CardDescription>
                   </Link>
                   <div className="flex gap-1 flex-shrink-0">
                     <Button
@@ -441,22 +477,44 @@ export default function Blocks() {
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleDelete(block.id);
-                      }}
-                      className="transition-smooth"
-                      data-testid={`button-delete-block-${block.id}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {(() => {
+                      const deleteBlockedReason = getBlockDeleteReason(block);
+                      const deleteDisabled = !!deleteBlockedReason;
+                      return (
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={deleteDisabled}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    if (!deleteDisabled) handleDelete(block);
+                                  }}
+                                  className="transition-smooth"
+                                  data-testid={`button-delete-block-${block.id}`}
+                                >
+                                  <Trash2
+                                    className={`h-4 w-4 ${deleteDisabled ? "text-muted-foreground" : "text-destructive"}`}
+                                  />
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            {deleteBlockedReason && (
+                              <TooltipContent className="max-w-xs">
+                                <p>{deleteBlockedReason}</p>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        </TooltipProvider>
+                      );
+                    })()}
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-5 pt-0">
+              <CardContent className="flex flex-1 flex-col space-y-5 pt-0">
                 {/* Divider */}
                 <div className="h-px bg-border/30" />
 
@@ -526,22 +584,24 @@ export default function Blocks() {
                   </div>
                 </div>
 
-                {/* Notes */}
-                {block.notes && (
+                {/* Notes — reserve space when empty; heading only when content exists */}
+                {block.notes?.trim() ? (
                   <>
                     <div className="h-px bg-border/30" />
-                    <div className="space-y-1">
+                    <div className="space-y-1 min-h-[3.25rem]">
                       <span className="text-xs font-medium text-muted-foreground">Notes</span>
                       <p className="text-sm text-foreground line-clamp-2">{block.notes}</p>
                     </div>
                   </>
+                ) : (
+                  <div className="min-h-[3.25rem]" aria-hidden />
                 )}
 
-                {/* Tags */}
-                {block.tags && block.tags.length > 0 && (
+                {/* Tags — reserve space when empty; heading only when content exists */}
+                {block.tags && block.tags.length > 0 ? (
                   <>
                     <div className="h-px bg-border/30" />
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-h-[2.75rem]">
                       <span className="text-xs font-medium text-muted-foreground">Tags</span>
                       <div className="flex flex-wrap gap-1.5">
                         {block.tags.map(tag => (
@@ -559,76 +619,80 @@ export default function Blocks() {
                       </div>
                     </div>
                   </>
+                ) : (
+                  <div className="min-h-[2.75rem]" aria-hidden />
                 )}
                 
                 {/* Quick Actions */}
-                <div className="h-px bg-border/30" />
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                  <Link href={`/properties?blockId=${block.id}`} className="w-full">
+                <div className="mt-auto space-y-5">
+                  <div className="h-px bg-border/30" />
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    <Link href={`/properties?blockId=${block.id}`} className="w-full">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
+                        data-testid={`button-properties-${block.id}`}
+                      >
+                        <Home className="h-4 w-4 mb-1 shrink-0" />
+                        <span className="text-[10px] leading-tight text-center w-full">Properties</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/asset-inventory?blockId=${block.id}`} className="w-full">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
+                        data-testid={`button-inventory-${block.id}`}
+                      >
+                        <Package className="h-4 w-4 mb-1 shrink-0" />
+                        <span className="text-[10px] leading-tight text-center w-full">Inventory</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/inspections?blockId=${block.id}&create=true`} className="w-full">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
+                        data-testid={`button-inspect-${block.id}`}
+                      >
+                        <ClipboardCheck className="h-4 w-4 mb-1 shrink-0" />
+                        <span className="text-[10px] leading-tight text-center w-full">Inspect</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/blocks/${block.id}/tenants`} className="w-full">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
+                        data-testid={`button-tenants-${block.id}`}
+                      >
+                        <Users className="h-4 w-4 mb-1 shrink-0" />
+                        <span className="text-[10px] leading-tight text-center w-full">Tenants</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/compliance?blockId=${block.id}`} className="w-full">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
+                        data-testid={`button-compliance-${block.id}`}
+                      >
+                        <FileText className="h-4 w-4 mb-1 shrink-0" />
+                        <span className="text-[10px] leading-tight text-center w-full">Compliance</span>
+                      </Button>
+                    </Link>
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                      data-testid={`button-properties-${block.id}`}
+                      data-testid={`button-maintenance-${block.id}`}
+                      onClick={() => setMaintenanceBlockId(block.id)}
                     >
-                      <Home className="h-4 w-4 mb-1 shrink-0" />
-                      <span className="text-[10px] leading-tight text-center w-full">Properties</span>
+                      <Wrench className="h-4 w-4 mb-1 shrink-0" />
+                      <span className="text-[10px] leading-tight text-center w-full">Maint.</span>
                     </Button>
-                  </Link>
-                  <Link href={`/asset-inventory?blockId=${block.id}`} className="w-full">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                      data-testid={`button-inventory-${block.id}`}
-                    >
-                      <Package className="h-4 w-4 mb-1 shrink-0" />
-                      <span className="text-[10px] leading-tight text-center w-full">Inventory</span>
-                    </Button>
-                  </Link>
-                  <Link href={`/inspections?blockId=${block.id}&create=true`} className="w-full">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                      data-testid={`button-inspect-${block.id}`}
-                    >
-                      <ClipboardCheck className="h-4 w-4 mb-1 shrink-0" />
-                      <span className="text-[10px] leading-tight text-center w-full">Inspect</span>
-                    </Button>
-                  </Link>
-                  <Link href={`/blocks/${block.id}/tenants`} className="w-full">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                      data-testid={`button-tenants-${block.id}`}
-                    >
-                      <Users className="h-4 w-4 mb-1 shrink-0" />
-                      <span className="text-[10px] leading-tight text-center w-full">Tenants</span>
-                    </Button>
-                  </Link>
-                  <Link href={`/compliance?blockId=${block.id}`} className="w-full">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                      data-testid={`button-compliance-${block.id}`}
-                    >
-                      <FileText className="h-4 w-4 mb-1 shrink-0" />
-                      <span className="text-[10px] leading-tight text-center w-full">Compliance</span>
-                    </Button>
-                  </Link>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                    data-testid={`button-maintenance-${block.id}`}
-                    onClick={() => setMaintenanceBlockId(block.id)}
-                  >
-                    <Wrench className="h-4 w-4 mb-1 shrink-0" />
-                    <span className="text-[10px] leading-tight text-center w-full">Maint.</span>
-                  </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -709,6 +773,20 @@ export default function Blocks() {
         open={!!maintenanceBlockId}
         onOpenChange={(open) => !open && setMaintenanceBlockId(null)}
         blockId={maintenanceBlockId || undefined}
+      />
+
+      <DeleteConfirmDialog
+        open={!!blockToDelete}
+        onOpenChange={(open) => {
+          if (!open) setBlockToDelete(null);
+        }}
+        title="Delete block?"
+        description="This cannot be undone. You are about to delete"
+        itemName={blockToDelete?.name}
+        isPending={deleteBlockMutation.isPending}
+        onConfirm={() => {
+          if (blockToDelete) deleteBlockMutation.mutate(blockToDelete.id);
+        }}
       />
     </div>
   );

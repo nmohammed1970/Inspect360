@@ -255,7 +255,7 @@ import {
   type InsertQuotationActivityLog,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or } from "drizzle-orm";
+import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
@@ -295,6 +295,7 @@ export interface IStorage {
   getPropertiesByBlock(blockId: string): Promise<Property[]>;
   getProperty(id: string): Promise<Property | undefined>;
   updateProperty(id: string, updates: Partial<InsertProperty>): Promise<Property>;
+  deleteProperty(id: string): Promise<void>;
 
   // Inspection operations (Inspections can be on blocks OR properties)
   createInspection(inspection: InsertInspection): Promise<Inspection>;
@@ -418,6 +419,7 @@ export interface IStorage {
   getBlocksByOrganization(organizationId: string): Promise<Block[]>;
   getBlocksWithStats(organizationId: string): Promise<any[]>;
   getBlock(id: string): Promise<Block | undefined>;
+  getBlockWithStats(id: string): Promise<any | undefined>;
   updateBlock(id: string, updates: Partial<InsertBlock>): Promise<Block>;
   deleteBlock(id: string): Promise<void>;
   getTenantAssignmentsByBlock(blockId: string): Promise<any[]>;
@@ -765,6 +767,8 @@ export interface IStorage {
   
   // Add-On Pack Management
   getAddonPacks(): Promise<any[]>;
+  /** Ensure Spec v2 packs (20 / 50 / 100) exist and are active. */
+  ensureDefaultAddonPacks(): Promise<any[]>;
   createAddonPackConfig(data: { name: string; inspectionQuantity: number; packOrder: number; isActive?: boolean }): Promise<any>;
   updateAddonPackConfig(id: string, updates: Partial<any>): Promise<any>;
   deleteAddonPackConfig(id: string): Promise<void>;
@@ -1165,6 +1169,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(properties.id, id))
       .returning();
     return property;
+  }
+
+  async deleteProperty(id: string): Promise<void> {
+    await db.delete(propertyTags).where(eq(propertyTags.propertyId, id));
+    await db.delete(properties).where(eq(properties.id, id));
   }
 
   // Inspection operations
@@ -1768,6 +1777,23 @@ export class DatabaseStorage implements IStorage {
         .where(sql`${inspections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
     }
 
+    // Active tenant assignments for occupancy
+    let activeTenantPropertyIds = new Set<string>();
+    if (propertyIds.length > 0) {
+      const activeAssignments = await db
+        .select({ propertyId: tenantAssignments.propertyId })
+        .from(tenantAssignments)
+        .where(
+          and(
+            sql`${tenantAssignments.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`,
+            eq(tenantAssignments.isActive, true),
+          ),
+        );
+      activeTenantPropertyIds = new Set(
+        activeAssignments.map((a) => a.propertyId).filter(Boolean) as string[],
+      );
+    }
+
     // Group inspections by property
     const inspectionsByProperty = new Map<string, typeof propertyInspections>();
     propertyInspections.forEach(inspection => {
@@ -1797,10 +1823,16 @@ export class DatabaseStorage implements IStorage {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(now.getDate() - 90);
 
+    const isPendingInspection = (insp: { status?: string | null }) =>
+      insp.status === "scheduled" || insp.status === "in_progress";
+
     // Build stats for each block
     const blocksWithStats = allBlocks.map(block => {
       const blockProperties = propertiesByBlock.get(block.id) || [];
       const totalProperties = blockProperties.length;
+      const totalUnits = totalProperties;
+      const occupiedUnits = blockProperties.filter((p) => activeTenantPropertyIds.has(p.id)).length;
+      const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
 
       // Get all inspections for this block (both property-level and block-level)
       const blockPropertyInspections = blockProperties.flatMap(prop =>
@@ -1808,6 +1840,8 @@ export class DatabaseStorage implements IStorage {
       );
       const directBlockInspections = inspectionsByBlock.get(block.id) || [];
       const allBlockInspections = [...blockPropertyInspections, ...directBlockInspections];
+
+      const pendingInspections = allBlockInspections.filter(isPendingInspection).length;
 
       // Count inspections due in next 30 days
       const inspectionsDue = allBlockInspections.filter(insp => {
@@ -1840,9 +1874,13 @@ export class DatabaseStorage implements IStorage {
         ...block,
         stats: {
           totalProperties,
+          totalUnits,
+          occupiedUnits,
+          occupancyRate,
           complianceRate,
           inspectionsDue,
           overdueInspections,
+          pendingInspections,
         },
       };
     });
@@ -1853,6 +1891,47 @@ export class DatabaseStorage implements IStorage {
   async getBlock(id: string): Promise<Block | undefined> {
     const [block] = await db.select().from(blocks).where(eq(blocks.id, id));
     return block;
+  }
+
+  async getBlockWithStats(id: string): Promise<any | undefined> {
+    const block = await this.getBlock(id);
+    if (!block) return undefined;
+
+    const withStats = await this.getBlocksWithStats(block.organizationId);
+    const found = withStats.find((b) => b.id === id);
+    if (!found) return { ...block, stats: null, openMaintenance: 0 };
+
+    // Open maintenance for this block (block-level + property-level in the block)
+    const blockProperties = await db
+      .select({ id: properties.id })
+      .from(properties)
+      .where(eq(properties.blockId, id));
+    const propertyIds = blockProperties.map((p) => p.id);
+
+    const openStatuses = ["open", "in_progress"] as const;
+    let openMaintenance = 0;
+    try {
+      const openReqs = await db
+        .select()
+        .from(maintenanceRequests)
+        .where(
+          and(
+            eq(maintenanceRequests.organizationId, block.organizationId),
+            inArray(maintenanceRequests.status, [...openStatuses]),
+            or(
+              eq(maintenanceRequests.blockId, id),
+              propertyIds.length > 0
+                ? inArray(maintenanceRequests.propertyId, propertyIds)
+                : sql`false`,
+            ),
+          ),
+        );
+      openMaintenance = openReqs.length;
+    } catch (e) {
+      console.warn("[getBlockWithStats] open maintenance count failed:", e);
+    }
+
+    return { ...found, openMaintenance };
   }
 
   async updateBlock(id: string, updates: Partial<InsertBlock>): Promise<Block> {
@@ -3691,7 +3770,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAvailableCreditBatches(organizationId: string): Promise<CreditBatch[]> {
-    const now = new Date();
+    // UTC timestamps only: available if expiresAt is null OR expiresAt >= now (UTC)
+    const { billingNowUtc } = await import("@shared/billingClock");
+    const now = billingNowUtc();
     return await db
       .select()
       .from(creditBatches)
@@ -3705,7 +3786,7 @@ export class DatabaseStorage implements IStorage {
           )
         )
       )
-      .orderBy(creditBatches.expiresAt, creditBatches.grantedAt); // FIFO: oldest expiry first
+      .orderBy(creditBatches.expiresAt, creditBatches.grantedAt); // Base FIFO; consumeCredits re-sorts by source priority
   }
 
   async updateCreditBatch(id: string, updates: Partial<InsertCreditBatch>): Promise<CreditBatch> {
@@ -3765,7 +3846,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCreditBalance(organizationId: string): Promise<{ total: number; rolled: number; current: number; expiresOn: Date | null }> {
-    const now = new Date();
+    // UTC timestamps only: same rule as getAvailableCreditBatches (expiresAt >= now UTC)
+    const { billingNowUtc } = await import("@shared/billingClock");
+    const now = billingNowUtc();
     const batches = await db
       .select()
       .from(creditBatches)
@@ -4861,6 +4944,43 @@ export class DatabaseStorage implements IStorage {
 
   async getAddonPacks(): Promise<any[]> {
     return await db.select().from(addonPackConfig).where(eq(addonPackConfig.isActive, true)).orderBy(addonPackConfig.packOrder);
+  }
+
+  /**
+   * Billing Spec v2.0: self-serve top-up packs are 20, 50, and 100.
+   * Inserts any missing sizes (or reactivates inactive ones) so the Billing page
+   * always shows the full ladder.
+   */
+  async ensureDefaultAddonPacks(): Promise<any[]> {
+    const DEFAULT_PACKS = [
+      { name: "20 Pack", inspectionQuantity: 20, packOrder: 1 },
+      { name: "50 Pack", inspectionQuantity: 50, packOrder: 2 },
+      { name: "100 Pack", inspectionQuantity: 100, packOrder: 3 },
+    ] as const;
+
+    const existing = await db.select().from(addonPackConfig);
+
+    for (const def of DEFAULT_PACKS) {
+      const match = existing.find((p) => p.inspectionQuantity === def.inspectionQuantity);
+      if (!match) {
+        await this.createAddonPackConfig({
+          name: def.name,
+          inspectionQuantity: def.inspectionQuantity,
+          packOrder: def.packOrder,
+          isActive: true,
+        });
+        console.log(`[Addon Packs] Created missing pack: ${def.name}`);
+      } else if (!match.isActive || match.name !== def.name || match.packOrder !== def.packOrder) {
+        await this.updateAddonPackConfig(match.id, {
+          isActive: true,
+          name: def.name,
+          packOrder: def.packOrder,
+        });
+        console.log(`[Addon Packs] Reactivated/updated pack: ${def.name}`);
+      }
+    }
+
+    return this.getAddonPacks();
   }
 
   async getAddonPackPricing(packId: string, tierId: string, currencyCode: string): Promise<any> {

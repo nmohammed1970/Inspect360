@@ -36,8 +36,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { prepareImageForUpload, isImageFile } from "@/lib/compressImage";
 import { Loader2, Send, Upload, X, FileText, Download } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useLocale } from "@/contexts/LocaleContext";
 import { PhoneInput } from "@/components/PhoneInput";
 
@@ -117,6 +119,7 @@ export default function EditTenantDialog({
   const [open, setOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [attachmentToDelete, setAttachmentToDelete] = useState<Attachment | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const locale = useLocale();
@@ -424,6 +427,7 @@ export default function EditTenantDialog({
         title: "Attachment deleted",
         description: "The attachment has been removed",
       });
+      setAttachmentToDelete(null);
     },
     onError: (error: any) => {
       console.error("Delete attachment error:", error);
@@ -448,15 +452,19 @@ export default function EditTenantDialog({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file) return;
 
     setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("tenantAssignmentId", tenant.assignment.id);
-
     try {
+      if (isImageFile(file)) {
+        file = await prepareImageForUpload(file);
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("tenantAssignmentId", tenant.assignment.id);
+
       const response = await fetch("/api/tenancy-attachments", {
         method: "POST",
         body: formData,
@@ -497,6 +505,7 @@ export default function EditTenantDialog({
   const fullName = [tenant.firstName, tenant.lastName].filter(Boolean).join(" ") || tenant.email;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
@@ -930,7 +939,7 @@ export default function EditTenantDialog({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => deleteAttachmentMutation.mutate(attachment.id)}
+                          onClick={() => setAttachmentToDelete(attachment)}
                           disabled={deleteAttachmentMutation.isPending}
                           data-testid={`button-delete-${attachment.id}`}
                         >
@@ -975,5 +984,20 @@ export default function EditTenantDialog({
         </Form>
       </DialogContent>
     </Dialog>
+
+    <DeleteConfirmDialog
+      open={!!attachmentToDelete}
+      onOpenChange={(open) => {
+        if (!open) setAttachmentToDelete(null);
+      }}
+      title="Delete attachment?"
+      description="This cannot be undone. You are about to delete"
+      itemName={attachmentToDelete?.fileName}
+      isPending={deleteAttachmentMutation.isPending}
+      onConfirm={() => {
+        if (attachmentToDelete) deleteAttachmentMutation.mutate(attachmentToDelete.id);
+      }}
+    />
+    </>
   );
 }

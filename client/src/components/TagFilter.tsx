@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Input } from "@/components/ui/input";
 import { Filter, X, Tag as TagIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import type { Tag } from "@shared/schema";
 
 interface TagFilterProps {
@@ -113,17 +114,13 @@ export function TagFilter({ selectedTags, onTagsChange, placeholder = "Filter by
         </PopoverContent>
       </Popover>
 
-      {/* Clear all button */}
+      {/* Clear all button — matches Dashboard */}
       {selectedTags.length > 0 && (
-        <Button
-          variant="ghost"
-          size="sm"
+        <ClearFiltersButton
           onClick={handleClearAll}
-          className="h-7 text-xs"
+          className="h-7"
           data-testid="button-clear-all-filters"
-        >
-          Clear All
-        </Button>
+        />
       )}
     </div>
   );

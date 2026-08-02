@@ -23,12 +23,56 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil, Tag as TagIcon, Wrench, Filter, X } from "lucide-react";
+import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil, Tag as TagIcon, Wrench, Filter, X, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useSearch } from "wouter";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+function isActiveTenantAssignment(ta: any): boolean {
+  const nested = ta.assignment;
+  const raw =
+    nested?.isActive !== undefined && nested?.isActive !== null
+      ? nested.isActive
+      : ta.isActive !== undefined && ta.isActive !== null
+        ? ta.isActive
+        : ta.is_active;
+  if (raw === false || raw === 0 || raw === "false" || raw === "f") return false;
+  if (raw === true || raw === 1 || raw === "true" || raw === "t") return true;
+  if (raw === null || raw === undefined) return true;
+  return ta.status === "active" || ta.status === "current";
+}
+
+function isPendingInspection(insp: { status?: string | null }): boolean {
+  return insp.status === "scheduled" || insp.status === "in_progress";
+}
+
+function getPropertyDeleteBlockReason(
+  propertyId: string,
+  tenantAssignments: any[],
+  inspections: any[],
+): string | null {
+  const activeTenants = tenantAssignments.filter(
+    (ta) => ta.propertyId === propertyId && isActiveTenantAssignment(ta),
+  ).length;
+  const pendingInspections = inspections.filter(
+    (insp) => insp.propertyId === propertyId && isPendingInspection(insp),
+  ).length;
+
+  const reasons: string[] = [];
+  if (activeTenants > 0) {
+    reasons.push(`${activeTenants} active tenant${activeTenants === 1 ? "" : "s"}`);
+  }
+  if (pendingInspections > 0) {
+    reasons.push(`${pendingInspections} pending inspection${pendingInspections === 1 ? "" : "s"}`);
+  }
+  if (reasons.length === 0) return null;
+  return `This property is in use (${reasons.join(", ")}). Remove linked items before deleting.`;
+}
 
 export default function Properties() {
   const { toast } = useToast();
@@ -47,6 +91,7 @@ export default function Properties() {
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [maintenancePropertyId, setMaintenancePropertyId] = useState<string | null>(null);
+  const [propertyToDelete, setPropertyToDelete] = useState<any | null>(null);
 
   /** Radix Select must stay controlled; avoid value={undefined} (breaks re-open / hydration). */
   const PROPERTY_TYPE_NONE = "__property_type_none__";
@@ -91,6 +136,14 @@ export default function Properties() {
 
   const { data: blocks = [] } = useQuery<any[]>({
     queryKey: ["/api/blocks"],
+  });
+
+  const { data: tenantAssignments = [] } = useQuery<any[]>({
+    queryKey: ["/api/tenant-assignments"],
+  });
+
+  const { data: inspections = [] } = useQuery<any[]>({
+    queryKey: ["/api/inspections/my"],
   });
 
   // Fetch tags for all properties
@@ -179,13 +232,12 @@ export default function Properties() {
       return await res.json();
     },
     onSuccess: async (property: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
-      
-      // Update tags for the newly created property
+      // Apply tags first, then refresh list so cards show the new tags immediately
       if (selectedTags.length > 0 && property?.id) {
         await updatePropertyTags(property.id, selectedTags);
       }
+      await queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
       
       toast({
         title: "Success",
@@ -216,12 +268,11 @@ export default function Properties() {
       return await apiRequest("PATCH", `/api/properties/${data.id}`, body);
     },
     onSuccess: async (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
-      
-      // Update tags for the property (always update, even if empty, to handle removals)
+      // Apply tag changes first, then refresh so cards update without a page reload
       await updatePropertyTags(variables.id, selectedTags);
+      await queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
       
       toast({
         title: "Success",
@@ -238,13 +289,37 @@ export default function Properties() {
     },
   });
 
+  const deleteProperty = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/properties/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
+      toast({ title: "Property deleted successfully" });
+      setPropertyToDelete(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cannot delete property",
+        description: error.message || "Failed to delete property",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleOpenCreate = () => {
     setEditingProperty(null);
     setName("");
-    setAddress("");
     setPropertyType(undefined);
     setPropertyTypeExtra(null);
-    setBlockId(urlBlockId || undefined);
+    const initialBlockId = urlBlockId || undefined;
+    setBlockId(initialBlockId);
+    const blockFromUrl = initialBlockId
+      ? blocks.find((b: any) => b.id === initialBlockId)
+      : undefined;
+    setAddress(blockFromUrl?.address || "");
     setSelectedTags([]);
     setDialogOpen(true);
   };
@@ -337,6 +412,15 @@ export default function Properties() {
           await apiRequest("POST", `/api/properties/${propertyId}/tags/${tag.id}`);
         }
       }
+
+      // Update local tags cache immediately so cards refresh without waiting on a full remount
+      queryClient.setQueriesData<Record<string, Tag[]>>(
+        { queryKey: ["/api/properties/tags"] },
+        (old) => ({
+          ...(old || {}),
+          [propertyId]: tags,
+        }),
+      );
     } catch (error) {
       console.error("Error updating property tags:", error);
     }
@@ -483,7 +567,18 @@ export default function Properties() {
               </div>
               <div>
                 <Label htmlFor="block">Block (Optional)</Label>
-                <Select value={blockId} onValueChange={setBlockId}>
+                <Select
+                  value={blockId}
+                  onValueChange={(value) => {
+                    setBlockId(value);
+                    if (value && value !== "none") {
+                      const selected = blocks.find((b: any) => b.id === value);
+                      if (selected?.address) {
+                        setAddress(selected.address);
+                      }
+                    }
+                  }}
+                >
                   <SelectTrigger data-testid="select-block">
                     <SelectValue placeholder="Select a block" />
                   </SelectTrigger>
@@ -497,7 +592,7 @@ export default function Properties() {
                   </SelectContent>
                 </Select>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Assign this property to a building/block for better organization
+                  Assign this property to a building/block for better organization. Selecting a block fills the address.
                 </p>
               </div>
               
@@ -586,14 +681,10 @@ export default function Properties() {
                   </div>
 
                   {filterTags.length > 0 && (
-                    <Button 
-                      variant="outline" 
+                    <ClearFiltersButton
                       className="w-full"
                       onClick={() => setFilterTags([])}
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Clear All Filters
-                    </Button>
+                    />
                   )}
                 </div>
               </SheetContent>
@@ -622,34 +713,81 @@ export default function Properties() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 items-stretch">
           {filteredProperties.map((property: any) => {
             const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
             return (
-              <Card key={property.id} className="hover-elevate" data-testid={`card-property-${property.id}`}>
-                <Link href={`/properties/${property.id}`}>
+              <Card key={property.id} className="hover-elevate flex h-full flex-col" data-testid={`card-property-${property.id}`}>
+                <Link href={`/properties/${property.id}`} className="flex flex-1 flex-col min-h-0">
                   <CardHeader className="cursor-pointer">
                     <CardTitle className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-5 h-5 text-primary" />
-                        {property.name}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Building2 className="w-5 h-5 text-primary shrink-0" />
+                        <span className="truncate">{property.name}</span>
                       </div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleOpenEdit(property);
-                        }}
-                        data-testid={`button-edit-property-${property.id}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleOpenEdit(property);
+                          }}
+                          data-testid={`button-edit-property-${property.id}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {(() => {
+                          const deleteBlockedReason = getPropertyDeleteBlockReason(
+                            property.id,
+                            tenantAssignments,
+                            inspections,
+                          );
+                          const deleteDisabled = !!deleteBlockedReason;
+                          return (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className="inline-flex"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-8 w-8"
+                                      disabled={deleteDisabled}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (!deleteDisabled) setPropertyToDelete(property);
+                                      }}
+                                      data-testid={`button-delete-property-${property.id}`}
+                                    >
+                                      <Trash2
+                                        className={`h-4 w-4 ${deleteDisabled ? "text-muted-foreground" : "text-destructive"}`}
+                                      />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                {deleteBlockedReason && (
+                                  <TooltipContent className="max-w-xs">
+                                    <p>{deleteBlockedReason}</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })()}
+                      </div>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2 cursor-pointer pb-4">
+                  <CardContent className="space-y-2 cursor-pointer pb-4 flex-1">
                     <p className="text-sm text-muted-foreground">{property.address}</p>
                     {propertyBlock && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -674,7 +812,7 @@ export default function Properties() {
                     )}
                   </CardContent>
                 </Link>
-                <CardContent className="pt-0 border-t">
+                <CardContent className="pt-0 border-t mt-auto">
                   <div className="grid grid-cols-5 gap-1 pt-4">
                     <Link href={`/asset-inventory?propertyId=${property.id}`} className="w-full">
                       <Button 
@@ -742,6 +880,20 @@ export default function Properties() {
         open={!!maintenancePropertyId}
         onOpenChange={(open) => !open && setMaintenancePropertyId(null)}
         propertyId={maintenancePropertyId || undefined}
+      />
+
+      <DeleteConfirmDialog
+        open={!!propertyToDelete}
+        onOpenChange={(open) => {
+          if (!open) setPropertyToDelete(null);
+        }}
+        title="Delete property?"
+        description="This cannot be undone. You are about to delete"
+        itemName={propertyToDelete?.name}
+        isPending={deleteProperty.isPending}
+        onConfirm={() => {
+          if (propertyToDelete) deleteProperty.mutate(propertyToDelete.id);
+        }}
       />
     </div>
   );

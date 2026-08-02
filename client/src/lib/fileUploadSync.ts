@@ -1,6 +1,7 @@
 // File upload sync utility for offline file uploads
 
 import { offlineStorage } from './offlineStorage';
+import { prepareImageForUpload } from './compressImage';
 
 const MAX_UPLOAD_RETRY_ATTEMPTS = 3;
 
@@ -24,16 +25,19 @@ export class FileUploadSync {
     endpoint: string = '/api/objects/upload-file',
     isOnline: boolean = navigator.onLine
   ): Promise<FileUploadResult> {
+    // Compress images before store/upload so large phone photos never hit size walls
+    const prepared = await prepareImageForUpload(file);
+
     if (!isOnline) {
       // Store file offline and queue for upload
       try {
-        const fileId = await offlineStorage.storeFile(file, {
+        const fileId = await offlineStorage.storeFile(prepared, {
           endpoint,
-          originalName: file.name,
+          originalName: prepared.name,
         });
 
         const uploadId = await offlineStorage.queueFileUpload(fileId, endpoint, 'POST', {
-          originalName: file.name,
+          originalName: prepared.name,
         });
 
         console.log('[FileUploadSync] File queued for offline upload:', uploadId);
@@ -54,7 +58,7 @@ export class FileUploadSync {
     // Online - upload immediately
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', prepared);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -82,13 +86,13 @@ export class FileUploadSync {
       console.error('[FileUploadSync] Upload error:', error);
       // If upload fails and we're online, try to queue it for retry
       try {
-        const fileId = await offlineStorage.storeFile(file, {
+        const fileId = await offlineStorage.storeFile(prepared, {
           endpoint,
-          originalName: file.name,
+          originalName: prepared.name,
         });
 
         const uploadId = await offlineStorage.queueFileUpload(fileId, endpoint, 'POST', {
-          originalName: file.name,
+          originalName: prepared.name,
         });
 
         return {

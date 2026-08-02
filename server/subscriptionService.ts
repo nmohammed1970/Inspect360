@@ -1,21 +1,51 @@
 import { storage } from "./storage";
 import type { Organization, CreditBatch, InsertCreditBatch, InsertCreditLedger, InstanceSubscription, InstanceAddonPurchase } from "@shared/schema";
+import { creditsConsumed } from "../shared/billingUnits";
+
+/** Lower number = consumed first: bonus → pack/top-up → plan. */
+function creditSourceConsumePriority(source: string | null | undefined): number {
+  switch (source) {
+    case "admin_grant": // signup / welcome bonus
+    case "refund":
+    case "adjustment":
+      return 0;
+    case "addon_pack":
+    case "topup":
+      return 1;
+    case "plan_inclusion":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function sortBatchesForConsumption(batches: CreditBatch[]): CreditBatch[] {
+  return batches.slice().sort((a, b) => {
+    const pa = creditSourceConsumePriority(a.grantSource);
+    const pb = creditSourceConsumePriority(b.grantSource);
+    if (pa !== pb) return pa - pb;
+
+    // Within the same source group: earliest expiry first (non-expiring last), then oldest grant
+    const aExp = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const bExp = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aExp !== bExp) return aExp - bExp;
+
+    return new Date(a.grantedAt).getTime() - new Date(b.grantedAt).getTime();
+  });
+}
 
 export class SubscriptionService {
   /**
-   * Calculate credits needed for an inspection based on image count
-   * Formula: 1 base credit + 1 credit per 250 images
-   * @param imageCount - Total number of images in the inspection
-   * @returns Number of credits needed
+   * Calculate credits needed for an inspection based on photo count (BILL-08).
+   * One credit includes up to 300 photos.
+   * creditsConsumed = MAX(1, CEIL(photoCount / 300))
    */
   calculateInspectionCredits(imageCount: number): number {
-    const baseCredits = 1;
-    const additionalCredits = Math.floor(imageCount / 250);
-    return baseCredits + additionalCredits;
+    return creditsConsumed(imageCount);
   }
 
   /**
-   * Consume inspection credits using tier quota first, then addon packs (FIFO)
+   * Consume inspection credits: bonus first, then packs/top-ups, then plan inclusion.
    * @param organizationId - Organization consuming credits
    * @param creditsNeeded - Number of credits to consume
    * @param inspectionId - ID of the inspection
@@ -48,13 +78,9 @@ export class SubscriptionService {
     );
   }
   /**
-   * Consume credits using FIFO logic from available batches
-   * @param organizationId - Organization consuming credits
-   * @param quantity - Number of credits to consume
-   * @param linkedEntityType - Type of entity consuming credits (e.g., "inspection")
-   * @param linkedEntityId - ID of the entity consuming credits
-   * @param notes - Optional notes about the consumption
-   * @returns true if successful, throws error if insufficient credits
+   * Consume credits from available batches.
+   * Order: bonus (admin_grant) → pack-on/top-up (addon_pack, topup) → plan (plan_inclusion).
+   * Within each group: earliest expiry first, then oldest grant.
    */
   async consumeCredits(
     organizationId: string,
@@ -67,8 +93,9 @@ export class SubscriptionService {
       throw new Error("Quantity must be positive");
     }
 
-    // Get available batches ordered by FIFO (earliest expiry first)
-    const batches = await storage.getAvailableCreditBatches(organizationId);
+    const batches = sortBatchesForConsumption(
+      await storage.getAvailableCreditBatches(organizationId),
+    );
     
     // First, calculate total available credits and plan deductions WITHOUT modifying database
     let totalAvailable = 0;
@@ -201,22 +228,90 @@ export class SubscriptionService {
   }
 
   /**
+   * On plan upgrade/downgrade: reclassify leftover plan credits as bonus (admin_grant)
+   * so they are not wiped. Keeps remainingQuantity and expiresAt — they still expire
+   * on their original expiry date via processCreditExpiry / batch expiry checks.
+   * @returns Total credits converted
+   */
+  async convertRemainingPlanCreditsToBonus(
+    organizationId: string,
+    reason: string,
+  ): Promise<number> {
+    const existingBatches = await storage.getCreditBatchesByOrganization(organizationId);
+    const planBatches = existingBatches.filter(
+      (b) =>
+        b.grantSource === "plan_inclusion" &&
+        b.remainingQuantity > 0 &&
+        !b.rolled,
+    );
+
+    let converted = 0;
+    for (const batch of planBatches) {
+      const prevMeta =
+        batch.metadataJson && typeof batch.metadataJson === "object"
+          ? (batch.metadataJson as Record<string, unknown>)
+          : {};
+
+      await storage.updateCreditBatch(batch.id, {
+        grantSource: "admin_grant" as any,
+        metadataJson: {
+          ...prevMeta,
+          adminNotes: reason,
+          convertedFrom: "plan_inclusion",
+          convertedAt: new Date().toISOString(),
+          originalExpiresAt: batch.expiresAt
+            ? new Date(batch.expiresAt).toISOString()
+            : null,
+        },
+      });
+
+      await storage.createCreditLedgerEntry({
+        organizationId,
+        source: "adjustment" as any,
+        quantity: 0,
+        batchId: batch.id,
+        notes: `Converted ${batch.remainingQuantity} leftover plan credits to bonus (${reason}). Expires: ${
+          batch.expiresAt ? new Date(batch.expiresAt).toISOString() : "never"
+        }`,
+      });
+
+      converted += batch.remainingQuantity;
+      console.log(
+        `[Credits] Converted plan batch ${batch.id} (${batch.remainingQuantity} credits) to bonus for org ${organizationId}`,
+      );
+    }
+
+    return converted;
+  }
+
+  /**
    * Process credit expiry at billing cycle end
    * Expires all unused credits from the previous cycle - no rollover
    * Credits are reset to zero at the start of each new billing cycle
    * @param organizationId - Organization to process
    * @param currentPeriodEnd - End of the current billing period
    */
+  /**
+   * Process credit expiry at billing cycle end.
+   * Expires unused credits whose expiresAt has passed — no rollover.
+   *
+   * Comparison (UTC timestamps only):
+   *   expiresAt <= now   where both are absolute UTC instants
+   *   (via isAtOrPastBillingInstant / billingNowUtc — never local TZ)
+   *
+   * @param organizationId - Organization to process
+   * @param currentPeriodEnd - End of the current billing period (UTC instant; informational / callers)
+   */
   async processCreditExpiry(organizationId: string, currentPeriodEnd: Date): Promise<void> {
-    const now = new Date();
+    const { billingNowUtc, isAtOrPastBillingInstant, BILLING_TIMEZONE } = await import("@shared/billingClock");
+    const now = billingNowUtc();
     
     // Get all batches for the organization
     const allBatches = await storage.getCreditBatchesByOrganization(organizationId);
 
-    // Expire ALL expired batches - no rollover
-    // All unused credits from previous cycle will be reset to zero
+    // UTC only: expiresAt <= now (absolute instants). Do not interpret as local calendar dates.
     const expiredBatches = allBatches.filter(
-      b => b.remainingQuantity > 0 && b.expiresAt && b.expiresAt <= now
+      b => b.remainingQuantity > 0 && b.expiresAt && isAtOrPastBillingInstant(b.expiresAt, now)
     );
 
     for (const batch of expiredBatches) {
@@ -228,11 +323,11 @@ export class SubscriptionService {
         source: "expiry" as any,
         quantity: -batch.remainingQuantity,
         batchId: batch.id,
-        notes: `Expired ${batch.remainingQuantity} unused credits from previous cycle (no rollover - credits reset to zero)`,
+        notes: `Expired ${batch.remainingQuantity} unused credits from previous cycle (no rollover - credits reset to zero; UTC expiresAt <= now)`,
       });
     }
 
-    console.log(`[Credit Expiry] Expired ${expiredBatches.length} batches with unused credits for org ${organizationId} (no rollover - credits reset to zero)`);
+    console.log(`[Credit Expiry] Expired ${expiredBatches.length} batches for org ${organizationId} (clock=${BILLING_TIMEZONE}, rule: expiresAt <= now UTC)`);
   }
 
   /**

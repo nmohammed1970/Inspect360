@@ -61,14 +61,10 @@ export class CurrencyService {
         return exchangeRateCache.rates;
       }
 
-      // Final fallback: return hardcoded approximate rates
+  // Final fallback: return hardcoded approximate rates (supported currencies only)
       console.warn("[CurrencyService] Using hardcoded fallback rates");
-      return {
-        USD: 1.27, // Approximate GBP to USD
-        EUR: 1.17, // Approximate GBP to EUR
-        AED: 4.67, // Approximate GBP to AED
-        GBP: 1.0,
-      };
+      const { BILLING_FALLBACK_RATES_FROM_GBP } = await import("@shared/billingCurrencies");
+      return { ...BILLING_FALLBACK_RATES_FROM_GBP };
     }
   }
 

@@ -20,6 +20,8 @@ import { formatPropertyLocationLabel, formatBlockLocationLabel } from "@shared/l
 import { Badge } from "@/components/ui/badge";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 
 const conditionLabels = {
   excellent: "Excellent",
@@ -167,6 +169,7 @@ export default function AssetInventory() {
   /** Internal "Specific location" text saved on assets (not addresses) */
   const [filterSpecificLocation, setFilterSpecificLocation] = useState<string>("all");
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+  const [assetToDelete, setAssetToDelete] = useState<AssetInventory | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<Partial<AssetInventory>>({});
@@ -325,6 +328,7 @@ export default function AssetInventory() {
         title: "Success",
         description: "Asset deleted successfully",
       });
+      setAssetToDelete(null);
     },
     onError: (error: Error) => {
       toast({
@@ -1040,7 +1044,7 @@ export default function AssetInventory() {
                           className="absolute top-1 right-1 h-6 w-6"
                           onClick={() => setUploadedPhotos(prev => prev.filter((_, i) => i !== index))}
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-3 h-3 text-destructive" />
                         </Button>
                       </div>
                     ))}
@@ -1049,7 +1053,6 @@ export default function AssetInventory() {
                 <ModernFilePickerInline
                   onFilesSelected={handlePhotoFilesSelected}
                   maxFiles={10}
-                  maxFileSize={10 * 1024 * 1024}
                   accept="image/*,.pdf,application/pdf"
                   multiple={true}
                   isUploading={isUploadingPhotos}
@@ -1137,6 +1140,17 @@ export default function AssetInventory() {
             ))}
           </SelectContent>
         </Select>
+
+        {(filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all") && (
+          <ClearFiltersButton
+            onClick={() => {
+              setFilterCategory("all");
+              setFilterCondition("all");
+              setFilterPropertyBlock("all");
+              setFilterSpecificLocation("all");
+            }}
+          />
+        )}
       </div>
 
       {/* Filters - Mobile */}
@@ -1236,8 +1250,7 @@ export default function AssetInventory() {
               </div>
 
               {(filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all") && (
-                <Button 
-                  variant="outline" 
+                <ClearFiltersButton
                   className="w-full"
                   onClick={() => {
                     setFilterCategory("all");
@@ -1245,10 +1258,7 @@ export default function AssetInventory() {
                     setFilterPropertyBlock("all");
                     setFilterSpecificLocation("all");
                   }}
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear All Filters
-                </Button>
+                />
               )}
             </div>
           </SheetContent>
@@ -1314,14 +1324,10 @@ export default function AssetInventory() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => {
-                        if (confirm("Are you sure you want to delete this asset?")) {
-                          deleteMutation.mutate(asset.id);
-                        }
-                      }}
+                      onClick={() => setAssetToDelete(asset)}
                       data-testid={`button-delete-${asset.id}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
                   </div>
                 </div>
@@ -1423,6 +1429,20 @@ export default function AssetInventory() {
           ))}
         </div>
       )}
+
+      <DeleteConfirmDialog
+        open={!!assetToDelete}
+        onOpenChange={(open) => {
+          if (!open) setAssetToDelete(null);
+        }}
+        title="Delete asset?"
+        description="This cannot be undone. You are about to delete"
+        itemName={assetToDelete?.name}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (assetToDelete) deleteMutation.mutate(assetToDelete.id);
+        }}
+      />
     </div>
   );
 }

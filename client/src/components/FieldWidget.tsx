@@ -23,6 +23,7 @@ import { useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { prepareImageForUpload } from "@/lib/compressImage";
 
 interface TemplateField {
   id: string;
@@ -584,86 +585,7 @@ export function FieldWidget({
   };
 
   // Compress image before upload to reduce file size and improve upload speed
-  const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.7): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          // Calculate new dimensions while maintaining aspect ratio
-          let width = img.width;
-          let height = img.height;
-
-          if (width > maxWidth || height > maxHeight) {
-            const ratio = Math.min(maxWidth / width, maxHeight / height);
-            width = width * ratio;
-            height = height * ratio;
-          }
-
-          // Create canvas and compress
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-
-          if (!ctx) {
-            reject(new Error('Failed to get canvas context'));
-            return;
-          }
-
-          ctx.drawImage(img, 0, 0, width, height);
-
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) {
-                reject(new Error('Failed to compress image'));
-                return;
-              }
-              // Keep original name but use .jpg when re-encoding
-              const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
-              const compressedFile = new File([blob], `${baseName}.jpg`, {
-                type: 'image/jpeg',
-                lastModified: Date.now(),
-              });
-              resolve(compressedFile);
-            },
-            'image/jpeg',
-            quality
-          );
-        };
-        img.onerror = () => reject(new Error('Failed to load image'));
-        img.src = e.target?.result as string;
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-  };
-
-  /** Allow large phone photos, then compress anything over 10MB down toward that size. */
-  const compressImageIfOverLimit = async (
-    file: File,
-    maxBytes: number = 10 * 1024 * 1024,
-  ): Promise<File> => {
-    if (!file.type.startsWith("image/") || file.size <= maxBytes) {
-      return file;
-    }
-
-    const originalSize = file.size;
-    let result = file;
-    let quality = 0.72;
-    let maxDim = 1920;
-
-    for (let attempt = 0; attempt < 6 && result.size > maxBytes; attempt++) {
-      result = await compressImage(result, maxDim, maxDim, quality);
-      quality = Math.max(0.35, quality - 0.1);
-      maxDim = Math.max(1024, Math.floor(maxDim * 0.85));
-    }
-
-    console.log(
-      `[FieldWidget] Compressed image from ${(originalSize / 1024 / 1024).toFixed(2)}MB to ${(result.size / 1024 / 1024).toFixed(2)}MB`,
-    );
-    return result;
-  };
+  // (shared helper — images are also compressed in ModernFilePickerInline / fileUploadSync)
 
   const handlePhotoFilesSelected = async (files: File[]) => {
     if (files.length === 0) return;
@@ -675,15 +597,9 @@ export function FieldWidget({
       for (let i = 0; i < files.length; i++) {
         let file = files[i];
 
-        // Allow large phone photos; compress anything over 10MB down toward that size.
-        // Lightly compress mid-size images for faster uploads.
         if (file.type.startsWith('image/')) {
           try {
-            if (file.size > 10 * 1024 * 1024) {
-              file = await compressImageIfOverLimit(file, 10 * 1024 * 1024);
-            } else if (file.size > 1024 * 1024) {
-              file = await compressImage(file, 1920, 1920, 0.7);
-            }
+            file = await prepareImageForUpload(file);
           } catch (compressError) {
             console.warn('[FieldWidget] Image compression failed, using original:', compressError);
           }
@@ -1783,7 +1699,7 @@ export function FieldWidget({
                       onClick={handleClearSignature}
                       data-testid={`button-clear-signature-${field.id}`}
                     >
-                      <Trash2 className="w-4 h-4 mr-2" />
+                      <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                       Clear Signature
                     </Button>
                   </div>
@@ -1811,7 +1727,7 @@ export function FieldWidget({
                         onClick={handleClearSignature}
                         data-testid={`button-clear-signature-${field.id}`}
                       >
-                        <Trash2 className="w-4 h-4 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                         Clear
                       </Button>
                       <Button
@@ -2248,7 +2164,7 @@ export function FieldWidget({
                       }}
                       data-testid={`button-remove-recording-${field.id}-${idx}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
                   </div>
                 ))}

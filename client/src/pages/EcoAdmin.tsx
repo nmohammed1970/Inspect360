@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import type { CreditBundle } from "@shared/schema";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { 
   // CurrencyManagement, // Hidden for now
   SubscriptionTierManagement, 
@@ -92,6 +93,7 @@ function BundlesManagement() {
   const { toast } = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<CreditBundle>>({});
+  const [bundleToDelete, setBundleToDelete] = useState<CreditBundle | null>(null);
 
   const { data: bundles, isLoading } = useQuery<CreditBundle[]>({
     queryKey: ["/api/admin/bundles"],
@@ -141,6 +143,7 @@ function BundlesManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/bundles"] });
       toast({ title: "Bundle deleted successfully" });
+      setBundleToDelete(null);
     },
   });
 
@@ -358,12 +361,8 @@ function BundlesManagement() {
                       <Edit className="h-4 w-4 mr-2" />
                       Edit
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => {
-                      if (confirm("Are you sure you want to delete this bundle?")) {
-                        deleteMutation.mutate(bundle.id);
-                      }
-                    }} data-testid={`button-delete-bundle-${bundle.id}`}>
-                      <Trash2 className="h-4 w-4" />
+                    <Button size="sm" variant="destructive" onClick={() => setBundleToDelete(bundle)} data-testid={`button-delete-bundle-${bundle.id}`}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 </div>
@@ -374,6 +373,20 @@ function BundlesManagement() {
           </div>
         </CardContent>
       </Card>
+
+      <DeleteConfirmDialog
+        open={!!bundleToDelete}
+        onOpenChange={(open) => {
+          if (!open) setBundleToDelete(null);
+        }}
+        title="Delete bundle?"
+        description="This cannot be undone. You are about to delete"
+        itemName={bundleToDelete?.name}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (bundleToDelete) deleteMutation.mutate(bundleToDelete.id);
+        }}
+      />
     </div>
   );
 }
