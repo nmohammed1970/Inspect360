@@ -17,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { ObjectUploader, COMPLIANCE_DOCUMENT_ACCEPT } from "@/components/ObjectUploader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { MapPreview } from "@/components/MapPreview";
@@ -91,8 +91,9 @@ const DEFAULT_DOCUMENT_TYPES = [
 ];
 
 const uploadFormSchema = insertComplianceDocumentSchema.extend({
+  documentType: z.string().min(1, "Please select a document type"),
   documentUrl: z.string().min(1, "Please upload a document"),
-  expiryDate: z.string().optional(),
+  expiryDate: z.string().min(1, "Please select an expiry date"),
 });
 
 type UploadFormValues = z.infer<typeof uploadFormSchema>;
@@ -642,7 +643,7 @@ export default function BlockDetail() {
                       name="expiryDate"
                       render={({ field }) => (
                         <FormItem className="flex flex-col">
-                          <FormLabel>Expiry Date (Optional)</FormLabel>
+                          <FormLabel>Expiry Date</FormLabel>
                           <Popover>
                             <PopoverTrigger asChild>
                               <FormControl>
@@ -679,6 +680,7 @@ export default function BlockDetail() {
                           <FormControl>
                             <ObjectUploader
                               maxNumberOfFiles={1}
+                              accept={COMPLIANCE_DOCUMENT_ACCEPT}
                               onGetUploadParameters={async () => {
                                 const response = await fetch('/api/objects/upload', {
                                   method: 'POST',
@@ -778,7 +780,15 @@ export default function BlockDetail() {
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" disabled={uploadMutation.isPending}>
+                      <Button
+                        type="submit"
+                        disabled={
+                          uploadMutation.isPending ||
+                          !form.watch("documentType") ||
+                          !form.watch("documentUrl") ||
+                          !form.watch("expiryDate")
+                        }
+                      >
                         {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
                       </Button>
                     </div>

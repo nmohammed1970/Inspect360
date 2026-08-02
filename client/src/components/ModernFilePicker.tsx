@@ -237,19 +237,23 @@ export function ModernFilePicker({
                       <FileText className="h-4 w-4" />
                       Browse Files
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleCameraClick}
-                      className="gap-2"
-                    >
-                      <Camera className="h-4 w-4" />
-                      Use Camera
-                    </Button>
+                    {(accept.includes("image") || accept === "*/*") && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleCameraClick}
+                        className="gap-2"
+                      >
+                        <Camera className="h-4 w-4" />
+                        Use Camera
+                      </Button>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {multiple ? `Up to ${maxFiles} files. ` : ""}
-                    Large photos are compressed automatically before upload.
+                    {accept.includes("image") && !accept.includes(".pdf")
+                      ? "Large photos are compressed automatically before upload."
+                      : "PDF, Word, Excel, and image files supported."}
                   </p>
                 </div>
               </div>

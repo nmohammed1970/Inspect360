@@ -25,6 +25,8 @@ interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
   /** Applies to non-image files only. Images are compressed on select with no size reject. */
   maxFileSize?: number;
+  /** File input accept string. Defaults to images only. */
+  accept?: string;
   onGetUploadParameters: () => Promise<{
     method: "PUT";
     url: string;
@@ -37,9 +39,14 @@ interface ObjectUploaderProps {
   children: ReactNode;
 }
 
+/** Common accept filter for compliance certificates / document uploads. */
+export const COMPLIANCE_DOCUMENT_ACCEPT =
+  ".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,application/pdf,image/*";
+
 export function ObjectUploader({
   maxNumberOfFiles = 1,
   maxFileSize = NON_IMAGE_MAX_BYTES,
+  accept = "image/*",
   onGetUploadParameters,
   onComplete,
   onModalOpen,
@@ -218,7 +225,7 @@ export function ObjectUploader({
         onFilesSelected={handleFilesSelected}
         maxFiles={maxNumberOfFiles}
         maxFileSize={maxFileSize}
-        accept="image/*"
+        accept={accept}
         multiple={maxNumberOfFiles > 1}
         isUploading={isUploading}
         uploadProgress={uploadProgress}

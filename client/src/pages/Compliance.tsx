@@ -22,7 +22,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { format as formatDate, differenceInDays, isPast } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { insertComplianceDocumentSchema, type ComplianceDocument, type Tag, type Block, type Property } from "@shared/schema";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { ObjectUploader, COMPLIANCE_DOCUMENT_ACCEPT } from "@/components/ObjectUploader";
 import { useAuth } from "@/hooks/useAuth";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
 import { Separator } from "@/components/ui/separator";
@@ -46,8 +46,9 @@ const uploadFormSchema = insertComplianceDocumentSchema.omit({
   organizationId: true,
   uploadedBy: true,
 }).extend({
+  documentType: z.string().min(1, "Please select a document type"),
   documentUrl: z.string().optional(),
-  expiryDate: z.string().optional(),
+  expiryDate: z.string().min(1, "Please select an expiry date"),
 });
 
 type UploadFormValues = z.infer<typeof uploadFormSchema>;
@@ -802,6 +803,7 @@ export default function Compliance() {
                     <ObjectUploader
                       buttonClassName="w-full"
                       maxNumberOfFiles={20}
+                      accept={COMPLIANCE_DOCUMENT_ACCEPT}
                       onGetUploadParameters={async () => {
                         try {
                           setIsUploading(true);
@@ -944,7 +946,7 @@ export default function Compliance() {
                     <FormItem className="flex flex-col">
                       <FormLabel className="flex items-center gap-2">
                         <CalendarIcon className="h-4 w-4" />
-                        Expiry Date (Optional)
+                        Expiry Date
                       </FormLabel>
                       <Popover modal={false}>
                         <PopoverTrigger asChild>
@@ -998,7 +1000,13 @@ export default function Compliance() {
                   <Button
                     type="submit"
                     className="bg-primary w-full sm:w-auto"
-                    disabled={uploadMutation.isPending || isUploading || uploadedFiles.length === 0 || !form.watch('documentType')}
+                    disabled={
+                      uploadMutation.isPending ||
+                      isUploading ||
+                      uploadedFiles.length === 0 ||
+                      !form.watch("documentType") ||
+                      !form.watch("expiryDate")
+                    }
                     data-testid="button-submit-document"
                   >
                     {uploadMutation.isPending ? "Saving..." : uploadedFiles.length > 1 ? `Upload ${uploadedFiles.length} Documents` : "Upload Document"}
