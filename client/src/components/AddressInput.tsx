@@ -136,7 +136,7 @@ export function AddressInput({
         setIsLoading(true);
         setError(null);
 
-        console.log('[AddressInput] Loading Google Maps script with API key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'none');
+        console.log('[AddressInput] Loading Google Maps Places script');
 
         // Load Google Maps script
         await loadGoogleMapsScript(apiKey);
@@ -495,7 +495,7 @@ export function AddressInput({
       {error && (
         <p className="text-xs text-destructive mt-1">{error}</p>
       )}
-      {apiKeyError && (
+      {!isLoadingKey && !apiKey && (
         <p className="text-xs text-muted-foreground mt-1">
           Address suggestions unavailable. You can still type the address manually.
         </p>

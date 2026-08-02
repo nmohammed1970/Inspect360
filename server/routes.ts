@@ -479,6 +479,7 @@ import {
 } from "@shared/schema";
 import { pricingService } from "./pricingService";
 import { planChangeStripeUpdateParams } from "@shared/stripeProrationPolicy";
+import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
 import {
   BILLING_FALLBACK_RATES_FROM_GBP,
   isSupportedBillingCurrency,
@@ -1163,7 +1164,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('[Google Maps API] Checking API key:', {
         exists: !!apiKey,
         length: apiKey?.length || 0,
-        startsWith: apiKey?.substring(0, 10) || 'N/A',
         rawEnvValue: process.env.GOOGLE_MAPS_API_KEY ? 'present' : 'missing',
         allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
       });
@@ -4879,16 +4879,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         new Date(i.scheduledDate) <= weekFromNow
       ).length;
 
-      // Get compliance docs for this property
+      // Get compliance docs for this property — same coverage model as blocks/calendar
       const allComplianceDocs = await storage.getComplianceDocuments(user.organizationId);
       const complianceDocs = allComplianceDocs.filter((d: any) => d.propertyId === id);
-      const validDocs = complianceDocs.filter((d: any) => {
-        if (!d.expiryDate) return true;
-        return new Date(d.expiryDate) > now;
-      }).length;
-      const complianceRate = complianceDocs.length > 0
-        ? Math.round((validDocs / complianceDocs.length) * 100)
-        : 100;
+      const complianceRate = computeDocumentComplianceRate(complianceDocs, now);
 
       // Get maintenance requests
       const maintenanceRequests = await storage.getMaintenanceRequestsByProperty(id);

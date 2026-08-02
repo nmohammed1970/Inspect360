@@ -4,6 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, Clock, Circle, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import {
+  DEFAULT_COMPLIANCE_DOC_TYPES,
+  computeDocumentComplianceRate,
+} from "@shared/complianceDocTypes";
 
 interface ComplianceDocument {
   id: string;
@@ -155,15 +159,7 @@ export default function ComplianceDocumentCalendar({ entityType, entityId, docum
     </div>
   );
 
-  const DEFAULT_DOCUMENT_TYPES = [
-    "Fire Safety Certificate",
-    "Building Insurance",
-    "Electrical Safety Certificate",
-    "Gas Safety Certificate",
-    "EPC Certificate",
-    "HMO License",
-    "Planning Permission",
-  ];
+  const DEFAULT_DOCUMENT_TYPES = [...DEFAULT_COMPLIANCE_DOC_TYPES];
 
   if (isLoading) {
     return (
@@ -263,9 +259,9 @@ export default function ComplianceDocumentCalendar({ entityType, entityId, docum
   const expiringCount = docTypesWithDocs.filter(d => d.status === 'expiring_soon').length;
   const expiredCount = docTypesWithDocs.filter(d => d.status === 'expired').length;
   const missingCount = documentTypeData.filter(d => !documentsByType[d.documentType]?.length).length;
-  const overallCompliance = documents.length > 0 
-    ? Math.round((validCount / docTypesWithDocs.length) * 100) 
-    : 0;
+  const overallCompliance = computeDocumentComplianceRate(
+    documents.map((d) => ({ documentType: d.documentType, expiryDate: d.expiryDate })),
+  );
 
   return (
     <Card>

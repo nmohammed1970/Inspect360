@@ -51,6 +51,7 @@ interface BlockStats {
   totalUnits: number;
   occupiedUnits: number;
   occupancyRate: number;
+  occupancyStatus?: string;
   complianceRate: number;
   inspectionsDue: number;
   overdueInspections: number;
@@ -530,7 +531,11 @@ export default function Blocks() {
                     </div>
                     <div className="flex items-baseline gap-2">
                       <span className="text-2xl font-bold" data-testid={`badge-occupancy-${block.id}`}>
-                        {block.stats?.occupancyRate || 0}%
+                        {block.stats?.occupancyStatus ??
+                          ((block.stats?.totalUnits || 0) > 0 &&
+                          (block.stats?.occupiedUnits || 0) === (block.stats?.totalUnits || 0)
+                            ? "Occupied"
+                            : "Vacant")}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {block.stats?.occupiedUnits || 0}/{block.stats?.totalUnits || 0}

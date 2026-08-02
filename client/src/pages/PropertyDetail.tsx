@@ -15,6 +15,7 @@ import { z } from "zod";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
 import { insertComplianceDocumentSchema, type AssetInventory } from "@shared/schema";
+import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -226,6 +227,10 @@ export default function PropertyDetail() {
     },
     enabled: !!propertyId,
   });
+
+  const complianceRateFromDocs = computeDocumentComplianceRate(
+    compliance.map((d) => ({ documentType: d.documentType, expiryDate: d.expiryDate })),
+  );
 
   const { data: complianceReport, isLoading: complianceReportLoading } = useQuery({
     queryKey: ["/api/properties", propertyId, "compliance-report"],
@@ -488,7 +493,7 @@ export default function PropertyDetail() {
               <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.complianceRate}%</div>
+              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
             </CardContent>
           </Card>
 

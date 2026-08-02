@@ -1088,6 +1088,31 @@ export class DatabaseStorage implements IStorage {
         .where(sql`${inspections.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`);
     }
 
+    // Occupancy: active tenant assignments (null isActive treated as active, matching property detail)
+    const tenantRows = await db
+      .select({
+        propertyId: tenantAssignments.propertyId,
+        isActive: tenantAssignments.isActive,
+      })
+      .from(tenantAssignments)
+      .where(
+        sql`${tenantAssignments.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`,
+      );
+    const occupiedPropertyIds = new Set<string>();
+    for (const row of tenantRows) {
+      if (!row.propertyId) continue;
+      if (row.isActive === false) continue;
+      occupiedPropertyIds.add(row.propertyId);
+    }
+
+    const orgId = blockProperties[0]?.organizationId;
+    const allComplianceDocs = orgId ? await this.getComplianceDocuments(orgId) : [];
+    const now = new Date();
+    const isDocCurrent = (doc: { expiryDate?: Date | string | null }) => {
+      if (!doc.expiryDate) return true;
+      return new Date(doc.expiryDate) >= now;
+    };
+
     // Group inspections by property
     const inspectionsByProperty = new Map<string, typeof allInspections>();
     allInspections.forEach(inspection => {
@@ -1100,11 +1125,8 @@ export class DatabaseStorage implements IStorage {
     });
 
     // Calculate date ranges once
-    const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(now.getDate() - 90);
 
     // Build stats for each property
     const propertiesWithStats = blockProperties.map(property => {
@@ -1125,19 +1147,33 @@ export class DatabaseStorage implements IStorage {
         return scheduledDate < now && insp.status !== 'completed';
       }).length;
 
-      // Calculate compliance rate (has recent completed inspection)
-      let complianceRate = 0;
-      let complianceStatus = 'No data';
-      const hasRecentInspection = propertyInspections.some(insp => {
-        const scheduledDate = new Date(insp.scheduledDate);
-        return scheduledDate >= ninetyDaysAgo && insp.status === 'completed';
-      });
-      complianceRate = hasRecentInspection ? 100 : 0;
-      complianceStatus = hasRecentInspection ? 'Compliant' : 'Needs inspection';
+      // Same coverage model as blocks: required types with a current document
+      const propDocs = allComplianceDocs.filter((d: any) => d.propertyId === property.id);
+      const DEFAULT_TYPES = [
+        "Fire Safety Certificate",
+        "Building Insurance",
+        "Electrical Safety Certificate",
+        "Gas Safety Certificate",
+        "EPC Certificate",
+        "HMO License",
+        "Planning Permission",
+      ];
+      const covered = DEFAULT_TYPES.filter((docType) =>
+        propDocs.some((d: any) => d.documentType === docType && isDocCurrent(d)),
+      );
+      const complianceRate = Math.round((covered.length / DEFAULT_TYPES.length) * 100);
+      const complianceStatus =
+        complianceRate >= 80
+          ? "Compliant"
+          : propDocs.length === 0
+            ? "No documents"
+            : "Needs attention";
+      const occupancyStatus = occupiedPropertyIds.has(property.id) ? 'Occupied' : 'Vacant';
 
       return {
         ...property,
         stats: {
+          occupancyStatus,
           complianceRate,
           complianceStatus,
           inspectionsDue,
@@ -1777,20 +1813,34 @@ export class DatabaseStorage implements IStorage {
         .where(sql`${inspections.blockId} IN (${sql.join(blockIds.map(id => sql`${id}`), sql`, `)})`);
     }
 
-    // Active tenant assignments for occupancy
-    let activeTenantPropertyIds = new Set<string>();
+    // Compliance documents for document-based compliance %
+    const allComplianceDocs = await this.getComplianceDocuments(organizationId);
+    const DEFAULT_COMPLIANCE_DOC_TYPES = [
+      "Fire Safety Certificate",
+      "Building Insurance",
+      "Electrical Safety Certificate",
+      "Gas Safety Certificate",
+      "EPC Certificate",
+      "HMO License",
+      "Planning Permission",
+    ];
+
+    // Active tenant assignments for occupancy (null isActive = active)
+    let occupiedPropertyIds = new Set<string>();
     if (propertyIds.length > 0) {
-      const activeAssignments = await db
-        .select({ propertyId: tenantAssignments.propertyId })
+      const tenantRows = await db
+        .select({
+          propertyId: tenantAssignments.propertyId,
+          isActive: tenantAssignments.isActive,
+        })
         .from(tenantAssignments)
         .where(
-          and(
-            sql`${tenantAssignments.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`,
-            eq(tenantAssignments.isActive, true),
-          ),
+          sql`${tenantAssignments.propertyId} IN (${sql.join(propertyIds.map(id => sql`${id}`), sql`, `)})`,
         );
-      activeTenantPropertyIds = new Set(
-        activeAssignments.map((a) => a.propertyId).filter(Boolean) as string[],
+      occupiedPropertyIds = new Set(
+        tenantRows
+          .filter((a) => a.propertyId && a.isActive !== false)
+          .map((a) => a.propertyId as string),
       );
     }
 
@@ -1820,19 +1870,26 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(now.getDate() - 90);
 
     const isPendingInspection = (insp: { status?: string | null }) =>
       insp.status === "scheduled" || insp.status === "in_progress";
+
+    const isDocCurrent = (doc: { expiryDate?: Date | string | null }) => {
+      if (!doc.expiryDate) return true;
+      // Not expired yet — includes "expiring soon"
+      return new Date(doc.expiryDate) >= now;
+    };
 
     // Build stats for each block
     const blocksWithStats = allBlocks.map(block => {
       const blockProperties = propertiesByBlock.get(block.id) || [];
       const totalProperties = blockProperties.length;
       const totalUnits = totalProperties;
-      const occupiedUnits = blockProperties.filter((p) => activeTenantPropertyIds.has(p.id)).length;
+      const occupiedUnits = blockProperties.filter((p) => occupiedPropertyIds.has(p.id)).length;
       const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+      // Block is Occupied only when every property is occupied; any vacant → Vacant
+      const occupancyStatus =
+        totalUnits > 0 && occupiedUnits === totalUnits ? "Occupied" : "Vacant";
 
       // Get all inspections for this block (both property-level and block-level)
       const blockPropertyInspections = blockProperties.flatMap(prop =>
@@ -1857,18 +1914,21 @@ export class DatabaseStorage implements IStorage {
         return scheduledDate < now && insp.status !== 'completed';
       }).length;
 
-      // Calculate compliance rate (properties with recent completed inspections)
-      let complianceRate = 0;
-      if (totalProperties > 0) {
-        const propertiesWithRecentInspections = new Set<string>();
-        blockPropertyInspections.forEach(insp => {
-          const scheduledDate = new Date(insp.scheduledDate);
-          if (scheduledDate >= ninetyDaysAgo && insp.status === 'completed' && insp.propertyId) {
-            propertiesWithRecentInspections.add(insp.propertyId);
-          }
-        });
-        complianceRate = Math.round((propertiesWithRecentInspections.size / totalProperties) * 100);
-      }
+      // Compliance % from uploaded documents (not inspections).
+      // Include block-level docs AND docs on properties in this block
+      // (uploads with propertyIds store property copies with blockId null).
+      const propertyIdSet = new Set(blockProperties.map((p) => p.id));
+      const blockDocs = allComplianceDocs.filter(
+        (d: any) =>
+          d.blockId === block.id ||
+          (d.propertyId && propertyIdSet.has(d.propertyId)),
+      );
+      const coveredTypes = DEFAULT_COMPLIANCE_DOC_TYPES.filter((docType) =>
+        blockDocs.some((d: any) => d.documentType === docType && isDocCurrent(d)),
+      );
+      const complianceRate = Math.round(
+        (coveredTypes.length / DEFAULT_COMPLIANCE_DOC_TYPES.length) * 100,
+      );
 
       return {
         ...block,
@@ -1877,6 +1937,7 @@ export class DatabaseStorage implements IStorage {
           totalUnits,
           occupiedUnits,
           occupancyRate,
+          occupancyStatus,
           complianceRate,
           inspectionsDue,
           overdueInspections,

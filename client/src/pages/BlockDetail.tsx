@@ -28,6 +28,7 @@ import {
   Wrench
 } from "lucide-react";
 import { format } from "date-fns";
+import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
 
 interface PropertyStats {
   totalUnits: number;
@@ -52,6 +53,7 @@ interface BlockStats {
   totalUnits: number;
   occupiedUnits: number;
   occupancyRate: number;
+  occupancyStatus?: string;
   complianceRate: number;
   inspectionsDue: number;
   overdueInspections: number;
@@ -186,6 +188,11 @@ export default function BlockDetail() {
     ...DEFAULT_DOCUMENT_TYPES,
     ...customDocTypes.map((t) => t.name),
   ];
+
+  // Match the Compliance Documents calendar: coverage of required types from uploaded docs
+  const complianceRateFromDocs = computeDocumentComplianceRate(
+    compliance.map((d) => ({ documentType: d.documentType, expiryDate: d.expiryDate })),
+  );
 
   const uploadMutation = useMutation({
     mutationFn: async (data: UploadFormValues & { propertyIds?: string[] }) => {
@@ -409,9 +416,15 @@ export default function BlockDetail() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{block.stats.occupancyRate ?? 0}%</div>
+              <div className="text-2xl font-bold">
+                {block.stats.occupancyStatus ??
+                  ((block.stats.totalUnits ?? 0) > 0 &&
+                  (block.stats.occupiedUnits ?? 0) === (block.stats.totalUnits ?? 0)
+                    ? "Occupied"
+                    : "Vacant")}
+              </div>
               <p className="text-xs text-muted-foreground">
-                {block.stats.occupiedUnits ?? 0}/{block.stats.totalUnits ?? 0} units
+                {block.stats.occupiedUnits ?? 0}/{block.stats.totalUnits ?? 0} units occupied
               </p>
             </CardContent>
           </Card>
@@ -422,7 +435,7 @@ export default function BlockDetail() {
               <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{block.stats.complianceRate ?? 0}%</div>
+              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
             </CardContent>
           </Card>
 
@@ -513,7 +526,9 @@ export default function BlockDetail() {
                             <Users className="h-4 w-4 text-muted-foreground" />
                             Occupancy
                           </div>
-                          <p className="text-sm font-semibold">{property.stats?.occupancyStatus || 'No data'}</p>
+                          <p className="text-sm font-semibold">
+                            {property.stats?.occupancyStatus ?? "Vacant"}
+                          </p>
                         </div>
 
                         {/* Compliance */}
@@ -523,10 +538,10 @@ export default function BlockDetail() {
                             Compliance
                           </div>
                           <Badge 
-                            variant={(property.stats?.complianceRate || 0) >= 80 ? "default" : "destructive"}
+                            variant={(property.stats?.complianceRate ?? 0) >= 80 ? "default" : "destructive"}
                             className="text-xs"
                           >
-                            {property.stats?.complianceStatus || 'No data'}
+                            {property.stats?.complianceRate ?? 0}%
                           </Badge>
                         </div>
 
