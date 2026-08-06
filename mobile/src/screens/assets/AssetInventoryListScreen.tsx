@@ -542,7 +542,6 @@ export default function AssetInventoryListScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: 'images' as any,
-        allowsEditing: true,
         quality: 0.8,
       });
 

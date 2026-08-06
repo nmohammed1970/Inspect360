@@ -825,7 +825,6 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: 'images' as any,
-        allowsEditing: true,
         quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
         exif: false, // Disable EXIF to reduce file size
       });

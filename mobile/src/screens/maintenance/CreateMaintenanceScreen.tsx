@@ -354,7 +354,6 @@ export default function CreateMaintenanceScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: 'images' as any,
-        allowsEditing: true,
         quality: 0.8,
       });
 
