@@ -79,7 +79,8 @@ const withNetworkSecurity = (config) => {
       }
       
       // Copy certificate to raw resources (bundle it in APK)
-      if (fs.existsSync(certSourcePath)) {
+      const certExists = fs.existsSync(certSourcePath);
+      if (certExists) {
         const certDestPath = path.join(androidRawPath, 'intermediate_ca_bundle.pem');
         fs.copyFileSync(certSourcePath, certDestPath);
         console.log('✓ Bundled intermediate CA certificate for Android');
@@ -88,7 +89,14 @@ const withNetworkSecurity = (config) => {
         console.warn('⚠ Run: node scripts/extract-certificates.js');
       }
       
-      // Create network security config that references the bundled certificate
+      // Create network security config. Do NOT use "*.inspect360.ai" as a domain —
+      // Android network-security-config rejects wildcard domain hostnames and can crash on launch.
+      const certTrustAnchor = certExists
+        ? `            <!-- Trust bundled intermediate CA certificate -->
+            <certificates src="@raw/intermediate_ca_bundle" />
+`
+        : '';
+
       const networkSecurityConfig = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!-- Trust system certificates by default -->
@@ -101,14 +109,11 @@ const withNetworkSecurity = (config) => {
     <!-- Trust custom certificates for inspect360.ai domain -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">inspect360.ai</domain>
-        <domain includeSubdomains="true">portal.inspect360.ai</domain>
-        <domain includeSubdomains="true">*.inspect360.ai</domain>
+        <domain includeSubdomains="false">portal.inspect360.ai</domain>
         <trust-anchors>
             <!-- Trust system certificates -->
             <certificates src="system" />
-            <!-- Trust bundled intermediate CA certificate -->
-            <certificates src="@raw/intermediate_ca_bundle" />
-            <!-- Trust user-installed certificates (fallback) -->
+${certTrustAnchor}            <!-- Trust user-installed certificates (fallback) -->
             <certificates src="user" />
         </trust-anchors>
     </domain-config>

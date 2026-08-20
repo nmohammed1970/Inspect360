@@ -42,14 +42,14 @@ const styles = StyleSheet.create({
     // Colors are now set dynamically via theme
   },
   default: {
-    ...shadows.sm,
+    ...(shadows?.sm ?? {}),
   },
   outlined: {
     borderWidth: 1,
     // borderColor will be set dynamically via theme
   },
   elevated: {
-    ...shadows.md,
+    ...(shadows?.md ?? {}),
   },
   padding_none: {
     padding: 0,

@@ -2,41 +2,42 @@ import Constants from 'expo-constants';
 import * as Network from 'expo-network';
 import { Platform } from 'react-native';
 
+const PRODUCTION_API_URL = 'https://portal.inspect360.ai';
+
+const getExtraApiUrl = (): string | undefined => {
+  const extra =
+    (Constants.expoConfig?.extra as Record<string, unknown> | undefined) ||
+    ((Constants as any).manifest2?.extra?.expoClient?.extra as Record<string, unknown> | undefined) ||
+    ((Constants as any).manifest?.extra as Record<string, unknown> | undefined);
+  const value = extra?.apiUrl;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+};
+
 // Lazy function to get base URL - re-evaluates each time to get latest hostUri
 const getBaseUrl = (): string => {
-  // Check if we're in development mode
-  const isDevelopment = Constants.executionEnvironment !== 'standalone' && 
-                        Constants.executionEnvironment !== 'storeClient';
+  // Prefer __DEV__ for localhost rewriting. Never throw — EAS builds are "bare",
+  // and missing env must not crash the app at import time.
+  const isDevelopment = typeof __DEV__ !== 'undefined' && __DEV__;
   
   // Priority order:
-  // 1. EXPO_PUBLIC_API_URL from .env (runtime check - most reliable)
-  // 2. app.config.js extra.apiUrl (build-time fallback from .env)
-  let apiUrl = process.env.EXPO_PUBLIC_API_URL;
-  
-  // If not found in process.env, check Constants (from app.config.js which reads from .env)
-  if (!apiUrl) {
-    apiUrl = (Constants.expoConfig?.extra as any)?.apiUrl || Constants.expoConfig?.extra?.apiUrl;
-  }
+  // 1. EXPO_PUBLIC_API_URL from env / Metro inline
+  // 2. app.config.js extra.apiUrl (build-time)
+  // 3. Hardcoded production fallback (never crash on launch)
+  let apiUrl = process.env.EXPO_PUBLIC_API_URL || getExtraApiUrl();
   
   // Log what we found for debugging (only in development to reduce production logs)
   if (isDevelopment) {
     console.log('[API] Environment check:', {
       'process.env.EXPO_PUBLIC_API_URL': process.env.EXPO_PUBLIC_API_URL || '(not set)',
       'Constants.expoConfig?.extra?.apiUrl': Constants.expoConfig?.extra?.apiUrl || '(not set)',
-      'selected apiUrl': apiUrl || '(ERROR: not configured)'
+      'executionEnvironment': Constants.executionEnvironment,
+      'selected apiUrl': apiUrl || '(using production fallback)'
     });
   }
   
-  // Require API URL to be set - but provide a fallback for production builds
   if (!apiUrl) {
-    const errorMsg = '[API] ERROR: EXPO_PUBLIC_API_URL is not set in .env file. Please set it in mobile/.env';
-    console.error(errorMsg);
-    // In production builds, use production URL as fallback instead of crashing
-    if (Constants.executionEnvironment === 'standalone' || Constants.executionEnvironment === 'storeClient') {
-      console.warn('[API] Using production fallback URL: https://portal.inspect360.ai');
-      return 'https://portal.inspect360.ai';
-    }
-    throw new Error(errorMsg);
+    console.warn('[API] EXPO_PUBLIC_API_URL missing — using production fallback:', PRODUCTION_API_URL);
+    return PRODUCTION_API_URL;
   }
 
   // Check if we're in development mode and using localhost
@@ -169,11 +170,8 @@ const getCachedAPI_URL = (): string => {
   return _cachedAPI_URL;
 };
 
-// Initialize cache
-const initialUrl = getBaseUrl();
-_cachedAPI_URL = initialUrl;
-_lastCheck = Date.now();
-console.log('[API] Initialized with API_URL:', initialUrl);
+// Do not call getBaseUrl() at module load — a throw here crashes the app before React mounts.
+// Cache is filled lazily on first request.
 
 export interface ApiError {
   message: string;

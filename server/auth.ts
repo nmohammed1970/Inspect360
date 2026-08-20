@@ -631,13 +631,16 @@ export async function setupAuth(app: Express) {
       // Normalize email to lowercase for case-insensitive matching
       const normalizedEmail = email.toLowerCase().trim();
       const user = await storage.getUserByEmail(normalizedEmail);
+
+      // Always return the same success response whether or not the email exists
+      // (prevents account enumeration). Only send a code when the user is found.
+      const genericSuccess = {
+        message: "If an account exists for that email, a password reset code has been sent.",
+        emailSent: true,
+      };
+
       if (!user) {
-        // Email not found - tell user to sign up
-        return res.status(404).json({
-          message: "Email not found. Please sign up to create an account.",
-          emailSent: false,
-          emailNotFound: true
-        });
+        return res.json(genericSuccess);
       }
 
       // Generate reset token (6-digit code for simplicity)
@@ -647,7 +650,6 @@ export async function setupAuth(app: Express) {
       await storage.setResetToken(user.id, resetToken, expiry);
 
       // Send password reset email
-      let emailSent = false;
       try {
         const { sendPasswordResetEmail } = await import('./resend');
         const displayName = user.firstName
@@ -658,21 +660,21 @@ export async function setupAuth(app: Express) {
           displayName,
           resetToken
         );
-        emailSent = true;
       } catch (emailError) {
         console.error('Failed to send password reset email:', emailError);
-        // If email fails, still return success but indicate email wasn't sent
+        // Clear token so a failed send does not leave a usable code in the DB
+        try {
+          await storage.clearResetToken(user.id);
+        } catch (clearError) {
+          console.error('Failed to clear reset token after email error:', clearError);
+        }
         return res.status(500).json({
           message: "Failed to send reset email. Please try again later.",
           emailSent: false
         });
       }
 
-      // Return success with email sent indicator
-      res.json({
-        message: "Password reset code has been sent to your email",
-        emailSent: true
-      });
+      res.json(genericSuccess);
     } catch (error) {
       console.error("Forgot password error:", error);
       res.status(500).json({ message: "Failed to process request" });
@@ -692,15 +694,20 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
 
-      // Normalize email to lowercase for case-insensitive matching
+      // Normalize email and token (digits only, 6 chars)
       const normalizedEmail = email.toLowerCase().trim();
+      const normalizedToken = String(token).replace(/\D/g, "").trim();
+      if (normalizedToken.length !== 6) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+
       const user = await storage.getUserByEmail(normalizedEmail);
       if (!user || !user.resetToken || !user.resetTokenExpiry) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
       // Check if token matches and hasn't expired
-      if (user.resetToken !== token || new Date() > user.resetTokenExpiry) {
+      if (user.resetToken !== normalizedToken || new Date() > user.resetTokenExpiry) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 

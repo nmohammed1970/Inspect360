@@ -8,7 +8,6 @@ export const colors = {
   // Base colors
   background: '#ffffff',
   foreground: '#0a0a0a',
-  border: '#e5e5e5',
   input: '#e5e5e5',
   
   // Card colors
@@ -91,7 +90,6 @@ export const darkColors = {
   // Base colors
   background: '#0a0a0a',
   foreground: '#fafafa',
-  border: '#262626',
   input: '#262626',
   
   // Card colors - using darker gray (#1a1a1a) to match reference image

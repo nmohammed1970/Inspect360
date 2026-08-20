@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Send, ImagePlus, Loader2, CheckCircle2, AlertCircle, MessageSquare, ArrowLeft } from "lucide-react";
+import { Send, ImagePlus, Loader2, CheckCircle2, AlertCircle, MessageSquare, ArrowLeft, ClipboardList } from "lucide-react";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import { useLocation, Link } from "wouter";
@@ -21,6 +21,7 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { TenantLogRequestDialog } from "@/components/TenantLogRequestDialog";
 
 interface ChatMessage {
   id: string;
@@ -46,6 +47,7 @@ export default function TenantMaintenance() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [isLogRequestOpen, setIsLogRequestOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: chats = [], isLoading: isLoadingChats } = useQuery<Chat[]>({
@@ -157,24 +159,34 @@ export default function TenantMaintenance() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            onClick={() => navigate("/tenant/home")}
-            data-testid="button-back-home"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <MessageSquare className="h-6 w-6 text-primary" />
-              AI Maintenance Help
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              Get instant help with property issues
-            </p>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              onClick={() => navigate("/tenant/home")}
+              data-testid="button-back-home"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <MessageSquare className="h-6 w-6 text-primary" />
+                AI Maintenance Help
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                Get instant help with property issues
+              </p>
+            </div>
           </div>
+          <Button
+            variant="outline"
+            onClick={() => setIsLogRequestOpen(true)}
+            data-testid="button-log-request-manual"
+          >
+            <ClipboardList className="h-4 w-4 mr-2" />
+            Log a Maintenance Request
+          </Button>
         </div>
       </div>
 
@@ -242,6 +254,17 @@ export default function TenantMaintenance() {
                       solutions. If the issue isn't resolved, you can create a maintenance request.
                     </CardDescription>
                   </CardHeader>
+                  <CardContent>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setIsLogRequestOpen(true)}
+                      data-testid="button-bypass-ai-log-request"
+                    >
+                      <ClipboardList className="h-4 w-4 mr-2" />
+                      Skip AI — Log a Maintenance Request
+                    </Button>
+                  </CardContent>
                 </Card>
               </div>
             )}
@@ -289,7 +312,7 @@ export default function TenantMaintenance() {
           {/* Input Area */}
           <div className="border-t p-4 space-y-4">
             {currentChat && !currentChat.maintenanceRequestId && (
-              <div className="flex justify-center">
+              <div className="flex flex-col sm:flex-row justify-center gap-2">
                 <Button
                   onClick={handleCreateRequest}
                   disabled={createMaintenanceMutation.isPending}
@@ -302,6 +325,27 @@ export default function TenantMaintenance() {
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                   )}
                   Issue Not Resolved - Create Maintenance Request
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setIsLogRequestOpen(true)}
+                  data-testid="button-log-request-from-chat"
+                >
+                  <ClipboardList className="h-4 w-4 mr-2" />
+                  Log manually instead
+                </Button>
+              </div>
+            )}
+
+            {!currentChat?.maintenanceRequestId && (
+              <div className="flex justify-center md:hidden">
+                <Button
+                  variant="link"
+                  className="text-sm"
+                  onClick={() => setIsLogRequestOpen(true)}
+                  data-testid="button-log-request-mobile"
+                >
+                  Prefer to skip AI? Log a maintenance request
                 </Button>
               </div>
             )}
@@ -466,6 +510,12 @@ export default function TenantMaintenance() {
           </div>
         </div>
       </div>
+
+      <TenantLogRequestDialog
+        open={isLogRequestOpen}
+        onOpenChange={setIsLogRequestOpen}
+        onSuccessNavigate={() => navigate("/tenant/requests")}
+      />
     </div>
   );
 }

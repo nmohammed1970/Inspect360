@@ -1,5 +1,7 @@
 /**
  * Theme index - exports all theme tokens
+ * Keep this file free of React context imports to avoid circular deps
+ * (theme ↔ ThemeContext) that leave exports undefined during module init.
  */
 
 import colors from './colors';
@@ -74,8 +76,7 @@ export const shadows = {
 };
 
 export { colors, spacing, typography };
-export { useTheme } from '../contexts/ThemeContext';
-// Note: themeColors is NOT exported from here - it's only available via useTheme() hook
+// useTheme lives in contexts/ThemeContext — import it from there, not from this barrel
 
 export default {
   colors,
@@ -84,4 +85,3 @@ export default {
   borderRadius,
   shadows,
 };
-

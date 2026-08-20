@@ -1,0 +1,84 @@
+# Monorepo EAS archive — exclude server/web and dev artifacts from upload.
+# Must live at git root; overrides all .gitignore rules when present.
+# Patterns without a slash match in ANY directory — use /prefix for root-only.
+
+# Large local-only directories
+.git/
+.local/
+storage/
+
+# Other monorepo packages (mobile only needs shared/)
+/client/
+/server/
+/attached_assets/
+/migrations/
+/deployment/
+/docs/
+/temp_docx/
+/.agent/
+/.github/
+/.config/
+
+# Dependencies and build output (installed/generated on EAS)
+node_modules/
+dist/
+build/
+.expo/
+
+# Environment and secrets
+.env
+.env.*
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and temp files
+*.log
+/tmp/
+*.tmp
+*.temp
+.cache/
+tsc_output*.txt
+*_cookies.txt
+test_*.sh
+*.tar.gz
+*.tar
+backup-*.sql
+storage-backup-*.tar.gz
+
+# Root-only Docker/server files (leading / = repo root only)
+/Dockerfile
+/docker-compose*.yml
+/.dockerignore
+/.replit
+/package.json
+/package-lock.json
+/tsconfig.json
+/vite.config.ts
+/tailwind.config.ts
+/postcss.config.js
+/drizzle.config.ts
+/esbuild.config.mjs
+/components.json
+/eas.json
+/app.json
+/setup-database.ps1
+/test-database-connection.ps1
+/*.html
+/*.pdf
+
+# Docs (not needed for native build)
+*.md
+
+# Mobile-only dev artifacts
+/mobile/scripts/
+/mobile/eas-archive-inspect/
+/mobile/__tests__/
+/mobile/**/*.test.ts
+/mobile/**/*.test.tsx
+/mobile/**/*.spec.ts
+/mobile/**/*.spec.tsx
+/mobile/STAR.inspect360.ai_cert/

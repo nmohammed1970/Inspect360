@@ -12552,51 +12552,90 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         }
       }
 
-      // Make AI call using Responses API (consistent with rest of codebase)
-      let aiCallSucceeded = false;
-
-      // Build the input content using legacy format (text/image_url types)
-      // then pass through normalizeApiContent which converts to input_text/input_image
-      const contentItems: any[] = [];
-
-      // Add text description first
-      contentItems.push({
-        type: "text",
-        text: `You are a helpful maintenance assistant. Analyze this maintenance issue and provide simple, actionable suggestions on how to fix it. Be concise and practical.
-
-Issue description: ${issueDescription || "Please analyze this maintenance issue"}
-
-Provide 3-5 brief, practical suggestions for resolving this issue. Focus on what the person can do themselves first, then mention when to call a professional.`,
-      });
-
-      // Add image if available
-      if (imageUrlForAI) {
-        console.log("[Maintenance Analyze Image] Adding image to AI request");
-        contentItems.push({
-          type: "image_url",
-          image_url: { url: imageUrlForAI },
+      // Prefer Chat Completions + high-detail vision (same stack as tenant maintenance chat).
+      // When a photo is provided, analysis MUST be driven by the image — not the title alone.
+      if (imageUrl && !imageUrlForAI) {
+        return res.status(400).json({
+          message: "Could not load the uploaded photo for analysis. Please re-upload the image and try again.",
         });
       }
 
-      console.log("[Maintenance Analyze Image] Making AI call with Responses API");
+      let aiCallSucceeded = false;
+
+      const optionalNotes = (issueDescription && issueDescription.trim()) || "";
+      const visionPrompt = `Carefully examine the attached property maintenance photo.
+
+You MUST base your analysis on what is visible in the photo (not assumptions from a short title).
+
+Respond in this structure:
+1. What you see in the photo (specific visual details)
+2. Likely cause based on the photo evidence
+3. 3-5 practical next steps (DIY first, then when to call a professional)
+
+${optionalNotes
+  ? `Optional user notes (secondary hints only — if they conflict with the photo, trust the photo):\n${optionalNotes}`
+  : "The user did not provide extra notes. Infer the issue only from the photo."}`;
+
+      const textOnlyPrompt = `Analyze this property maintenance issue and provide 3-5 brief, practical suggestions (DIY first, then when to call a professional).
+
+Issue details:
+${optionalNotes || "No details provided."}`;
+
+      const userContent: any = imageUrlForAI
+        ? [
+            {
+              type: "image_url",
+              image_url: { url: imageUrlForAI, detail: "high" },
+            },
+            {
+              type: "text",
+              text: visionPrompt,
+            },
+          ]
+        : textOnlyPrompt;
+
+      console.log("[Maintenance Analyze Image] Making AI call with Chat Completions API", {
+        hasImage: !!imageUrlForAI,
+        notesPreview: optionalNotes.slice(0, 120),
+      });
+
       try {
-        const response = await openaiClient.responses.create({
+        const analysisCompletion = await openaiClient.chat.completions.create({
           model: "gpt-4o",
-          input: [{ role: "user", content: normalizeApiContent(contentItems) }],
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a property maintenance inspector assistant. When a photo is attached, visually inspect it first and explain the issue from visual evidence. Never invent a diagnosis from a short title alone when a photo is present. Ordinary property photos (kitchens, bathrooms, leaks, water damage, appliances, renovations) are always appropriate to analyze — never refuse them.",
+            },
+            {
+              role: "user",
+              content: userContent,
+            },
+          ],
+          max_completion_tokens: 1200,
         });
 
-        console.log("[Maintenance Analyze Image] OpenAI Response received, status:", response.status);
+        const responseContent = analysisCompletion.choices?.[0]?.message?.content || "";
+        const finishReason = analysisCompletion.choices?.[0]?.finish_reason;
+        console.log("[Maintenance Analyze Image] OpenAI Chat response:", {
+          contentLength: responseContent.length,
+          finishReason,
+        });
 
-        // Extract content from response using standard pattern
-        const outputContent = response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "";
-        console.log("[Maintenance Analyze Image] Output content length:", outputContent?.length || 0);
+        const trimmed = responseContent.trim();
+        const looksLikeRefusal =
+          !trimmed ||
+          /i'?m sorry,? i can'?t help/i.test(trimmed) ||
+          /i can'?t assist with that/i.test(trimmed) ||
+          /unable to (help|assist)/i.test(trimmed);
 
-        if (outputContent && outputContent.trim().length > 0) {
-          suggestedFixes = cleanMarkdownText(outputContent.trim());
+        if (trimmed && !looksLikeRefusal) {
+          suggestedFixes = cleanMarkdownText(trimmed);
           aiCallSucceeded = true;
           console.log("[Maintenance Analyze Image] Successfully got AI response, length:", suggestedFixes.length);
         } else {
-          console.warn("[Maintenance Analyze Image] OpenAI returned empty response");
+          console.warn("[Maintenance Analyze Image] Empty or refusal-like response:", trimmed.slice(0, 80));
         }
       } catch (aiError: any) {
         console.error("[Maintenance Analyze Image] Error with AI call:", aiError?.message);
@@ -28749,6 +28788,74 @@ You can help the tenant with:
     } catch (error) {
       console.error("Error fetching tenant maintenance requests:", error);
       res.status(500).json({ message: "Failed to fetch requests" });
+    }
+  });
+
+  // Manually log a maintenance request (bypass AI chat)
+  // Property/block/org are always taken from the tenant's active tenancy — never from the client body.
+  app.post("/api/tenant/maintenance-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "tenant" || !user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+      const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
+      const priorityRaw = typeof req.body?.priority === "string" ? req.body.priority : "medium";
+      const photoUrls = Array.isArray(req.body?.photoUrls)
+        ? req.body.photoUrls.filter((url: unknown) => typeof url === "string" && url.length > 0)
+        : [];
+      const aiSuggestedFixes =
+        typeof req.body?.aiSuggestedFixes === "string" && req.body.aiSuggestedFixes.trim()
+          ? req.body.aiSuggestedFixes.trim()
+          : null;
+
+      if (!title) {
+        return res.status(400).json({ message: "Title is required" });
+      }
+
+      const allowedPriorities = ["low", "medium", "high"];
+      const priority = allowedPriorities.includes(priorityRaw) ? priorityRaw : "medium";
+
+      const tenancy = await storage.getTenancyByTenantId(userId);
+      if (!tenancy?.propertyId) {
+        return res.status(400).json({ message: "No tenancy found. Contact your property manager." });
+      }
+      if (tenancy.isActive === false) {
+        return res.status(400).json({ message: "Your tenancy is inactive. Contact your property manager." });
+      }
+
+      const property = await storage.getProperty(tenancy.propertyId);
+      if (!property) {
+        return res.status(400).json({ message: "Property not found for your tenancy" });
+      }
+      if (property.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied: property organization mismatch" });
+      }
+
+      const blockId = property.blockId || tenancy.blockId || null;
+
+      const maintenanceRequest = await storage.createMaintenanceRequest({
+        title,
+        description: description || null,
+        priority,
+        status: "open",
+        propertyId: property.id,
+        blockId,
+        reportedBy: userId,
+        organizationId: user.organizationId,
+        photoUrls: photoUrls.length > 0 ? photoUrls : null,
+        aiSuggestedFixes,
+        source: "tenant_portal",
+      });
+
+      res.status(201).json(maintenanceRequest);
+    } catch (error) {
+      console.error("Error creating tenant maintenance request:", error);
+      res.status(500).json({ message: "Failed to create maintenance request" });
     }
   });
 

@@ -635,7 +635,12 @@ export default function Maintenance() {
     try {
       await analyzeMutation.mutateAsync({
         imageUrl: uploadedImages[0],
-        description: form.getValues("description") || form.getValues("title"),
+        description: [
+          form.getValues("title")?.trim() ? `Title: ${form.getValues("title").trim()}` : "",
+          form.getValues("description")?.trim() ? `Description: ${form.getValues("description").trim()}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
       });
     } finally {
       setIsAnalyzing(false);
@@ -1213,9 +1218,17 @@ export default function Maintenance() {
                       onClick={async () => {
                         setIsAnalyzing(true);
                         try {
+                          const formTitle = form.getValues("title")?.trim() || "";
+                          const formDescription = form.getValues("description")?.trim() || "";
+                          const notes = [
+                            formTitle ? `Title: ${formTitle}` : "",
+                            formDescription ? `Description: ${formDescription}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join("\n");
                           await analyzeMutation.mutateAsync({
                             imageUrl: uploadedImages[0],
-                            description: form.getValues("description") || form.getValues("title"),
+                            description: notes,
                           });
                         } finally {
                           setIsAnalyzing(false);

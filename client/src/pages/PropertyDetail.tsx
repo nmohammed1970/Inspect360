@@ -91,7 +91,32 @@ interface InventoryItem {
   datePurchased?: string | null;
   expectedLifespanYears?: number | null;
   description?: string | null;
+  photoUrl?: string | null;
 }
+
+/** Same-origin /objects paths so <img> uses session cookies on the portal host. */
+const normalizeInventoryPhotoUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.pathname.startsWith("/objects/")) {
+        return `${parsed.pathname}${parsed.search}`;
+      }
+      return trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  if (trimmed.startsWith("/objects/") || trimmed.startsWith("/")) return trimmed;
+  if (trimmed.startsWith("objects/")) return `/${trimmed}`;
+  if (trimmed.includes("/objects/")) return trimmed.slice(trimmed.indexOf("/objects/"));
+  return `/${trimmed.replace(/^\/+/, "")}`;
+};
 
 interface ComplianceDoc {
   id: string;
@@ -681,7 +706,9 @@ export default function PropertyDetail() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {inventory.map((item) => (
+              {inventory.map((item) => {
+                const thumbUrl = normalizeInventoryPhotoUrl(item.photoUrl);
+                return (
                 <Card 
                   key={item.id} 
                   data-testid={`card-inventory-${item.id}`}
@@ -695,8 +722,28 @@ export default function PropertyDetail() {
                   }}
                 >
                   <CardHeader>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-2 flex-1">
+                    <div className="flex items-start gap-4">
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
+                        {thumbUrl ? (
+                          <img
+                            src={thumbUrl}
+                            alt={item.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                              const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
+                              if (fallback) fallback.classList.remove("hidden");
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className={`flex h-full w-full items-center justify-center text-muted-foreground ${thumbUrl ? "hidden" : ""}`}
+                        >
+                          <Package className="h-6 w-6" />
+                        </div>
+                      </div>
+                      <div className="space-y-2 flex-1 min-w-0">
                         <CardTitle className="text-base">{item.name}</CardTitle>
                         <CardDescription className="line-clamp-1">{item.description || item.category}</CardDescription>
                         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -719,7 +766,8 @@ export default function PropertyDetail() {
                     </div>
                   </CardHeader>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           )}
         </TabsContent>
@@ -1096,14 +1144,18 @@ export default function PropertyDetail() {
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Photos</h3>
                   <div className="grid grid-cols-3 gap-4">
-                    {selectedInventoryItem.photos.map((photo, index) => (
-                      <img
-                        key={index}
-                        src={photo}
-                        alt={`${selectedInventoryItem.name} - Photo ${index + 1}`}
-                        className="w-full h-32 object-cover rounded-md border"
-                      />
-                    ))}
+                    {selectedInventoryItem.photos.map((photo, index) => {
+                      const src = normalizeInventoryPhotoUrl(photo);
+                      if (!src) return null;
+                      return (
+                        <img
+                          key={index}
+                          src={src}
+                          alt={`${selectedInventoryItem.name} - Photo ${index + 1}`}
+                          className="w-full h-32 object-cover rounded-md border"
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               )}

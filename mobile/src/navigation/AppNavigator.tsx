@@ -20,28 +20,8 @@ import type {
   AssetsStackParamList,
 } from './types';
 
-// Auth Stack
+// Auth — keep eager so login is fast
 import LoginScreen from '../screens/auth/LoginScreen';
-
-// Onboarding
-import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
-
-// Inspections Stack
-import InspectionsListScreen from '../screens/inspections/InspectionsListScreen';
-import InspectionCaptureScreen from '../screens/inspections/InspectionCaptureScreen';
-import InspectionReviewScreen from '../screens/inspections/InspectionReviewScreen';
-import InspectionReportScreen from '../screens/inspections/InspectionReportScreen';
-
-// Maintenance Stack
-import MaintenanceListScreen from '../screens/maintenance/MaintenanceListScreen';
-import MaintenanceDetailScreen from '../screens/maintenance/MaintenanceDetailScreen';
-import CreateMaintenanceScreen from '../screens/maintenance/CreateMaintenanceScreen';
-
-// Profile Stack
-import ProfileScreen from '../screens/profile/ProfileScreen';
-
-// Assets Stack
-import AssetInventoryListScreen from '../screens/assets/AssetInventoryListScreen';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -62,20 +42,23 @@ function AuthNavigator() {
 function InspectionsNavigator() {
   return (
     <InspectionsStack.Navigator screenOptions={{ headerShown: false }}>
-      <InspectionsStack.Screen name="InspectionsList" component={InspectionsListScreen} />
+      <InspectionsStack.Screen
+        name="InspectionsList"
+        getComponent={() => require('../screens/inspections/InspectionsListScreen').default}
+      />
       <InspectionsStack.Screen
         name="InspectionCapture"
-        component={InspectionCaptureScreen}
+        getComponent={() => require('../screens/inspections/InspectionCaptureScreen').default}
         options={{ headerShown: false }}
       />
       <InspectionsStack.Screen
         name="InspectionReview"
-        component={InspectionReviewScreen}
+        getComponent={() => require('../screens/inspections/InspectionReviewScreen').default}
         options={{ headerShown: false }}
       />
       <InspectionsStack.Screen
         name="InspectionReport"
-        component={InspectionReportScreen}
+        getComponent={() => require('../screens/inspections/InspectionReportScreen').default}
         options={{ headerShown: false }}
       />
     </InspectionsStack.Navigator>
@@ -85,15 +68,18 @@ function InspectionsNavigator() {
 function MaintenanceNavigator() {
   return (
     <MaintenanceStack.Navigator screenOptions={{ headerShown: false }}>
-      <MaintenanceStack.Screen name="MaintenanceList" component={MaintenanceListScreen} />
+      <MaintenanceStack.Screen
+        name="MaintenanceList"
+        getComponent={() => require('../screens/maintenance/MaintenanceListScreen').default}
+      />
       <MaintenanceStack.Screen
         name="MaintenanceDetail"
-        component={MaintenanceDetailScreen}
+        getComponent={() => require('../screens/maintenance/MaintenanceDetailScreen').default}
         options={{ headerShown: false }}
       />
       <MaintenanceStack.Screen
         name="CreateMaintenance"
-        component={CreateMaintenanceScreen}
+        getComponent={() => require('../screens/maintenance/CreateMaintenanceScreen').default}
         options={{ headerShown: false }}
       />
     </MaintenanceStack.Navigator>
@@ -103,7 +89,10 @@ function MaintenanceNavigator() {
 function ProfileNavigator() {
   return (
     <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
-      <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
+      <ProfileStack.Screen
+        name="ProfileHome"
+        getComponent={() => require('../screens/profile/ProfileScreen').default}
+      />
     </ProfileStack.Navigator>
   );
 }
@@ -111,7 +100,10 @@ function ProfileNavigator() {
 function AssetsNavigator() {
   return (
     <AssetsStack.Navigator screenOptions={{ headerShown: false }}>
-      <AssetsStack.Screen name="AssetInventoryList" component={AssetInventoryListScreen} />
+      <AssetsStack.Screen
+        name="AssetInventoryList"
+        getComponent={() => require('../screens/assets/AssetInventoryListScreen').default}
+      />
     </AssetsStack.Navigator>
   );
 }
@@ -246,7 +238,6 @@ export default function AppNavigator() {
   };
 
   // Determine which screens to render
-  const shouldRenderAuth = !isAuthenticated;
   const shouldRenderOnboarding = isAuthenticated && onboardingChecked;
   const initialRoute = getInitialRoute();
 
@@ -264,7 +255,10 @@ export default function AppNavigator() {
         {/* Only register authenticated screens when we know the onboarding status */}
         {shouldRenderOnboarding && (
           <>
-            <RootStack.Screen name="Onboarding" component={OnboardingScreen} />
+            <RootStack.Screen
+              name="Onboarding"
+              getComponent={() => require('../screens/onboarding/OnboardingScreen').default}
+            />
             <RootStack.Screen name="Main" component={MainTabNavigator} />
           </>
         )}

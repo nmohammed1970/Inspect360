@@ -3,7 +3,7 @@ export default {
   expo: {
     name: "Inspect360",
     slug: "inspect360-mobile",
-    version: "1.0.3", // Increment this for each new release (e.g., 1.0.1, 1.0.2, 1.1.0, etc.)
+    version: "1.0.5", // Increment this for each new App Store release (must be > last approved)
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "automatic", // Supports automatic dark mode based on system settings
@@ -17,7 +17,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.inspect360.mobile",
-       buildNumber: "26", // iOS CFBundleVersion; incremented for next submission
+       buildNumber: "31", // iOS CFBundleVersion; must be > last uploaded
       requiresFullScreen: false,
       // Minimum iOS version supported
       deploymentTarget: "13.4",
@@ -44,7 +44,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.inspect360.mobile",
-      versionCode: 26, // Android versionCode; used when appVersionSource is "local" in eas.json
+      versionCode: 34, // Android versionCode; used when appVersionSource is "local" in eas.json
       permissions: [
         "CAMERA",
         "RECORD_AUDIO",
@@ -79,6 +79,12 @@ export default {
         "expo-image-picker",
         {
           photosPermission: "Allow Inspect360 to access your photos to select images for inspections."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          microphonePermission: "Allow Inspect360 to access your microphone to record voice notes for inspections."
         }
       ],
       // Network security plugin for SSL certificate handling

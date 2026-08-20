@@ -55,6 +55,7 @@ import { SubscriptionTierManagement, AddonPackManagement, ExtensiveInspectionMan
 import TenantLogin from "@/pages/TenantLogin";
 import TenantHome from "@/pages/TenantHome";
 import TenantMaintenance from "@/pages/TenantMaintenance";
+import TenantLogRequest from "@/pages/TenantLogRequest";
 import TenantRequests from "@/pages/TenantRequests";
 import TenantComparisonReports from "@/pages/TenantComparisonReports";
 import TenantComparisonReportDetail from "@/pages/TenantComparisonReportDetail";
@@ -413,6 +414,7 @@ function AppContent() {
                   <Route path="/" component={TenantHome} />
                   <Route path="/tenant/home" component={TenantHome} />
                   {showMaintenance && <Route path="/tenant/maintenance" component={TenantMaintenance} />}
+                  {showMaintenance && <Route path="/tenant/log-request" component={TenantLogRequest} />}
                   {showMaintenance && <Route path="/tenant/requests" component={TenantRequests} />}
                   {showComparison && <Route path="/tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />}
                   {showComparison && <Route path="/tenant/comparison-reports" component={TenantComparisonReports} />}

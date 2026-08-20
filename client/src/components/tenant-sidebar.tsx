@@ -4,6 +4,7 @@ import {
   FileText,
   FileCheck,
   Users,
+  ClipboardList,
 } from "lucide-react";
 import {
   Sidebar,
@@ -55,6 +56,12 @@ export function TenantSidebar() {
       title: "AI Maintenance Help",
       url: "/tenant/maintenance",
       icon: MessageSquare,
+      enabled: organization?.tenantPortalMaintenanceEnabled ?? true,
+    },
+    {
+      title: "Log a Maintenance Request",
+      url: "/tenant/log-request",
+      icon: ClipboardList,
       enabled: organization?.tenantPortalMaintenanceEnabled ?? true,
     },
     {

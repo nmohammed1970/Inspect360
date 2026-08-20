@@ -94,6 +94,93 @@ export default function Compliance() {
   const blockIdFromUrl = urlParams.get("blockId");
   const shouldCreate = urlParams.get("create");
 
+  // Apply property/block filter from URL (e.g. Properties card → /compliance?propertyId=...)
+  // This applies to EVERY property/block link, not only new ones.
+  useEffect(() => {
+    if (propertyIdFromUrl) {
+      setFilterProperty(propertyIdFromUrl);
+      setFilterBlock("all");
+    } else if (blockIdFromUrl) {
+      setFilterBlock(blockIdFromUrl);
+      setFilterProperty("all");
+    }
+  }, [propertyIdFromUrl, blockIdFromUrl]);
+
+  // URL context always wins so a property/block Compliance link cannot show org-wide docs
+  const effectivePropertyFilter = propertyIdFromUrl || filterProperty;
+  const effectiveBlockFilter = propertyIdFromUrl
+    ? "all"
+    : (blockIdFromUrl || filterBlock);
+
+  const clearPropertyFilter = () => {
+    setFilterProperty("all");
+    if (propertyIdFromUrl) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("propertyId");
+      const q = newParams.toString();
+      setLocation(`/compliance${q ? `?${q}` : ""}`, { replace: true });
+    }
+  };
+
+  const clearBlockFilter = () => {
+    setFilterBlock("all");
+    if (blockIdFromUrl) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("blockId");
+      const q = newParams.toString();
+      setLocation(`/compliance${q ? `?${q}` : ""}`, { replace: true });
+    }
+  };
+
+  const setPropertyFilter = (propertyId: string) => {
+    setFilterProperty(propertyId);
+    if (propertyIdFromUrl || blockIdFromUrl || propertyId !== "all") {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("blockId");
+      if (propertyId === "all") newParams.delete("propertyId");
+      else newParams.set("propertyId", propertyId);
+      const q = newParams.toString();
+      setLocation(`/compliance${q ? `?${q}` : ""}`, { replace: true });
+    }
+  };
+
+  const setBlockFilter = (blockId: string) => {
+    setFilterBlock(blockId);
+    setFilterProperty("all");
+    if (propertyIdFromUrl || blockIdFromUrl || blockId !== "all") {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("propertyId");
+      if (blockId === "all") newParams.delete("blockId");
+      else newParams.set("blockId", blockId);
+      const q = newParams.toString();
+      setLocation(`/compliance${q ? `?${q}` : ""}`, { replace: true });
+    }
+  };
+
+  const hasActiveFilters =
+    filterType !== "all" ||
+    filterStatus !== "all" ||
+    effectivePropertyFilter !== "all" ||
+    effectiveBlockFilter !== "all" ||
+    sortBy !== "expiry" ||
+    sortOrder !== "asc";
+
+  const clearAllFilters = () => {
+    setFilterType("all");
+    setFilterStatus("all");
+    setFilterProperty("all");
+    setFilterBlock("all");
+    setSortBy("expiry");
+    setSortOrder("asc");
+    if (propertyIdFromUrl || blockIdFromUrl) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("propertyId");
+      newParams.delete("blockId");
+      const q = newParams.toString();
+      setLocation(`/compliance${q ? `?${q}` : ""}`, { replace: true });
+    }
+  };
+
   const { data: documents = [], isLoading } = useQuery<ComplianceDocument[]>({
     queryKey: ['/api/compliance'],
   });
@@ -463,11 +550,11 @@ export default function Compliance() {
       if (filterStatus === "expiring" && (!doc.expiryDate || !expiringDocs.find(ed => ed.id === doc.id))) return false;
     }
     
-    // Filter by property
-    if (filterProperty !== "all" && doc.propertyId !== filterProperty) return false;
+    // Filter by property — only docs that belong to this property
+    if (effectivePropertyFilter !== "all" && doc.propertyId !== effectivePropertyFilter) return false;
     
-    // Filter by block
-    if (filterBlock !== "all" && doc.blockId !== filterBlock) return false;
+    // Filter by block — only docs that belong to this block
+    if (effectiveBlockFilter !== "all" && doc.blockId !== effectiveBlockFilter) return false;
     
     // Filter by search term
     if (searchTerm) {
@@ -525,6 +612,13 @@ export default function Compliance() {
     return daysUntil > 30;
   });
 
+  // Expiring banner must respect active property/block filters (not org-wide)
+  const filteredExpiringDocs = expiringDocs.filter((doc) => {
+    if (effectivePropertyFilter !== "all" && doc.propertyId !== effectivePropertyFilter) return false;
+    if (effectiveBlockFilter !== "all" && doc.blockId !== effectiveBlockFilter) return false;
+    return true;
+  });
+
   if (authLoading) {
     return (
       <div className="container mx-auto p-4 md:p-6">
@@ -554,7 +648,11 @@ export default function Compliance() {
             Compliance Center
           </h1>
           <p className="text-sm md:text-base text-muted-foreground mt-1">
-            Manage compliance documents and certifications
+            {propertyIdFromUrl
+              ? `Documents for ${getPropertyName(propertyIdFromUrl) || "this property"}`
+              : blockIdFromUrl
+                ? `Documents for ${getBlockName(blockIdFromUrl) || "this block"}`
+                : "Manage compliance documents and certifications"}
           </p>
         </div>
         
@@ -1053,22 +1151,22 @@ export default function Compliance() {
             </button>
           </Badge>
         )}
-        {filterProperty !== "all" && (
+        {effectivePropertyFilter !== "all" && (
           <Badge variant="secondary" className="gap-1">
-            Property: {getPropertyName(filterProperty) || filterProperty}
+            Property: {getPropertyName(effectivePropertyFilter) || effectivePropertyFilter}
             <button
-              onClick={() => setFilterProperty("all")}
+              onClick={clearPropertyFilter}
               className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
             >
               <X className="w-3 h-3" />
             </button>
           </Badge>
         )}
-        {filterBlock !== "all" && (
+        {effectiveBlockFilter !== "all" && (
           <Badge variant="secondary" className="gap-1">
-            Block: {getBlockName(filterBlock) || filterBlock}
+            Block: {getBlockName(effectiveBlockFilter) || effectiveBlockFilter}
             <button
-              onClick={() => setFilterBlock("all")}
+              onClick={clearBlockFilter}
               className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
             >
               <X className="w-3 h-3" />
@@ -1082,13 +1180,13 @@ export default function Compliance() {
             <Button variant="outline" className="gap-2">
               <Filter className="w-4 h-4" />
               Add Filter
-              {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
+              {hasActiveFilters && (
                 <Badge variant="secondary" className="ml-1">
                   {[
                     filterType !== "all" ? 1 : 0,
                     filterStatus !== "all" ? 1 : 0,
-                    filterProperty !== "all" ? 1 : 0,
-                    filterBlock !== "all" ? 1 : 0,
+                    effectivePropertyFilter !== "all" ? 1 : 0,
+                    effectiveBlockFilter !== "all" ? 1 : 0,
                     sortBy !== "expiry" || sortOrder !== "asc" ? 1 : 0
                   ].reduce((a, b) => a + b, 0)}
                 </Badge>
@@ -1134,7 +1232,7 @@ export default function Compliance() {
               {/* Filter by Property */}
               <div className="space-y-2">
                 <Label className="text-sm">Property</Label>
-                <Select value={filterProperty} onValueChange={setFilterProperty}>
+                <Select value={effectivePropertyFilter} onValueChange={setPropertyFilter}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Properties" />
                   </SelectTrigger>
@@ -1152,7 +1250,7 @@ export default function Compliance() {
               {/* Filter by Block */}
               <div className="space-y-2">
                 <Label className="text-sm">Block</Label>
-                <Select value={filterBlock} onValueChange={setFilterBlock}>
+                <Select value={effectiveBlockFilter} onValueChange={setBlockFilter}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Blocks" />
                   </SelectTrigger>
@@ -1194,33 +1292,17 @@ export default function Compliance() {
               </div>
               
               {/* Clear Filters */}
-              {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
+              {hasActiveFilters && (
                 <ClearFiltersButton
                   className="w-full"
-                  onClick={() => {
-                    setFilterType("all");
-                    setFilterStatus("all");
-                    setFilterProperty("all");
-                    setFilterBlock("all");
-                    setSortBy("expiry");
-                    setSortOrder("asc");
-                  }}
+                  onClick={clearAllFilters}
                 />
               )}
             </div>
           </PopoverContent>
         </Popover>
-        {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
-          <ClearFiltersButton
-            onClick={() => {
-              setFilterType("all");
-              setFilterStatus("all");
-              setFilterProperty("all");
-              setFilterBlock("all");
-              setSortBy("expiry");
-              setSortOrder("asc");
-            }}
-          />
+        {hasActiveFilters && (
+          <ClearFiltersButton onClick={clearAllFilters} />
         )}
       </div>
 
@@ -1241,7 +1323,7 @@ export default function Compliance() {
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" className="shrink-0">
               <Filter className="w-4 h-4" />
-              {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
+              {hasActiveFilters && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
               )}
             </Button>
@@ -1289,7 +1371,7 @@ export default function Compliance() {
               {/* Filter by Property */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Property</Label>
-                <Select value={filterProperty} onValueChange={setFilterProperty}>
+                <Select value={effectivePropertyFilter} onValueChange={setPropertyFilter}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Properties" />
                   </SelectTrigger>
@@ -1307,7 +1389,7 @@ export default function Compliance() {
               {/* Filter by Block */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Block</Label>
-                <Select value={filterBlock} onValueChange={setFilterBlock}>
+                <Select value={effectiveBlockFilter} onValueChange={setBlockFilter}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Blocks" />
                   </SelectTrigger>
@@ -1349,17 +1431,10 @@ export default function Compliance() {
               </div>
               
               {/* Clear Filters */}
-              {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all" || sortBy !== "expiry" || sortOrder !== "asc") && (
+              {hasActiveFilters && (
                 <ClearFiltersButton
                   className="w-full"
-                  onClick={() => {
-                    setFilterType("all");
-                    setFilterStatus("all");
-                    setFilterProperty("all");
-                    setFilterBlock("all");
-                    setSortBy("expiry");
-                    setSortOrder("asc");
-                  }}
+                  onClick={clearAllFilters}
                 />
               )}
             </div>
@@ -1368,7 +1443,7 @@ export default function Compliance() {
       </div>
 
       {/* Active filter chips — mobile */}
-      {(filterType !== "all" || filterStatus !== "all" || filterProperty !== "all" || filterBlock !== "all") && (
+      {(filterType !== "all" || filterStatus !== "all" || effectivePropertyFilter !== "all" || effectiveBlockFilter !== "all") && (
         <div className="flex md:hidden flex-wrap gap-2 items-center">
           {filterType !== "all" && (
             <Badge variant="secondary" className="gap-1">
@@ -1392,28 +1467,28 @@ export default function Compliance() {
               </button>
             </Badge>
           )}
-          {filterProperty !== "all" && (
-            <Badge variant="secondary" className="gap-1">
-              Property: {getPropertyName(filterProperty) || filterProperty}
-              <button
-                onClick={() => setFilterProperty("all")}
-                className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          )}
-          {filterBlock !== "all" && (
-            <Badge variant="secondary" className="gap-1">
-              Block: {getBlockName(filterBlock) || filterBlock}
-              <button
-                onClick={() => setFilterBlock("all")}
-                className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          )}
+        {effectivePropertyFilter !== "all" && (
+          <Badge variant="secondary" className="gap-1">
+            Property: {getPropertyName(effectivePropertyFilter) || effectivePropertyFilter}
+            <button
+              onClick={clearPropertyFilter}
+              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        )}
+        {effectiveBlockFilter !== "all" && (
+          <Badge variant="secondary" className="gap-1">
+            Block: {getBlockName(effectiveBlockFilter) || effectiveBlockFilter}
+            <button
+              onClick={clearBlockFilter}
+              className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </Badge>
+        )}
         </div>
       )}
 
@@ -1477,11 +1552,11 @@ export default function Compliance() {
         </Card>
       </div>
 
-      {expiringDocs.length > 0 && (
+      {filteredExpiringDocs.length > 0 && (
         <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
           <AlertTriangle className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-800 dark:text-yellow-200">
-            <span className="font-semibold">{expiringDocs.length} document(s)</span> expiring within 90 days. Please renew them soon.
+            <span className="font-semibold">{filteredExpiringDocs.length} document(s)</span> expiring within 90 days. Please renew them soon.
           </AlertDescription>
         </Alert>
       )}

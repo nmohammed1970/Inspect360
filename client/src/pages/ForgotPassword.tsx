@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ForgotPassword() {
@@ -29,16 +28,6 @@ export default function ForgotPassword() {
       const data = await response.json();
 
       if (!response.ok) {
-        // Handle 404 - email not found
-        if (response.status === 404) {
-          toast({
-            title: "Email not found",
-            description: "This email is not registered. Please sign up to create an account.",
-            variant: "destructive",
-          });
-          return;
-        }
-        // Other errors
         toast({
           title: "Error",
           description: data.message || "Failed to send reset email",
@@ -47,22 +36,14 @@ export default function ForgotPassword() {
         return;
       }
 
-      // Check if email was sent successfully
-      if (data?.emailSent === true) {
-        toast({
-          title: "Reset code sent",
-          description: "Check your email for the 6-digit reset code",
-        });
-        // Redirect to reset password page with email only if email was sent successfully
-        navigate(`/reset-password?email=${encodeURIComponent(email)}`);
-      } else {
-        // Email sending failed
-        toast({
-          title: "Error",
-          description: data.message || "Failed to send reset email",
-          variant: "destructive",
-        });
-      }
+      // Same message whether or not the email exists (no account enumeration)
+      toast({
+        title: "Check your email",
+        description:
+          data.message ||
+          "If an account exists for that email, a password reset code has been sent.",
+      });
+      navigate(`/reset-password?email=${encodeURIComponent(email)}`);
     } catch (error: any) {
       toast({
         title: "Error",

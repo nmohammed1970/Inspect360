@@ -1,5 +1,6 @@
 # EAS Build ignore file - reduces build archive size
-# Files and directories that are not needed for the build
+# Note: in this monorepo, the root .easignore controls the upload archive.
+# This file applies only when using EAS_NO_VCS=1 with EAS_PROJECT_ROOT=mobile.
 
 # Dependencies (will be installed during build)
 node_modules/

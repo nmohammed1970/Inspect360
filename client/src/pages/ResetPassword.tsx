@@ -33,7 +33,19 @@ export default function ResetPassword() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedToken = token.replace(/\D/g, "").trim();
+
+    if (normalizedToken.length !== 6) {
+      toast({
+        title: "Error",
+        description: "Please enter the 6-digit reset code from your email",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       toast({
         title: "Error",
@@ -55,10 +67,10 @@ export default function ResetPassword() {
     setIsLoading(true);
 
     try {
-      await apiRequest("POST", "/api/reset-password", { 
-        email, 
-        token,
-        newPassword 
+      await apiRequest("POST", "/api/reset-password", {
+        email: normalizedEmail,
+        token: normalizedToken,
+        newPassword,
       });
       setIsSuccess(true);
       toast({
@@ -143,8 +155,14 @@ export default function ResetPassword() {
                     <Input
                       id="token"
                       type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]*"
                       value={token}
-                      onChange={(e) => setToken(e.target.value)}
+                      onChange={(e) => {
+                        const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        setToken(digitsOnly);
+                      }}
                       placeholder="Enter 6-digit code"
                       required
                       disabled={isLoading}

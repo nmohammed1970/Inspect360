@@ -87,18 +87,26 @@ interface FieldWidgetProps {
 
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
 // Use a smaller preset on iOS only (mono, 22kHz, 64kbps, MIN quality).
-const VOICE_RECORDING_PRESET = Platform.OS === 'ios'
-  ? {
-      ...RecordingPresets.HIGH_QUALITY,
-      sampleRate: 22050,
-      numberOfChannels: 1,
-      bitRate: 64000,
-      ios: {
-        ...RecordingPresets.HIGH_QUALITY.ios,
-        audioQuality: AudioQuality.MIN,
-      },
-    }
-  : RecordingPresets.HIGH_QUALITY;
+// Built lazily so a missing native audio module cannot crash app launch.
+function getVoiceRecordingPreset() {
+  const highQuality = RecordingPresets?.HIGH_QUALITY;
+  if (!highQuality) {
+    return undefined as any;
+  }
+  if (Platform.OS !== 'ios') {
+    return highQuality;
+  }
+  return {
+    ...highQuality,
+    sampleRate: 22050,
+    numberOfChannels: 1,
+    bitRate: 64000,
+    ios: {
+      ...highQuality.ios,
+      audioQuality: AudioQuality.MIN,
+    },
+  };
+}
 
 function FieldWidgetComponent(props: FieldWidgetProps) {
   const {
@@ -1611,7 +1619,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     return;
                   }
                   await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-                  const recorder = new AudioModule.AudioRecorder(VOICE_RECORDING_PRESET);
+                  const recorder = new AudioModule.AudioRecorder(getVoiceRecordingPreset());
                   await recorder.prepareToRecordAsync();
                   recorder.record();
                   recordingRef.current = recorder;
@@ -2278,7 +2286,7 @@ const styles = StyleSheet.create({
     marginTop: spacing[2],
   },
   signatureMetaText: {
-    fontSize: typography.sizes.sm,
+    fontSize: typography.fontSize.sm,
   },
   signatureMetaLabel: {
     fontWeight: '600',
