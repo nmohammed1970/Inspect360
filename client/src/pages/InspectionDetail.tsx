@@ -330,7 +330,7 @@ export default function InspectionDetail() {
             onClick={() => setShowDeleteDialog(true)}
             data-testid="button-delete-inspection"
           >
-            <Trash2 className="w-4 h-4 text-destructive" />
+            <Trash2 className="w-4 h-4" />
           </Button>
         </div>
       </div>

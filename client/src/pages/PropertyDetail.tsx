@@ -36,12 +36,14 @@ import {
   ImageIcon,
   Mail,
   Phone,
+  Plus,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { AddressInput } from "@/components/AddressInput";
 import { useToast } from "@/hooks/use-toast";
 import { MapPreview } from "@/components/MapPreview";
+import AddTenantDialog from "@/components/AddTenantDialog";
 
 interface Property {
   id: string;
@@ -642,13 +644,40 @@ export default function PropertyDetail() {
 
         {/* Tenants Tab */}
         <TabsContent value="tenants" className="space-y-4">
-          <h2 className="text-xl font-semibold">Tenants</h2>
-          
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold">Tenants</h2>
+            <AddTenantDialog
+              propertyId={propertyId!}
+              onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
+              }}
+            >
+              <Button data-testid="button-assign-tenant" size="sm" className="text-xs md:text-sm h-8 md:h-10 px-2 md:px-4">
+                <Plus className="mr-1 md:mr-2 h-3 w-3 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">Assign Tenant</span>
+                <span className="sm:hidden">Assign</span>
+              </Button>
+            </AddTenantDialog>
+          </div>
+
           {tenants.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <User className="h-12 w-12 text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">No tenants assigned</p>
+                <p className="text-muted-foreground mb-4">No tenants assigned</p>
+                <AddTenantDialog
+                  propertyId={propertyId!}
+                  onSuccess={() => {
+                    queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
+                  }}
+                >
+                  <Button data-testid="button-assign-first-tenant" size="sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Assign Tenant
+                  </Button>
+                </AddTenantDialog>
               </CardContent>
             </Card>
           ) : (
