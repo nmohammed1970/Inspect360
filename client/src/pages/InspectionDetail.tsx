@@ -10,10 +10,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, Pencil } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, Pencil, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,6 +42,11 @@ export default function InspectionDetail() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [completingAction, setCompletingAction] = useState<"without-ai" | "with-ai" | null>(null);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true,
+  );
   const [newItem, setNewItem] = useState({
     category: "",
     itemName: "",
@@ -39,6 +54,17 @@ export default function InspectionDetail() {
     conditionRating: 5,
     notes: "",
   });
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const { data: inspection, isLoading } = useQuery<any>({
     queryKey: ["/api/inspections", id],
@@ -51,14 +77,6 @@ export default function InspectionDetail() {
         status: "completed",
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
-      toast({
-        title: "Success",
-        description: "Inspection marked as completed",
-      });
-    },
     onError: () => {
       toast({
         title: "Error",
@@ -67,6 +85,100 @@ export default function InspectionDetail() {
       });
     },
   });
+
+  const startBackgroundAIAnalysis = async (): Promise<{ started: boolean }> => {
+    const statusResponse = await fetch(`/api/ai/analyze-inspection/${id}/status`, {
+      credentials: "include",
+    });
+    const currentStatus = statusResponse.ok
+      ? await statusResponse.json()
+      : { status: "idle" };
+
+    if (currentStatus.status === "completed" || currentStatus.status === "processing") {
+      return { started: false };
+    }
+
+    const response = await fetch(`/api/ai/analyze-inspection/${id}`, {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (response.ok) {
+      queryClient.invalidateQueries({ queryKey: [`/api/ai/analyze-inspection/${id}/status`] });
+      return { started: true };
+    }
+
+    const errorBody = await response.json().catch(() => ({}));
+    const message = typeof errorBody.message === "string" ? errorBody.message : "";
+
+    if (response.status === 409) {
+      return { started: false };
+    }
+    if (response.status === 400 && message.includes("No photos found")) {
+      return { started: false };
+    }
+
+    throw new Error(message || "Failed to start AI analysis");
+  };
+
+  const handleCompleteWithoutAI = async () => {
+    setCompletingAction("without-ai");
+    try {
+      await completeInspection.mutateAsync();
+      setShowCompleteDialog(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
+      toast({
+        title: "Inspection completed",
+        description: "Inspection marked as completed",
+      });
+    } catch {
+      // Error toast handled by mutation
+    } finally {
+      setCompletingAction(null);
+    }
+  };
+
+  const handleCompleteWithAI = async () => {
+    if (!isOnline) {
+      toast({
+        variant: "destructive",
+        title: "You are offline",
+        description: "Connect to the internet to run AI analysis before completing.",
+      });
+      return;
+    }
+
+    setCompletingAction("with-ai");
+    try {
+      let aiStarted = false;
+      try {
+        const result = await startBackgroundAIAnalysis();
+        aiStarted = result.started;
+      } catch (aiError: any) {
+        toast({
+          variant: "destructive",
+          title: "AI analysis could not start",
+          description: aiError.message || "The inspection will still be completed.",
+        });
+      }
+
+      await completeInspection.mutateAsync();
+      setShowCompleteDialog(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
+      toast({
+        title: "Inspection completed",
+        description: aiStarted
+          ? "AI analysis is running in the background on this report."
+          : "Inspection marked as completed",
+      });
+    } catch {
+      // Error toast handled by mutation
+    } finally {
+      setCompletingAction(null);
+    }
+  };
 
   const addItemMutation = useMutation({
     mutationFn: async (itemData: any) => {
@@ -316,12 +428,12 @@ export default function InspectionDetail() {
         <div className="flex items-center gap-2">
           {inspection.status !== "completed" && (
             <Button
-              onClick={() => completeInspection.mutate()}
-              disabled={completeInspection.isPending}
+              onClick={() => setShowCompleteDialog(true)}
+              disabled={completeInspection.isPending || completingAction !== null}
               data-testid="button-complete"
             >
               <CheckCircle className="w-4 h-4 mr-2" />
-              {completeInspection.isPending ? "Completing..." : "Mark Complete"}
+              {completingAction ? "Completing..." : "Mark Complete"}
             </Button>
           )}
           <Button
@@ -670,6 +782,71 @@ export default function InspectionDetail() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={showCompleteDialog}
+        onOpenChange={(open) => {
+          if (!completingAction) setShowCompleteDialog(open);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-complete-inspection">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Complete this inspection?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Once completed, this inspection cannot be edited again. Make sure all fields and photos are correct before continuing.
+                </p>
+                <p>
+                  Would you like to analyse this inspection with AI? This uses the same full report analysis as{" "}
+                  <span className="font-medium text-foreground">Analyse Report Using AI</span> and runs in the background while the inspection is marked complete.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel disabled={completingAction !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleCompleteWithoutAI();
+              }}
+              disabled={completingAction !== null}
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              data-testid="button-complete-without-ai"
+            >
+              {completingAction === "without-ai" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                "No, complete now"
+              )}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleCompleteWithAI();
+              }}
+              disabled={completingAction !== null || !isOnline}
+              data-testid="button-complete-with-ai"
+            >
+              {completingAction === "with-ai" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Yes, analyse with AI
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmDialog

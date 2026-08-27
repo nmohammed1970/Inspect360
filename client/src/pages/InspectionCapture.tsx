@@ -1184,17 +1184,28 @@ export default function InspectionCapture() {
       return { started: false };
     }
 
-    const response = await apiRequest("POST", `/api/ai/analyze-inspection/${id}`);
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      if (response.status === 409) {
-        return { started: false };
-      }
-      throw new Error(errorBody.message || "Failed to start AI analysis");
+    const response = await fetch(`/api/ai/analyze-inspection/${id}`, {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (response.ok) {
+      queryClient.invalidateQueries({ queryKey: [`/api/ai/analyze-inspection/${id}/status`] });
+      return { started: true };
     }
 
-    queryClient.invalidateQueries({ queryKey: [`/api/ai/analyze-inspection/${id}/status`] });
-    return { started: true };
+    const errorBody = await response.json().catch(() => ({}));
+    const message = typeof errorBody.message === "string" ? errorBody.message : "";
+
+    if (response.status === 409) {
+      return { started: false };
+    }
+    // Nothing to analyse — skip quietly (e.g. complete with AI but no photos uploaded)
+    if (response.status === 400 && message.includes("No photos found")) {
+      return { started: false };
+    }
+
+    throw new Error(message || "Failed to start AI analysis");
   };
 
   const completeInspection = useMutation({
