@@ -240,6 +240,11 @@ export function useNotifications() {
     // Handle navigation based on notification type
     if (notification.type === "comparison_report_created" && notification.data?.reportId) {
       window.location.href = `/tenant/comparison-reports/${notification.data.reportId}`;
+    } else if (
+      notification.type === "inspection_review_requested" &&
+      notification.data?.inspectionId
+    ) {
+      window.location.href = `/tenant/inspection-review/${notification.data.inspectionId}`;
     }
 
     setPopupNotification(null);

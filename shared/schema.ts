@@ -536,11 +536,11 @@ export const inspections = pgTable("inspections", {
   aiAnalysisTotalFields: integer("ai_analysis_total_fields").default(0), // Total fields with photos
   aiAnalysisError: text("ai_analysis_error"), // Error message if failed
   // Tenant approval tracking (for check-in inspections)
-  tenantApprovalStatus: varchar("tenant_approval_status"), // null, pending, approved, disputed, expired
-  tenantApprovalDeadline: timestamp("tenant_approval_deadline"), // Deadline for tenant approval
-  tenantApprovedAt: timestamp("tenant_approved_at"), // When tenant approved
-  tenantApprovedBy: varchar("tenant_approved_by"), // Tenant user ID who approved
-  tenantComments: text("tenant_comments"), // Tenant comments/disputes
+  tenantApprovalStatus: varchar("tenant_approval_status"), // null, pending, signed (legacy: approved, disputed, expired)
+  tenantApprovalDeadline: timestamp("tenant_approval_deadline"), // Legacy deadline; unused for sign-to-complete flow
+  tenantApprovedAt: timestamp("tenant_approved_at"), // When tenant signed/approved
+  tenantApprovedBy: varchar("tenant_approved_by"), // Tenant user ID who signed/approved
+  tenantComments: text("tenant_comments"), // Tenant comments
   // Credit tracking
   creditsConsumed: integer("credits_consumed"), // Total credits consumed for this inspection
   imagesCount: integer("images_count"), // Total images in inspection (for audit)

@@ -419,6 +419,7 @@ function AppContent() {
                   {showComparison && <Route path="/tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />}
                   {showComparison && <Route path="/tenant/comparison-reports" component={TenantComparisonReports} />}
                   {showCommunity && <Route path="/tenant/community" component={TenantCommunity} />}
+                  <Route path="/tenant/inspection-review/:id" component={TenantCheckInReview} />
                   <Route path="/tenant/check-in-review/:id" component={TenantCheckInReview} />
                   <Route path="/tenant/profile" component={TenantProfile} />
                   <Route path="/dashboard" component={TenantHome} />

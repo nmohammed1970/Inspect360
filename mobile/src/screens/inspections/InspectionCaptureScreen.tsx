@@ -579,11 +579,12 @@ export default function InspectionCaptureScreen() {
 
   // Update inspection status mutation
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ status, startedAt, completedDate, submittedAt }: {
+    mutationFn: async ({ status, startedAt, completedDate, submittedAt, sendToTenantForReview }: {
       status: string;
       startedAt?: string;
       completedDate?: string;
       submittedAt?: string;
+      sendToTenantForReview?: boolean;
     }) => {
       const updates: any = { status };
       if (startedAt) {
@@ -595,7 +596,10 @@ export default function InspectionCaptureScreen() {
       if (submittedAt) {
         updates.submittedAt = submittedAt;
       }
-      if (startedAt || completedDate || submittedAt) {
+      if (sendToTenantForReview) {
+        updates.sendToTenantForReview = true;
+      }
+      if (startedAt || completedDate || submittedAt || sendToTenantForReview) {
         await inspectionsService.updateInspection(inspectionId, updates);
       } else {
         await inspectionsService.updateInspectionStatus(inspectionId, status);
@@ -874,7 +878,11 @@ export default function InspectionCaptureScreen() {
     const progressPercentage = Math.round(progress);
     const isIncomplete = progressPercentage < 100;
 
-    const completeInspection = async () => {
+    const shouldOfferTenantReview =
+      (effectiveInspection?.type === 'check_in' || effectiveInspection?.type === 'check_out') &&
+      !!effectiveInspection?.propertyId;
+
+    const completeInspection = async (sendToTenantForReview = false) => {
       if (!isOnline) {
         Alert.alert(
           'Offline',
@@ -891,11 +899,14 @@ export default function InspectionCaptureScreen() {
           status: 'completed',
           completedDate: now,
           submittedAt: now,
+          sendToTenantForReview,
         });
 
         Alert.alert(
           'Success',
-          'Inspection marked as completed.',
+          sendToTenantForReview
+            ? 'Inspection completed and sent to the tenant for review.'
+            : 'Inspection marked as completed.',
           [
             {
               text: 'OK',
@@ -908,6 +919,29 @@ export default function InspectionCaptureScreen() {
       } catch (error: any) {
         Alert.alert('Error', error.message || 'Failed to complete inspection');
       }
+    };
+
+    const promptSendToTenant = () => {
+      if (!shouldOfferTenantReview) {
+        void completeInspection(false);
+        return;
+      }
+      Alert.alert(
+        'Send to tenant for review?',
+        'The tenant will be notified in their portal. They can view the inspection and sign the Tenant Signature field, but cannot edit other fields.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'No',
+            style: 'cancel',
+            onPress: () => void completeInspection(false),
+          },
+          {
+            text: 'Yes, send',
+            onPress: () => void completeInspection(true),
+          },
+        ]
+      );
     };
 
     if (isIncomplete) {
@@ -923,13 +957,12 @@ export default function InspectionCaptureScreen() {
           {
             text: 'Complete Anyway',
             style: 'default',
-            onPress: completeInspection,
+            onPress: promptSendToTenant,
           },
         ]
       );
     } else {
-      // Complete without confirmation if 100% complete
-      completeInspection();
+      promptSendToTenant();
     }
   };
 

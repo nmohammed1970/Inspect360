@@ -43,7 +43,10 @@ export default function InspectionDetail() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [showSendToTenantDialog, setShowSendToTenantDialog] = useState(false);
+  const [pendingCompleteWithAI, setPendingCompleteWithAI] = useState(false);
   const [completingAction, setCompletingAction] = useState<"without-ai" | "with-ai" | null>(null);
+  const [sendingToTenantAction, setSendingToTenantAction] = useState<"yes" | "no" | null>(null);
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -72,9 +75,10 @@ export default function InspectionDetail() {
   });
 
   const completeInspection = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (sendToTenantForReview: boolean) => {
       return await apiRequest("PATCH", `/api/inspections/${id}/status`, {
         status: "completed",
+        sendToTenantForReview,
       });
     },
     onError: () => {
@@ -121,25 +125,73 @@ export default function InspectionDetail() {
     throw new Error(message || "Failed to start AI analysis");
   };
 
-  const handleCompleteWithoutAI = async () => {
-    setCompletingAction("without-ai");
+  const shouldOfferTenantReview =
+    (inspection?.type === "check_in" || inspection?.type === "check_out") &&
+    !!inspection?.propertyId;
+
+  const finalizeComplete = async (opts: { withAI: boolean; sendToTenant: boolean }) => {
+    setCompletingAction(opts.withAI ? "with-ai" : "without-ai");
+    if (opts.sendToTenant) {
+      setSendingToTenantAction("yes");
+    } else if (shouldOfferTenantReview) {
+      setSendingToTenantAction("no");
+    }
+
     try {
-      await completeInspection.mutateAsync();
+      let aiStarted = false;
+      if (opts.withAI) {
+        if (!isOnline) {
+          toast({
+            variant: "destructive",
+            title: "You are offline",
+            description: "Connect to the internet to run AI analysis before completing.",
+          });
+          return;
+        }
+        try {
+          const result = await startBackgroundAIAnalysis();
+          aiStarted = result.started;
+        } catch (aiError: any) {
+          toast({
+            variant: "destructive",
+            title: "AI analysis could not start",
+            description: aiError.message || "The inspection will still be completed.",
+          });
+        }
+      }
+
+      await completeInspection.mutateAsync(opts.sendToTenant);
       setShowCompleteDialog(false);
+      setShowSendToTenantDialog(false);
       queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
       toast({
         title: "Inspection completed",
-        description: "Inspection marked as completed",
+        description: opts.sendToTenant
+          ? "Sent to the tenant for review and signature."
+          : aiStarted
+            ? "AI analysis is running in the background on this report."
+            : "Inspection marked as completed",
       });
     } catch {
       // Error toast handled by mutation
     } finally {
       setCompletingAction(null);
+      setSendingToTenantAction(null);
     }
   };
 
-  const handleCompleteWithAI = async () => {
+  const handleCompleteWithoutAI = () => {
+    if (shouldOfferTenantReview) {
+      setPendingCompleteWithAI(false);
+      setShowCompleteDialog(false);
+      setShowSendToTenantDialog(true);
+      return;
+    }
+    void finalizeComplete({ withAI: false, sendToTenant: false });
+  };
+
+  const handleCompleteWithAI = () => {
     if (!isOnline) {
       toast({
         variant: "destructive",
@@ -148,36 +200,13 @@ export default function InspectionDetail() {
       });
       return;
     }
-
-    setCompletingAction("with-ai");
-    try {
-      let aiStarted = false;
-      try {
-        const result = await startBackgroundAIAnalysis();
-        aiStarted = result.started;
-      } catch (aiError: any) {
-        toast({
-          variant: "destructive",
-          title: "AI analysis could not start",
-          description: aiError.message || "The inspection will still be completed.",
-        });
-      }
-
-      await completeInspection.mutateAsync();
+    if (shouldOfferTenantReview) {
+      setPendingCompleteWithAI(true);
       setShowCompleteDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inspections/my"] });
-      toast({
-        title: "Inspection completed",
-        description: aiStarted
-          ? "AI analysis is running in the background on this report."
-          : "Inspection marked as completed",
-      });
-    } catch {
-      // Error toast handled by mutation
-    } finally {
-      setCompletingAction(null);
+      setShowSendToTenantDialog(true);
+      return;
     }
+    void finalizeComplete({ withAI: true, sendToTenant: false });
   };
 
   const addItemMutation = useMutation({
@@ -429,7 +458,7 @@ export default function InspectionDetail() {
           {inspection.status !== "completed" && (
             <Button
               onClick={() => setShowCompleteDialog(true)}
-              disabled={completeInspection.isPending || completingAction !== null}
+              disabled={completeInspection.isPending || completingAction !== null || sendingToTenantAction !== null}
               data-testid="button-complete"
             >
               <CheckCircle className="w-4 h-4 mr-2" />
@@ -842,6 +871,66 @@ export default function InspectionDetail() {
                   <Sparkles className="w-4 h-4 mr-2" />
                   Yes, analyse with AI
                 </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showSendToTenantDialog}
+        onOpenChange={(open) => {
+          if (!completingAction && !sendingToTenantAction) setShowSendToTenantDialog(open);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-send-to-tenant">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send to tenant for review?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Would you like to send this inspection to the tenant for review? They will be notified in their portal and can view the report and sign the Tenant Signature field. They cannot edit other fields.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel disabled={completingAction !== null || sendingToTenantAction !== null}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void finalizeComplete({ withAI: pendingCompleteWithAI, sendToTenant: false });
+              }}
+              disabled={completingAction !== null || sendingToTenantAction !== null}
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              data-testid="button-complete-without-tenant"
+            >
+              {sendingToTenantAction === "no" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                "No"
+              )}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void finalizeComplete({ withAI: pendingCompleteWithAI, sendToTenant: true });
+              }}
+              disabled={completingAction !== null || sendingToTenantAction !== null}
+              data-testid="button-complete-send-to-tenant"
+            >
+              {sendingToTenantAction === "yes" ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                "Yes, send for review"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

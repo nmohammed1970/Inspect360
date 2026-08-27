@@ -410,7 +410,7 @@ import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContrac
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
-import { formatSignerDisplayName } from "@shared/signature";
+import { formatSignerDisplayName, isTenantSignatureField, createSignatureValue } from "@shared/signature";
 import { extractTextFromFile, findRelevantChunks } from "./documentProcessor";
 import {
   insertBlockSchema,
@@ -1108,6 +1108,129 @@ async function isModuleAvailableForInstance(moduleKey: string, organizationId: s
     console.error(`Error checking module availability for ${moduleKey}:`, errorMessage);
     return false;
   }
+}
+
+/**
+ * Optionally mark a completed check-in/check-out for tenant review and notify the active tenant.
+ * Does not fail completion if no tenant is assigned.
+ */
+async function requestTenantInspectionReview(opts: {
+  inspectionId: string;
+  inspection: { type: string; propertyId?: string | null };
+  organizationId: string;
+  propertyName?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const { inspectionId, inspection, organizationId, propertyName } = opts;
+
+  if (
+    (inspection.type !== "check_in" && inspection.type !== "check_out") ||
+    !inspection.propertyId
+  ) {
+    return { sent: false, reason: "not_applicable" };
+  }
+
+  await storage.updateInspection(inspectionId, {
+    tenantApprovalStatus: "pending",
+    tenantApprovalDeadline: null,
+  } as any);
+
+  const tenantAssignments = await storage.getTenantAssignmentsByProperty(
+    inspection.propertyId,
+    organizationId,
+  );
+  const activeTenant = tenantAssignments.find((ta: any) => ta.assignment?.isActive);
+
+  if (!activeTenant?.id) {
+    return { sent: false, reason: "no_tenant" };
+  }
+
+  try {
+    const { sendNotificationToUser } = await import("./websocket");
+    const typeLabel = inspection.type === "check_in" ? "check-in" : "check-out";
+    const notification = await storage.createNotification({
+      userId: activeTenant.id,
+      organizationId,
+      type: "inspection_review_requested",
+      title: "Inspection ready for your review",
+      message: `Please review and sign your ${typeLabel} inspection${propertyName ? ` for ${propertyName}` : ""}.`,
+      data: {
+        inspectionId,
+        propertyId: inspection.propertyId,
+        propertyName: propertyName || null,
+        inspectionType: inspection.type,
+      },
+    });
+
+    sendNotificationToUser(activeTenant.id, {
+      id: notification.id,
+      userId: notification.userId,
+      organizationId: notification.organizationId,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      data: notification.data,
+      isRead: notification.isRead,
+      createdAt: notification.createdAt || new Date(),
+    });
+  } catch (notifError) {
+    console.error("[Notification] Error creating inspection review notification:", notifError);
+  }
+
+  return { sent: true };
+}
+
+function findTenantSignatureFieldFromTemplate(templateSnapshotJson: any): {
+  fieldKey: string;
+  sectionRef: string;
+  fieldType: string;
+  label?: string;
+} | null {
+  let snapshot = templateSnapshotJson;
+  if (typeof snapshot === "string") {
+    try {
+      snapshot = JSON.parse(snapshot);
+    } catch {
+      return null;
+    }
+  }
+
+  const sections = Array.isArray(snapshot?.sections)
+    ? snapshot.sections
+    : Array.isArray(snapshot?.structureJson?.sections)
+      ? snapshot.structureJson.sections
+      : Array.isArray(snapshot)
+        ? snapshot
+        : null;
+
+  if (!Array.isArray(sections)) return null;
+
+  for (const section of sections) {
+    const sectionRef = section.id || section.key || section.ref;
+    const directFields = section.fields || [];
+    for (const field of directFields) {
+      if (field?.type === "signature" && isTenantSignatureField(field)) {
+        return {
+          fieldKey: field.key || field.id,
+          sectionRef,
+          fieldType: "signature",
+          label: field.label,
+        };
+      }
+    }
+    for (const item of section.items || []) {
+      for (const field of item.fields || []) {
+        if (field?.type === "signature" && isTenantSignatureField(field)) {
+          return {
+            fieldKey: field.key || field.id,
+            sectionRef,
+            fieldType: "signature",
+            label: field.label,
+          };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -5721,26 +5844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Auto-approve expired check-in inspections
-      const now = new Date();
-      for (const inspection of inspections) {
-        if (inspection.type === "check_in" &&
-          inspection.status === "completed" &&
-          inspection.tenantApprovalDeadline &&
-          new Date(inspection.tenantApprovalDeadline) < now &&
-          (!inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending")) {
-          try {
-            await storage.updateInspection(inspection.id, {
-              tenantApprovalStatus: "approved",
-              tenantApprovedAt: now,
-            } as any);
-            // Update the inspection object in the response
-            inspection.tenantApprovalStatus = "approved";
-            inspection.tenantApprovedAt = now.toISOString();
-          } catch (error) {
-            console.error(`Failed to auto-approve inspection ${inspection.id}:`, error);
-          }
-        }
-      }
+      // (Disabled: tenant review now stays pending until the tenant signs)
 
       res.json(inspections);
     } catch (error) {
@@ -6225,36 +6329,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify access: Clerks can only view inspections assigned to them
-      // Tenants can view check-in inspections for their property
+      // Tenants can view check-in/check-out inspections sent for their review
       if (user.role === "tenant") {
         // For tenants, verify they have access to this property
         const tenancy = await storage.getTenancyByTenantId(userId);
         if (!tenancy || tenancy.propertyId !== inspection.propertyId) {
           return res.status(403).json({ message: "Access denied: You don't have access to this inspection" });
         }
-        // Only allow tenants to view check-in inspections
-        if (inspection.type !== "check_in") {
-          return res.status(403).json({ message: "Access denied: Tenants can only view check-in inspections" });
-        }
-
-        // Auto-approve if deadline has passed and status is still pending
-        if (inspection.tenantApprovalDeadline &&
-          (inspection.tenantApprovalStatus === "pending" || !inspection.tenantApprovalStatus) &&
-          new Date(inspection.tenantApprovalDeadline) < new Date()) {
-          try {
-            await storage.updateInspection(id, {
-              tenantApprovalStatus: "approved",
-              tenantApprovedAt: new Date(),
-              tenantApprovedBy: userId,
-            } as any);
-            // Refetch the inspection to get updated status
-            inspection = await storage.getInspection(id);
-            if (!inspection) {
-              return res.status(404).json({ message: "Inspection not found" });
-            }
-          } catch (error) {
-            console.error(`Failed to auto-approve inspection ${id}:`, error);
-          }
+        const isReviewableType = inspection.type === "check_in" || inspection.type === "check_out";
+        const wasSentForReview =
+          inspection.tenantApprovalStatus === "pending" ||
+          inspection.tenantApprovalStatus === "signed" ||
+          inspection.tenantApprovalStatus === "approved" ||
+          inspection.tenantApprovalStatus === "disputed";
+        if (!isReviewableType || !wasSentForReview) {
+          return res.status(403).json({ message: "Access denied: This inspection is not available for tenant review" });
         }
       } else if (user.role !== "owner" && user.role !== "compliance") {
         if (inspection.inspectorId !== userId) {
@@ -6603,20 +6692,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             blockName = block?.name;
           }
 
-          // For check-in inspections, set tenant approval status and deadline
-          if (inspection.type === "check_in" && inspection.propertyId) {
+          // Optionally send check-in/check-out to tenant for signature review
+          if (req.body.sendToTenantForReview && ownerOrgId) {
             try {
-              const organization = await storage.getOrganization(ownerOrgId);
-              const approvalPeriodDays = organization?.checkInApprovalPeriodDays ?? 5;
-              const deadline = new Date();
-              deadline.setDate(deadline.getDate() + approvalPeriodDays);
-
-              await storage.updateInspection(id, {
-                tenantApprovalStatus: "pending",
-                tenantApprovalDeadline: deadline,
-              } as any);
+              await requestTenantInspectionReview({
+                inspectionId: id,
+                inspection,
+                organizationId: ownerOrgId,
+                propertyName,
+              });
             } catch (approvalError) {
-              console.error('Failed to set tenant approval status:', approvalError);
+              console.error('Failed to request tenant inspection review:', approvalError);
             }
           }
 
@@ -6781,20 +6867,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             blockName = block?.name;
           }
 
-          // For check-in inspections, set tenant approval status and deadline
-          if (inspection.type === "check_in" && inspection.propertyId) {
+          // Optionally send check-in/check-out to tenant for signature review
+          if (req.body.sendToTenantForReview && ownerOrgId) {
             try {
-              const organization = await storage.getOrganization(ownerOrgId);
-              const approvalPeriodDays = organization?.checkInApprovalPeriodDays ?? 5;
-              const deadline = new Date();
-              deadline.setDate(deadline.getDate() + approvalPeriodDays);
-
-              await storage.updateInspection(id, {
-                tenantApprovalStatus: "pending",
-                tenantApprovalDeadline: deadline,
-              } as any);
+              await requestTenantInspectionReview({
+                inspectionId: id,
+                inspection,
+                organizationId: ownerOrgId,
+                propertyName,
+              });
             } catch (approvalError) {
-              console.error('Failed to set tenant approval status:', approvalError);
+              console.error('Failed to request tenant inspection review:', approvalError);
             }
           }
 
@@ -6916,37 +6999,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status === "completed" ? new Date() : undefined
       );
 
-      // For check-in inspections, set tenant approval status and deadline when completed
-      if (status === "completed" && inspection.type === "check_in" && inspection.propertyId) {
-        try {
-          // Get organization to get approval period
-          let organizationId: string | undefined;
-          if (inspection.propertyId) {
-            const property = await storage.getProperty(inspection.propertyId);
-            organizationId = property?.organizationId;
-          } else if (inspection.blockId) {
-            const block = await storage.getBlock(inspection.blockId);
-            organizationId = block?.organizationId;
-          }
-
-          if (organizationId) {
-            const organization = await storage.getOrganization(organizationId);
-            const approvalPeriodDays = organization?.checkInApprovalPeriodDays ?? 5;
-            const deadline = new Date();
-            deadline.setDate(deadline.getDate() + approvalPeriodDays);
-
-            await storage.updateInspection(id, {
-              tenantApprovalStatus: "pending",
-              tenantApprovalDeadline: deadline,
-            } as any);
-          }
-        } catch (approvalError) {
-          console.error('Failed to set tenant approval status:', approvalError);
-        }
-      }
-
       // Send email notification to owner when inspection is completed
-      if (status === "completed") {
+      if (status === "completed" && inspection.status !== "completed") {
         try {
           // Get inspector details
           const inspector = await storage.getUser(inspection.inspectorId);
@@ -6955,32 +7009,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Get property or block name
           let propertyName: string | undefined;
           let blockName: string | undefined;
-          let organizationId: string | undefined;
+          let organizationId: string | undefined = ownerOrgId || undefined;
 
           if (inspection.propertyId) {
             const property = await storage.getProperty(inspection.propertyId);
             propertyName = property?.name;
-            organizationId = property?.organizationId;
+            organizationId = property?.organizationId || organizationId;
           } else if (inspection.blockId) {
             const block = await storage.getBlock(inspection.blockId);
             blockName = block?.name;
-            organizationId = block?.organizationId;
+            organizationId = block?.organizationId || organizationId;
           }
 
-          // For check-in inspections, set tenant approval status and deadline
-          if (inspection.type === "check_in" && inspection.propertyId && organizationId) {
+          // Optionally send check-in/check-out to tenant for signature review
+          if (req.body.sendToTenantForReview && organizationId) {
             try {
-              const organization = await storage.getOrganization(organizationId);
-              const approvalPeriodDays = organization?.checkInApprovalPeriodDays ?? 5;
-              const deadline = new Date();
-              deadline.setDate(deadline.getDate() + approvalPeriodDays);
-
-              await storage.updateInspection(id, {
-                tenantApprovalStatus: "pending",
-                tenantApprovalDeadline: deadline,
-              } as any);
+              await requestTenantInspectionReview({
+                inspectionId: id,
+                inspection,
+                organizationId,
+                propertyName,
+              });
             } catch (approvalError) {
-              console.error('Failed to set tenant approval status:', approvalError);
+              console.error('Failed to request tenant inspection review:', approvalError);
             }
           }
 
@@ -16627,8 +16678,16 @@ ${optionalNotes || "No details provided."}`;
         if (!tenancy || tenancy.propertyId !== inspection.propertyId) {
           return res.status(403).json({ message: "Access denied" });
         }
-        if (inspection.type !== "check_in") {
-          return res.status(403).json({ message: "Access denied: Tenants can only view check-in inspections" });
+        if (inspection.type !== "check_in" && inspection.type !== "check_out") {
+          return res.status(403).json({ message: "Access denied: Tenants can only view check-in and check-out inspections" });
+        }
+        const wasSentForReview =
+          inspection.tenantApprovalStatus === "pending" ||
+          inspection.tenantApprovalStatus === "signed" ||
+          inspection.tenantApprovalStatus === "approved" ||
+          inspection.tenantApprovalStatus === "disputed";
+        if (!wasSentForReview) {
+          return res.status(403).json({ message: "Access denied: This inspection is not available for tenant review" });
         }
       } else if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
@@ -29182,7 +29241,7 @@ You can help the tenant with:
   // Dispute a comparison report item (tenant)
   // ==================== TENANT CHECK-IN REVIEW ROUTES ====================
 
-  // Get pending check-in inspections for tenant
+  // Get pending inspection reviews for tenant (check-in and check-out)
   app.get("/api/tenant/check-ins", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -29198,58 +29257,14 @@ You can help the tenant with:
         return res.json([]);
       }
 
-      // Get all check-in inspections for this property that need tenant approval
+      // Pending check-in/check-out inspections sent for tenant signature review
       const allInspections = await storage.getInspectionsByOrganization(user.organizationId!);
-      const propertyInspections = allInspections.filter(
+      const pendingInspections = allInspections.filter(
         (i: any) =>
           i.propertyId === tenancy.propertyId &&
-          i.type === "check_in" &&
+          (i.type === "check_in" || i.type === "check_out") &&
           i.status === "completed" &&
-          (i.tenantApprovalStatus === "pending" || i.tenantApprovalStatus === null || !i.tenantApprovalStatus)
-      );
-
-      // Auto-approve expired pending inspections
-      const now = new Date();
-      const autoApprovedInspections: string[] = [];
-
-      for (const inspection of propertyInspections) {
-        // Check if deadline exists and has passed
-        if (inspection.tenantApprovalDeadline) {
-          const deadline = new Date(inspection.tenantApprovalDeadline);
-          if (deadline < now && (!inspection.tenantApprovalStatus || inspection.tenantApprovalStatus === "pending")) {
-            // Auto-approve expired pending inspections
-            try {
-              await storage.updateInspection(inspection.id, {
-                tenantApprovalStatus: "approved",
-                tenantApprovedAt: now,
-                tenantApprovedBy: userId, // Set to tenant who would have approved
-              } as any);
-              autoApprovedInspections.push(inspection.id);
-            } catch (error) {
-              console.error(`Failed to auto-approve inspection ${inspection.id}:`, error);
-            }
-          }
-        }
-      }
-
-      // Filter to only pending (not auto-approved, not already approved/disputed)
-      const pendingInspections = propertyInspections.filter(
-        (i: any) => {
-          // Exclude auto-approved ones
-          if (autoApprovedInspections.includes(i.id)) return false;
-
-          // Exclude already approved or disputed
-          if (i.tenantApprovalStatus === "approved" || i.tenantApprovalStatus === "disputed") return false;
-
-          // Check if deadline has passed (should have been auto-approved above, but double-check)
-          if (i.tenantApprovalDeadline) {
-            const deadline = new Date(i.tenantApprovalDeadline);
-            if (deadline < now) return false; // Expired, should be auto-approved
-          }
-
-          // Only include pending or null status
-          return !i.tenantApprovalStatus || i.tenantApprovalStatus === "pending";
-        }
+          i.tenantApprovalStatus === "pending"
       );
 
       res.json(pendingInspections);
@@ -29259,8 +29274,22 @@ You can help the tenant with:
     }
   });
 
-  // Tenant approve check-in inspection
+  // Tenant approve check-in inspection (deprecated — use tenant-sign)
   app.post("/api/inspections/:id/tenant-approve", isAuthenticated, async (req: any, res) => {
+    return res.status(410).json({
+      message: "Approve is no longer supported. Please sign the inspection instead.",
+    });
+  });
+
+  // Tenant dispute check-in inspection (deprecated)
+  app.post("/api/inspections/:id/tenant-dispute", isAuthenticated, async (req: any, res) => {
+    return res.status(410).json({
+      message: "Dispute is no longer supported. Please add comments and sign the inspection.",
+    });
+  });
+
+  // Tenant sign inspection (check-in / check-out review)
+  app.post("/api/inspections/:id/tenant-sign", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -29270,122 +29299,107 @@ You can help the tenant with:
       }
 
       const { id } = req.params;
-      const { comments } = req.body;
+      const { image, signedByName, signedAt, comments } = req.body || {};
 
-      // Get inspection
+      if (!image || typeof image !== "string" || !image.trim()) {
+        return res.status(400).json({ message: "Signature image is required" });
+      }
+
       const inspection = await storage.getInspection(id);
       if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
       }
 
-      // Verify tenant has access to this property
       const tenancy = await storage.getTenancyByTenantId(userId);
       if (!tenancy || tenancy.propertyId !== inspection.propertyId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Verify it's a check-in inspection
-      if (inspection.type !== "check_in") {
-        return res.status(400).json({ message: "Only check-in inspections can be approved by tenants" });
+      if (inspection.type !== "check_in" && inspection.type !== "check_out") {
+        return res.status(400).json({ message: "Only check-in and check-out inspections can be signed by tenants" });
       }
 
-      // Check if already approved/disputed
-      if (inspection.tenantApprovalStatus === "approved" || inspection.tenantApprovalStatus === "disputed") {
-        return res.status(400).json({ message: "This inspection has already been processed" });
+      if (inspection.tenantApprovalStatus !== "pending") {
+        return res.status(400).json({ message: "This inspection is not awaiting your signature" });
       }
 
-      // Auto-approve if deadline has passed
-      if (inspection.tenantApprovalDeadline && new Date(inspection.tenantApprovalDeadline) < new Date()) {
-        // Auto-approve instead of rejecting
-        const updatedInspection = await storage.updateInspection(id, {
-          tenantApprovalStatus: "approved",
-          tenantApprovedAt: new Date(),
-          tenantApprovedBy: userId,
-          tenantComments: comments || null,
+      let fieldMeta = findTenantSignatureFieldFromTemplate(inspection.templateSnapshotJson);
+      const entries = await storage.getInspectionEntries(id);
+
+      if (!fieldMeta) {
+        const existingTenantSig = entries.find(
+          (e: any) =>
+            e.fieldType === "signature" &&
+            isTenantSignatureField({ key: e.fieldKey, id: e.fieldKey }),
+        );
+        if (existingTenantSig) {
+          fieldMeta = {
+            fieldKey: existingTenantSig.fieldKey,
+            sectionRef: existingTenantSig.sectionRef,
+            fieldType: "signature",
+          };
+        }
+      }
+
+      if (!fieldMeta) {
+        // Fallback to default template field keys
+        const fallbackKey =
+          inspection.type === "check_out"
+            ? "field_checkout_tenant_signature"
+            : "field_checkin_tenant_signature";
+        fieldMeta = {
+          fieldKey: fallbackKey,
+          sectionRef: "section_signoff",
+          fieldType: "signature",
+          label: "Tenant Signature",
+        };
+      }
+
+      const signatureValue = createSignatureValue(
+        image,
+        signedByName || formatSignerDisplayName(user),
+        signedAt || new Date().toISOString(),
+      );
+
+      const existingEntry = entries.find(
+        (e: any) =>
+          e.fieldKey === fieldMeta!.fieldKey &&
+          (e.fieldType === "signature" || isTenantSignatureField({ key: e.fieldKey, id: e.fieldKey })),
+      );
+
+      if (existingEntry) {
+        await storage.updateInspectionEntry(existingEntry.id, {
+          valueJson: signatureValue,
+          fieldType: "signature",
         } as any);
-        return res.json(updatedInspection);
+      } else {
+        await storage.createInspectionEntry({
+          inspectionId: id,
+          sectionRef: fieldMeta.sectionRef,
+          fieldKey: fieldMeta.fieldKey,
+          fieldType: "signature",
+          valueJson: signatureValue,
+        } as any);
       }
 
-      // Update inspection
-      const updatedInspection = await storage.updateInspection(id, {
-        tenantApprovalStatus: "approved",
+      const updates: any = {
+        tenantApprovalStatus: "signed",
         tenantApprovedAt: new Date(),
         tenantApprovedBy: userId,
-        tenantComments: comments || null,
-      } as any);
+      };
+      if (typeof comments === "string") {
+        updates.tenantComments = comments;
+      }
 
+      const updatedInspection = await storage.updateInspection(id, updates);
       res.json(updatedInspection);
     } catch (error: any) {
-      console.error("Error approving check-in:", error);
-      res.status(500).json({ message: "Failed to approve check-in" });
+      console.error("Error signing inspection:", error);
+      res.status(500).json({ message: "Failed to sign inspection" });
     }
   });
 
-  // Tenant dispute check-in inspection
-  app.post("/api/inspections/:id/tenant-dispute", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-
-      if (!user || user.role !== "tenant") {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const { id } = req.params;
-      const { comments } = req.body;
-
-      if (!comments || !comments.trim()) {
-        return res.status(400).json({ message: "Comments are required when disputing an inspection" });
-      }
-
-      // Get inspection
-      const inspection = await storage.getInspection(id);
-      if (!inspection) {
-        return res.status(404).json({ message: "Inspection not found" });
-      }
-
-      // Verify tenant has access to this property
-      const tenancy = await storage.getTenancyByTenantId(userId);
-      if (!tenancy || tenancy.propertyId !== inspection.propertyId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      // Verify it's a check-in inspection
-      if (inspection.type !== "check_in") {
-        return res.status(400).json({ message: "Only check-in inspections can be disputed by tenants" });
-      }
-
-      // Check if already approved/disputed
-      if (inspection.tenantApprovalStatus === "approved" || inspection.tenantApprovalStatus === "disputed") {
-        return res.status(400).json({ message: "This inspection has already been processed" });
-      }
-
-      // Auto-approve if deadline has passed (can't dispute after deadline)
-      if (inspection.tenantApprovalDeadline && new Date(inspection.tenantApprovalDeadline) < new Date()) {
-        // Auto-approve instead of allowing dispute
-        const updatedInspection = await storage.updateInspection(id, {
-          tenantApprovalStatus: "approved",
-          tenantApprovedAt: new Date(),
-          tenantApprovedBy: userId,
-          tenantComments: comments,
-        } as any);
-        return res.json(updatedInspection);
-      }
-
-      // Update inspection
-      const updatedInspection = await storage.updateInspection(id, {
-        tenantApprovalStatus: "disputed",
-        tenantComments: comments,
-      } as any);
-
-      res.json(updatedInspection);
-    } catch (error: any) {
-      console.error("Error disputing check-in:", error);
-      res.status(500).json({ message: "Failed to dispute check-in" });
-    }
-  });
-
-  // Tenant save comments (without approval/dispute)
+  // Tenant save comments (without signing)
   app.patch("/api/inspections/:id/tenant-comments", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -29410,14 +29424,12 @@ You can help the tenant with:
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Verify it's a check-in inspection
-      if (inspection.type !== "check_in") {
-        return res.status(400).json({ message: "Only check-in inspections can have tenant comments" });
+      if (inspection.type !== "check_in" && inspection.type !== "check_out") {
+        return res.status(400).json({ message: "Only check-in and check-out inspections can have tenant comments" });
       }
 
-      // Check if already approved/disputed
-      if (inspection.tenantApprovalStatus === "approved" || inspection.tenantApprovalStatus === "disputed") {
-        return res.status(400).json({ message: "Cannot update comments after approval/dispute" });
+      if (inspection.tenantApprovalStatus !== "pending") {
+        return res.status(400).json({ message: "Cannot update comments after signing" });
       }
 
       // Update inspection

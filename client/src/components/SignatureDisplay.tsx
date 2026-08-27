@@ -63,12 +63,12 @@ export function SignatureDisplay({
 
   if (trimmedSignature.startsWith("data:image/")) {
     return (
-      <div className={cn("w-full max-w-4xl", className)}>
+      <div className={cn("w-full max-w-md", className)}>
         <img
           src={trimmedSignature}
           alt="Signature"
           className={cn(
-            "w-full min-h-64 h-64 sm:min-h-72 sm:h-72 object-contain border-2 rounded-md bg-background p-2",
+            "w-full h-32 min-h-32 sm:h-40 sm:min-h-40 object-contain border-2 rounded-md bg-background p-2",
             imageClassName,
           )}
         />
@@ -78,13 +78,13 @@ export function SignatureDisplay({
   }
 
   return (
-    <div className={cn("w-full max-w-4xl", className)}>
+    <div className={cn("w-full max-w-md", className)}>
       <div
         className={cn(
-          "w-full min-h-64 sm:min-h-72 border-2 rounded-md bg-background px-4 py-6 flex items-center",
+          "w-full min-h-32 sm:min-h-40 border-2 rounded-md bg-background px-3 py-4 flex items-center",
         )}
       >
-        <span className="text-3xl sm:text-4xl italic" style={{ fontFamily: "cursive" }}>
+        <span className="text-xl sm:text-2xl italic" style={{ fontFamily: "cursive" }}>
           {trimmedSignature}
         </span>
       </div>
