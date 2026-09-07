@@ -373,7 +373,7 @@ export default function Billing() {
     mutationFn: async (planCode: string) => {
       const rate = FALLBACK_RATES[selectedCurrency.toUpperCase()] || 1.0;
       const price = computePlanPrice(inspectionsNeeded, billingPeriod);
-      // Prefer config formula (n × rate); fall back to API breakdown
+      // Spec pricing: full amount = n × rate (all-in-one). Do not split "additional" line items.
       const tierPriceMajor = price
         ? (billingPeriod === "annual" ? price.annual : price.monthly)
         : (pricingBreakdown.tierPrice > 1000 ? pricingBreakdown.tierPrice / 100 : pricingBreakdown.tierPrice);
@@ -385,6 +385,7 @@ export default function Billing() {
         inspectionCount: inspectionsNeeded,
         totalPrice: tierPriceMinor,
         tierPrice: tierPriceMinor,
+        // 0 = all-in-one n×rate in tierPrice (server must not expect a separate additional line)
         additionalCost: 0,
         moduleCost: 0,
       });

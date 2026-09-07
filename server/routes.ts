@@ -3085,12 +3085,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Billing] ${existingStripeSubscription ? 'Updating' : 'Creating'} Stripe ${existingStripeSubscription ? 'subscription' : 'session'} for ${selectedTier.code} (${billingPeriod}) with ${inspectionCount} inspections at ${tierAmount} ${currency}`);
 
-      // Calculate total inspections: tier included + additional
+      // Calculate total inspections from slider (n × rate all-in-one pricing from frontend)
       const totalInspections = Number(inspectionCount) || selectedTier.included_inspections;
       const tierIncluded = selectedTier.included_inspections || 0;
       const additionalInspections = Math.max(0, totalInspections - tierIncluded);
+      // Frontend sends full n×rate as tierPrice and additionalCost: 0.
+      // Only add a separate Stripe line when additionalCost > 0 is explicitly provided.
+      const separateAdditionalAmount =
+        additionalCost !== undefined && additionalCost !== null ? Number(additionalCost) : 0;
+      const useSeparateAdditionalLine = separateAdditionalAmount > 0 && additionalInspections > 0;
       
-      console.log(`[Billing] Checkout - Total inspections: ${totalInspections}, Tier included: ${tierIncluded}, Additional: ${additionalInspections}`);
+      console.log(`[Billing] Checkout - Total inspections: ${totalInspections}, Tier included: ${tierIncluded}, Additional: ${additionalInspections}, separateAdditionalLine: ${useSeparateAdditionalLine}`);
       
       // IMPORTANT: When subscribing to a tier, DO NOT include modules in checkout
       // Modules are separate subscriptions and should be purchased/managed separately
@@ -3223,24 +3228,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       */
       
-      // Build description
-      let description = `${totalInspections} inspections per month`;
-      if (additionalInspections > 0) {
-        description += ` (${tierIncluded} included in ${selectedTier.name} tier + ${additionalInspections} additional)`;
-      } else {
-        description += ` (${billingPeriod} billing)`;
+      // Build description — frontend uses n×rate all-in-one in tierAmount
+      let description = `${totalInspections} inspections per month (${billingPeriod} billing)`;
+      if (useSeparateAdditionalLine) {
+        description = `${totalInspections} inspections per month (${tierIncluded} included in ${selectedTier.name} tier + ${additionalInspections} additional)`;
       }
 
       // Note: Modules are NOT included in tier checkout - they are separate subscriptions
       // Modules should be purchased/managed separately through the marketplace
 
-      // Build line items: tier + additional inspections (if any) + modules (with prorated credits already applied)
+      // Build line items: plan (full n×rate or base) + optional separate additional + modules
       const lineItems: any[] = [
           {
             price_data: {
               currency: (currency || "GBP").toLowerCase(),
               product_data: {
-              name: `Inspect360 ${selectedTier.name} Plan`,
+              name: `Inspect360 ${selectedTier.name} Plan (${totalInspections} inspections/mo)`,
+              description,
               },
             unit_amount: tierAmount,
               recurring: {
@@ -3251,19 +3255,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
       ];
 
-      // Add additional inspections as a separate line item if there are any
-      if (additionalInspections > 0 && additionalCost !== undefined && additionalCost !== null && Number(additionalCost) > 0) {
-        const additionalCostAmount = Number(additionalCost);
-        console.log(`[Billing Checkout] Adding ${additionalInspections} additional inspections as separate line item: ${additionalCostAmount} ${currency} (minor units)`);
+      // Separate additional line only when frontend explicitly sends additionalCost > 0
+      if (useSeparateAdditionalLine) {
+        console.log(`[Billing Checkout] Adding ${additionalInspections} additional inspections as separate line item: ${separateAdditionalAmount} ${currency} (minor units)`);
         
         lineItems.push({
           price_data: {
             currency: (currency || "GBP").toLowerCase(),
             product_data: {
-              name: `Additional Inspections (${additionalInspections} × ${(additionalCostAmount / additionalInspections / 100).toFixed(2)} ${currency} per inspection)`,
+              name: `Additional Inspections (${additionalInspections} × ${(separateAdditionalAmount / additionalInspections / 100).toFixed(2)} ${currency} per inspection)`,
               description: `${additionalInspections} additional inspections beyond ${tierIncluded} included in ${selectedTier.name} tier`,
             },
-            unit_amount: additionalCostAmount,
+            unit_amount: separateAdditionalAmount,
             recurring: {
               interval: billingPeriod === "annual" ? "year" : "month",
             },
@@ -3271,7 +3274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           quantity: 1,
         });
       } else if (additionalInspections > 0) {
-        console.warn(`[Billing Checkout] Warning: ${additionalInspections} additional inspections detected but additionalCost is missing or zero. Additional inspections will not be charged.`);
+        console.log(`[Billing Checkout] All-in-one n×rate pricing: charging ${totalInspections} inspections in plan line (${tierAmount} ${currency} minor units)`);
       }
 
       // Add modules with net prices (prorated credits already deducted)
@@ -3292,11 +3295,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return productName && (productName.includes(selectedTier.name) || productName.includes('Plan'));
           });
           
-          // Create new price for updated tier
+          // Create new price for updated tier (full n×rate amount in tierAmount)
           const newTierPrice = await stripe.prices.create({
             currency: (currency || "GBP").toLowerCase(),
             product_data: {
-              name: `Inspect360 ${selectedTier.name} Plan`,
+              name: `Inspect360 ${selectedTier.name} Plan (${totalInspections} inspections/mo)`,
             },
             recurring: {
               interval: billingPeriod === "annual" ? "year" : "month",
@@ -3319,9 +3322,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
           
-          // Add additional inspections line item if there are any
-          if (additionalInspections > 0 && additionalCost !== undefined && additionalCost !== null && Number(additionalCost) > 0) {
-            const additionalCostAmount = Number(additionalCost);
+          // Separate additional line only when frontend explicitly sends additionalCost > 0
+          if (useSeparateAdditionalLine) {
+            const additionalCostAmount = separateAdditionalAmount;
             // Check if additional inspections item already exists in subscription
             const existingAdditionalItem = currentItems.find(item => {
               const product = item.price?.product;
@@ -3363,10 +3366,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               updateItems.push({ price: additionalPrice.id });
               console.log(`[Billing Checkout] Adding new additional inspections item: ${additionalInspections} inspections for ${additionalCostAmount} ${currency}`);
             }
-          } else if (additionalInspections > 0) {
-            console.warn(`[Billing Checkout] Warning: ${additionalInspections} additional inspections detected but additionalCost is missing or zero. Additional inspections will not be charged.`);
           } else {
-            // Remove additional inspections item if no longer needed
+            // All-in-one n×rate pricing (or no extras): remove legacy separate additional line if present
             const existingAdditionalItem = currentItems.find(item => {
               const product = item.price?.product;
               const productName = (typeof product === 'object' && product && 'name' in product) 
@@ -3377,7 +3378,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             if (existingAdditionalItem) {
               updateItems.push({ id: existingAdditionalItem.id, deleted: true });
-              console.log(`[Billing Checkout] Removing additional inspections item as no longer needed`);
+              console.log(`[Billing Checkout] Removing separate additional inspections item (all-in-one pricing)`);
+            } else if (additionalInspections > 0) {
+              console.log(`[Billing Checkout] All-in-one n×rate pricing on update: ${totalInspections} inspections in plan line (${tierAmount} ${currency} minor units)`);
             }
           }
 
