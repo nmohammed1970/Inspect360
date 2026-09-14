@@ -2549,6 +2549,21 @@ export const currencyConfig = pgTable("currency_config", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Eco-admin unit pricing catalog (manual price sheet — not Stripe)
+export const unitPricingCatalog = pgTable("unit_pricing_catalog", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Major currency units, e.g. 25.00 = £25 */
+  pricePerUnitMonthly: numeric("price_per_unit_monthly", { precision: 12, scale: 2 }).notNull().default("0"),
+  pricePerUnitAnnual: numeric("price_per_unit_annual", { precision: 12, scale: 2 }).notNull().default("0"),
+  currencyCode: varchar("currency_code", { length: 3 }).notNull().default("GBP"),
+  featuresIncluded: text("features_included").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type UnitPricingCatalog = typeof unitPricingCatalog.$inferSelect;
+export type InsertUnitPricingCatalog = typeof unitPricingCatalog.$inferInsert;
+
 // 1.2 Subscription Tier Configuration
 export const subscriptionTiersTable = pgTable("subscription_tiers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

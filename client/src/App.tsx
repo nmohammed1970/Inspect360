@@ -49,9 +49,10 @@ import TenantDetail from "@/pages/TenantDetail";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminTeam from "@/pages/AdminTeam";
+import AdminUnitPricing from "@/pages/AdminUnitPricing";
 import KnowledgeBase from "@/pages/KnowledgeBase";
 import { AdminPageWrapper } from "@/components/admin-page-wrapper";
-import { SubscriptionTierManagement, AddonPackManagement, ExtensiveInspectionManagement, QuotationsManagement, ModuleManagement } from "@/pages/EcoAdminComponents";
+import { ExtensiveInspectionManagement, QuotationsManagement, ModuleManagement } from "@/pages/EcoAdminComponents";
 import TenantLogin from "@/pages/TenantLogin";
 import TenantHome from "@/pages/TenantHome";
 import TenantMaintenance from "@/pages/TenantMaintenance";
@@ -109,10 +110,9 @@ function AppContent() {
     "/admin/dashboard",
     "/admin/team",
     "/admin/knowledge-base",
-    "/admin/tiers",
-    "/admin/addon-packs",
     "/admin/extensive",
     "/admin/modules",
+    "/admin/unit-pricing",
     "/admin/quotations",
     "/tenant/login",
   ];
@@ -198,30 +198,16 @@ function AppContent() {
             )}
           </Route>
           <Route path="/admin/tiers">
-            {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Tiers" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Subscription Tiers</h1>
-                    <p className="text-muted-foreground">Manage subscription tiers and pricing</p>
-                  </div>
-                  <SubscriptionTierManagement />
-                </div>
-              </AdminPageWrapper>
-            )}
+            {() => {
+              window.location.replace("/admin/dashboard");
+              return null;
+            }}
           </Route>
           <Route path="/admin/addon-packs">
-            {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Add-On Packs" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Add-On Packs</h1>
-                    <p className="text-muted-foreground">Manage add-on inspection packs and pricing</p>
-                  </div>
-                  <AddonPackManagement />
-                </div>
-              </AdminPageWrapper>
-            )}
+            {() => {
+              window.location.replace("/admin/dashboard");
+              return null;
+            }}
           </Route>
           <Route path="/admin/extensive">
             {() => (
@@ -242,10 +228,17 @@ function AppContent() {
                 <div className="container mx-auto p-6 max-w-7xl">
                   <div className="mb-6">
                     <h1 className="text-3xl font-bold mb-2">Modules</h1>
-                    <p className="text-muted-foreground">Manage modules and pricing</p>
+                    <p className="text-muted-foreground">Manage modules</p>
                   </div>
                   <ModuleManagement />
                 </div>
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/unit-pricing">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
+                <AdminUnitPricing />
               </AdminPageWrapper>
             )}
           </Route>
@@ -322,30 +315,16 @@ function AppContent() {
             )}
           </Route>
           <Route path="/admin/tiers">
-            {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Tiers" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Subscription Tiers</h1>
-                    <p className="text-muted-foreground">Manage subscription tiers and pricing</p>
-                  </div>
-                  <SubscriptionTierManagement />
-                </div>
-              </AdminPageWrapper>
-            )}
+            {() => {
+              window.location.replace("/admin/dashboard");
+              return null;
+            }}
           </Route>
           <Route path="/admin/addon-packs">
-            {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Add-On Packs" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Add-On Packs</h1>
-                    <p className="text-muted-foreground">Manage add-on inspection packs and pricing</p>
-                  </div>
-                  <AddonPackManagement />
-                </div>
-              </AdminPageWrapper>
-            )}
+            {() => {
+              window.location.replace("/admin/dashboard");
+              return null;
+            }}
           </Route>
           <Route path="/admin/extensive">
             {() => (
@@ -357,6 +336,26 @@ function AppContent() {
                   </div>
                   <ExtensiveInspectionManagement />
                 </div>
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/modules">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Modules" }]}>
+                <div className="container mx-auto p-6 max-w-7xl">
+                  <div className="mb-6">
+                    <h1 className="text-3xl font-bold mb-2">Modules</h1>
+                    <p className="text-muted-foreground">Manage modules</p>
+                  </div>
+                  <ModuleManagement />
+                </div>
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/unit-pricing">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
+                <AdminUnitPricing />
               </AdminPageWrapper>
             )}
           </Route>

@@ -484,11 +484,11 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
               <DialogDescription>
                 Managing tenants requires the <strong>Tenant Portal</strong> module.
                 <br />
-                Please enable this feature from the marketplace to continue.
+                Please contact your administrator to activate the Tenant Portal module.
               </DialogDescription>
             </div>
-            <Button variant="default" onClick={() => window.location.href = "/marketplace"}>
-              Go to Marketplace
+            <Button variant="default" onClick={() => window.location.href = "/billing"}>
+              View Modules
             </Button>
           </div>
         ) : (

@@ -145,9 +145,10 @@ app.use((req, res, next) => {
     // Use 0.0.0.0 to allow access from other devices on the same network (e.g., mobile phones)
     const host = process.env.HOST || "0.0.0.0";
 
-    // Setup monthly reset scheduler
-    // Check if scheduler should be enabled (can be disabled via env var for testing)
-    if (process.env.ENABLE_MONTHLY_RESET_SCHEDULER !== "false") {
+    // Monthly credit expiry / plan renewal scheduler.
+    // Admin-managed billing: OFF by default. Opt in with ENABLE_MONTHLY_RESET_SCHEDULER=true
+    // only if you still want subscription-style monthly quota reset + expiry.
+    if (process.env.ENABLE_MONTHLY_RESET_SCHEDULER === "true") {
       try {
         // Use setInterval to check for subscriptions that need reset daily
         // This is more reliable than cron in serverless environments
@@ -182,7 +183,9 @@ app.use((req, res, next) => {
         // Don't fail server startup if scheduler fails
       }
     } else {
-      console.log("⚠️ Monthly reset scheduler disabled (ENABLE_MONTHLY_RESET_SCHEDULER=false)");
+      console.log(
+        "ℹ️ Monthly reset / credit expiry scheduler is OFF (admin-managed credits). Set ENABLE_MONTHLY_RESET_SCHEDULER=true only for legacy subscription renewals."
+      );
     }
 
     // Use traditional listen format for better Windows compatibility

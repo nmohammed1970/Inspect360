@@ -217,7 +217,9 @@ export class SubscriptionService {
       quantity,
       batchId: batch.id,
       unitCostMinorUnits: unitCostMinorUnits ?? null,
-      notes: `Granted ${quantity} credits from ${source}`,
+      notes: metadata?.adminNotes
+        ? metadata.adminNotes
+        : `Granted ${quantity} credits from ${source}`,
       linkedEntityType,
       linkedEntityId,
     });

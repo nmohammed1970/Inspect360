@@ -1365,43 +1365,10 @@ export function ModuleManagement() {
   const { toast } = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<any>({});
-  const [editingPricing, setEditingPricing] = useState<{ moduleId: string; pricingId: string } | null>(null);
-  const [pricingFormData, setPricingFormData] = useState<any>({});
 
   const { data: modules = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/modules"],
   });
-
-  const { data: currencies = [] } = useQuery<any[]>({
-    queryKey: ["/api/admin/currencies"],
-  });
-
-  // Fetch pricing for all modules in one request
-  const { data: allModulePricing = [], isLoading: pricingLoading } = useQuery<any[]>({
-    queryKey: ["/api/admin/modules/pricing/all"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/modules/pricing/all", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      
-      if (!res.ok) {
-        console.error(`Failed to fetch all module pricing:`, res.status, res.statusText);
-        return [];
-      }
-      
-      const pricingData = await res.json();
-      return Array.isArray(pricingData) ? pricingData : [];
-    },
-    enabled: modules.length > 0,
-    refetchOnMount: true,
-  });
-
-  // Helper to get pricing for a specific module
-  const getModulePricing = (moduleId: string) => {
-    const modulePricingData = allModulePricing.find((mp: any) => mp.moduleId === moduleId);
-    return modulePricingData?.pricing || [];
-  };
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -1429,38 +1396,6 @@ export function ModuleManagement() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to update module", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const createPricingMutation = useMutation({
-    mutationFn: async ({ moduleId, data }: { moduleId: string; data: any }) => {
-      return await apiRequest("POST", `/api/admin/modules/${moduleId}/pricing`, data);
-    },
-    onSuccess: () => {
-      // Invalidate the correct query key
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/modules/pricing/all"] });
-      toast({ title: "Pricing created successfully" });
-      setPricingFormData({});
-      setEditingPricing(null);
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to create pricing", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const updatePricingMutation = useMutation({
-    mutationFn: async ({ moduleId, pricingId, data }: { moduleId: string; pricingId: string; data: any }) => {
-      return await apiRequest("PATCH", `/api/admin/modules/${moduleId}/pricing/${pricingId}`, data);
-    },
-    onSuccess: () => {
-      // Invalidate the correct query key
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/modules/pricing/all"] });
-      toast({ title: "Pricing updated successfully" });
-      setPricingFormData({});
-      setEditingPricing(null);
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to update pricing", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1559,153 +1494,33 @@ export function ModuleManagement() {
       <Card>
         <CardHeader>
           <CardTitle>Modules</CardTitle>
+          <CardDescription>Catalogue modules operators can be granted by eco-admin</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {modules && modules.length > 0 ? (
-              modules.map((module: any) => {
-                const modulePricing = getModulePricing(module.id);
-                const gbpPricing = modulePricing?.find((p: any) => p.currencyCode === "GBP");
-                
-                return (
-                  <div key={module.id} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">{module.name}</h3>
-                          <Badge variant="outline">{module.moduleKey}</Badge>
-                          {module.isAvailableGlobally && <Badge variant="default">Available</Badge>}
-                          {module.defaultEnabled && <Badge variant="secondary">Default Enabled</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">{module.description}</p>
+              modules.map((module: any) => (
+                <div key={module.id} className="border rounded-lg p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold">{module.name}</h3>
+                        <Badge variant="outline">{module.moduleKey}</Badge>
+                        {module.isAvailableGlobally && <Badge variant="default">Available</Badge>}
+                        {module.defaultEnabled && <Badge variant="secondary">Default Enabled</Badge>}
                       </div>
-                      <Button size="sm" variant="outline" onClick={() => {
-                        setEditingId(module.id);
-                        setFormData(module);
-                      }}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Module
-                      </Button>
+                      <p className="text-sm text-muted-foreground mt-1">{module.description}</p>
                     </div>
-                    
-                    {/* Pricing Section */}
-                    <div className="pt-3 border-t">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-sm">Pricing (GBP)</h4>
-                      </div>
-                      {editingPricing?.moduleId === module.id && (editingPricing?.pricingId === gbpPricing?.id || editingPricing?.pricingId === "new") ? (
-                        <div className="grid grid-cols-3 gap-3 items-end">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Monthly Price (GBP)</Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={pricingFormData.priceMonthlyGBP !== undefined ? pricingFormData.priceMonthlyGBP : (gbpPricing?.priceMonthly ? (gbpPricing.priceMonthly / 100).toFixed(2) : "")}
-                              onChange={(e) => {
-                                const gbpValue = parseFloat(e.target.value) || 0;
-                                setPricingFormData({ ...pricingFormData, priceMonthlyGBP: gbpValue, priceMonthly: Math.round(gbpValue * 100) });
-                              }}
-                              placeholder="0.00"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Annual Price (GBP)</Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={pricingFormData.priceAnnualGBP !== undefined ? pricingFormData.priceAnnualGBP : (gbpPricing?.priceAnnual ? (gbpPricing.priceAnnual / 100).toFixed(2) : "")}
-                              onChange={(e) => {
-                                const gbpValue = parseFloat(e.target.value) || 0;
-                                setPricingFormData({ ...pricingFormData, priceAnnualGBP: gbpValue, priceAnnual: Math.round(gbpValue * 100) });
-                              }}
-                              placeholder="0.00"
-                            />
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => {
-                              if (gbpPricing && editingPricing?.pricingId !== "new") {
-                                // Use form data if available, otherwise use existing pricing
-                                const monthlyPrice = pricingFormData.priceMonthly !== undefined 
-                                  ? pricingFormData.priceMonthly 
-                                  : gbpPricing.priceMonthly;
-                                const annualPrice = pricingFormData.priceAnnual !== undefined 
-                                  ? pricingFormData.priceAnnual 
-                                  : gbpPricing.priceAnnual;
-                                
-                                console.log(`[Frontend] Updating pricing: monthly=${monthlyPrice}, annual=${annualPrice}`);
-                                
-                                updatePricingMutation.mutate({ 
-                                  moduleId: module.id, 
-                                  pricingId: gbpPricing.id, 
-                                  data: { 
-                                    priceMonthly: monthlyPrice, 
-                                    priceAnnual: annualPrice 
-                                  } 
-                                });
-                              } else {
-                                // Create new GBP pricing if it doesn't exist
-                                createPricingMutation.mutate({ 
-                                  moduleId: module.id,
-                                  data: {
-                                    currencyCode: "GBP",
-                                    priceMonthly: pricingFormData.priceMonthly || 0,
-                                    priceAnnual: pricingFormData.priceAnnual || 0,
-                                  }
-                                });
-                              }
-                            }}>
-                              <Save className="h-3 w-3 mr-1" />
-                              Save
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => {
-                              setEditingPricing(null);
-                              setPricingFormData({});
-                            }}>
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <div className="flex gap-4 text-sm">
-                            {gbpPricing ? (
-                              <>
-                                <span className="font-medium">Monthly: £{(gbpPricing.priceMonthly / 100).toFixed(2)}</span>
-                                <span className="font-medium">Annual: £{(gbpPricing.priceAnnual / 100).toFixed(2)}</span>
-                              </>
-                            ) : (
-                              <span className="text-muted-foreground">No pricing configured</span>
-                            )}
-                          </div>
-                          <Button size="sm" variant="outline" onClick={() => {
-                            if (gbpPricing) {
-                              setEditingPricing({ moduleId: module.id, pricingId: gbpPricing.id });
-                              setPricingFormData({
-                                priceMonthlyGBP: gbpPricing.priceMonthly / 100,
-                                priceAnnualGBP: gbpPricing.priceAnnual / 100,
-                                priceMonthly: gbpPricing.priceMonthly,
-                                priceAnnual: gbpPricing.priceAnnual,
-                              });
-                            } else {
-                              // Start creating new pricing
-                              setEditingPricing({ moduleId: module.id, pricingId: "new" });
-                              setPricingFormData({
-                                priceMonthlyGBP: 0,
-                                priceAnnualGBP: 0,
-                                priceMonthly: 0,
-                                priceAnnual: 0,
-                              });
-                            }
-                          }}>
-                            <Edit className="h-3 w-3 mr-1" />
-                            {gbpPricing ? "Edit Price" : "Add Price"}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setEditingId(module.id);
+                      setFormData(module);
+                    }}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Module
+                    </Button>
                   </div>
-                );
-              })
+                </div>
+              ))
             ) : (
               <p className="text-center text-muted-foreground py-8">No modules configured</p>
             )}
