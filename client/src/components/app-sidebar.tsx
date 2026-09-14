@@ -16,7 +16,6 @@ import {
   FileBarChart,
   CreditCard,
   Shield,
-  Layout,
 } from "lucide-react";
 import {
   Sidebar,
@@ -136,15 +135,9 @@ export function AppSidebar() {
       roles: ["owner"],
     },
     {
-      title: "Billing & Credits",
+      title: "Modules",
       url: "/billing",
       icon: CreditCard,
-      roles: ["owner"],
-    },
-    {
-      title: "Marketplace",
-      url: "/marketplace",
-      icon: Layout,
       roles: ["owner"],
     },
   ];

@@ -56,7 +56,8 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('branding');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<InspectionCategory | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [trademarkToDelete, setTrademarkToDelete] = useState<OrganizationTrademark | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<InspectionCategory | null>(null);
 
@@ -490,7 +491,7 @@ export default function Settings() {
                                     </div>
                                   </TooltipTrigger>
                                   <TooltipContent>
-                                    <p>Please enable this feature from marketplace first.</p>
+                                    <p>Please contact admin to activate this module.</p>
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
@@ -600,7 +601,7 @@ export default function Settings() {
                                         </div>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        <p>Please enable this feature from marketplace first.</p>
+                                        <p>Please contact admin to activate this module.</p>
                                       </TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
@@ -1005,86 +1006,152 @@ export default function Settings() {
                 <CardHeader>
                   <CardTitle className="text-2xl">Export Portfolio Data</CardTitle>
                   <CardDescription className="mt-2">
-                    Download a comprehensive Excel report containing all your portfolio data including properties, blocks, inspections, compliance documents, and maintenance records.
+                    Download a portfolio report as Excel or PDF. Both include the same full portfolio data: blocks, properties, inspections, compliance, maintenance, tenants, assets, at-risk and upcoming items.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div className="p-4 rounded-lg border bg-muted/50">
-                      <h3 className="font-semibold mb-2">What's included in the export:</h3>
+                      <h3 className="font-semibold mb-2">What's included:</h3>
                       <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
                         <li>All properties and blocks with their details</li>
                         <li>Complete inspection history and reports</li>
                         <li>Compliance documents and expiry dates</li>
                         <li>Maintenance requests and their status</li>
                         <li>Tenant assignments and lease information</li>
-                        <li>Asset inventory records</li>
+                        <li>Asset inventory, at-risk, and upcoming items</li>
                       </ul>
                     </div>
-                    <Button
-                      onClick={async () => {
-                        setIsExporting(true);
-                        try {
-                          const response = await fetch("/api/reports/comprehensive/excel", {
-                            method: "GET",
-                            credentials: "include",
-                          });
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button
+                        onClick={async () => {
+                          setIsExportingExcel(true);
+                          try {
+                            const response = await fetch("/api/reports/comprehensive/excel", {
+                              method: "GET",
+                              credentials: "include",
+                            });
 
-                          if (!response.ok) {
-                            const errorData = await response.json().catch(() => ({ message: "Failed to generate Excel report" }));
-                            throw new Error(errorData.message || "Failed to generate Excel report");
+                            if (!response.ok) {
+                              const errorData = await response.json().catch(() => ({ message: "Failed to generate Excel report" }));
+                              throw new Error(errorData.message || "Failed to generate Excel report");
+                            }
+
+                            const blob = await response.blob();
+
+                            if (blob.size === 0) {
+                              throw new Error("Generated Excel file is empty");
+                            }
+
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `portfolio-data-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+
+                            toast({
+                              title: "Export Successful",
+                              description: "Your portfolio Excel report has been downloaded.",
+                            });
+                          } catch (error: any) {
+                            console.error("Export error:", error);
+                            toast({
+                              title: "Export Failed",
+                              description: error.message || "Failed to generate Excel report. Please try again.",
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setIsExportingExcel(false);
                           }
+                        }}
+                        disabled={isExportingExcel || isExportingPdf}
+                        size="lg"
+                        className="w-full sm:w-auto"
+                        data-testid="button-export-portfolio-data"
+                      >
+                        {isExportingExcel ? (
+                          <>
+                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                            Generating Excel...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-5 w-5 mr-2" />
+                            Download Excel
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          setIsExportingPdf(true);
+                          try {
+                            const response = await fetch("/api/reports/comprehensive/pdf", {
+                              method: "GET",
+                              credentials: "include",
+                            });
 
-                          const blob = await response.blob();
+                            if (!response.ok) {
+                              const errorData = await response.json().catch(() => ({ message: "Failed to generate PDF report" }));
+                              throw new Error(errorData.message || "Failed to generate PDF report");
+                            }
 
-                          if (blob.size === 0) {
-                            throw new Error("Generated Excel file is empty");
+                            const contentType = response.headers.get("content-type") || "";
+                            if (!contentType.includes("application/pdf")) {
+                              throw new Error("Server did not return a PDF. Please restart the server and try again.");
+                            }
+
+                            const blob = await response.blob();
+
+                            if (blob.size === 0) {
+                              throw new Error("Generated PDF file is empty");
+                            }
+
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `portfolio-report-${new Date().toISOString().split('T')[0]}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+
+                            toast({
+                              title: "Export Successful",
+                              description: "Your portfolio PDF report has been downloaded.",
+                            });
+                          } catch (error: any) {
+                            console.error("PDF export error:", error);
+                            toast({
+                              title: "Export Failed",
+                              description: error.message || "Failed to generate PDF report. Please try again.",
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setIsExportingPdf(false);
                           }
-
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `portfolio-data-export-${new Date().toISOString().split('T')[0]}.xlsx`;
-                          document.body.appendChild(a);
-                          a.click();
-                          window.URL.revokeObjectURL(url);
-                          document.body.removeChild(a);
-
-                          toast({
-                            title: "Export Successful",
-                            description: "Your portfolio data has been downloaded successfully.",
-                          });
-                        } catch (error: any) {
-                          console.error("Export error:", error);
-                          toast({
-                            title: "Export Failed",
-                            description: error.message || "Failed to generate Excel report. Please try again.",
-                            variant: "destructive",
-                          });
-                        } finally {
-                          setIsExporting(false);
-                        }
-                      }}
-                      disabled={isExporting}
-                      size="lg"
-                      className="w-full sm:w-auto"
-                      data-testid="button-export-portfolio-data"
-                    >
-                      {isExporting ? (
-                        <>
-                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                          Generating Report...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="h-5 w-5 mr-2" />
-                          Download Portfolio Data Report
-                        </>
-                      )}
-                    </Button>
-                    <p className="text-sm text-muted-foreground">
-                      The report will be generated as an Excel file (.xlsx) and downloaded to your device. Large portfolios may take a few moments to process.
-                    </p>
+                        }}
+                        disabled={isExportingExcel || isExportingPdf}
+                        size="lg"
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                        data-testid="button-export-portfolio-pdf"
+                      >
+                        {isExportingPdf ? (
+                          <>
+                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                            Generating PDF...
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="h-5 w-5 mr-2" />
+                            Download PDF
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

@@ -1234,6 +1234,11 @@ function findTenantSignatureFieldFromTemplate(templateSnapshotJson: any): {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  const SELF_SERVE_DISABLED = {
+    message: "Self-serve purchases are disabled. Please contact your administrator.",
+    error: "SELF_SERVE_DISABLED",
+  };
+
   // ==================== CONFIG ROUTES ====================
 
   // Get Google Maps API key (public endpoint, but API key is restricted by domain in Google Console)
@@ -1837,6 +1842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/marketplace/modules/:id/purchase", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const organizationId = req.user.organizationId;
       const moduleId = req.params.id;
       const { billingCycle = "monthly", autoCredit = false } = req.body;
@@ -2012,6 +2018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bundle purchase endpoint
   app.post("/api/marketplace/bundles/:id/purchase", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const organizationId = req.user.organizationId;
       const bundleId = req.params.id;
       const { billingCycle = "monthly", autoCredit = false } = req.body;
@@ -2516,6 +2523,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/marketplace/modules/:id/toggle", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json({
+        message: "Modules can only be enabled or disabled by an administrator. Please contact your administrator.",
+        error: "SELF_SERVE_DISABLED",
+      });
       const organizationId = req.user.organizationId;
       const moduleId = req.params.id;
       const { enable, billingStartDate } = req.body;
@@ -3017,6 +3028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/billing/checkout", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const { planCode, billingPeriod, currency, inspectionCount, totalPrice, tierPrice, additionalCost, moduleCost } = req.body;
       const organizationId = req.user.organizationId;
       const user = await storage.getUser(req.user.id);
@@ -3701,6 +3713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/billing/quotation-checkout", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const { quotationId } = req.body;
       const organizationId = req.user.organizationId;
 
@@ -3938,6 +3951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Purchase add-on pack
   app.post("/api/billing/addon-packs/:packId/purchase", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const organizationId = req.user.organizationId;
       const packId = req.params.packId;
 
@@ -13144,6 +13158,7 @@ ${optionalNotes || "No details provided."}`;
 
   app.post("/api/stripe/create-checkout", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -18176,11 +18191,18 @@ ${optionalNotes || "No details provided."}`;
         // Get credit balance from batch system (not legacy creditsRemaining)
         const creditBalance = await storage.getCreditBalance(org.id);
 
+        let enabledModuleCount = 0;
+        if (subscription) {
+          const instanceModules = await storage.getInstanceModules(subscription.id);
+          enabledModuleCount = instanceModules.filter((m) => m.isEnabled).length;
+        }
+
         return {
           ...org,
           subscription,
           tierName: tier?.name || null,
           tierCode: tier?.code || null,
+          enabledModuleCount,
           creditBalance: {
             total: creditBalance.total,
             current: creditBalance.current,
@@ -18204,7 +18226,27 @@ ${optionalNotes || "No details provided."}`;
       if (!instance) {
         return res.status(404).json({ message: "Instance not found" });
       }
-      res.json(instance);
+      const subscription = await storage.getInstanceSubscription(req.params.id);
+      const creditBalance = await storage.getCreditBalance(req.params.id);
+      const tiers = await storage.getSubscriptionTiers();
+      const tier = subscription?.currentTierId ? tiers.find(t => t.id === subscription.currentTierId) : null;
+      let enabledModules: any[] = [];
+      if (subscription) {
+        enabledModules = await storage.getInstanceModules(subscription.id);
+      }
+      res.json({
+        ...instance,
+        subscription,
+        tierName: tier?.name || null,
+        tierCode: tier?.code || null,
+        creditBalance: {
+          total: creditBalance.total,
+          current: creditBalance.current,
+          rolled: creditBalance.rolled,
+          expiresOn: creditBalance.expiresOn,
+        },
+        instanceModules: enabledModules,
+      });
     } catch (error) {
       console.error("Error fetching instance:", error);
       res.status(500).json({ message: "Failed to fetch instance" });
@@ -18214,7 +18256,7 @@ ${optionalNotes || "No details provided."}`;
   // Update instance (tier, credits, active status, modules)
   app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
     try {
-      const { tierId, credits, isActive, enabledModules, preferredCurrency } = req.body; // Changed from creditsRemaining to credits
+      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason } = req.body;
 
       // Get organization to get currency
       const org = await storage.getOrganization(req.params.id);
@@ -18250,13 +18292,22 @@ ${optionalNotes || "No details provided."}`;
       // If credits is being updated, grant credits via the credit batch system
       // This ensures the credits show up on the operator's billing page
       if (credits !== undefined && credits !== null) {
+        const targetCredits = Number(credits);
+        if (!Number.isFinite(targetCredits) || targetCredits < 0) {
+          return res.status(400).json({ message: "Credits must be a non-negative number" });
+        }
+
         // Get current credit balance from batches (this is what the operator sees)
         const currentBalance = await storage.getCreditBalance(req.params.id);
         const currentBalanceTotal = currentBalance.total;
         
         // Calculate how many credits to grant/revoke
         // Target balance should match credits
-        const creditsToAdjust = credits - currentBalanceTotal;
+        const creditsToAdjust = targetCredits - currentBalanceTotal;
+        const adminId = (req.session as any).adminUser?.id || "admin";
+        const notes = creditReason
+          ? String(creditReason)
+          : `Admin adjustment: Updated from ${currentBalanceTotal} to ${targetCredits} credits`;
         
         if (creditsToAdjust > 0) {
           // Grant credits using the subscription service
@@ -18267,22 +18318,17 @@ ${optionalNotes || "No details provided."}`;
             "admin_grant",
             undefined, // No expiration
             {
-              adminNotes: `Admin adjustment: Updated from ${currentBalanceTotal} to ${credits} credits`,
-              createdBy: (req.session as any).adminUser?.id || "admin",
+              adminNotes: notes,
+              createdBy: adminId,
             }
           );
-          console.log(`[Admin] Granted ${creditsToAdjust} credits to org ${req.params.id} (new total: ${credits})`);
+          console.log(`[Admin] Granted ${creditsToAdjust} credits to org ${req.params.id} (new total: ${targetCredits})`);
         } else if (creditsToAdjust < 0) {
-          // For reducing credits, try to consume them
+          // For reducing credits, consume them — hard-fail if unable
           const { subscriptionService } = await import("./subscriptionService");
           const creditsToConsume = Math.abs(creditsToAdjust);
-          try {
-            await subscriptionService.consumeInspectionCredits(req.params.id, creditsToConsume, "admin_adjustment");
-            console.log(`[Admin] Consumed ${creditsToConsume} credits from org ${req.params.id} (new total: ${credits})`);
-          } catch (consumeError: any) {
-            // If consumption fails (not enough credits), log warning but continue
-            console.warn(`[Admin] Could not consume ${creditsToConsume} credits (current: ${currentBalanceTotal}, target: ${credits}): ${consumeError.message}`);
-          }
+          await subscriptionService.consumeInspectionCredits(req.params.id, creditsToConsume, "admin_adjustment");
+          console.log(`[Admin] Consumed ${creditsToConsume} credits from org ${req.params.id} (new total: ${targetCredits})`);
         }
       }
 
@@ -18323,46 +18369,80 @@ ${optionalNotes || "No details provided."}`;
 
       // Update modules if provided
       if (enabledModules !== undefined && Array.isArray(enabledModules)) {
-        const subscription = await storage.getInstanceSubscription(req.params.id);
-        if (subscription) {
-          // Get all available modules
-          const allModules = await storage.getMarketplaceModules();
-          const allModuleIds = allModules.map(m => m.id);
-          
-          // Get current instance modules
-          const currentInstanceModules = await storage.getInstanceModules(subscription.id);
-          const currentEnabledModuleIds = currentInstanceModules
-            .filter(im => im.isEnabled)
-            .map(im => im.moduleId);
-          
-          // Determine which modules to enable and disable
-          const modulesToEnable = enabledModules.filter((moduleId: string) => 
-            !currentEnabledModuleIds.includes(moduleId) && allModuleIds.includes(moduleId)
-          );
-          const modulesToDisable = currentEnabledModuleIds.filter((moduleId: string) => 
-            !enabledModules.includes(moduleId)
-          );
-          
-          // Enable new modules
-          for (const moduleId of modulesToEnable) {
-            await storage.toggleInstanceModule(subscription.id, moduleId, true);
-            console.log(`[Admin] Enabled module ${moduleId} for instance ${req.params.id}`);
-          }
-          
-          // Disable removed modules
-          for (const moduleId of modulesToDisable) {
-            await storage.toggleInstanceModule(subscription.id, moduleId, false);
-            console.log(`[Admin] Disabled module ${moduleId} for instance ${req.params.id}`);
-          }
-          
-          console.log(`[Admin] Updated modules for instance ${req.params.id}: enabled=${modulesToEnable.length}, disabled=${modulesToDisable.length}`);
+        let subscription = await storage.getInstanceSubscription(req.params.id);
+        if (!subscription) {
+          // Create subscription so modules can be assigned without a prior tier purchase
+          subscription = await storage.createInstanceSubscription({
+            organizationId: req.params.id,
+            registrationCurrency: org.preferredCurrency || "GBP",
+            ...(tierId ? { currentTierId: tierId } : {}),
+            inspectionQuotaIncluded: 0,
+            billingCycle: "monthly",
+            subscriptionStatus: "active",
+          });
         }
+
+        // Get all available modules
+        const allModules = await storage.getMarketplaceModules();
+        const allModuleIds = allModules.map(m => m.id);
+        
+        // Get current instance modules
+        const currentInstanceModules = await storage.getInstanceModules(subscription.id);
+        const currentEnabledModuleIds = currentInstanceModules
+          .filter(im => im.isEnabled)
+          .map(im => im.moduleId);
+        
+        // Determine which modules to enable and disable
+        const modulesToEnable = enabledModules.filter((moduleId: string) => 
+          !currentEnabledModuleIds.includes(moduleId) && allModuleIds.includes(moduleId)
+        );
+        const modulesToDisable = currentEnabledModuleIds.filter((moduleId: string) => 
+          !enabledModules.includes(moduleId)
+        );
+        
+        // Enable new modules
+        for (const moduleId of modulesToEnable) {
+          await storage.toggleInstanceModule(subscription.id, moduleId, true);
+          console.log(`[Admin] Enabled module ${moduleId} for instance ${req.params.id}`);
+        }
+        
+        // Disable removed modules
+        for (const moduleId of modulesToDisable) {
+          await storage.toggleInstanceModule(subscription.id, moduleId, false);
+          console.log(`[Admin] Disabled module ${moduleId} for instance ${req.params.id}`);
+        }
+        
+        console.log(`[Admin] Updated modules for instance ${req.params.id}: enabled=${modulesToEnable.length}, disabled=${modulesToDisable.length}`);
       }
 
-      res.json(updated);
-    } catch (error) {
+      const creditBalance = await storage.getCreditBalance(req.params.id);
+      res.json({
+        ...updated,
+        creditBalance: {
+          total: creditBalance.total,
+          current: creditBalance.current,
+          rolled: creditBalance.rolled,
+          expiresOn: creditBalance.expiresOn,
+        },
+      });
+    } catch (error: any) {
       console.error("Error updating instance:", error);
-      res.status(500).json({ message: "Failed to update instance" });
+      res.status(500).json({ message: error?.message || "Failed to update instance" });
+    }
+  });
+
+  app.get("/api/admin/instances/:id/credits/ledger", isAdminAuthenticated, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+      const limit = parseInt(req.query.limit as string) || 50;
+      const ledger = await storage.getCreditLedgerByOrganization(req.params.id, limit);
+      res.json(ledger);
+    } catch (error: any) {
+      console.error("Error fetching admin credit ledger:", error);
+      res.status(500).json({ message: "Failed to fetch credit ledger" });
     }
   });
 
@@ -19334,6 +19414,7 @@ ${optionalNotes || "No details provided."}`;
   // Create Stripe customer portal session
   app.post("/api/billing/portal", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -22913,6 +22994,7 @@ ${optionalNotes || "No details provided."}`;
   // Create top-up checkout session
   app.post("/api/credits/topup/checkout", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -22990,26 +23072,41 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  // Admin: Grant credits
-  app.post("/api/admin/credits/grant", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+  // Admin: Grant credits (eco-admin session)
+  app.post("/api/admin/credits/grant", isAdminAuthenticated, async (req: any, res) => {
     try {
       const { organizationId, quantity, reason } = req.body;
-      const user = await storage.getUser(req.user.id);
 
-      if (!organizationId || !quantity || quantity <= 0) {
-        return res.status(400).json({ message: "Invalid request" });
+      if (!organizationId || !quantity || Number(quantity) <= 0) {
+        return res.status(400).json({ message: "organizationId and a positive quantity are required" });
       }
 
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      const adminId = (req.session as any).adminUser?.id || "admin";
       const { subscriptionService: subService } = await import("./subscriptionService");
       await subService.grantCredits(
         organizationId,
-        quantity,
+        Number(quantity),
         "admin_grant",
         undefined,
-        { adminNotes: reason || "Admin grant", createdBy: user?.id }
+        { adminNotes: reason || "Admin grant", createdBy: adminId }
       );
 
-      res.json({ success: true, granted: quantity });
+      const creditBalance = await storage.getCreditBalance(organizationId);
+      res.json({
+        success: true,
+        granted: Number(quantity),
+        creditBalance: {
+          total: creditBalance.total,
+          current: creditBalance.current,
+          rolled: creditBalance.rolled,
+          expiresOn: creditBalance.expiresOn,
+        },
+      });
     } catch (error: any) {
       console.error("Error granting credits:", error);
       res.status(500).json({ message: "Failed to grant credits", error: error.message });
@@ -23189,6 +23286,88 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // ==================== ECO-ADMIN PRICING MODEL 2026 ROUTES ====================
+
+  // Eco-admin unit pricing catalog (manual price sheet)
+  async function ensureUnitPricingCatalogTable() {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS unit_pricing_catalog (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        price_per_unit_monthly NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        price_per_unit_annual NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        currency_code VARCHAR(3) NOT NULL DEFAULT 'GBP',
+        features_included TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  }
+
+  app.get("/api/admin/unit-pricing", isAdminAuthenticated, async (_req, res) => {
+    try {
+      await ensureUnitPricingCatalogTable();
+      const { unitPricingCatalog } = await import("@shared/schema");
+      const rows = await db.select().from(unitPricingCatalog).limit(1);
+      if (rows.length === 0) {
+        return res.json({
+          pricePerUnitMonthly: "0",
+          pricePerUnitAnnual: "0",
+          currencyCode: "GBP",
+          featuresIncluded: "",
+          updatedAt: null,
+        });
+      }
+      res.json(rows[0]);
+    } catch (error: any) {
+      console.error("Error fetching unit pricing:", error);
+      res.status(500).json({ message: "Failed to fetch unit pricing", error: error.message });
+    }
+  });
+
+  app.put("/api/admin/unit-pricing", isAdminAuthenticated, async (req, res) => {
+    try {
+      await ensureUnitPricingCatalogTable();
+      const { unitPricingCatalog } = await import("@shared/schema");
+
+      const monthly = Number(req.body?.pricePerUnitMonthly);
+      const annual = Number(req.body?.pricePerUnitAnnual);
+      const currencyCode = String(req.body?.currencyCode || "GBP").toUpperCase().slice(0, 3);
+      const featuresIncluded = String(req.body?.featuresIncluded ?? "");
+
+      if (!Number.isFinite(monthly) || monthly < 0) {
+        return res.status(400).json({ message: "Invalid per-unit monthly price" });
+      }
+      if (!Number.isFinite(annual) || annual < 0) {
+        return res.status(400).json({ message: "Invalid per-unit annual price" });
+      }
+      if (!/^[A-Z]{3}$/.test(currencyCode)) {
+        return res.status(400).json({ message: "Invalid currency code" });
+      }
+
+      const values = {
+        pricePerUnitMonthly: monthly.toFixed(2),
+        pricePerUnitAnnual: annual.toFixed(2),
+        currencyCode,
+        featuresIncluded,
+        updatedAt: new Date(),
+      };
+
+      const existing = await db.select().from(unitPricingCatalog).limit(1);
+      let row;
+      if (existing.length === 0) {
+        [row] = await db.insert(unitPricingCatalog).values(values).returning();
+      } else {
+        [row] = await db
+          .update(unitPricingCatalog)
+          .set(values)
+          .where(eq(unitPricingCatalog.id, existing[0].id))
+          .returning();
+      }
+      res.json(row);
+    } catch (error: any) {
+      console.error("Error saving unit pricing:", error);
+      res.status(500).json({ message: "Failed to save unit pricing", error: error.message });
+    }
+  });
 
   // Currency Management
   app.get("/api/admin/currencies", isAdminAuthenticated, async (req: any, res) => {
@@ -23692,23 +23871,17 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  // Get all module pricing in one request (avoids multiple parallel requests)
+  // Get all module pricing in one request (legacy catalogue; unused by admin-managed UI)
   app.get("/api/admin/modules/pricing/all", isAdminAuthenticated, async (req: any, res) => {
     try {
       const modules = await storage.getMarketplaceModules();
-      console.log(`[Admin Pricing] Fetching pricing for ${modules.length} modules`);
       
       // Query all pricing directly from database to ensure we get everything
       const { modulePricing, marketplaceModules } = await import("@shared/schema");
       const allPricing = await db.select().from(modulePricing);
-      console.log(`[Admin Pricing] Found ${allPricing.length} total pricing entries in database`);
       
       // Get all modules from database to match by module_key (in case IDs don't match)
       const allModules = await db.select().from(marketplaceModules);
-      const modulesByKey = new Map<string, any>();
-      allModules.forEach((m: any) => {
-        modulesByKey.set(m.moduleKey, m);
-      });
       
       // Create a map of module_key -> pricing entries
       // First, get the module_key for each pricing entry
@@ -23728,19 +23901,9 @@ ${optionalNotes || "No details provided."}`;
       // Match pricing to modules by module_key (more reliable than ID)
       const pricingData = modules.map((module: any) => {
         const pricing = pricingByModuleKey.get(module.moduleKey) || [];
-        console.log(`[Admin Pricing] Module ${module.name} (${module.moduleKey}): Found ${pricing.length} pricing entries`);
-        if (pricing.length > 0) {
-          console.log(`[Admin Pricing] Pricing details:`, pricing.map((p: any) => ({
-            id: p.id,
-            currency: p.currencyCode,
-            monthly: p.priceMonthly,
-            annual: p.priceAnnual
-          })));
-        }
         return { moduleId: module.id, pricing };
       });
       
-      console.log(`[Admin Pricing] Returning pricing data for ${pricingData.length} modules`);
       res.json(pricingData);
     } catch (error: any) {
       console.error("Error fetching all module pricing:", error);
@@ -26615,6 +26778,7 @@ ${optionalNotes || "No details provided."}`;
   // Create top-up checkout session with tier-based pricing
   app.post("/api/billing/topup-checkout", isAuthenticated, async (req: any, res) => {
     try {
+      return res.status(403).json(SELF_SERVE_DISABLED);
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
@@ -32830,6 +32994,108 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
+  app.get("/api/reports/comprehensive/pdf", isAuthenticated, async (req: any, res) => {
+    try {
+      console.log("[Portfolio PDF] Generating comprehensive report...");
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const orgId = user.organizationId;
+      const [
+        blocks,
+        properties,
+        inspections,
+        maintenanceRequests,
+        complianceDocuments,
+        assetInventory,
+        tenantAssignments,
+        organization,
+      ] = await Promise.all([
+        storage.getBlocksByOrganization(orgId),
+        storage.getPropertiesByOrganization(orgId),
+        storage.getInspectionsByOrganization(orgId),
+        storage.getMaintenanceByOrganization(orgId),
+        storage.getComplianceDocuments(orgId),
+        storage.getAssetInventoryByOrganization(orgId),
+        storage.getTenantAssignmentsByOrganization(orgId),
+        storage.getOrganization(orgId),
+      ]);
+
+      const { generatePortfolioReportHTML } = await import("./portfolioReportPdf");
+
+      const branding = organization
+        ? {
+            logoUrl: organization.logoUrl,
+            brandingName: organization.brandingName || null,
+            brandingEmail: organization.brandingEmail,
+            brandingPhone: organization.brandingPhone,
+            brandingWebsite: organization.brandingWebsite,
+          }
+        : {};
+
+      const protocol = req.protocol;
+      const host = req.get("host");
+      const baseUrl = `${protocol}://${host}`;
+
+      const html = await generatePortfolioReportHTML({
+        organizationName: organization?.name || "Inspect360",
+        properties,
+        blocks,
+        inspections,
+        complianceDocuments,
+        maintenanceRequests,
+        assetInventory,
+        tenantAssignments,
+        branding,
+        baseUrl,
+      });
+
+      let browser;
+      try {
+        browser = await launchPuppeteerBrowser();
+        const page = await browser.newPage();
+        await page.setContent(html, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        });
+
+        const pdf = await page.pdf({
+          format: "A4",
+          landscape: false,
+          printBackground: true,
+          margin: {
+            top: "15mm",
+            right: "12mm",
+            bottom: "15mm",
+            left: "12mm",
+          },
+        });
+
+        const pdfBuffer = Buffer.from(pdf);
+        console.log(`[Portfolio PDF] Generated ${pdfBuffer.length} bytes`);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="portfolio-report-${new Date().toISOString().split("T")[0]}.pdf"`
+        );
+        res.setHeader("Content-Length", pdfBuffer.length.toString());
+        res.setHeader("Cache-Control", "no-cache");
+        res.send(pdfBuffer);
+      } finally {
+        if (browser) {
+          await browser.close();
+        }
+      }
+    } catch (error: any) {
+      console.error("Error generating portfolio PDF report:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ message: error.message || "Failed to generate PDF report" });
+      }
+    }
+  });
+
   // ==================== FEEDBACK SYSTEM ROUTES ====================
 
   // User: Submit feedback
@@ -34804,6 +35070,10 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
   // Toggle a module (Enable/Disable) - Simulating Purchase for now
   app.post("/api/marketplace/modules/:moduleId/toggle", async (req, res) => {
+    return res.status(403).json({
+      message: "Modules can only be enabled or disabled by an administrator. Please contact your administrator.",
+      error: "SELF_SERVE_DISABLED",
+    });
     const userRole = req.user?.role as string;
     if (!req.isAuthenticated() || (userRole !== "owner" && userRole !== "admin")) { // Allow admin too for testing
       // Strictly speaking "owner" is best for billing.
@@ -34916,6 +35186,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
   // Marketplace Checkout
   app.post("/api/marketplace/checkout", async (req, res) => {
+    return res.status(403).json(SELF_SERVE_DISABLED);
     if (!req.isAuthenticated() || req.user?.role !== "owner") {
       return res.status(403).json({ message: "Unauthorized" });
     }

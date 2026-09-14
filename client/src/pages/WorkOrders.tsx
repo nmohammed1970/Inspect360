@@ -105,11 +105,11 @@ export default function WorkOrders() {
           <p className="text-muted-foreground max-w-md">
             Maintenance & Work Orders features are not enabled for your organization.
             <br />
-            Please enable this feature from the marketplace to continue.
+            Please contact your administrator to activate this module.
           </p>
         </div>
-        <Button variant="default" onClick={() => window.location.href = "/marketplace"}>
-          Go to Marketplace
+        <Button variant="default" onClick={() => window.location.href = "/billing"}>
+          View Modules
         </Button>
       </div>
     );

@@ -2,13 +2,11 @@ import {
   LayoutDashboard,
   Users,
   BookOpen,
-  Settings,
   Shield,
-  Package,
-  CreditCard,
   Info,
   FileText,
   Box,
+  BadgePoundSterling,
 } from "lucide-react";
 import {
   Sidebar,
@@ -44,16 +42,6 @@ export function AdminSidebar() {
       icon: BookOpen,
     },
     {
-      title: "Tiers",
-      url: "/admin/tiers",
-      icon: Package,
-    },
-    {
-      title: "Add-On Packs",
-      url: "/admin/addon-packs",
-      icon: CreditCard,
-    },
-    {
       title: "Extensive",
       url: "/admin/extensive",
       icon: Info,
@@ -62,6 +50,11 @@ export function AdminSidebar() {
       title: "Modules",
       url: "/admin/modules",
       icon: Box,
+    },
+    {
+      title: "Unit Pricing",
+      url: "/admin/unit-pricing",
+      icon: BadgePoundSterling,
     },
     {
       title: "Quotations",

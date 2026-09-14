@@ -75,7 +75,7 @@ export function UserProfileMenu() {
         <DropdownMenuItem asChild>
           <Link href="/billing" className="cursor-pointer" data-testid="link-billing">
             <CreditCard className="mr-2 h-4 w-4" />
-            <span>Billing</span>
+            <span>Modules</span>
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

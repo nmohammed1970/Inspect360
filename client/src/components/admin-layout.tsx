@@ -35,6 +35,9 @@ export function AdminLayout({ children, breadcrumbs }: AdminLayoutProps) {
     if (location === "/admin/eco-admin") {
       return [{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Eco Admin" }];
     }
+    if (location === "/admin/unit-pricing") {
+      return [{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }];
+    }
     // Default: just show Dashboard
     return [{ label: "Dashboard", href: "/admin/dashboard" }];
   };

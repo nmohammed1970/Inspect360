@@ -604,11 +604,11 @@ export default function Maintenance() {
           <p className="text-muted-foreground max-w-md">
             Maintenance & Work Orders features are not enabled for your organization.
             <br />
-            Please enable this feature from the marketplace to continue.
+            Please contact your administrator to activate this module.
           </p>
         </div>
-        <Button variant="default" onClick={() => window.location.href = "/marketplace"}>
-          Go to Marketplace
+        <Button variant="default" onClick={() => window.location.href = "/billing"}>
+          View Modules
         </Button>
       </div>
     );
@@ -1618,10 +1618,10 @@ export default function Maintenance() {
                 <h3 className="text-lg font-semibold mb-2">Work Orders Module Locked</h3>
                 <p className="text-muted-foreground text-center">
                   The Work Orders feature is not enabled for your organization.<br />
-                  Please purchase it from the Marketplace to unlock access.
+                  Please contact your administrator to activate Work Orders.
                 </p>
-                <Button variant="default" className="mt-6" onClick={() => window.location.href = "/marketplace"}>
-                  Go to Marketplace
+                <Button variant="default" className="mt-6" onClick={() => window.location.href = "/billing"}>
+                  View Modules
                 </Button>
               </CardContent>
             </Card>

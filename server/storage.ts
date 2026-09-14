@@ -3467,6 +3467,7 @@ export class DatabaseStorage implements IStorage {
       .select({
         id: organizations.id,
         name: organizations.name,
+        brandingName: organizations.brandingName,
         subscriptionStatus: organizations.subscriptionStatus,
         subscriptionLevel: organizations.subscriptionLevel,
         isActive: organizations.isActive,

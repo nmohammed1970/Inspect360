@@ -12,15 +12,30 @@ import {
 /**
  * Monthly Reset Service
  *
- * Renewal comparisons and advances use UTC (see shared/billingClock.ts).
- * Prefer aligning scheduled jobs to UTC midnight, not the host's local TZ.
+ * Legacy subscription behavior: expire plan credits and re-grant quota on renewal.
+ * With admin-managed credits (default), this is a no-op — eco-admin assigns credits
+ * and they stay until consumed or the admin changes them.
+ *
+ * Renewal comparisons use UTC (see shared/billingClock.ts).
  */
 export class MonthlyResetService {
+  private isAdminManagedCredits(): boolean {
+    // Default ON for admin-managed model. Set ADMIN_MANAGED_CREDITS=false to restore legacy resets.
+    return process.env.ADMIN_MANAGED_CREDITS !== "false";
+  }
+
   /**
    * Reset usage counters for a single organization
    */
   async resetOrganizationUsage(organizationId: string): Promise<void> {
     try {
+      if (this.isAdminManagedCredits()) {
+        console.log(
+          `[Monthly Reset] Skipping credit expiry/re-grant for org ${organizationId} (admin-managed credits)`
+        );
+        return;
+      }
+
       await billingService.resetMonthlyUsage(organizationId);
 
       const instanceSub = await storage.getInstanceSubscription(organizationId);
@@ -95,6 +110,13 @@ export class MonthlyResetService {
    * Due when subscription_renewal_date <= now (UTC instants).
    */
   async processMonthlyResets(): Promise<{ processed: number; errors: number }> {
+    if (this.isAdminManagedCredits()) {
+      console.log(
+        `[Monthly Reset] No-op (admin-managed credits). Credits only change via eco-admin or inspection use. clock=${BILLING_TIMEZONE}`
+      );
+      return { processed: 0, errors: 0 };
+    }
+
     const now = billingNowUtc();
     let processed = 0;
     let errors = 0;
@@ -141,6 +163,10 @@ export class MonthlyResetService {
   }
 
   async resetAllActiveSubscriptions(): Promise<number> {
+    if (this.isAdminManagedCredits()) {
+      console.log("[Monthly Reset] Skipping resetAllActiveSubscriptions (admin-managed credits)");
+      return 0;
+    }
     return await billingService.resetAllMonthlyUsage();
   }
 }

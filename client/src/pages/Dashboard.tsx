@@ -784,14 +784,14 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">{creditsRemaining} credits remaining</p>
                   </div>
                 </div>
-                <Link href="/billing?action=topup">
-                  <Button size="sm" data-testid="button-purchase-credits">Purchase Credits</Button>
+                <Link href="/billing">
+                  <Button size="sm" data-testid="button-view-plan">View Modules</Button>
                 </Link>
               </CardContent>
             </Card>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Credits are used for AI features — top up to keep using them</p>
+            <p>Credits are used for AI features — contact your admin if you need more</p>
           </TooltipContent>
         </UiTooltip>
       )}

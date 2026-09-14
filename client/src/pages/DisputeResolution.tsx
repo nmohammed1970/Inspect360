@@ -21,8 +21,8 @@ export default function DisputeResolution() {
                         Resolve deposit disputes efficiently with this premium module.
                     </p>
                 </div>
-                <Button variant="default" onClick={() => window.location.href = "/marketplace"}>
-                    Go to Marketplace
+                <Button variant="default" onClick={() => window.location.href = "/billing"}>
+                    View Modules
                 </Button>
             </div>
         );
