@@ -32240,6 +32240,14 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       const assetInventory = await storage.getAssetInventoryByOrganization(user.organizationId);
       const tenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
       const organization = await storage.getOrganization(user.organizationId);
+      const { formatCurrency, getCurrencyForCountry } = await import("@shared/countryUtils");
+      const reportCurrency = getCurrencyForCountry(organization?.countryCode || "GB");
+      const formatMoney = (value: unknown) => {
+        if (value === null || value === undefined || value === "") return "";
+        const num = typeof value === "number" ? value : parseFloat(String(value));
+        if (Number.isNaN(num)) return "";
+        return formatCurrency(num, reportCurrency, false);
+      };
 
       // Create workbook
       const workbook = new ExcelJS.Workbook();
@@ -32415,7 +32423,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             const propertyTypeValue = (property as any).propertyType || '';
             blocksSheet.getCell(row, 5).value = propertyTypeValue;
             blocksSheet.getCell(row, 6).value = tenantAssignment ? 'Occupied' : 'Vacant';
-            blocksSheet.getCell(row, 7).value = tenantAssignment?.monthlyRent || '';
+            blocksSheet.getCell(row, 7).value = formatMoney(tenantAssignment?.monthlyRent);
             blocksSheet.getCell(row, 8).value = propertyInspections.length;
             blocksSheet.getCell(row, 9).value = propertyMaintenance.length;
             blocksSheet.getCell(row, 10).value = propertyAssets.length;
@@ -32442,11 +32450,10 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         { width: 25 }, // Inspector
         { width: 20 }, // Scheduled Date
         { width: 20 }, // Completed Date
-        { width: 15 }  // Tenant Approval
       ];
 
       row = 1;
-      const inspectionHeaders = ['Date', 'Block', 'Property', 'Type', 'Status', 'Inspector', 'Scheduled Date', 'Completed Date', 'Tenant Approval'];
+      const inspectionHeaders = ['Date', 'Block', 'Property', 'Type', 'Status', 'Inspector', 'Scheduled Date', 'Completed Date'];
       inspectionHeaders.forEach((header, idx) => {
         const cell = inspectionsSheet.getCell(row, idx + 1);
         cell.value = header;
@@ -32477,21 +32484,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
           ? new Date(inspection.completedDate).toLocaleDateString()
           : '';
 
-        // Tenant approval status for check-in inspections
-        if (inspection.type === 'check_in') {
-          if (inspection.tenantApprovalStatus === 'approved') {
-            inspectionsSheet.getCell(row, 9).value = 'Approved';
-            inspectionsSheet.getCell(row, 9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-          } else if (inspection.tenantApprovalStatus === 'disputed') {
-            inspectionsSheet.getCell(row, 9).value = 'Disputed';
-            inspectionsSheet.getCell(row, 9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
-          } else if (inspection.tenantApprovalStatus === 'pending' || !inspection.tenantApprovalStatus) {
-            inspectionsSheet.getCell(row, 9).value = 'Pending';
-            inspectionsSheet.getCell(row, 9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
-          }
-        }
-
-        for (let col = 1; col <= 9; col++) {
+        for (let col = 1; col <= 8; col++) {
           Object.assign(inspectionsSheet.getCell(row, col), cellStyle);
         }
         row++;
@@ -32589,8 +32582,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         assetsSheet.getCell(row, 2).value = property?.name || '';
         assetsSheet.getCell(row, 3).value = asset.name || '';
         assetsSheet.getCell(row, 4).value = asset.category || '';
-        assetsSheet.getCell(row, 5).value = asset.purchasePrice ? parseFloat(asset.purchasePrice) : '';
-        assetsSheet.getCell(row, 6).value = asset.currentValue ? parseFloat(asset.currentValue) : '';
+        assetsSheet.getCell(row, 5).value = formatMoney(asset.purchasePrice);
+        assetsSheet.getCell(row, 6).value = formatMoney(asset.currentValue);
         assetsSheet.getCell(row, 7).value = asset.datePurchased
           ? new Date(asset.datePurchased).toLocaleDateString()
           : '';
@@ -32706,8 +32699,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         tenantsSheet.getCell(row, 6).value = assignment.leaseEndDate
           ? new Date(assignment.leaseEndDate).toLocaleDateString()
           : '';
-        tenantsSheet.getCell(row, 7).value = assignment.monthlyRent || '';
-        tenantsSheet.getCell(row, 8).value = assignment.depositAmount || '';
+        tenantsSheet.getCell(row, 7).value = formatMoney(assignment.monthlyRent);
+        tenantsSheet.getCell(row, 8).value = formatMoney(assignment.depositAmount);
         tenantsSheet.getCell(row, 9).value = assignment.isActive ? 'active' : 'inactive';
 
         for (let col = 1; col <= 9; col++) {
@@ -32945,7 +32938,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             upcomingSheet.getCell(row, 5).value = leaseEnd.toLocaleDateString();
             upcomingSheet.getCell(row, 6).value = daysUntil;
             upcomingSheet.getCell(row, 6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
-            upcomingSheet.getCell(row, 7).value = `Monthly Rent: ${assignment.monthlyRent || 'N/A'}`;
+            upcomingSheet.getCell(row, 7).value = `Monthly Rent: ${
+              assignment.monthlyRent != null && assignment.monthlyRent !== ""
+                ? formatMoney(assignment.monthlyRent)
+                : "N/A"
+            }`;
 
             for (let col = 1; col <= 7; col++) {
               Object.assign(upcomingSheet.getCell(row, col), cellStyle);
@@ -33050,6 +33047,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         tenantAssignments,
         branding,
         baseUrl,
+        countryCode: organization?.countryCode || "GB",
       });
 
       let browser;
@@ -33063,13 +33061,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
         const pdf = await page.pdf({
           format: "A4",
-          landscape: false,
+          landscape: true,
           printBackground: true,
           margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
+            top: "12mm",
+            right: "10mm",
+            bottom: "12mm",
+            left: "10mm",
           },
         });
 

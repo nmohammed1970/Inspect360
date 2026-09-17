@@ -110,14 +110,14 @@ export default function Billing() {
               Updating…
             </span>
           )}
-        </div>
+      </div>
 
         {/* Admin-managed notice — Dashboard-style banner card */}
         <Card className="border-primary/30 bg-primary/5" data-testid="banner-admin-managed">
           <CardContent className="flex items-start gap-3 p-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
               <Shield className="w-5 h-5 text-primary" />
-            </div>
+              </div>
             <div className="min-w-0">
               <p className="font-semibold text-foreground">Admin-managed access</p>
               <p className="text-sm text-muted-foreground">
@@ -168,9 +168,9 @@ export default function Billing() {
                     ? "New inspections are blocked until an administrator assigns more credits."
                     : `${creditsTotal} credits left — ask your admin for a top-up if you need more.`}
                 </p>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
         )}
 
         {/* KPI row — Dashboard style */}
@@ -223,7 +223,7 @@ export default function Billing() {
               <p className="text-xs text-muted-foreground mt-1">Active modules</p>
             </CardContent>
           </Card>
-        </div>
+                    </div>
 
         {/* Modules section */}
         <Card data-testid="panel-modules">
@@ -251,8 +251,8 @@ export default function Billing() {
                   Your administrator has not published any modules for this environment yet.
                 </p>
               </div>
-            ) : (
-              <>
+                  ) : (
+                    <>
                 {activeModules.length > 0 && (
                   <section className="space-y-3">
                     <div className="flex items-center gap-2">
@@ -263,12 +263,12 @@ export default function Billing() {
                       <Badge className="bg-primary/15 text-primary hover:bg-primary/15 border-0">
                         {activeModules.length}
                       </Badge>
-                    </div>
+                      </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {activeModules.map((mod) => (
                         <ModuleCard key={mod.id} mod={mod} />
                       ))}
-                    </div>
+                </div>
                   </section>
                 )}
 
@@ -280,34 +280,34 @@ export default function Billing() {
                         Inactive
                       </h2>
                       <Badge variant="secondary">{inactiveModules.length}</Badge>
-                    </div>
+              </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {inactiveModules.map((mod) => (
                         <Tooltip key={mod.id}>
                           <TooltipTrigger asChild>
                             <div className="outline-none h-full" tabIndex={0}>
                               <ModuleCard mod={mod} />
-                            </div>
+          </div>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs">
                             {CONTACT_ADMIN}
                           </TooltipContent>
                         </Tooltip>
                       ))}
-                    </div>
-                  </section>
+        </div>
+      </section>
                 )}
               </>
             )}
           </CardContent>
-        </Card>
+            </Card>
       </div>
     </TooltipProvider>
   );
 }
 
 function ModuleCard({ mod }: { mod: ModuleRow }) {
-  return (
+    return (
     <div
       className={cn(
         "h-full rounded-lg border p-4 transition-colors",

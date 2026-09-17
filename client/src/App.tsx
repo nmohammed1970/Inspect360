@@ -30,6 +30,7 @@ import PropertiesReport from "@/pages/PropertiesReport";
 import TenantsReport from "@/pages/TenantsReport";
 import InventoryReport from "@/pages/InventoryReport";
 import ComplianceReport from "@/pages/ComplianceReport";
+import PortfolioReport from "@/pages/PortfolioReport";
 import ComparisonReports from "@/pages/ComparisonReports";
 import ComparisonReportDetail from "@/pages/ComparisonReportDetail";
 import OrganizationSetup from "@/pages/OrganizationSetup";
@@ -532,6 +533,7 @@ function AppContent() {
                 <Route path="/reports/tenants" component={TenantsReport} />
                 <Route path="/reports/inventory" component={InventoryReport} />
                 <Route path="/reports/compliance" component={ComplianceReport} />
+                <Route path="/reports/portfolio" component={PortfolioReport} />
                 <Route path="/reports" component={Reports} />
                 <Route path="/comparisons/:id" component={ComparisonReportDetail} />
                 <Route path="/comparisons" component={ComparisonReports} />

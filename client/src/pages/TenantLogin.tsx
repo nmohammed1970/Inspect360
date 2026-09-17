@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Home } from "lucide-react";
-import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 
 const tenantLoginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -79,14 +79,14 @@ export default function TenantLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(174,100%,42%)] to-[hsl(193,40%,38%)] p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(190,27%,96%)] via-background to-[hsl(207,40%,92%)] p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
-            <img src={logoUrl} alt="Inspect360" className="h-16 w-auto" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-16 w-auto object-contain" />
           </div>
           <div>
-            <CardTitle className="text-2xl font-bold">Tenant Portal</CardTitle>
+            <CardTitle className="font-heading text-2xl font-bold">Tenant Portal</CardTitle>
             <CardDescription>Access your property information and maintenance</CardDescription>
           </div>
         </CardHeader>

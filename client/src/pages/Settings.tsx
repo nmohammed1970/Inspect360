@@ -16,7 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Download, Loader2 } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
@@ -38,7 +38,7 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'data-export';
+type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
@@ -48,7 +48,6 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
   { id: 'teams', label: 'Maintenance Team', icon: UsersIcon },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tenant-portal', label: 'Tenant Portal Configuration', icon: DoorOpen },
-  { id: 'data-export', label: 'Data Export', icon: Download },
 ];
 
 export default function Settings() {
@@ -56,8 +55,6 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('branding');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<InspectionCategory | null>(null);
-  const [isExportingExcel, setIsExportingExcel] = useState(false);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [trademarkToDelete, setTrademarkToDelete] = useState<OrganizationTrademark | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<InspectionCategory | null>(null);
 
@@ -998,164 +995,6 @@ export default function Settings() {
               onMaintenanceChange={setTenantPortalMaintenanceEnabled}
               onApprovalPeriodChange={setCheckInApprovalPeriodDays}
             />
-          )}
-
-          {activeSection === 'data-export' && (
-            <div className="space-y-6">
-              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-2xl">Export Portfolio Data</CardTitle>
-                  <CardDescription className="mt-2">
-                    Download a portfolio report as Excel or PDF. Both include the same full portfolio data: blocks, properties, inspections, compliance, maintenance, tenants, assets, at-risk and upcoming items.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="p-4 rounded-lg border bg-muted/50">
-                      <h3 className="font-semibold mb-2">What's included:</h3>
-                      <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-                        <li>All properties and blocks with their details</li>
-                        <li>Complete inspection history and reports</li>
-                        <li>Compliance documents and expiry dates</li>
-                        <li>Maintenance requests and their status</li>
-                        <li>Tenant assignments and lease information</li>
-                        <li>Asset inventory, at-risk, and upcoming items</li>
-                      </ul>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <Button
-                        onClick={async () => {
-                          setIsExportingExcel(true);
-                          try {
-                            const response = await fetch("/api/reports/comprehensive/excel", {
-                              method: "GET",
-                              credentials: "include",
-                            });
-
-                            if (!response.ok) {
-                              const errorData = await response.json().catch(() => ({ message: "Failed to generate Excel report" }));
-                              throw new Error(errorData.message || "Failed to generate Excel report");
-                            }
-
-                            const blob = await response.blob();
-
-                            if (blob.size === 0) {
-                              throw new Error("Generated Excel file is empty");
-                            }
-
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `portfolio-data-export-${new Date().toISOString().split('T')[0]}.xlsx`;
-                            document.body.appendChild(a);
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            document.body.removeChild(a);
-
-                            toast({
-                              title: "Export Successful",
-                              description: "Your portfolio Excel report has been downloaded.",
-                            });
-                          } catch (error: any) {
-                            console.error("Export error:", error);
-                            toast({
-                              title: "Export Failed",
-                              description: error.message || "Failed to generate Excel report. Please try again.",
-                              variant: "destructive",
-                            });
-                          } finally {
-                            setIsExportingExcel(false);
-                          }
-                        }}
-                        disabled={isExportingExcel || isExportingPdf}
-                        size="lg"
-                        className="w-full sm:w-auto"
-                        data-testid="button-export-portfolio-data"
-                      >
-                        {isExportingExcel ? (
-                          <>
-                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                            Generating Excel...
-                          </>
-                        ) : (
-                          <>
-                            <Download className="h-5 w-5 mr-2" />
-                            Download Excel
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        onClick={async () => {
-                          setIsExportingPdf(true);
-                          try {
-                            const response = await fetch("/api/reports/comprehensive/pdf", {
-                              method: "GET",
-                              credentials: "include",
-                            });
-
-                            if (!response.ok) {
-                              const errorData = await response.json().catch(() => ({ message: "Failed to generate PDF report" }));
-                              throw new Error(errorData.message || "Failed to generate PDF report");
-                            }
-
-                            const contentType = response.headers.get("content-type") || "";
-                            if (!contentType.includes("application/pdf")) {
-                              throw new Error("Server did not return a PDF. Please restart the server and try again.");
-                            }
-
-                            const blob = await response.blob();
-
-                            if (blob.size === 0) {
-                              throw new Error("Generated PDF file is empty");
-                            }
-
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `portfolio-report-${new Date().toISOString().split('T')[0]}.pdf`;
-                            document.body.appendChild(a);
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            document.body.removeChild(a);
-
-                            toast({
-                              title: "Export Successful",
-                              description: "Your portfolio PDF report has been downloaded.",
-                            });
-                          } catch (error: any) {
-                            console.error("PDF export error:", error);
-                            toast({
-                              title: "Export Failed",
-                              description: error.message || "Failed to generate PDF report. Please try again.",
-                              variant: "destructive",
-                            });
-                          } finally {
-                            setIsExportingPdf(false);
-                          }
-                        }}
-                        disabled={isExportingExcel || isExportingPdf}
-                        size="lg"
-                        variant="outline"
-                        className="w-full sm:w-auto"
-                        data-testid="button-export-portfolio-pdf"
-                      >
-                        {isExportingPdf ? (
-                          <>
-                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                            Generating PDF...
-                          </>
-                        ) : (
-                          <>
-                            <FileText className="h-5 w-5 mr-2" />
-                            Download PDF
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
           )}
         </div>
       </div>

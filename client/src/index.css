@@ -2,83 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE - Inspect360 Cyan/Teal Theme */
+/* LIGHT MODE - Inspect360 Corporate Identity (V1.0) */
 :root {
-  --button-outline: rgba(0,0,0, .08);
-  --badge-outline: rgba(0,0,0, .04);
+  /* Brand primitives (hex for reference / rare direct use) */
+  --brand-navy: #013765;
+  --brand-teal: #04C6BD;
+  --brand-deep-navy: #021F36;
+  --brand-slate: #405B70;
+  --brand-mist: #F2F7F8;
+  --brand-success: #2E8B75;
+  --brand-warning: #F2B84B;
+  --brand-critical: #D94F4F;
+  --brand-info: #3378B3;
+
+  --button-outline: rgba(1, 55, 101, .12);
+  --badge-outline: rgba(1, 55, 101, .08);
 
   /* Automatic computation of border around primary / danger buttons */
   --opaque-button-border-intensity: -6; /* In terms of percentages */
 
   /* Backgrounds applied on top of other backgrounds when hovered/active */
-  --elevate-1: rgba(0,0,0, .02);
-  --elevate-2: rgba(0,0,0, .05);
+  --elevate-1: rgba(1, 55, 101, .03);
+  --elevate-2: rgba(1, 55, 101, .06);
 
-  /* Main backgrounds */
+  /* Main backgrounds — White + Deep Navy text */
   --background: 0 0% 100%;
-  --foreground: 30 8% 15%;
+  --foreground: 207 93% 11%; /* Deep Navy */
 
-  /* Borders */
-  --border: 30 8% 90%;
+  /* Borders — Mist-adjacent */
+  --border: 190 18% 88%;
 
   /* Cards - clean white */
   --card: 0 0% 100%;
-  --card-foreground: 30 8% 15%;
-  --card-border: 30 8% 92%;
+  --card-foreground: 207 93% 11%;
+  --card-border: 190 18% 90%;
 
-  /* Sidebar - very light */
+  /* Sidebar - structure via navy accents, light surface */
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 30 8% 15%;
-  --sidebar-border: 30 8% 90%;
-  --sidebar-primary: 174 100% 42%;
+  --sidebar-foreground: 207 93% 11%;
+  --sidebar-border: 190 18% 88%;
+  --sidebar-primary: 177 96% 40%; /* Signal Teal action */
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 174 30% 97%;
-  --sidebar-accent-foreground: 193 40% 38%;
-  --sidebar-ring: 174 100% 42%;
+  --sidebar-accent: 190 27% 96%; /* System Mist */
+  --sidebar-accent-foreground: 207 98% 20%; /* Inspect Navy */
+  --sidebar-ring: 177 96% 40%;
 
   /* Popovers */
   --popover: 0 0% 100%;
-  --popover-foreground: 30 8% 15%;
-  --popover-border: 30 8% 90%;
+  --popover-foreground: 207 93% 11%;
+  --popover-border: 190 18% 88%;
 
-  /* Primary - Bright Cyan (from Inspect360 logo) */
-  --primary: 174 100% 42%;
+  /* Primary action — Signal Teal #04C6BD (not body text) */
+  --primary: 177 96% 40%;
   --primary-foreground: 0 0% 100%;
 
-  /* Secondary - Soft gray */
-  --secondary: 30 8% 92%;
-  --secondary-foreground: 30 8% 20%;
+  /* Secondary — System Mist */
+  --secondary: 190 27% 96%;
+  --secondary-foreground: 207 98% 20%;
 
-  /* Muted */
-  --muted: 30 8% 95%;
-  --muted-foreground: 30 5% 45%;
+  /* Muted — Mist / Slate */
+  --muted: 190 27% 96%;
+  --muted-foreground: 206 27% 35%; /* Operational Slate */
 
-  /* Accent - Teal (from Inspect360 logo house) */
-  --accent: 193 40% 38%;
+  /* Accent — Inspect Navy for structure */
+  --accent: 207 98% 20%;
   --accent-foreground: 0 0% 100%;
 
-  /* Destructive */
-  --destructive: 0 80% 55%;
+  /* Functional status colours */
+  --destructive: 0 65% 58%; /* Critical #D94F4F */
   --destructive-foreground: 0 0% 100%;
+  --success: 164 50% 36%; /* #2E8B75 */
+  --success-foreground: 0 0% 100%;
+  --warning: 40 87% 62%; /* #F2B84B */
+  --warning-foreground: 207 93% 11%;
+  --info: 207 55% 45%; /* #3378B3 */
+  --info-foreground: 0 0% 100%;
 
   /* Input & Ring */
-  --input: 30 8% 88%;
-  --ring: 174 100% 42%;
+  --input: 190 18% 86%;
+  --ring: 177 96% 40%;
 
-  /* Charts - Cyan/Teal Palette */
-  --chart-1: 174 100% 42%;
-  --chart-2: 193 40% 38%;
-  --chart-3: 145 60% 50%;
-  --chart-4: 35 90% 55%;
-  --chart-5: 280 60% 60%;
+  /* Charts — brand-aligned */
+  --chart-1: 177 96% 40%; /* Teal */
+  --chart-2: 207 98% 20%; /* Navy */
+  --chart-3: 164 50% 36%; /* Success */
+  --chart-4: 40 87% 62%; /* Warning */
+  --chart-5: 207 55% 45%; /* Info */
 
-  /* Typography — system fonts only (no remote CDN) */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Typography — Poppins headings, Inter UI/body (self-hosted) */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-heading: 'Poppins', 'Inter', system-ui, Arial, sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace;
 
-  /* Border Radius */
-  --radius: 0.75rem; /* 12px - clean, modern */
+  /* Border Radius — softly rounded digital layouts */
+  --radius: 0.5rem; /* 8px */
 
   /* Soft Shadows */
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.02);
@@ -116,74 +134,67 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-/* DARK MODE - Maintains clean aesthetic with proper contrast */
+/* DARK MODE - Brand-aligned contrast (Navy structure, Teal action) */
 .dark {
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
+  --button-outline: rgba(255,255,255, .12);
+  --badge-outline: rgba(255,255,255, .08);
 
   --opaque-button-border-intensity: 8;
 
-  /* Backgrounds applied on top of other backgrounds when hovered/active */
-  --elevate-1: rgba(255,255,255, .03);
-  --elevate-2: rgba(255,255,255, .07);
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .08);
 
-  /* Main backgrounds */
-  --background: 220 15% 12%;
-  --foreground: 0 0% 98%;
+  --background: 207 93% 8%;
+  --foreground: 190 27% 96%;
 
-  /* Borders */
-  --border: 220 10% 25%;
+  --border: 207 40% 18%;
 
-  /* Cards */
-  --card: 220 13% 16%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 220 10% 22%;
+  --card: 207 70% 11%;
+  --card-foreground: 190 27% 96%;
+  --card-border: 207 40% 16%;
 
-  /* Sidebar */
-  --sidebar: 220 13% 16%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 220 10% 25%;
-  --sidebar-primary: 174 100% 48%;
+  --sidebar: 207 70% 11%;
+  --sidebar-foreground: 190 27% 96%;
+  --sidebar-border: 207 40% 18%;
+  --sidebar-primary: 177 96% 42%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 10% 20%;
-  --sidebar-accent-foreground: 174 100% 48%;
-  --sidebar-ring: 174 100% 48%;
+  --sidebar-accent: 207 50% 16%;
+  --sidebar-accent-foreground: 177 96% 55%;
+  --sidebar-ring: 177 96% 42%;
 
-  /* Popovers */
-  --popover: 220 13% 16%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 220 10% 25%;
+  --popover: 207 70% 11%;
+  --popover-foreground: 190 27% 96%;
+  --popover-border: 207 40% 18%;
 
-  /* Primary - Bright Cyan (adjusted for dark mode) */
-  --primary: 174 100% 48%;
+  --primary: 177 96% 42%;
   --primary-foreground: 0 0% 100%;
 
-  /* Secondary */
-  --secondary: 220 10% 20%;
-  --secondary-foreground: 0 0% 95%;
+  --secondary: 207 40% 16%;
+  --secondary-foreground: 190 27% 96%;
 
-  /* Muted */
-  --muted: 220 10% 18%;
-  --muted-foreground: 30 5% 70%;
+  --muted: 207 40% 14%;
+  --muted-foreground: 200 15% 70%;
 
-  /* Accent - Teal (adjusted for dark mode) */
-  --accent: 193 40% 45%;
+  --accent: 207 60% 28%;
   --accent-foreground: 0 0% 100%;
 
-  /* Destructive */
-  --destructive: 0 80% 60%;
+  --destructive: 0 65% 55%;
   --destructive-foreground: 0 0% 100%;
+  --success: 164 45% 42%;
+  --success-foreground: 0 0% 100%;
+  --warning: 40 80% 55%;
+  --warning-foreground: 207 93% 11%;
+  --info: 207 55% 50%;
+  --info-foreground: 0 0% 100%;
 
-  /* Input & Ring */
-  --input: 220 10% 30%;
-  --ring: 174 100% 48%;
+  --input: 207 40% 22%;
+  --ring: 177 96% 42%;
 
-  /* Charts - Adjusted for dark */
-  --chart-1: 174 100% 48%;
-  --chart-2: 193 40% 45%;
-  --chart-3: 145 60% 58%;
-  --chart-4: 35 90% 60%;
-  --chart-5: 280 60% 68%;
+  --chart-1: 177 96% 42%;
+  --chart-2: 200 40% 70%;
+  --chart-3: 164 45% 48%;
+  --chart-4: 40 80% 58%;
+  --chart-5: 207 55% 55%;
 
   /* Darker shadows */
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.30);
@@ -225,6 +236,18 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-heading);
+  }
+
+  h1 {
+    @apply font-bold tracking-tight;
+  }
+
+  h2, h3 {
+    @apply font-semibold tracking-tight;
   }
 }
 
@@ -354,7 +377,7 @@
     background-image: linear-gradient(
       90deg,
       hsl(var(--muted)) 0px,
-      hsl(174 100% 42% / 0.1) 40px,
+      hsl(177 96% 40% / 0.12) 40px,
       hsl(var(--muted)) 80px
     );
     background-size: 1000px 100%;

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 import {
   ArrowLeft,
   Edit2,
@@ -1218,9 +1219,9 @@ export default function InspectionReport() {
           {/* Logo */}
           <div className="flex justify-center mb-16">
             <img
-              src={new URL("@assets/Inspect360 Logo_1761302629835.png", import.meta.url).href}
+              src={BRAND_LOGO_MASTER}
               alt="Inspect360 Logo"
-              className="h-24 w-auto"
+              className="h-24 w-auto object-contain"
             />
           </div>
 
@@ -1229,7 +1230,7 @@ export default function InspectionReport() {
             <h1 className="text-5xl font-bold text-gray-900" style={{ color: '#000' }}>
               {inspection.type === 'check_out' ? 'Check-out Inventory Report' : 'Inspection Report'}
             </h1>
-            <div className="h-1 w-32 mx-auto" style={{ backgroundColor: '#00D5CC' }}></div>
+            <div className="h-1 w-32 mx-auto" style={{ backgroundColor: '#04C6BD' }}></div>
           </div>
 
           {/* Inspection Type */}
@@ -1298,8 +1299,8 @@ export default function InspectionReport() {
               <div className="pt-6">
                 <div className="inline-block px-6 py-2 text-sm font-semibold uppercase tracking-wide border-2 rounded-lg"
                   style={{
-                    borderColor: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF',
-                    color: inspection.status === 'completed' ? '#00D5CC' : '#9CA3AF'
+                    borderColor: inspection.status === 'completed' ? '#04C6BD' : '#9CA3AF',
+                    color: inspection.status === 'completed' ? '#04C6BD' : '#9CA3AF'
                   }}>
                   {inspection.status.replace(/_/g, ' ')}
                 </div>

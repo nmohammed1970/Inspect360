@@ -8,7 +8,7 @@ import { Loader2, Building2, Eye, EyeOff, FileCheck, Lock } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { BRAND_LOGO_MASTER, BRAND_LOGO_ON_DARK } from "@/lib/brandAssets";
 import { getCachedUserCountry } from "@/lib/geolocation";
 import { COMMON_COUNTRIES } from "@shared/countryUtils";
 
@@ -160,7 +160,7 @@ export default function Auth() {
         <div className="w-full max-w-md">
           {/* Logo above card */}
           <div className="flex justify-center mb-8">
-            <img src={logoUrl} alt="Inspect360" className="h-14" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-14 w-auto object-contain" />
           </div>
           
           <Card className="border-border/60">
@@ -423,42 +423,41 @@ export default function Auth() {
 
       {/* Right Column - Hero (hidden on mobile/tablet) */}
       <div className="hidden lg:flex flex-1 items-center justify-center p-12 relative overflow-hidden">
-        {/* Inspect360 brand gradient - Bright Cyan to Teal */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#00D5CC] via-[#3B7A8C] to-[#06283F]"></div>
-        {/* Subtle overlay for better text contrast */}
-        <div className="absolute inset-0 bg-[#06283F]/40"></div>
+        {/* Inspect Navy → Signal Teal structure (brand digital product) */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(207,98%,20%)] via-[hsl(207,70%,16%)] to-[hsl(207,93%,11%)]"></div>
+        <div className="absolute inset-0 bg-[hsl(177,96%,40%)]/15"></div>
 
         {/* Content */}
         <div className="relative z-10 max-w-lg space-y-8 text-white">
           <div className="mb-8">
-            <img src={logoUrl} alt="Inspect360" className="h-16 filter brightness-0 invert" />
+            <img src={BRAND_LOGO_ON_DARK} alt="Inspect360" className="h-16 w-auto object-contain" />
           </div>
           <div>
-            <h1 className="text-4xl font-bold mb-4">AI-Powered Building Inspections</h1>
+            <h1 className="font-heading text-4xl font-bold mb-4">AI-powered building inspections</h1>
             <p className="text-lg text-white/90">
-              Streamline your Build-to-Rent operations with mobile-first inspections, AI photo analysis, and comprehensive compliance tracking.
+              Streamline your Build-to-Rent operations with mobile-first inspections, AI photo analysis, and clear compliance tracking.
             </p>
           </div>
 
           <div className="space-y-4">
             <div className="flex items-start gap-4">
-              <div className="bg-[#4FE5DD] p-3 rounded-lg">
-                <Eye className="h-6 w-6 text-[#3B7A8C]" />
+              <div className="bg-primary p-3 rounded-lg">
+                <Eye className="h-6 w-6 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">AI Photo Analysis</h3>
+                <h3 className="font-heading font-semibold mb-1">AI photo analysis</h3>
                 <p className="text-sm text-white/80">
-                  Powered by GPT-5 Vision for detailed condition assessments
+                  Evidence-led condition assessments that help teams act faster
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="bg-[#4FE5DD] p-3 rounded-lg">
-                <Building2 className="h-6 w-6 text-[#3B7A8C]" />
+              <div className="bg-primary p-3 rounded-lg">
+                <Building2 className="h-6 w-6 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">Offline Mobile Inspections</h3>
+                <h3 className="font-heading font-semibold mb-1">Offline mobile inspections</h3>
                 <p className="text-sm text-white/80">
                   Conduct field inspections without internet connectivity
                 </p>
@@ -466,11 +465,11 @@ export default function Auth() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="bg-[#4FE5DD] p-3 rounded-lg">
-                <FileCheck className="h-6 w-6 text-[#3B7A8C]" />
+              <div className="bg-primary p-3 rounded-lg">
+                <FileCheck className="h-6 w-6 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">Compliance Tracking</h3>
+                <h3 className="font-heading font-semibold mb-1">Compliance tracking</h3>
                 <p className="text-sm text-white/80">
                   Automated expiry alerts for certifications and licenses
                 </p>
@@ -478,13 +477,13 @@ export default function Auth() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="bg-[#4FE5DD] p-3 rounded-lg">
-                <Lock className="h-6 w-6 text-[#3B7A8C]" />
+              <div className="bg-primary p-3 rounded-lg">
+                <Lock className="h-6 w-6 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-semibold mb-1">Role-Based Access</h3>
+                <h3 className="font-heading font-semibold mb-1">Role-based access</h3>
                 <p className="text-sm text-white/80">
-                  Secure access for owners, inventory clerks / inspectors, compliance officers, maintenance contractors, and tenants
+                  Secure access for owners, inspectors, compliance officers, contractors, and tenants
                 </p>
               </div>
             </div>

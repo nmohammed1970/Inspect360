@@ -247,7 +247,7 @@ export default function AdminTeam() {
                           <Edit className="w-4 h-4" />
                         </Button>
                         <Button
-                          variant="destructive"
+                          variant="outline"
                           size="sm"
                           onClick={() => handleDeleteClick(admin)}
                           disabled={currentAdmin?.id === admin.id}

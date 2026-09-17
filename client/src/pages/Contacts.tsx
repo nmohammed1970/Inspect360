@@ -182,7 +182,7 @@ export default function Contacts() {
     }
     
     // Generate a random color for the new tag
-    const colors = ["#00D5CC", "#3B7A8C", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+    const colors = ["#04C6BD", "#013765", "#2E8B75", "#F2B84B", "#D94F4F", "#3378B3", "#405B70"];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
     
     createTagMutation.mutate({ name: newTagName.trim(), color: randomColor });
