@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, ClipboardCheck, Sparkles, Shield, Users, TrendingUp } from "lucide-react";
 import { useLocation } from "wouter";
-import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 import { SIGNUP_CREDIT_GRANT } from "@/config/billingTiers";
 
 export default function Landing() {
@@ -13,7 +13,7 @@ export default function Landing() {
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={logoUrl} alt="Inspect360" className="h-10" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-10 w-auto object-contain" />
           </div>
           <Button
             onClick={() => (navigate("/auth"))}
@@ -31,7 +31,7 @@ export default function Landing() {
           <div className="inline-block rounded-lg bg-accent/10 px-4 py-2 text-sm font-medium text-accent mb-4">
             AI-Powered Property Inspections
           </div>
-          <h1 className="text-4xl md:text-6xl font-bold tracking-tight">
+          <h1 className="font-heading text-4xl md:text-6xl font-bold tracking-tight">
             Building Inspection Platform for{" "}
             <span className="text-primary">Build-to-Rent</span> Operations
           </h1>
@@ -67,7 +67,7 @@ export default function Landing() {
       {/* Features Grid */}
       <section className="container mx-auto px-4 py-16">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold mb-4">Everything You Need</h2>
+          <h2 className="font-heading text-3xl font-bold mb-4">Everything You Need</h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
             Comprehensive tools for property managers, inspectors, compliance officers, and tenants
           </p>

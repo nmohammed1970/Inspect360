@@ -33,7 +33,7 @@ import { useModules } from "@/hooks/use-modules";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
-import defaultLogoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 
 export function AppSidebar() {
   const { user } = useAuth();
@@ -45,11 +45,10 @@ export function AppSidebar() {
     enabled: !!user?.organizationId,
   });
 
-  // Add cache-busting query parameter to force browser to reload logo when it changes
+  // Prefer org white-label logo; otherwise approved Inspect360 master mark
   const getLogoSrc = () => {
-    if (!organization?.logoUrl) return defaultLogoUrl;
+    if (!organization?.logoUrl) return BRAND_LOGO_MASTER;
     const separator = organization.logoUrl.includes('?') ? '&' : '?';
-    // Use organization updatedAt timestamp as cache buster
     const cacheBuster = organization.updatedAt
       ? new Date(organization.updatedAt).getTime()
       : Date.now();
@@ -170,8 +169,8 @@ export function AppSidebar() {
             data-testid="img-sidebar-logo"
             onError={(e) => {
               // Fallback to default logo if image fails to load
-              if (e.currentTarget.src !== defaultLogoUrl) {
-                e.currentTarget.src = defaultLogoUrl;
+              if (e.currentTarget.src !== BRAND_LOGO_MASTER) {
+                e.currentTarget.src = BRAND_LOGO_MASTER;
               }
             }}
           />

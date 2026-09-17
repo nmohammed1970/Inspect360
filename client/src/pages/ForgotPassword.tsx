@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, ArrowLeft, Lock } from "lucide-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { BRAND_LOGO_MASTER, BRAND_LOGO_ON_DARK } from "@/lib/brandAssets";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -62,7 +62,7 @@ export default function ForgotPassword() {
       <div className="flex flex-1 items-center justify-center p-4 md:p-8 bg-background">
         <div className="w-full max-w-md">
           <div className="flex justify-center mb-8">
-            <img src={logoUrl} alt="Inspect360" className="h-14" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-14 w-auto object-contain" />
           </div>
 
           <Card className="border-border/60">
@@ -137,26 +137,26 @@ export default function ForgotPassword() {
 
       {/* Right Column - Hero (same as Auth page) */}
       <div className="hidden lg:flex flex-1 items-center justify-center p-12 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#00D5CC] via-[#3B7A8C] to-[#06283F]"></div>
-        <div className="absolute inset-0 bg-[#06283F]/40"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(207,98%,20%)] via-[hsl(207,70%,16%)] to-[hsl(207,93%,11%)]"></div>
+        <div className="absolute inset-0 bg-[hsl(177,96%,40%)]/15"></div>
 
         <div className="relative z-10 max-w-lg space-y-8 text-white">
           <div className="mb-8">
-            <img src={logoUrl} alt="Inspect360" className="h-16 filter brightness-0 invert" />
+            <img src={BRAND_LOGO_ON_DARK} alt="Inspect360" className="h-16 w-auto object-contain" />
           </div>
           <div>
-            <h1 className="text-4xl font-bold mb-4">Secure Account Recovery</h1>
+            <h1 className="font-heading text-4xl font-bold mb-4">Secure account recovery</h1>
             <p className="text-lg text-white/90">
               We'll send you a secure link to reset your password. The link will expire in 1 hour for your security.
             </p>
           </div>
 
           <div className="flex items-start gap-4">
-            <div className="bg-[#4FE5DD] p-3 rounded-lg">
-              <Lock className="h-6 w-6 text-[#3B7A8C]" />
+            <div className="bg-primary p-3 rounded-lg">
+              <Lock className="h-6 w-6 text-primary-foreground" />
             </div>
             <div>
-              <h3 className="font-semibold mb-1">Protected Reset Flow</h3>
+              <h3 className="font-heading font-semibold mb-1">Protected reset flow</h3>
               <p className="text-sm text-white/80">
                 Reset codes expire quickly so only you can regain access to your account
               </p>

@@ -4,7 +4,7 @@
   "description": "AI-powered building inspection platform for Build-to-Rent operations",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#003764",
+  "theme_color": "#013765",
   "background_color": "#ffffff",
   "orientation": "portrait-primary",
   "icons": [

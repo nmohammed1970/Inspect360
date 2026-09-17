@@ -7,6 +7,7 @@ import { Loader2, ArrowLeft, CheckCircle2, Eye, EyeOff, Lock, FileCheck, Buildin
 import { useLocation, useSearch } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { BRAND_LOGO_ON_DARK } from "@/lib/brandAssets";
 
 export default function ResetPassword() {
   const searchParams = useSearch();
@@ -246,38 +247,30 @@ export default function ResetPassword() {
         </div>
       </div>
 
-      {/* Right Column - Hero */}
+      {/* Right Column - Hero (same as Auth page) */}
       <div className="hidden lg:flex lg:flex-1 items-center justify-center p-12 relative overflow-hidden">
-        {/* Inspect360 brand gradient - Bright Cyan to Teal */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#00D5CC] via-[#3B7A8C] to-[#06283F]"></div>
-        
-        {/* Overlay with subtle pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `radial-gradient(circle at 2px 2px, white 1px, transparent 0)`,
-            backgroundSize: '32px 32px'
-          }}></div>
-        </div>
+        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(207,98%,20%)] via-[hsl(207,70%,16%)] to-[hsl(207,93%,11%)]"></div>
+        <div className="absolute inset-0 bg-[hsl(177,96%,40%)]/15"></div>
 
         <div className="relative z-10 max-w-lg text-white">
           <div className="mb-6">
-            <Lock className="h-16 w-16 mb-4" />
+            <img src={BRAND_LOGO_ON_DARK} alt="Inspect360" className="h-16 w-auto object-contain mb-4" />
           </div>
-          <h2 className="text-3xl font-bold mb-4">Secure Password Reset</h2>
+          <h2 className="font-heading text-3xl font-bold mb-4">Secure password reset</h2>
           <p className="text-lg text-white/90 mb-6">
             Enter the 6-digit code we sent to your email and choose a strong new password to secure your account.
           </p>
           <ul className="space-y-3">
             <li className="flex items-start gap-3">
-              <FileCheck className="h-5 w-5 mt-0.5 flex-shrink-0" />
+              <FileCheck className="h-5 w-5 mt-0.5 flex-shrink-0 text-primary" />
               <span>Code expires in 1 hour for security</span>
             </li>
             <li className="flex items-start gap-3">
-              <Lock className="h-5 w-5 mt-0.5 flex-shrink-0" />
+              <Lock className="h-5 w-5 mt-0.5 flex-shrink-0 text-primary" />
               <span>Password must be at least 6 characters</span>
             </li>
             <li className="flex items-start gap-3">
-              <Building2 className="h-5 w-5 mt-0.5 flex-shrink-0" />
+              <Building2 className="h-5 w-5 mt-0.5 flex-shrink-0 text-primary" />
               <span>Access your property inspections securely</span>
             </li>
           </ul>

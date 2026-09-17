@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
-import logoUrl from "@assets/Inspect360 Logo_1761302629835.png";
+import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 
 export default function AdminLogin() {
   const [, navigate] = useLocation();
@@ -61,13 +61,13 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-sky-100 dark:from-gray-900 dark:to-gray-800 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(190,27%,96%)] via-background to-[hsl(207,40%,92%)] dark:from-gray-900 dark:to-gray-800 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <img src={logoUrl} alt="Inspect360" className="h-16" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-16 w-auto object-contain" />
           </div>
-          <CardTitle className="text-3xl font-bold" data-testid="heading-admin-login">Admin Portal</CardTitle>
+          <CardTitle className="font-heading text-3xl font-bold" data-testid="heading-admin-login">Admin Portal</CardTitle>
           <CardDescription>
             Sign in to access the Inspect360 Admin Dashboard
           </CardDescription>
