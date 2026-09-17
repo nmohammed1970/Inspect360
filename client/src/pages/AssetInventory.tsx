@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -158,6 +158,7 @@ export default function AssetInventory() {
   const urlParams = new URLSearchParams(searchParams);
   const blockIdFromUrl = urlParams.get("blockId");
   const propertyIdFromUrl = urlParams.get("propertyId");
+  const assetIdFromUrl = urlParams.get("assetId");
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<AssetInventory | null>(null);
@@ -197,6 +198,20 @@ export default function AssetInventory() {
       setFilterPropertyBlock(propertyIdFromUrl);
     }
   }, [blockIdFromUrl, propertyIdFromUrl]);
+
+  // Open asset dialog when linked with ?assetId=
+  const openedAssetIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!assetIdFromUrl || !assets?.length) return;
+    if (openedAssetIdRef.current === assetIdFromUrl) return;
+    const asset = assets.find((a) => a.id === assetIdFromUrl);
+    if (!asset) return;
+    openedAssetIdRef.current = assetIdFromUrl;
+    setEditingAsset(asset);
+    setFormData(asset);
+    setUploadedPhotos(asset.photos || []);
+    setIsDialogOpen(true);
+  }, [assetIdFromUrl, assets]);
 
   useEffect(() => {
     const purchasePrice = Number(formData.purchasePrice);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -92,6 +92,7 @@ export default function Compliance() {
   const urlParams = new URLSearchParams(searchParams);
   const propertyIdFromUrl = urlParams.get("propertyId");
   const blockIdFromUrl = urlParams.get("blockId");
+  const documentIdFromUrl = urlParams.get("documentId");
   const shouldCreate = urlParams.get("create");
 
   // Apply property/block filter from URL (e.g. Properties card → /compliance?propertyId=...)
@@ -440,6 +441,18 @@ export default function Compliance() {
     });
     setEditSheetOpen(true);
   };
+
+  // Open document edit sheet when linked with ?documentId=
+  const openedDocumentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!documentIdFromUrl || !documents.length) return;
+    if (openedDocumentIdRef.current === documentIdFromUrl) return;
+    const doc = documents.find((d) => d.id === documentIdFromUrl);
+    if (!doc) return;
+    openedDocumentIdRef.current = documentIdFromUrl;
+    setSelectedDoc(doc.id);
+    openEditSheet(doc);
+  }, [documentIdFromUrl, documents]);
 
   const onEditSubmit = (data: EditFormValues) => {
     if (editingDoc) {

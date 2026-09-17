@@ -5,6 +5,7 @@
 
 import fs from "fs/promises";
 import { ObjectStorageService } from "./objectStorage";
+import { formatCurrency, getCurrencyForCountry } from "@shared/countryUtils";
 
 export type PortfolioReportBranding = {
   logoUrl?: string | null;
@@ -89,6 +90,13 @@ function formatDate(value: any): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString();
+}
+
+function formatMoney(value: unknown, currency: "GBP" | "USD" | "AED"): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const num = typeof value === "number" ? value : parseFloat(String(value));
+  if (Number.isNaN(num)) return "—";
+  return formatCurrency(num, currency, false);
 }
 
 function sharedCss(): string {
@@ -222,9 +230,9 @@ function sharedCss(): string {
     }
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-      margin-bottom: 32px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 18px;
+      margin-bottom: 28px;
     }
     .stat-card {
       background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
@@ -251,6 +259,8 @@ function sharedCss(): string {
     .info-row strong { color: #1a1a1a; }
     table {
       width: 100%;
+      max-width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
       margin-bottom: 24px;
       border: 2px solid #00D5CC;
@@ -262,32 +272,42 @@ function sharedCss(): string {
     th {
       background: #00D5CC;
       color: white;
-      padding: 14px 16px;
-      text-align: left;
+      padding: 10px 8px;
+      text-align: center;
       font-weight: 700;
-      font-size: 12px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.3px;
       border-right: 1px solid rgba(255, 255, 255, 0.2);
+      word-break: break-word;
+      vertical-align: middle;
     }
     th:last-child { border-right: none; }
     td {
-      padding: 12px 16px;
+      padding: 10px 8px;
       border-bottom: 1px solid #e5e7eb;
       border-right: 1px solid #e5e7eb;
-      font-size: 12px;
+      font-size: 11px;
       vertical-align: middle;
       word-break: break-word;
+      overflow-wrap: anywhere;
+      text-align: left;
     }
     td:last-child { border-right: none; }
+    td.align-center, th.align-center { text-align: center; }
+    td.align-right, th.align-right { text-align: right; }
+    td.align-left, th.align-left { text-align: left; }
     tbody tr:nth-child(even) { background: #f9fafb; }
     tbody tr:hover { background: #f0fdfa; }
-    .empty { color: #666; font-style: italic; padding: 12px 0; font-size: 14px; }
+    .cell-title { font-weight: 600; color: #1a1a1a; }
+    .cell-sub { font-size: 10px; color: #666; margin-top: 2px; line-height: 1.35; }
+    .page.compact { padding: 28px 24px; }
+    .empty { color: #666; font-style: italic; padding: 12px 0; font-size: 14px; text-align: center; }
     .badge {
       display: inline-block;
-      padding: 6px 14px;
+      padding: 5px 12px;
       border-radius: 16px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       border: 1px solid transparent;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -315,20 +335,35 @@ function sharedCss(): string {
   `;
 }
 
-function renderTable(headers: string[], rows: string[][], emptyMessage: string): string {
+function stackedCell(title: string, subtitle?: string): string {
+  const main = `<div class="cell-title">${escapeHtml(title || "—")}</div>`;
+  if (!subtitle?.trim()) return main;
+  return `${main}<div class="cell-sub">${escapeHtml(subtitle)}</div>`;
+}
+
+function renderTable(
+  headers: string[],
+  rows: string[][],
+  emptyMessage: string,
+  aligns?: Array<"left" | "center" | "right">
+): string {
   if (rows.length === 0) {
     return `<p class="empty">${escapeHtml(emptyMessage)}</p>`;
   }
+  const alignClass = (i: number) => {
+    const a = aligns?.[i] || "left";
+    return `align-${a}`;
+  };
   return `
     <table>
       <thead>
-        <tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr>
+        <tr>${headers.map((h, i) => `<th class="${alignClass(i)}">${escapeHtml(h)}</th>`).join("")}</tr>
       </thead>
       <tbody>
         ${rows
           .map(
             (cells) =>
-              `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`
+              `<tr>${cells.map((c, i) => `<td class="${alignClass(i)}">${c}</td>`).join("")}</tr>`
           )
           .join("")}
       </tbody>
@@ -370,6 +405,7 @@ export async function generatePortfolioReportHTML(params: {
   tenantAssignments: any[];
   branding?: PortfolioReportBranding;
   baseUrl?: string;
+  countryCode?: string | null;
 }): Promise<string> {
   const {
     organizationName,
@@ -382,8 +418,10 @@ export async function generatePortfolioReportHTML(params: {
     tenantAssignments,
     branding,
     baseUrl,
+    countryCode,
   } = params;
 
+  const currency = getCurrencyForCountry(countryCode || "GB");
   const now = new Date();
   const reportDate = now.toLocaleDateString();
   const blockMap = new Map(blocks.map((b: any) => [b.id, b]));
@@ -433,13 +471,11 @@ export async function generatePortfolioReportHTML(params: {
     const blockProperties = propertiesByBlock.get(block.id) || [];
     if (blockProperties.length === 0) {
       blocksRows.push([
-        escapeHtml(block.name || ""),
-        escapeHtml(block.address || ""),
-        "",
-        "",
-        "",
-        "",
-        "",
+        stackedCell(block.name || "", block.address || ""),
+        stackedCell("—", ""),
+        "—",
+        "—",
+        "—",
         "0",
         "0",
         "0",
@@ -457,13 +493,13 @@ export async function generatePortfolioReportHTML(params: {
             (ta.status === "active" || ta.status === "current" || ta.isActive === true)
         );
         blocksRows.push([
-          propIdx === 0 ? escapeHtml(block.name || "") : "",
-          propIdx === 0 ? escapeHtml(block.address || "") : "",
-          escapeHtml(property.name || ""),
-          escapeHtml(property.address || ""),
-          escapeHtml((property as any).propertyType || ""),
+          propIdx === 0
+            ? stackedCell(block.name || "", block.address || "")
+            : "",
+          stackedCell(property.name || "", property.address || ""),
+          escapeHtml((property as any).propertyType || "—"),
           tenantAssignment ? "Occupied" : "Vacant",
-          escapeHtml(String(tenantAssignment?.monthlyRent ?? "")),
+          escapeHtml(formatMoney(tenantAssignment?.monthlyRent, currency)),
           String(propertyInspections.length),
           String(propertyMaintenance.length),
           String(propertyAssets.length),
@@ -486,13 +522,11 @@ export async function generatePortfolioReportHTML(params: {
         (ta.status === "active" || ta.status === "current" || ta.isActive === true)
     );
     blocksRows.push([
-      "Standalone",
-      "",
-      escapeHtml(property.name || ""),
-      escapeHtml(property.address || ""),
-      escapeHtml((property as any).propertyType || ""),
+      stackedCell("Standalone", ""),
+      stackedCell(property.name || "", property.address || ""),
+      escapeHtml((property as any).propertyType || "—"),
       tenantAssignment ? "Occupied" : "Vacant",
-      escapeHtml(String(tenantAssignment?.monthlyRent ?? "")),
+      escapeHtml(formatMoney(tenantAssignment?.monthlyRent, currency)),
       String(propertyInspections.length),
       String(propertyMaintenance.length),
       String(propertyAssets.length),
@@ -516,22 +550,18 @@ export async function generatePortfolioReportHTML(params: {
         inspection.clerk.email ||
         ""
       : "";
-    let approval = "";
-    if (inspection.type === "check_in") {
-      if (inspection.tenantApprovalStatus === "approved") approval = statusBadge("Approved", "success");
-      else if (inspection.tenantApprovalStatus === "disputed") approval = statusBadge("Disputed", "warning");
-      else approval = statusBadge("Pending", "warning");
-    }
     return [
-      escapeHtml(dateVal),
+      stackedCell(dateVal, inspector ? `Inspector: ${inspector}` : ""),
       escapeHtml(block?.name || ""),
       escapeHtml(property?.name || ""),
       escapeHtml(inspection.type || ""),
       escapeHtml(inspection.status || ""),
-      escapeHtml(inspector),
-      escapeHtml(formatDate(inspection.scheduledDate)),
-      escapeHtml(formatDate(inspection.completedDate)),
-      approval,
+      stackedCell(
+        formatDate(inspection.scheduledDate) || "—",
+        formatDate(inspection.completedDate)
+          ? `Done: ${formatDate(inspection.completedDate)}`
+          : ""
+      ),
     ];
   });
 
@@ -552,15 +582,13 @@ export async function generatePortfolioReportHTML(params: {
       ? `${maintenance.assignedToUser.firstName || ""} ${maintenance.assignedToUser.lastName || ""}`.trim()
       : "";
     return [
-      escapeHtml(formatDate(maintenance.createdAt)),
+      stackedCell(formatDate(maintenance.createdAt), formatDate(maintenance.dueDate) ? `Due: ${formatDate(maintenance.dueDate)}` : ""),
       escapeHtml(block?.name || ""),
       escapeHtml(property?.name || ""),
       escapeHtml(maintenance.title || ""),
       statusHtml,
       escapeHtml(maintenance.priority || ""),
-      escapeHtml(reportedBy),
-      escapeHtml(assignedTo),
-      escapeHtml(formatDate(maintenance.dueDate)),
+      stackedCell(reportedBy || "—", assignedTo ? `Assigned: ${assignedTo}` : ""),
     ];
   });
 
@@ -569,15 +597,12 @@ export async function generatePortfolioReportHTML(params: {
     const property = propertyMap.get(asset.propertyId);
     const block = property ? blockMap.get(property.blockId) : null;
     return [
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(asset.name || ""),
-      escapeHtml(asset.category || ""),
-      escapeHtml(asset.purchasePrice ? String(parseFloat(asset.purchasePrice)) : ""),
-      escapeHtml(asset.currentValue ? String(parseFloat(asset.currentValue)) : ""),
-      escapeHtml(formatDate(asset.datePurchased)),
-      escapeHtml(asset.condition || ""),
-      escapeHtml(asset.location || ""),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(asset.name || "", asset.category || ""),
+      escapeHtml(formatMoney(asset.purchasePrice, currency)),
+      escapeHtml(formatMoney(asset.currentValue, currency)),
+      escapeHtml(formatDate(asset.datePurchased) || "—"),
+      stackedCell(asset.condition || "—", asset.location || ""),
     ];
   });
 
@@ -601,14 +626,14 @@ export async function generatePortfolioReportHTML(params: {
       }
     }
     return [
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(doc.documentType || ""),
-      escapeHtml((doc as any).documentName || ""),
-      escapeHtml(formatDate((doc as any).issueDate)),
-      escapeHtml(formatDate(doc.expiryDate)),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(doc.documentType || "", (doc as any).documentName || ""),
+      stackedCell(
+        formatDate((doc as any).issueDate) || "—",
+        formatDate(doc.expiryDate) ? `Expires: ${formatDate(doc.expiryDate)}` : ""
+      ),
       statusBadge(status, badge),
-      escapeHtml((doc as any).notes || ""),
+      escapeHtml((doc as any).notes || "—"),
     ];
   });
 
@@ -619,14 +644,14 @@ export async function generatePortfolioReportHTML(params: {
     const tenantFullName =
       [assignment.tenantFirstName, assignment.tenantLastName].filter(Boolean).join(" ") || "";
     return [
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(tenantFullName),
-      escapeHtml(assignment.tenantEmail || ""),
-      escapeHtml(formatDate(assignment.leaseStartDate)),
-      escapeHtml(formatDate(assignment.leaseEndDate)),
-      escapeHtml(String(assignment.monthlyRent ?? "")),
-      escapeHtml(String(assignment.depositAmount ?? "")),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(tenantFullName, assignment.tenantEmail || ""),
+      stackedCell(
+        formatDate(assignment.leaseStartDate) || "—",
+        formatDate(assignment.leaseEndDate) ? `End: ${formatDate(assignment.leaseEndDate)}` : ""
+      ),
+      escapeHtml(formatMoney(assignment.monthlyRent, currency)),
+      escapeHtml(formatMoney(assignment.depositAmount, currency)),
       escapeHtml(assignment.isActive ? "active" : "inactive"),
     ];
   });
@@ -644,13 +669,10 @@ export async function generatePortfolioReportHTML(params: {
     const daysOverdue = Math.floor((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
     atRiskRows.push([
       statusBadge("Compliance Document", "danger"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml((doc as any).documentName || doc.documentType || ""),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell((doc as any).documentName || doc.documentType || "", (doc as any).notes || ""),
       statusBadge("Expired", "danger"),
-      escapeHtml(expiry.toLocaleDateString()),
-      String(daysOverdue),
-      escapeHtml((doc as any).notes || ""),
+      stackedCell(expiry.toLocaleDateString(), `${daysOverdue}d overdue`),
     ]);
   });
   maintenanceRequests.forEach((maintenance) => {
@@ -666,13 +688,10 @@ export async function generatePortfolioReportHTML(params: {
     const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
     atRiskRows.push([
       statusBadge("Maintenance Request", "danger"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(maintenance.title || ""),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(maintenance.title || "", maintenance.description || ""),
       escapeHtml(maintenance.status || ""),
-      escapeHtml(dueDate.toLocaleDateString()),
-      String(daysOverdue),
-      escapeHtml(maintenance.description || ""),
+      stackedCell(dueDate.toLocaleDateString(), `${daysOverdue}d overdue`),
     ]);
   });
   inspections.forEach((inspection) => {
@@ -686,13 +705,13 @@ export async function generatePortfolioReportHTML(params: {
     const daysOverdue = Math.floor((now.getTime() - scheduled.getTime()) / (1000 * 60 * 60 * 24));
     atRiskRows.push([
       statusBadge("Inspection", "danger"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(`${inspection.type || "Inspection"} - ${inspection.status || "Pending"}`),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(
+        `${inspection.type || "Inspection"} - ${inspection.status || "Pending"}`,
+        inspection.notes || ""
+      ),
       escapeHtml(inspection.status || ""),
-      escapeHtml(scheduled.toLocaleDateString()),
-      String(daysOverdue),
-      escapeHtml(inspection.notes || ""),
+      stackedCell(scheduled.toLocaleDateString(), `${daysOverdue}d overdue`),
     ]);
   });
 
@@ -709,12 +728,9 @@ export async function generatePortfolioReportHTML(params: {
       : blocks.find((b) => b.id === doc.blockId);
     upcomingRows.push([
       statusBadge("Compliance Document", "warning"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
+      stackedCell(block?.name || "—", property?.name || ""),
       escapeHtml(doc.documentType || ""),
-      escapeHtml(expiry.toLocaleDateString()),
-      String(daysUntil),
-      "",
+      stackedCell(expiry.toLocaleDateString(), `In ${daysUntil} days`),
     ]);
   });
   maintenanceRequests.forEach((maintenance) => {
@@ -736,12 +752,9 @@ export async function generatePortfolioReportHTML(params: {
       maintenance.block;
     upcomingRows.push([
       statusBadge("Maintenance Request", "warning"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(maintenance.title || ""),
-      escapeHtml(dueDate.toLocaleDateString()),
-      String(daysUntil),
-      escapeHtml(maintenance.description || ""),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(maintenance.title || "", maintenance.description || ""),
+      stackedCell(dueDate.toLocaleDateString(), `In ${daysUntil} days`),
     ]);
   });
   inspections.forEach((inspection) => {
@@ -755,12 +768,12 @@ export async function generatePortfolioReportHTML(params: {
       blocks.find((b) => b.id === inspection.blockId);
     upcomingRows.push([
       statusBadge("Inspection", "warning"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(`${inspection.type || "Inspection"} - ${inspection.status || "Scheduled"}`),
-      escapeHtml(scheduled.toLocaleDateString()),
-      String(daysUntil),
-      escapeHtml(inspection.notes || ""),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(
+        `${inspection.type || "Inspection"} - ${inspection.status || "Scheduled"}`,
+        inspection.notes || ""
+      ),
+      stackedCell(scheduled.toLocaleDateString(), `In ${daysUntil} days`),
     ]);
   });
   tenantAssignments.forEach((assignment) => {
@@ -777,12 +790,16 @@ export async function generatePortfolioReportHTML(params: {
       "Unknown Tenant";
     upcomingRows.push([
       statusBadge("Lease Expiration", "warning"),
-      escapeHtml(block?.name || ""),
-      escapeHtml(property?.name || ""),
-      escapeHtml(tenant),
-      escapeHtml(leaseEnd.toLocaleDateString()),
-      String(daysUntil),
-      escapeHtml(`Monthly Rent: ${assignment.monthlyRent || "N/A"}`),
+      stackedCell(block?.name || "—", property?.name || ""),
+      stackedCell(
+        tenant,
+        `Monthly Rent: ${
+          assignment.monthlyRent != null
+            ? formatMoney(assignment.monthlyRent, currency)
+            : "N/A"
+        }`
+      ),
+      stackedCell(leaseEnd.toLocaleDateString(), `In ${daysUntil} days`),
     ]);
   });
 
@@ -824,117 +841,83 @@ export async function generatePortfolioReportHTML(params: {
     </div>
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Blocks &amp; Properties</h2>
     ${renderTable(
-      [
-        "Block Name",
-        "Block Address",
-        "Property Name",
-        "Property Address",
-        "Property Type",
-        "Tenant Status",
-        "Monthly Rent",
-        "Inspections",
-        "Maintenance",
-        "Assets",
-        "Compliance",
-      ],
+      ["Block", "Property", "Type", "Status", "Rent", "Insp", "Maint", "Assets", "Comp"],
       blocksRows,
-      "No blocks or properties found."
+      "No blocks or properties found.",
+      ["left", "left", "center", "center", "right", "center", "center", "center", "center"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Inspections</h2>
     ${renderTable(
-      [
-        "Date",
-        "Block",
-        "Property",
-        "Type",
-        "Status",
-        "Inspector",
-        "Scheduled Date",
-        "Completed Date",
-        "Tenant Approval",
-      ],
+      ["Date", "Block", "Property", "Type", "Status", "Schedule"],
       inspectionRows,
-      "No inspections found."
+      "No inspections found.",
+      ["left", "left", "left", "center", "center", "center"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Maintenance</h2>
     ${renderTable(
-      ["Date", "Block", "Property", "Title", "Status", "Priority", "Reported By", "Assigned To", "Due Date"],
+      ["Date", "Block", "Property", "Title", "Status", "Priority", "People"],
       maintenanceRows,
-      "No maintenance requests found."
+      "No maintenance requests found.",
+      ["left", "left", "left", "left", "center", "center", "left"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Assets</h2>
     ${renderTable(
-      [
-        "Block",
-        "Property",
-        "Asset Name",
-        "Category",
-        "Purchase Price",
-        "Current Value",
-        "Purchase Date",
-        "Condition",
-        "Location",
-      ],
+      ["Location", "Asset", "Purchase", "Value", "Purchased", "Condition"],
       assetRows,
-      "No assets found."
+      "No assets found.",
+      ["left", "left", "left", "right", "center", "center"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Compliance</h2>
     ${renderTable(
-      ["Block", "Property", "Document Type", "Document Name", "Issue Date", "Expiry Date", "Status", "Notes"],
+      ["Location", "Document", "Dates", "Status", "Notes"],
       complianceRows,
-      "No compliance documents found."
+      "No compliance documents found.",
+      ["left", "left", "center", "center", "left"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Tenants</h2>
     ${renderTable(
-      [
-        "Block",
-        "Property",
-        "Tenant Name",
-        "Email",
-        "Lease Start",
-        "Lease End",
-        "Monthly Rent",
-        "Deposit",
-        "Status",
-      ],
+      ["Location", "Tenant", "Lease", "Rent", "Deposit", "Status"],
       tenantRows,
-      "No tenant assignments found."
+      "No tenant assignments found.",
+      ["left", "left", "center", "right", "right", "center"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">At Risk Items</h2>
     ${renderTable(
-      ["Type", "Block", "Property", "Item Name", "Status", "Due/Expiry Date", "Days Overdue", "Notes"],
+      ["Type", "Location", "Item", "Status", "Due"],
       atRiskRows,
-      "No at-risk items found."
+      "No at-risk items found.",
+      ["center", "left", "left", "center", "center"]
     )}
   </div>
 
-  <div class="page">
+  <div class="page compact">
     <h2 class="section-title">Upcoming Items</h2>
     ${renderTable(
-      ["Type", "Block", "Property", "Item Name", "Due Date", "Days Until", "Notes"],
+      ["Type", "Location", "Item", "Due"],
       upcomingRows,
-      "No upcoming items found."
+      "No upcoming items found.",
+      ["center", "left", "left", "center"]
     )}
   </div>
 </body>
