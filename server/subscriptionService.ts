@@ -175,7 +175,7 @@ export class SubscriptionService {
     quantity: number,
     source: "plan_inclusion" | "topup" | "admin_grant" | "addon_pack",
     expiresAt?: Date,
-    metadata?: { subscriptionId?: string; topupOrderId?: string; addonPurchaseId?: string; adminNotes?: string; createdBy?: string },
+    metadata?: { subscriptionId?: string; topupOrderId?: string; addonPurchaseId?: string; adminNotes?: string; createdBy?: string; kind?: string },
     unitCostMinorUnits?: number
   ): Promise<CreditBatch> {
     if (quantity <= 0) {
@@ -209,6 +209,11 @@ export class SubscriptionService {
       linkedEntityId = metadata?.subscriptionId ?? null;
     }
 
+    const expiryNote = expiresAt ? ` Expires ${expiresAt.toISOString()}.` : "";
+    const baseNote = metadata?.adminNotes
+      ? metadata.adminNotes
+      : `Granted ${quantity} credits from ${source}`;
+
     // Record in credit ledger
     await storage.createCreditLedgerEntry({
       organizationId,
@@ -217,9 +222,7 @@ export class SubscriptionService {
       quantity,
       batchId: batch.id,
       unitCostMinorUnits: unitCostMinorUnits ?? null,
-      notes: metadata?.adminNotes
-        ? metadata.adminNotes
-        : `Granted ${quantity} credits from ${source}`,
+      notes: `${baseNote}${expiryNote}`,
       linkedEntityType,
       linkedEntityId,
     });
@@ -227,6 +230,19 @@ export class SubscriptionService {
     // Legacy creditsRemaining field removed - credits are now managed entirely through credit_batches
 
     return batch;
+  }
+
+  /**
+   * Apply one expiration instant to every open credit batch.
+   * Admin expiry is for the balance the operator can still use, not only a new top-up.
+   */
+  async setRemainingCreditsExpiry(organizationId: string, expiresAt: Date): Promise<number> {
+    const batches = await storage.getAvailableCreditBatches(organizationId);
+    const open = batches.filter((batch) => batch.remainingQuantity > 0);
+    for (const batch of open) {
+      await storage.updateCreditBatch(batch.id, { expiresAt });
+    }
+    return open.length;
   }
 
   /**

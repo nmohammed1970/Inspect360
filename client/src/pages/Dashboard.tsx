@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useEntitlement } from "@/hooks/useEntitlement";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -38,6 +39,18 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
+
+function formatInclusiveUtcDate(iso: string | null | undefined): string {
+  if (!iso) return "the expiration date";
+  const inclusive = new Date(new Date(iso).getTime() - 1);
+  if (Number.isNaN(inclusive.getTime())) return "the expiration date";
+  return inclusive.toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 import { TagSearch } from "@/components/TagSearch";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
@@ -173,6 +186,8 @@ const widgetLabels: Record<WidgetKey, string> = {
 export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
+  const { data: entitlement } = useEntitlement();
+  const featuresLocked = !!entitlement?.locked;
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   
@@ -246,12 +261,12 @@ export default function Dashboard() {
 
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !featuresLocked,
   });
 
   const { data: blocks = [] } = useQuery<Block[]>({
     queryKey: ["/api/blocks"],
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !featuresLocked,
   });
 
   // Get credit balance from billing API
@@ -290,7 +305,7 @@ export default function Dashboard() {
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: isAuthenticated && visibleWidgets.inspectionSchedule && !!inspectionScheduleEntityId,
+    enabled: isAuthenticated && !featuresLocked && visibleWidgets.inspectionSchedule && !!inspectionScheduleEntityId,
   });
 
   // Compliance Schedule documents query
@@ -308,7 +323,7 @@ export default function Dashboard() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: isAuthenticated && visibleWidgets.complianceSchedule && !!complianceScheduleEntityId,
+    enabled: isAuthenticated && !featuresLocked && visibleWidgets.complianceSchedule && !!complianceScheduleEntityId,
   });
 
   // Filter properties for schedule widgets based on selected block
@@ -421,7 +436,7 @@ export default function Dashboard() {
   }
 
   const creditsRemaining = creditBalance?.total ?? 0;
-  const creditsLow = creditsRemaining < 5;
+  const creditsLow = creditsRemaining < 5 && !featuresLocked && !entitlement?.warning;
 
   const totalAlerts = (stats?.alerts.overdueInspections || 0) + 
                       (stats?.alerts.overdueCompliance || 0) + 
@@ -767,6 +782,52 @@ export default function Dashboard() {
             <p>Overdue inspections, expired compliance docs, and urgent maintenance</p>
           </TooltipContent>
         </UiTooltip>
+      )}
+
+      {/* Trial / credit entitlement warning */}
+      {entitlement?.warning === "trial" && entitlement.daysRemaining != null && (
+        <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-trial-expiring">
+          <CardContent className="p-4">
+            <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+              Your free trial expires in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Please contact your administrator to purchase credits to continue using the system.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.code === "TRIAL_EXPIRED" && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-trial-expired">
+          <CardContent className="p-4">
+            <p className="font-semibold text-destructive">Trial Period Ended</p>
+            <p className="text-sm text-muted-foreground">
+              Your free trial has ended and some features are currently locked. Please contact your administrator to purchase credits and continue using the system.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.warning === "credits" && entitlement.daysRemaining != null && (
+        <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-credits-expiring">
+          <CardContent className="p-4">
+            <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+              Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Your current credits will expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Please contact your administrator to purchase more credits before they expire.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.code === "CREDITS_EXPIRED" && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-credits-expired">
+          <CardContent className="p-4">
+            <p className="font-semibold text-destructive">Credits Expired</p>
+            <p className="text-sm text-muted-foreground">
+              Your credits have expired. Some features are currently locked. Please contact your administrator to continue.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Credits Low Alert */}

@@ -21,6 +21,9 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
 import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
+import { isLockedAppPath } from "@shared/entitlements";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { notifyEntitlementLock } from "@/lib/queryClient";
 
 export function TenantSidebar() {
   const { user } = useAuth();
@@ -83,6 +86,8 @@ export function TenantSidebar() {
     },
   ].filter(item => item.enabled);
 
+  const { data: entitlement } = useEntitlement();
+
   // Dynamic active state styling based on organization's brand color
   const getActiveStyle = (isActive: boolean) => {
     if (!isActive) return undefined;
@@ -119,8 +124,9 @@ export function TenantSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => {
-                const isActive = location === item.url || 
+                const isActive = location === item.url ||
                   (item.url === "/dashboard" && (location === "/" || location === "/tenant/home"));
+                const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -130,7 +136,16 @@ export function TenantSidebar() {
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Link href={item.url}>
+                      <Link
+                        href={item.url}
+                        className={itemLocked ? "opacity-50" : undefined}
+                        onClick={(event) => {
+                          if (itemLocked && (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")) {
+                            event.preventDefault();
+                            notifyEntitlementLock(entitlement.code);
+                          }
+                        }}
+                      >
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
                       </Link>

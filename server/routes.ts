@@ -409,6 +409,7 @@ import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
+import { resolveCoverLogoSrc } from "./reportLogo";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
 import { formatSignerDisplayName, isTenantSignatureField, createSignatureValue } from "@shared/signature";
 import { extractTextFromFile, findRelevantChunks } from "./documentProcessor";
@@ -1547,11 +1548,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      const { billingNowUtc } = await import("@shared/billingClock");
+      const { addDaysUtc } = await import("@shared/entitlements");
+      const { recordEntitlementEvent, getDefaultTrialDays } = await import("./entitlementService");
+      const trialStartAt = billingNowUtc();
+      const trialDays = await getDefaultTrialDays();
+      const trialEndAt = addDaysUtc(trialStartAt, trialDays);
+
       // Create organization
       const organization = await storage.createOrganization({
         name: validation.data.name,
         ownerId: userId,
-        // Credits are now granted via credit batch system (see below)
+        trialEnforced: true,
+        trialStartAt,
+        trialEndAt,
       });
 
       // Update user with organization ID and set role to owner (preserving all existing fields)
@@ -1568,6 +1578,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "purchase",
         description: "Welcome credits",
       });
+
+      try {
+        await recordEntitlementEvent({
+          organizationId: organization.id,
+          eventType: "trial_created",
+          actorUserId: userId,
+          newTrialEnd: trialEndAt,
+          additionalDays: trialDays,
+          notes: "Trial started when organization was created",
+        });
+      } catch (auditError) {
+        console.error("Warning: Failed to record trial creation:", auditError);
+      }
 
       // Create default inspection templates (Check In and Check Out)
       // Use defensive error handling so org creation succeeds even if template seeding fails
@@ -2928,6 +2951,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching subscription:", error);
       res.status(500).json({ message: "Failed to fetch subscription" });
+    }
+  });
+
+  app.get("/api/entitlement", isAuthenticated, async (req: any, res) => {
+    try {
+      const organizationId = req.user?.organizationId;
+      if (!organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const { getOrganizationAccessStatus } = await import("./entitlementService");
+      const status = await getOrganizationAccessStatus(organizationId);
+      if (!status) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+      res.json(status);
+    } catch (error) {
+      console.error("Error fetching entitlement:", error);
+      res.status(500).json({ message: "Failed to load account status" });
     }
   });
 
@@ -10653,11 +10694,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       return 'badge-warning'; // default to warning for unknown priorities
     };
 
-    // Branding
+    // Branding — org logo, or Inspect360 LogoWhite on teal covers
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -11775,11 +11818,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       return escapeHtml(trimmed);
     };
 
-    // Branding for cover page
+    // Branding for cover page — org logo, or Inspect360 LogoWhite on teal covers
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : '';
     // Always show company name, below logo if logo exists
     const companyNameHtml = `<div class="cover-company-name">${escapeHtml(companyName)}</div>`;
@@ -18181,6 +18226,7 @@ ${optionalNotes || "No details provided."}`;
   app.get("/api/admin/instances", isAdminAuthenticated, async (req, res) => {
     try {
       const orgs = await storage.getAllOrganizationsWithOwners();
+      const { getOrganizationAccessStatus } = await import("./entitlementService");
 
       // Enrich with instance subscription data and credit balance from batch system
       const instances = await Promise.all(orgs.map(async (org) => {
@@ -18190,6 +18236,7 @@ ${optionalNotes || "No details provided."}`;
 
         // Get credit balance from batch system (not legacy creditsRemaining)
         const creditBalance = await storage.getCreditBalance(org.id);
+        const entitlement = await getOrganizationAccessStatus(org.id);
 
         let enabledModuleCount = 0;
         if (subscription) {
@@ -18209,6 +18256,7 @@ ${optionalNotes || "No details provided."}`;
             rolled: creditBalance.rolled,
             expiresOn: creditBalance.expiresOn,
           },
+          entitlement,
         };
       }));
 
@@ -18228,6 +18276,8 @@ ${optionalNotes || "No details provided."}`;
       }
       const subscription = await storage.getInstanceSubscription(req.params.id);
       const creditBalance = await storage.getCreditBalance(req.params.id);
+      const { getOrganizationAccessStatus } = await import("./entitlementService");
+      const entitlement = await getOrganizationAccessStatus(req.params.id);
       const tiers = await storage.getSubscriptionTiers();
       const tier = subscription?.currentTierId ? tiers.find(t => t.id === subscription.currentTierId) : null;
       let enabledModules: any[] = [];
@@ -18245,6 +18295,7 @@ ${optionalNotes || "No details provided."}`;
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        entitlement,
         instanceModules: enabledModules,
       });
     } catch (error) {
@@ -18256,7 +18307,7 @@ ${optionalNotes || "No details provided."}`;
   // Update instance (tier, credits, active status, modules)
   app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
     try {
-      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason } = req.body;
+      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason, creditExpiresAt } = req.body;
 
       // Get organization to get currency
       const org = await storage.getOrganization(req.params.id);
@@ -18309,14 +18360,30 @@ ${optionalNotes || "No details provided."}`;
           ? String(creditReason)
           : `Admin adjustment: Updated from ${currentBalanceTotal} to ${targetCredits} credits`;
         
+        const { billingNowUtc } = await import("@shared/billingClock");
+        const { parseCreditExpiryInput } = await import("@shared/entitlements");
+        const { subscriptionService } = await import("./subscriptionService");
+        const { recordEntitlementEvent } = await import("./entitlementService");
+
+        let parsedExpiry: { expiresAt: Date } | null = null;
+        const expiryProvided = typeof creditExpiresAt === "string" && creditExpiresAt.trim().length > 0;
+        if (creditsToAdjust > 0 || expiryProvided) {
+          const parsed = parseCreditExpiryInput(creditExpiresAt, billingNowUtc());
+          if (!parsed.ok) {
+            return res.status(400).json({ message: parsed.message });
+          }
+          parsedExpiry = parsed;
+        }
+
         if (creditsToAdjust > 0) {
-          // Grant credits using the subscription service
-          const { subscriptionService } = await import("./subscriptionService");
+          if (!parsedExpiry) {
+            return res.status(400).json({ message: "Credit expiration date is required" });
+          }
           await subscriptionService.grantCredits(
             req.params.id,
             creditsToAdjust,
             "admin_grant",
-            undefined, // No expiration
+            parsedExpiry.expiresAt,
             {
               adminNotes: notes,
               createdBy: adminId,
@@ -18325,10 +18392,25 @@ ${optionalNotes || "No details provided."}`;
           console.log(`[Admin] Granted ${creditsToAdjust} credits to org ${req.params.id} (new total: ${targetCredits})`);
         } else if (creditsToAdjust < 0) {
           // For reducing credits, consume them — hard-fail if unable
-          const { subscriptionService } = await import("./subscriptionService");
           const creditsToConsume = Math.abs(creditsToAdjust);
           await subscriptionService.consumeInspectionCredits(req.params.id, creditsToConsume, "admin_adjustment");
           console.log(`[Admin] Consumed ${creditsToConsume} credits from org ${req.params.id} (new total: ${targetCredits})`);
+        }
+
+        if (parsedExpiry) {
+          const updatedBatches = await subscriptionService.setRemainingCreditsExpiry(
+            req.params.id,
+            parsedExpiry.expiresAt,
+          );
+          await recordEntitlementEvent({
+            organizationId: req.params.id,
+            eventType: "credits_granted",
+            actorUserId: adminId,
+            notes: `${notes}. Expires ${parsedExpiry.expiresAt.toISOString()} (${updatedBatches} open batches).`,
+          }).catch((auditError) => {
+            console.error("Failed to record credit expiry audit:", auditError);
+          });
+          console.log(`[Admin] Set credit expiry for org ${req.params.id} on ${updatedBatches} batches`);
         }
       }
 
@@ -23075,10 +23157,17 @@ ${optionalNotes || "No details provided."}`;
   // Admin: Grant credits (eco-admin session)
   app.post("/api/admin/credits/grant", isAdminAuthenticated, async (req: any, res) => {
     try {
-      const { organizationId, quantity, reason } = req.body;
+      const { organizationId, quantity, reason, expiresAt } = req.body;
 
       if (!organizationId || !quantity || Number(quantity) <= 0) {
         return res.status(400).json({ message: "organizationId and a positive quantity are required" });
+      }
+
+      const { billingNowUtc } = await import("@shared/billingClock");
+      const { parseCreditExpiryInput } = await import("@shared/entitlements");
+      const parsedExpiry = parseCreditExpiryInput(expiresAt, billingNowUtc());
+      if (!parsedExpiry.ok) {
+        return res.status(400).json({ message: parsedExpiry.message });
       }
 
       const org = await storage.getOrganization(organizationId);
@@ -23088,13 +23177,22 @@ ${optionalNotes || "No details provided."}`;
 
       const adminId = (req.session as any).adminUser?.id || "admin";
       const { subscriptionService: subService } = await import("./subscriptionService");
+      const { recordEntitlementEvent } = await import("./entitlementService");
       await subService.grantCredits(
         organizationId,
         Number(quantity),
         "admin_grant",
-        undefined,
+        parsedExpiry.expiresAt,
         { adminNotes: reason || "Admin grant", createdBy: adminId }
       );
+      await recordEntitlementEvent({
+        organizationId,
+        eventType: "credits_granted",
+        actorUserId: adminId,
+        notes: `${reason || "Admin grant"}. Expires ${parsedExpiry.expiresAt.toISOString()}.`,
+      }).catch((auditError) => {
+        console.error("Failed to record credit grant audit:", auditError);
+      });
 
       const creditBalance = await storage.getCreditBalance(organizationId);
       res.json({
@@ -23110,6 +23208,51 @@ ${optionalNotes || "No details provided."}`;
     } catch (error: any) {
       console.error("Error granting credits:", error);
       res.status(500).json({ message: "Failed to grant credits", error: error.message });
+    }
+  });
+
+  app.get("/api/admin/settings/trial", isAdminAuthenticated, async (_req, res) => {
+    try {
+      const { getDefaultTrialDays } = await import("./entitlementService");
+      const days = await getDefaultTrialDays();
+      res.json({ days });
+    } catch (error: any) {
+      console.error("Error reading default trial days:", error);
+      res.status(500).json({ message: "Failed to load trial settings" });
+    }
+  });
+
+  app.patch("/api/admin/settings/trial", isAdminAuthenticated, async (req, res) => {
+    try {
+      const { setDefaultTrialDays } = await import("./entitlementService");
+      const days = await setDefaultTrialDays(req.body?.days);
+      res.json({ days });
+    } catch (error: any) {
+      const status = error.status || 500;
+      if (status >= 500) console.error("Error saving default trial days:", error);
+      res.status(status).json({
+        message: status >= 500 ? "Failed to save trial settings" : String(error.message || "").replace(/^Additional days/, "Trial days"),
+      });
+    }
+  });
+
+  app.post("/api/admin/instances/:id/extend-trial", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const adminId = (req.session as any).adminUser?.id;
+      if (!adminId) {
+        return res.status(403).json({ message: "Admin session required" });
+      }
+      const { extendOrganizationTrial } = await import("./entitlementService");
+      const status = await extendOrganizationTrial(req.params.id, req.body?.additionalDays, adminId);
+      res.json({ success: true, entitlement: status });
+    } catch (error: any) {
+      const status = error.status || 500;
+      if (status >= 500) {
+        console.error("Error extending trial:", error);
+      }
+      res.status(status).json({
+        message: status >= 500 ? "Failed to extend trial" : error.message,
+      });
     }
   });
 
@@ -29846,11 +29989,21 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     trademarks?: ReportTrademarkInfo[];
   }
 
-  // Sanitize URL for use in HTML attributes
+  // Sanitize URL for use in HTML attributes (allow http(s) + safe image data URLs for default logos)
   function sanitizeReportUrl(url: string): string {
     if (typeof url !== 'string' || !url.trim()) return '';
     const trimmed = url.trim();
     const lower = trimmed.toLowerCase();
+    const safeDataImages = [
+      'data:image/png',
+      'data:image/jpeg',
+      'data:image/jpg',
+      'data:image/gif',
+      'data:image/webp',
+    ];
+    if (safeDataImages.some((prefix) => lower.startsWith(prefix))) {
+      return trimmed;
+    }
     const safeProtocols = ['https://', 'http://'];
     const isSafeProtocol = safeProtocols.some(protocol => lower.startsWith(protocol));
     if (!isSafeProtocol) return '';
@@ -29905,9 +30058,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -30131,9 +30286,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -30566,9 +30723,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -30916,9 +31075,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -31262,9 +31423,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -31602,9 +31765,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`

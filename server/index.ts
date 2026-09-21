@@ -188,6 +188,30 @@ app.use((req, res, next) => {
       );
     }
 
+    try {
+      const noticeInterval = 60 * 60 * 1000;
+      const { processExpiryNotifications } = await import("./entitlementNotificationService");
+      setImmediate(async () => {
+        try {
+          console.log("[EntitlementNotice] Running initial scan...");
+          await processExpiryNotifications();
+        } catch (error) {
+          console.error("[EntitlementNotice] Initial scan failed:", error);
+        }
+      });
+      setInterval(async () => {
+        try {
+          console.log("[EntitlementNotice] Running scheduled scan...");
+          await processExpiryNotifications();
+        } catch (error) {
+          console.error("[EntitlementNotice] Scheduled scan failed:", error);
+        }
+      }, noticeInterval);
+      console.log("✅ Expiry notification scheduler initialized (runs hourly)");
+    } catch (error) {
+      console.error("❌ Failed to initialize expiry notification scheduler:", error);
+    }
+
     // Use traditional listen format for better Windows compatibility
     // Windows doesn't support reusePort option
     const totalStartupTime = Date.now() - startTime;

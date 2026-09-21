@@ -6,6 +6,7 @@
 import fs from "fs/promises";
 import { ObjectStorageService } from "./objectStorage";
 import { formatCurrency, getCurrencyForCountry } from "@shared/countryUtils";
+import { resolveReportLogoUrl, REPORT_LOGO_ON_DARK, REPORT_LOGO_ON_LIGHT } from "./reportLogo";
 
 export type PortfolioReportBranding = {
   logoUrl?: string | null;
@@ -42,13 +43,22 @@ function sanitizeReportUrl(url: string, baseUrl?: string): string {
   return escapeHtml(trimmed);
 }
 
-/** Load logo from object storage or HTTP into a data URL so Puppeteer can embed it without auth. */
+/** Load logo from object storage, public brand assets, or HTTP into a data URL so Puppeteer can embed it without auth. */
 async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): Promise<string | null> {
-  if (!logoUrl || !logoUrl.trim()) return null;
-  const url = logoUrl.trim();
+  // Teal/navy covers → white wordmark when org has no logo
+  const url = resolveReportLogoUrl(logoUrl, "on-dark");
   if (url.startsWith("data:")) return url;
 
   try {
+    // Local brand assets (LogoWhite / logo.png) — read from disk (reliable for Puppeteer)
+    if (url === REPORT_LOGO_ON_DARK || url === REPORT_LOGO_ON_LIGHT || url === "/logoUrl.png") {
+      const fileName = url.replace(/^\//, "");
+      const filePath = `${process.cwd()}/client/public/${fileName}`;
+      const buf = await fs.readFile(filePath);
+      console.log(`[Portfolio PDF] Brand logo loaded from public/${fileName} (${buf.length} bytes)`);
+      return `data:image/png;base64,${buf.toString("base64")}`;
+    }
+
     if (url.startsWith("/objects/")) {
       const objectStorageService = new ObjectStorageService();
       const logoFile = await objectStorageService.getObjectEntityFile(url);
@@ -73,6 +83,10 @@ async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): Promise
     const response = await fetch(absoluteUrl, { headers: { Accept: "image/*" } });
     if (!response.ok) {
       console.warn(`[Portfolio PDF] Failed to fetch logo: ${response.status}`);
+      // Fall back to Inspect360 white logo on dark covers
+      if (logoUrl) {
+        return logoToDataUrl(null, baseUrl);
+      }
       return null;
     }
     const contentType = response.headers.get("content-type") || "image/png";
@@ -81,6 +95,13 @@ async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): Promise
     return `data:${contentType};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
   } catch (error) {
     console.warn("[Portfolio PDF] Logo conversion failed:", error);
+    if (logoUrl) {
+      try {
+        return await logoToDataUrl(null, baseUrl);
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }

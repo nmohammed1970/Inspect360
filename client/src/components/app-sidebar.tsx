@@ -34,6 +34,9 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
 import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
+import { isLockedAppPath } from "@shared/entitlements";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { notifyEntitlementLock } from "@/lib/queryClient";
 
 export function AppSidebar() {
   const { user } = useAuth();
@@ -59,6 +62,7 @@ export function AppSidebar() {
   const companyName = organization?.brandingName || organization?.name || "Inspect360";
 
   const { isModuleEnabled } = useModules();
+  const { data: entitlement } = useEntitlement();
 
   const mainMenuItems = [
     {
@@ -182,8 +186,13 @@ export function AppSidebar() {
             <SidebarMenu>
               {filteredMainMenu.map((item) => {
                 const isActive = location === item.url;
-                const handleClick = () => {
-                  // Close sidebar on mobile when navigation item is clicked
+                const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
+                const handleClick = (event: { preventDefault: () => void }) => {
+                  if (itemLocked && (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")) {
+                    event.preventDefault();
+                    notifyEntitlementLock(entitlement.code);
+                    return;
+                  }
                   if (isMobile) {
                     setOpenMobile(false);
                   }
@@ -197,7 +206,7 @@ export function AppSidebar() {
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Link href={item.url} onClick={handleClick}>
+                      <Link href={item.url} onClick={handleClick} className={itemLocked ? "opacity-50" : undefined}>
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
                       </Link>

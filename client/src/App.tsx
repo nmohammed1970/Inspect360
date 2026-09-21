@@ -1,5 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
+import { EntitlementLockHost } from "@/components/EntitlementLockHost";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -597,6 +598,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <LocaleProvider>
+        <EntitlementLockHost />
         <AppContent />
       </LocaleProvider>
     </QueryClientProvider>

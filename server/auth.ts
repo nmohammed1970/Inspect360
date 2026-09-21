@@ -9,6 +9,9 @@ import connectPg from "connect-pg-simple";
 import * as cookieSignature from "cookie-signature";
 import { storage } from "./storage";
 import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/schema";
+import { billingNowUtc } from "@shared/billingClock";
+import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
+import { getOrganizationAccessStatus, recordEntitlementEvent } from "./entitlementService";
 
 declare global {
   namespace Express {
@@ -333,16 +336,10 @@ export async function setupAuth(app: Express) {
           // getCurrencyForCountry will always return GBP, USD, or AED (valid enum values)
           // Countries not in the mapping default to GBP, which is safe for the database
           const preferredCurrency = getCurrencyForCountry(countryCode);
-          
-          // Log for debugging if currency doesn't match country's actual currency
-          if (!COUNTRY_TO_CURRENCY[countryCode]) {
-            console.log(`[Registration] Country ${countryCode} not in currency mapping, using default: ${preferredCurrency}`);
-          }
-          
-          // Log for debugging if currency doesn't match country's actual currency
-          if (!COUNTRY_TO_CURRENCY[countryCode]) {
-            console.log(`[Registration] Country ${countryCode} not in currency mapping, using default: ${preferredCurrency}`);
-          }
+          const trialStartAt = billingNowUtc();
+          const { getDefaultTrialDays } = await import("./entitlementService");
+          const trialDays = await getDefaultTrialDays();
+          const trialEndAt = addDaysUtc(trialStartAt, trialDays);
 
           // Create organization using username as company name
           const organization = await storage.createOrganization({
@@ -350,7 +347,9 @@ export async function setupAuth(app: Express) {
             ownerId: user.id,
             countryCode: countryCode,
             preferredCurrency: preferredCurrency, // Set currency based on country
-            // Credits are now granted via credit batch system (see below)
+            trialEnforced: true,
+            trialStartAt,
+            trialEndAt,
           });
 
           // Update user with organization ID
@@ -360,15 +359,29 @@ export async function setupAuth(app: Express) {
             role: user.role === "owner" ? "owner" : user.role, // Keep original role
           });
 
-          // Grant 5 free inspection credits as signup reward using the new credit system
-          // Check if organization already has signup credits to avoid duplicates
+          try {
+            await recordEntitlementEvent({
+              organizationId: organization.id,
+              eventType: "trial_created",
+              actorUserId: user.id,
+              previousTrialEnd: null,
+              newTrialEnd: trialEndAt,
+              additionalDays: trialDays,
+              notes: "Trial started on registration",
+            });
+          } catch (auditError) {
+            console.error("Warning: Failed to record trial creation:", auditError);
+          }
+
+          // Grant welcome credits that expire with the trial. They are not paid entitlement.
           try {
             const batches = await storage.getCreditBatchesByOrganization(organization.id);
-            const hasSignupCredits = batches.some(batch => 
-              batch.grantSource === 'admin_grant' && 
-              batch.metadataJson && 
+            const hasSignupCredits = batches.some(batch =>
+              batch.grantSource === 'admin_grant' &&
+              batch.metadataJson &&
               typeof batch.metadataJson === 'object' &&
-              (batch.metadataJson as any)?.adminNotes?.toLowerCase().includes('signup reward')
+              ((batch.metadataJson as any)?.kind === 'signup_bonus' ||
+                (batch.metadataJson as any)?.adminNotes?.toLowerCase().includes('signup reward'))
             );
 
             if (!hasSignupCredits) {
@@ -377,10 +390,11 @@ export async function setupAuth(app: Express) {
                 organization.id,
                 5,
                 "admin_grant",
-                undefined, // No expiration date for signup credits
+                trialEndAt,
                 {
                   adminNotes: "Signup reward - Welcome bonus for new user registration",
                   createdBy: user.id,
+                  kind: "signup_bonus",
                 }
               );
               console.log(`✓ Granted 5 signup reward credits to new organization ${organization.id}`);
@@ -389,7 +403,6 @@ export async function setupAuth(app: Express) {
             }
           } catch (creditError: any) {
             console.error("Warning: Failed to grant signup credits:", creditError);
-            // No fallback - credit batch system is required
           }
 
           // Create default inspection templates
@@ -746,6 +759,22 @@ export async function isAuthenticated(req: any, res: any, next: any) {
             if (err) console.error('[isAuthenticated] Error logging out user from disabled org:', err);
           });
           return res.status(403).json({ message: "Your account has been blocked. Please contact admin." });
+        }
+
+        const requestPath = String(req.originalUrl || req.path || "").split("?")[0];
+        if (organization && isLockedApiPath(requestPath)) {
+          try {
+            const access = await getOrganizationAccessStatus(organization.id);
+            if (access?.locked && (access.code === "TRIAL_EXPIRED" || access.code === "CREDITS_EXPIRED")) {
+              return res.status(403).json(lockPayload(access.code));
+            }
+          } catch (error) {
+            console.error("[isAuthenticated] Entitlement check failed:", error);
+            return res.status(503).json({
+              code: "ENTITLEMENT_UNAVAILABLE",
+              message: "Unable to verify access. Please try again.",
+            });
+          }
         }
       } catch (error) {
         console.error('[isAuthenticated] Error checking organization status:', error);

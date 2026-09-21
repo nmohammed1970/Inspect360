@@ -10,6 +10,7 @@ import {
   boolean,
   pgEnum,
   numeric,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -154,6 +155,9 @@ export const organizations = pgTable("organizations", {
   subscriptionLevel: subscriptionLevelEnum("subscription_level").default("free"),
   countryCode: varchar("country_code", { length: 2 }).default("GB"), // ISO 3166-1 alpha-2
   currentPlanId: varchar("current_plan_id"),
+  /** When true, Property/Block/Inspection/Comparison/Maintenance require an active trial or paid credits. Existing orgs stay false. */
+  trialEnforced: boolean("trial_enforced").notNull().default(false),
+  trialStartAt: timestamp("trial_start_at"),
   trialEndAt: timestamp("trial_end_at"),
   isActive: boolean("is_active").default(true),
   // creditsRemaining removed - now using credit_batches system
@@ -195,6 +199,56 @@ export const insertOrganizationSchema = createInsertSchema(organizations).omit({
 });
 export type Organization = typeof organizations.$inferSelect;
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+
+/** Lightweight audit for trial create/extend and admin credit grants. Credit movements themselves stay on credit_ledger. */
+export const entitlementEvents = pgTable("entitlement_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  eventType: varchar("event_type", { length: 40 }).notNull(),
+  actorUserId: varchar("actor_user_id"),
+  previousTrialEnd: timestamp("previous_trial_end"),
+  newTrialEnd: timestamp("new_trial_end"),
+  additionalDays: integer("additional_days"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_entitlement_events_org").on(table.organizationId, table.createdAt),
+]);
+
+export type EntitlementEvent = typeof entitlementEvents.$inferSelect;
+
+/** Platform-wide admin settings. `default_trial_days` is the trial length for new organizations. */
+export const platformSettings = pgTable("platform_settings", {
+  key: varchar("key", { length: 80 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type PlatformSetting = typeof platformSettings.$inferSelect;
+
+/** One row per organization expiry email. The unique key stops duplicate sends. */
+export const entitlementNotificationLog = pgTable("entitlement_notification_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  notificationType: varchar("notification_type", { length: 40 }).notNull(),
+  eventKey: varchar("event_key", { length: 40 }).notNull(),
+  recipientEmail: varchar("recipient_email"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("entitlement_notification_log_event_uidx").on(
+    table.organizationId,
+    table.notificationType,
+    table.eventKey,
+  ),
+  index("idx_entitlement_notification_log_status").on(table.status, table.updatedAt),
+]);
+
+export type EntitlementNotificationLog = typeof entitlementNotificationLog.$inferSelect;
 
 // Organization Trademarks (Multiple trademark/certification images for reports)
 export const organizationTrademarks = pgTable("organization_trademarks", {
@@ -1953,6 +2007,8 @@ export const creditBatches = pgTable("credit_batches", {
     subscriptionId?: string;
     topupOrderId?: string;
     adminNotes?: string;
+    /** signup_bonus credits do not count as paid entitlement */
+    kind?: string;
   }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

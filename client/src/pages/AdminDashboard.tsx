@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { daysRemainingUntil, EXPIRY_WARNING_DAYS, toUtcDate } from "@shared/entitlements";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,7 +61,52 @@ type InstanceRow = {
   owner?: { id?: string; email?: string; firstName?: string; lastName?: string };
   creditBalance?: CreditBalance;
   enabledModuleCount?: number;
+  entitlement?: {
+    code: string;
+    label: string;
+    locked: boolean;
+    daysRemaining: number | null;
+    trialStartAt: string | null;
+    trialEndAt: string | null;
+    creditExpiryAt: string | null;
+    paidCredits: number;
+  };
 };
+
+function formatUtcDateTime(iso?: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${date.toLocaleString("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })} UTC`;
+}
+
+function formatInclusiveExpiry(iso?: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(new Date(iso).getTime() - 1);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function trialPanel(entitlement?: { trialEndAt?: string | null } | null): { status: string; days: string } {
+  const end = toUtcDate(entitlement?.trialEndAt);
+  if (!end) return { status: "Not started", days: "—" };
+  const days = daysRemainingUntil(end, new Date());
+  if (days === 0) return { status: "Ended", days: "0" };
+  if (days <= EXPIRY_WARNING_DAYS) return { status: "Expiring soon", days: String(days) };
+  return { status: "Active", days: String(days) };
+}
 
 function looksLikeEmail(value?: string | null): boolean {
   if (!value) return false;
@@ -89,6 +135,10 @@ export default function AdminDashboard() {
   const [creditsTarget, setCreditsTarget] = useState("");
   const [creditsDelta, setCreditsDelta] = useState("");
   const [creditReason, setCreditReason] = useState("");
+  const [creditExpiresAt, setCreditExpiresAt] = useState("");
+  const [trialDays, setTrialDays] = useState("7");
+  const [defaultTrialDays, setDefaultTrialDays] = useState("7");
+  const [confirmExtend, setConfirmExtend] = useState(false);
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [confirmDisableModuleId, setConfirmDisableModuleId] = useState<string | null>(null);
 
@@ -103,6 +153,34 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/instances"],
     retry: false,
     refetchInterval: manageOpen ? 30000 : false,
+  });
+
+  const { data: trialSetting } = useQuery<{ days: number }>({
+    queryKey: ["/api/admin/settings/trial"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/settings/trial");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (trialSetting?.days) setDefaultTrialDays(String(trialSetting.days));
+  }, [trialSetting?.days]);
+
+  const saveDefaultTrialMutation = useMutation({
+    mutationFn: async (days: number) => {
+      const res = await apiRequest("PATCH", "/api/admin/settings/trial", { days });
+      return res.json();
+    },
+    onSuccess: (body: { days: number }) => {
+      setDefaultTrialDays(String(body.days));
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/trial"] });
+      toast({ title: "Trial length saved", description: `New organizations receive a ${body.days}-day trial.` });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Could not save trial length", description: err.message });
+    },
   });
 
   const {
@@ -154,12 +232,19 @@ export default function AdminDashboard() {
   const liveBalance = selectedInstance
     ? instances.find((i) => i.id === selectedInstance.id)?.creditBalance ?? selectedInstance.creditBalance
     : undefined;
+  const liveEntitlement = selectedInstance
+    ? instances.find((i) => i.id === selectedInstance.id)?.entitlement ?? selectedInstance.entitlement
+    : undefined;
+  const trial = trialPanel(liveEntitlement);
 
   const openManage = async (instance: InstanceRow) => {
     setSelectedInstance(instance);
     setCreditsTarget(String(instance.creditBalance?.total ?? 0));
     setCreditsDelta("");
     setCreditReason("");
+    setCreditExpiresAt("");
+    setTrialDays("7");
+    setConfirmExtend(false);
     setActiveTab("credits");
     setConfirmDisableModuleId(null);
 
@@ -198,7 +283,7 @@ export default function AdminDashboard() {
   }, [instances, manageOpen, selectedInstance?.id]);
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/admin/instances"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/instances"] });
     queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
     queryClient.invalidateQueries({ queryKey: ["/api/billing/inspection-balance"] });
     queryClient.invalidateQueries({ queryKey: ["/api/marketplace/my-modules"] });
@@ -249,12 +334,13 @@ export default function AdminDashboard() {
   });
 
   const grantMutation = useMutation({
-    mutationFn: async ({ quantity, reason }: { quantity: number; reason: string }) => {
+    mutationFn: async ({ quantity, reason, expiresAt }: { quantity: number; reason: string; expiresAt: string }) => {
       if (!selectedInstance) throw new Error("No instance selected");
       const res = await apiRequest("POST", "/api/admin/credits/grant", {
         organizationId: selectedInstance.id,
         quantity,
         reason,
+        expiresAt,
       });
       return res.json();
     },
@@ -294,6 +380,24 @@ export default function AdminDashboard() {
     },
   });
 
+  const extendTrialMutation = useMutation({
+    mutationFn: async (additionalDays: number) => {
+      if (!selectedInstance) throw new Error("No instance selected");
+      const res = await apiRequest("POST", `/api/admin/instances/${selectedInstance.id}/extend-trial`, {
+        additionalDays,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateAll();
+      setConfirmExtend(false);
+      toast({ title: "Trial extended" });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Could not extend trial", description: err.message });
+    },
+  });
+
   const saveCreditsAbsolute = () => {
     const target = Number(creditsTarget);
     if (!Number.isFinite(target) || target < 0) {
@@ -304,9 +408,15 @@ export default function AdminDashboard() {
       toast({ variant: "destructive", title: "Reason required", description: "Add a short note for the credit change." });
       return;
     }
+    const current = liveBalance?.total ?? 0;
+    if (target > current && !creditExpiresAt) {
+      toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these credits expire." });
+      return;
+    }
     updateMutation.mutate({
       credits: target,
       creditReason: creditReason.trim(),
+      ...(creditExpiresAt ? { creditExpiresAt } : {}),
       isActive: selectedInstance?.isActive !== false,
       enabledModules,
     });
@@ -324,13 +434,18 @@ export default function AdminDashboard() {
     }
     const current = liveBalance?.total ?? 0;
     if (delta > 0) {
-      grantMutation.mutate({ quantity: delta, reason: creditReason.trim() });
+      if (!creditExpiresAt) {
+        toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these credits expire." });
+        return;
+      }
+      grantMutation.mutate({ quantity: delta, reason: creditReason.trim(), expiresAt: creditExpiresAt });
       return;
     }
     const target = Math.max(0, current + delta);
     updateMutation.mutate({
       credits: target,
       creditReason: creditReason.trim(),
+      ...(creditExpiresAt ? { creditExpiresAt } : {}),
       isActive: selectedInstance?.isActive !== false,
       enabledModules,
     });
@@ -369,7 +484,7 @@ export default function AdminDashboard() {
   }
 
   if (isError) {
-    return (
+  return (
       <div className="container mx-auto px-4 py-8">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -406,39 +521,82 @@ export default function AdminDashboard() {
 
       <Card className="border-border/60 shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Find an organization</CardTitle>
-          <CardDescription>Search by company name, owner name, or email</CardDescription>
+          <CardTitle className="text-base">Default trial length</CardTitle>
+          <CardDescription>
+            New organizations start with this many days. To change one organization, open Manage and add the number of days you want.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="relative max-w-xl">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="space-y-1">
+            <Label htmlFor="default-trial-days">Trial days</Label>
             <Input
-              placeholder="Search instances…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-instances"
+              id="default-trial-days"
+              type="number"
+              min={1}
+              max={365}
+              value={defaultTrialDays}
+              onChange={(e) => setDefaultTrialDays(e.target.value)}
+              className="w-32"
+              data-testid="input-default-trial-days"
             />
           </div>
+          <Button
+            type="button"
+            disabled={saveDefaultTrialMutation.isPending}
+            onClick={() => {
+              const days = Number(defaultTrialDays);
+              if (!Number.isInteger(days) || days < 1 || days > 365) {
+                toast({ variant: "destructive", title: "Invalid trial length", description: "Enter a whole number from 1 to 365." });
+                return;
+              }
+              saveDefaultTrialMutation.mutate(days);
+            }}
+            data-testid="button-save-default-trial-days"
+          >
+            {saveDefaultTrialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            Save trial length
+          </Button>
         </CardContent>
       </Card>
 
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Find an organization</CardTitle>
+          <CardDescription>Search by company name, owner name, or email</CardDescription>
+          </CardHeader>
+          <CardContent>
+          <div className="relative max-w-xl">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+              placeholder="Search instances…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-instances"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
       <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
+          <CardContent className="p-0">
           {filteredInstances.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground space-y-2">
               <Sparkles className="h-8 w-8 mx-auto opacity-40" />
               <p>No instances match your search.</p>
-            </div>
-          ) : (
+              </div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40">
                   <TableHead>Organization</TableHead>
                   <TableHead>Owner</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Credits</TableHead>
-                  <TableHead className="text-right">Modules on</TableHead>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Entitlement</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Trial end</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Credits</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Credit expiry</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Modules on</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -468,11 +626,23 @@ export default function AdminDashboard() {
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums">
-                        {instance.creditBalance?.total ?? 0}
+                      <TableCell>
+                        <div className="text-sm font-medium">{instance.entitlement?.label || "—"}</div>
+                        {instance.entitlement?.daysRemaining != null && instance.entitlement.daysRemaining > 0 && (
+                          <div className="text-xs text-muted-foreground">{instance.entitlement.daysRemaining} days left</div>
+                        )}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {instance.enabledModuleCount ?? 0}
+                      <TableCell className="whitespace-nowrap text-left text-sm">
+                        <span className="block text-left">{formatUtcDateTime(instance.entitlement?.trialEndAt)}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left font-semibold tabular-nums">
+                        <span className="block text-left">{instance.creditBalance?.total ?? 0}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left text-sm">
+                        <span className="block text-left">{formatInclusiveExpiry(instance.entitlement?.creditExpiryAt || instance.creditBalance?.expiresOn)}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left tabular-nums">
+                        <span className="block text-left">{instance.enabledModuleCount ?? 0}</span>
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button size="sm" onClick={() => openManage(instance)} data-testid={`manage-instance-${instance.id}`}>
@@ -492,9 +662,9 @@ export default function AdminDashboard() {
                 })}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
 
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -512,22 +682,85 @@ export default function AdminDashboard() {
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Live credits</div>
               <div className="text-2xl font-semibold tabular-nums">{liveBalance?.total ?? 0}</div>
-            </div>
+                </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Current batch</div>
               <div className="text-2xl font-semibold tabular-nums">{liveBalance?.current ?? 0}</div>
-            </div>
+              </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Modules on</div>
               <div className="text-2xl font-semibold tabular-nums">{enabledModules.length}</div>
-            </div>
+                </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Expires</div>
               <div className="text-sm font-medium mt-1">
                 {liveBalance?.expiresOn
                   ? format(new Date(liveBalance.expiresOn), "dd MMM yyyy")
                   : "No expiry"}
+                  </div>
+                </div>
+                </div>
+
+          <div className="rounded-xl border p-4 space-y-3">
+            <div className="font-medium text-sm">Trial</div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Status</div>
+                <div>{trial.status}</div>
               </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Days remaining</div>
+                <div>{trial.days}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Trial start</div>
+                <div>{formatUtcDateTime(liveEntitlement?.trialStartAt)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Trial end</div>
+                <div>{formatUtcDateTime(liveEntitlement?.trialEndAt)}</div>
+              </div>
+            </div>
+            <div className="flex gap-2 items-end">
+              <div className="space-y-1 flex-1">
+                <Label htmlFor="trial-days">Days to add</Label>
+                <Input
+                  id="trial-days"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={trialDays}
+                  onChange={(e) => {
+                    setTrialDays(e.target.value);
+                    setConfirmExtend(false);
+                  }}
+                  data-testid="input-trial-days"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Choose how many days to add. If this organization has no trial yet, it starts today and lasts this long.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant={confirmExtend ? "default" : "secondary"}
+                disabled={extendTrialMutation.isPending}
+                onClick={() => {
+                  const days = Number(trialDays);
+                  if (!Number.isInteger(days) || days <= 0 || days > 365) {
+                    toast({ variant: "destructive", title: "Invalid days", description: "Enter a whole number from 1 to 365." });
+                    return;
+                  }
+                  if (!confirmExtend) {
+                    setConfirmExtend(true);
+                    return;
+                  }
+                  extendTrialMutation.mutate(days);
+                }}
+                data-testid="button-extend-trial"
+              >
+                {extendTrialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                {confirmExtend ? `Confirm +${trialDays} days` : "Extend trial"}
+              </Button>
             </div>
           </div>
 
@@ -544,7 +777,7 @@ export default function AdminDashboard() {
             </TabsList>
 
             <TabsContent value="credits" className="space-y-4 pt-2">
-              <div className="space-y-2">
+                  <div className="space-y-2">
                 <Label htmlFor="credit-reason">Reason (required for changes)</Label>
                 <Textarea
                   id="credit-reason"
@@ -553,13 +786,26 @@ export default function AdminDashboard() {
                   onChange={(e) => setCreditReason(e.target.value)}
                   rows={2}
                 />
+                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="credit-expiry">Credit expiration date</Label>
+                <Input
+                  id="credit-expiry"
+                  type="date"
+                  value={creditExpiresAt}
+                  onChange={(e) => setCreditExpiresAt(e.target.value)}
+                  data-testid="input-credit-expiry"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required when adding credits. If you set a date, it is saved onto the current balance, even when the total stays the same or goes down. The selected day is usable in full. Access ends at 00:00 UTC the next day.
+                </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-xl border p-4 space-y-3">
                   <div className="font-medium text-sm">Set absolute total</div>
-                  <Input
-                    type="number"
+                    <Input
+                      type="number"
                     min={0}
                     value={creditsTarget}
                     onChange={(e) => setCreditsTarget(e.target.value)}
@@ -594,7 +840,7 @@ export default function AdminDashboard() {
                     ) : null}
                     Apply delta
                   </Button>
-                </div>
+              </div>
               </div>
 
               <div className="rounded-xl border overflow-hidden">
@@ -602,16 +848,16 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-2 font-medium text-sm">
                     <History className="h-4 w-4" />
                     Recent ledger
-                  </div>
+                            </div>
                   <Button size="sm" variant="ghost" onClick={() => refetchLedger()}>
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
-                </div>
+                            </div>
                 {ledgerLoading ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">
                     <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
                     Loading ledger…
-                  </div>
+                          </div>
                 ) : ledger.length === 0 ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">No ledger entries yet.</div>
                 ) : (
@@ -668,7 +914,7 @@ export default function AdminDashboard() {
               ) : allModules.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">
                   No modules in catalogue. Add modules under Eco Admin → Modules first.
-                </div>
+              </div>
               ) : (
                 <div className="space-y-2">
                   {allModules.map((mod: any) => {
@@ -683,8 +929,8 @@ export default function AdminDashboard() {
                           <div className="text-xs text-muted-foreground truncate">
                             {mod.moduleKey}
                             {mod.description ? ` · ${mod.description}` : ""}
-                          </div>
-                        </div>
+            </div>
+                    </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <Badge variant={on ? "default" : "secondary"}>{on ? "On" : "Off"}</Badge>
                           <Switch
@@ -692,11 +938,11 @@ export default function AdminDashboard() {
                             onCheckedChange={(checked) => toggleModule(mod.id, checked)}
                             data-testid={`switch-module-${mod.moduleKey || mod.id}`}
                           />
-                        </div>
-                      </div>
+                  </div>
+                </div>
                     );
                   })}
-                </div>
+              </div>
               )}
 
               {confirmDisableModuleId && (
@@ -712,29 +958,29 @@ export default function AdminDashboard() {
                       <Button size="sm" variant="destructive" onClick={confirmDisable}>
                         Disable
                       </Button>
-                    </div>
+              </div>
                   </AlertDescription>
                 </Alert>
               )}
 
-              <Button
+                <Button
                 className="w-full"
                 onClick={saveModules}
                 disabled={updateMutation.isPending || !!confirmDisableModuleId}
               >
                 {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save module access
-              </Button>
+                </Button>
             </TabsContent>
           </Tabs>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setManageOpen(false)}>
               Close
-            </Button>
+                </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+              </div>
   );
 }

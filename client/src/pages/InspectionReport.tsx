@@ -393,6 +393,13 @@ export default function InspectionReport() {
     enabled: isAuthenticated && !authLoading, // Only fetch if authenticated
   });
 
+  const { data: organization } = useQuery<any>({
+    queryKey: ["/api/organizations", currentUser?.organizationId],
+    enabled: !!currentUser?.organizationId,
+  });
+
+  const reportCoverLogoSrc = organization?.logoUrl || BRAND_LOGO_MASTER;
+
   // Fetch maintenance requests linked to this inspection
   const { data: maintenanceRequests = [] } = useQuery<any[]>({
     queryKey: [`/api/maintenance?inspectionId=${id}`],
@@ -1219,9 +1226,14 @@ export default function InspectionReport() {
           {/* Logo */}
           <div className="flex justify-center mb-16">
             <img
-              src={BRAND_LOGO_MASTER}
+              src={reportCoverLogoSrc}
               alt="Inspect360 Logo"
               className="h-24 w-auto object-contain"
+              onError={(e) => {
+                if (e.currentTarget.src !== BRAND_LOGO_MASTER) {
+                  e.currentTarget.src = BRAND_LOGO_MASTER;
+                }
+              }}
             />
           </div>
 

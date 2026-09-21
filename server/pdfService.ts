@@ -3,6 +3,7 @@ import puppeteer from "puppeteer";
 import chromium from "@sparticuz/chromium";
 import { format } from "date-fns";
 import { parseSignatureValue, isTenantSignatureField, formatSignerDisplayName } from "@shared/signature";
+import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 
 // Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
 const isReplit = process.env.REPL_ID || process.env.REPLIT;
@@ -331,15 +332,20 @@ export async function generateInspectionPDF(
     
     processedBranding = { ...branding };
     
-    // Convert logo to base64
+    // Convert logo to base64 (org logo, or Inspect360 LogoWhite for teal covers)
     if (branding.logoUrl) {
       const logoBase64 = await imageUrlToBase64(branding.logoUrl, baseUrl);
       if (logoBase64) {
         processedBranding.logoUrl = logoBase64;
         console.log('[PDF] Logo converted to base64 successfully');
       } else {
-        console.log('[PDF] Logo conversion failed, keeping original URL');
+        const fallback = getDefaultCoverLogoDataUrl("on-dark");
+        processedBranding.logoUrl = fallback;
+        console.log('[PDF] Logo conversion failed, using Inspect360 default cover logo');
       }
+    } else {
+      processedBranding.logoUrl = getDefaultCoverLogoDataUrl("on-dark");
+      console.log('[PDF] No org logo — using Inspect360 LogoWhite for cover');
     }
     
     // Convert legacy trademark to base64
@@ -370,6 +376,12 @@ export async function generateInspectionPDF(
     }
     
     console.log('[PDF] Branding image processing complete');
+  } else {
+    processedBranding = {
+      logoUrl: getDefaultCoverLogoDataUrl("on-dark"),
+      brandingName: "Inspect360",
+    };
+    console.log('[PDF] No branding provided — using Inspect360 LogoWhite for cover');
   }
   
   const html = generateInspectionHTML(inspection, entries, baseUrl, processedBranding, maintenanceRequests, reportConfig);
