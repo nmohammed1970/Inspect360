@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -780,7 +781,7 @@ export default function Team() {
             <TabsContent value="basic" className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="firstName">First Name *</Label>
+                  <Label htmlFor="firstName" required>First Name</Label>
                   <Input
                     id="firstName"
                     value={firstName}
@@ -790,7 +791,7 @@ export default function Team() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name *</Label>
+                  <Label htmlFor="lastName" required>Last Name</Label>
                   <Input
                     id="lastName"
                     value={lastName}
@@ -802,7 +803,7 @@ export default function Team() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address *</Label>
+                <Label htmlFor="email" required>Email Address</Label>
                 <Input
                   id="email"
                   type="email"
@@ -816,7 +817,7 @@ export default function Team() {
 
               {!editingUser && (
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password *</Label>
+                  <Label htmlFor="password" required>Password</Label>
                   <div className="relative">
                     {/* Hidden dummy password field to prevent browser autofill */}
                     <input
@@ -864,7 +865,7 @@ export default function Team() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="role">Role / Permission Level *</Label>
+                <Label htmlFor="role" required>Role / Permission Level</Label>
                 <Select value={role} onValueChange={setRole}>
                   <SelectTrigger data-testid="select-role">
                     <SelectValue />
@@ -1059,9 +1060,11 @@ export default function Team() {
                 </ObjectUploader>
                 {profileImageUrl && (
                   <div className="relative inline-block">
-                    <img 
-                      src={profileImageUrl} 
-                      alt="Profile preview" 
+                    <PreviewableImage
+                      src={profileImageUrl}
+                      alt="Profile preview"
+                      title="Profile photo"
+                      showHint={false}
                       className="h-24 w-24 object-cover rounded-full border-2"
                     />
                     <Button

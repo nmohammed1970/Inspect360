@@ -19,6 +19,7 @@ import {
   RefreshCw,
   History,
   Sparkles,
+  Banknote,
 } from "lucide-react";
 import {
   Table,
@@ -37,6 +38,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -50,6 +52,17 @@ type CreditBalance = {
   expiresOn?: string | null;
 };
 
+type InstanceUnitPricing = {
+  source: "instance" | "default";
+  pricePerUnitMonthly: string;
+  pricePerUnitAnnual: string;
+  currencyCode: string;
+  featuresIncluded?: string;
+  updatedAt?: string | null;
+  id?: string | null;
+  organizationId?: string;
+};
+
 type InstanceRow = {
   id: string;
   name: string;
@@ -61,6 +74,7 @@ type InstanceRow = {
   owner?: { id?: string; email?: string; firstName?: string; lastName?: string };
   creditBalance?: CreditBalance;
   enabledModuleCount?: number;
+  unitPricing?: InstanceUnitPricing;
   entitlement?: {
     code: string;
     label: string;
@@ -141,6 +155,14 @@ export default function AdminDashboard() {
   const [confirmExtend, setConfirmExtend] = useState(false);
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [confirmDisableModuleId, setConfirmDisableModuleId] = useState<string | null>(null);
+  const [unitPricingForm, setUnitPricingForm] = useState({
+    pricePerUnitMonthly: "0",
+    pricePerUnitAnnual: "0",
+    currencyCode: "GBP",
+    featuresIncluded: "",
+  });
+  const [unitPricingSource, setUnitPricingSource] = useState<"instance" | "default">("default");
+  const [unitPricingUpdatedAt, setUnitPricingUpdatedAt] = useState<string | null>(null);
 
   const {
     data: instances = [],
@@ -267,6 +289,36 @@ export default function AdminDashboard() {
       });
     }
     setEnabledModules(enabledIds);
+
+    const pricingSeed = instance.unitPricing;
+    setUnitPricingForm({
+      pricePerUnitMonthly: String(pricingSeed?.pricePerUnitMonthly ?? "0"),
+      pricePerUnitAnnual: String(pricingSeed?.pricePerUnitAnnual ?? "0"),
+      currencyCode: pricingSeed?.currencyCode || "GBP",
+      featuresIncluded: "",
+    });
+    setUnitPricingSource(pricingSeed?.source || "default");
+    setUnitPricingUpdatedAt(null);
+
+    try {
+      const pricingResponse = await fetch(`/api/admin/instances/${instance.id}/unit-pricing`, {
+        credentials: "include",
+      });
+      if (pricingResponse.ok) {
+        const pricing = await pricingResponse.json();
+        setUnitPricingForm({
+          pricePerUnitMonthly: String(pricing.pricePerUnitMonthly ?? "0"),
+          pricePerUnitAnnual: String(pricing.pricePerUnitAnnual ?? "0"),
+          currencyCode: pricing.currencyCode || "GBP",
+          featuresIncluded: pricing.featuresIncluded ?? "",
+        });
+        setUnitPricingSource(pricing.source === "instance" ? "instance" : "default");
+        setUnitPricingUpdatedAt(pricing.updatedAt ?? null);
+      }
+    } catch {
+      // List already seeded prices; detail fetch failure is non-blocking.
+    }
+
     setManageOpen(true);
   };
 
@@ -458,6 +510,45 @@ export default function AdminDashboard() {
     });
   };
 
+  const saveUnitPricingMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedInstance) throw new Error("No instance selected");
+      const response = await fetch(`/api/admin/instances/${selectedInstance.id}/unit-pricing`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(unitPricingForm),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to save unit pricing");
+      }
+      return response.json() as Promise<InstanceUnitPricing>;
+    },
+    onSuccess: (pricing) => {
+      setUnitPricingForm({
+        pricePerUnitMonthly: String(pricing.pricePerUnitMonthly ?? "0"),
+        pricePerUnitAnnual: String(pricing.pricePerUnitAnnual ?? "0"),
+        currencyCode: pricing.currencyCode || "GBP",
+        featuresIncluded: pricing.featuresIncluded ?? "",
+      });
+      setUnitPricingSource("instance");
+      setUnitPricingUpdatedAt(pricing.updatedAt ?? null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/instances"] });
+      toast({
+        title: "Unit pricing saved",
+        description: `Saved for ${getOrganizationLabel(selectedInstance!)}.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error.message,
+      });
+    },
+  });
+
   const toggleModule = (moduleId: string, enable: boolean) => {
     if (!enable) {
       setConfirmDisableModuleId(moduleId);
@@ -597,6 +688,7 @@ export default function AdminDashboard() {
                   <TableHead className="whitespace-nowrap text-left">Credits</TableHead>
                   <TableHead className="whitespace-nowrap text-left">Credit expiry</TableHead>
                   <TableHead className="whitespace-nowrap text-left">Modules on</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Unit pricing</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -644,6 +736,22 @@ export default function AdminDashboard() {
                       <TableCell className="whitespace-nowrap text-left tabular-nums">
                         <span className="block text-left">{instance.enabledModuleCount ?? 0}</span>
                       </TableCell>
+                      <TableCell className="whitespace-nowrap text-left text-sm">
+                        {instance.unitPricing ? (
+                          <div>
+                            <div className="font-medium tabular-nums">
+                              {instance.unitPricing.currencyCode} {instance.unitPricing.pricePerUnitMonthly}
+                              <span className="text-muted-foreground font-normal"> /mo</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {instance.unitPricing.pricePerUnitAnnual} /yr
+                              {instance.unitPricing.source === "default" ? " · not set" : ""}
+                            </div>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button size="sm" onClick={() => openManage(instance)} data-testid={`manage-instance-${instance.id}`}>
                           Manage
@@ -674,7 +782,7 @@ export default function AdminDashboard() {
               {selectedInstance?.name || "Instance"}
             </DialogTitle>
             <DialogDescription>
-              Manage credits and modules for this organization. Changes apply immediately for operators.
+              Manage credits, modules, and unit pricing for this organization.
             </DialogDescription>
           </DialogHeader>
 
@@ -765,7 +873,7 @@ export default function AdminDashboard() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="credits" className="gap-1">
                 <CreditCard className="h-3.5 w-3.5" />
                 Credits
@@ -773,6 +881,10 @@ export default function AdminDashboard() {
               <TabsTrigger value="modules" className="gap-1">
                 <Package className="h-3.5 w-3.5" />
                 Modules
+              </TabsTrigger>
+              <TabsTrigger value="unit-pricing" className="gap-1">
+                <Banknote className="h-3.5 w-3.5" />
+                Unit pricing
               </TabsTrigger>
             </TabsList>
 
@@ -789,11 +901,11 @@ export default function AdminDashboard() {
                   </div>
               <div className="space-y-2">
                 <Label htmlFor="credit-expiry">Credit expiration date</Label>
-                <Input
+                <LocaleDateInput
                   id="credit-expiry"
-                  type="date"
-                  value={creditExpiresAt}
-                  onChange={(e) => setCreditExpiresAt(e.target.value)}
+                  value={creditExpiresAt || null}
+                  onChange={(ymd) => setCreditExpiresAt(ymd || "")}
+                  disablePast
                   data-testid="input-credit-expiry"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -971,6 +1083,101 @@ export default function AdminDashboard() {
                 {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save module access
                 </Button>
+            </TabsContent>
+
+            <TabsContent value="unit-pricing" className="space-y-4 pt-2">
+              <Alert>
+                <Banknote className="h-4 w-4" />
+                <AlertTitle>
+                  {unitPricingSource === "instance" ? "Saved for this instance" : "Not saved yet"}
+                </AlertTitle>
+                <AlertDescription>
+                  {unitPricingSource === "instance"
+                    ? "These rates apply only to this organization."
+                    : "Enter rates and save to store unit pricing for this organization."}
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="instance-unit-monthly">Per unit / month</Label>
+                  <Input
+                    id="instance-unit-monthly"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={unitPricingForm.pricePerUnitMonthly}
+                    onChange={(e) =>
+                      setUnitPricingForm((prev) => ({ ...prev, pricePerUnitMonthly: e.target.value }))
+                    }
+                    data-testid="input-instance-unit-price-monthly"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="instance-unit-annual">Per unit / annum</Label>
+                  <Input
+                    id="instance-unit-annual"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={unitPricingForm.pricePerUnitAnnual}
+                    onChange={(e) =>
+                      setUnitPricingForm((prev) => ({ ...prev, pricePerUnitAnnual: e.target.value }))
+                    }
+                    data-testid="input-instance-unit-price-annual"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="instance-unit-currency">Currency</Label>
+                <Input
+                  id="instance-unit-currency"
+                  value={unitPricingForm.currencyCode}
+                  maxLength={3}
+                  onChange={(e) =>
+                    setUnitPricingForm((prev) => ({
+                      ...prev,
+                      currencyCode: e.target.value.toUpperCase().slice(0, 3),
+                    }))
+                  }
+                  data-testid="input-instance-unit-currency"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="instance-unit-features">Features included</Label>
+                <Textarea
+                  id="instance-unit-features"
+                  rows={6}
+                  placeholder="List included features for this instance…"
+                  value={unitPricingForm.featuresIncluded}
+                  onChange={(e) =>
+                    setUnitPricingForm((prev) => ({ ...prev, featuresIncluded: e.target.value }))
+                  }
+                  data-testid="textarea-instance-unit-features"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-xs text-muted-foreground">
+                  {unitPricingUpdatedAt
+                    ? `Last updated ${new Date(unitPricingUpdatedAt).toLocaleString()}`
+                    : unitPricingSource === "default"
+                      ? "Not customized yet"
+                      : "Saved for this instance"}
+                </p>
+                <Button
+                  onClick={() => saveUnitPricingMutation.mutate()}
+                  disabled={saveUnitPricingMutation.isPending}
+                  data-testid="button-save-instance-unit-pricing"
+                >
+                  {saveUnitPricingMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  Save for this instance
+                </Button>
+              </div>
             </TabsContent>
           </Tabs>
 

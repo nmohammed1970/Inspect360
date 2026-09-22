@@ -39,6 +39,44 @@ export async function canAccessFeature(organizationId: string, now?: Date): Prom
   return !!status && !status.locked;
 }
 
+/**
+ * Provision an instance subscription and enable every globally available marketplace
+ * module. Used for new trial signups so the org can use the full product during trial.
+ *
+ * Idempotent: if any instance_modules rows already exist, leaves them alone (admin may
+ * have customized). If a subscription exists with zero module rows, enables all modules.
+ * Does not flip modules off when entitlement locks — locking is handled by resolveEntitlement.
+ */
+export async function ensureTrialModulesEnabled(organizationId: string): Promise<void> {
+  const organization = await storage.getOrganization(organizationId);
+  if (!organization) return;
+
+  let subscription = await storage.getInstanceSubscription(organizationId);
+  if (!subscription) {
+    subscription = await storage.createInstanceSubscription({
+      organizationId,
+      registrationCurrency: organization.preferredCurrency || "GBP",
+      inspectionQuotaIncluded: 0,
+      billingCycle: "monthly",
+      subscriptionStatus: "active",
+    });
+  }
+
+  const existing = await storage.getInstanceModules(subscription.id);
+  if (existing.length > 0) return;
+
+  const modules = await storage.getMarketplaceModules();
+  const available = modules.filter((mod) => mod.isAvailableGlobally !== false);
+  for (const mod of available) {
+    await storage.toggleInstanceModule(subscription.id, mod.id, true);
+  }
+  if (available.length > 0) {
+    console.log(
+      `[Entitlement] Enabled ${available.length} marketplace module(s) for organization ${organizationId}`,
+    );
+  }
+}
+
 export function getTrialDaysRemaining(status: EntitlementStatus): number | null {
   if (status.code === "TRIAL_ACTIVE" || status.code === "TRIAL_EXPIRING") {
     return status.daysRemaining;
@@ -55,7 +93,7 @@ export function getCreditDaysRemaining(status: EntitlementStatus): number | null
 
 export async function recordEntitlementEvent(input: {
   organizationId: string;
-  eventType: "trial_created" | "trial_extended" | "credits_granted";
+  eventType: "trial_created" | "trial_extended" | "credits_granted" | "CREDIT_REQUEST_GRANTED";
   actorUserId?: string | null;
   previousTrialEnd?: Date | null;
   newTrialEnd?: Date | null;

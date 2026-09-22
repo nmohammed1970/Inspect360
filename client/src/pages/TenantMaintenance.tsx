@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -284,9 +285,10 @@ export default function TenantMaintenance() {
                   }`}
                 >
                   {message.imageUrl && (
-                    <img
+                    <PreviewableImage
                       src={message.imageUrl}
-                      alt="Uploaded"
+                      alt="Uploaded maintenance photo"
+                      title="Maintenance photo"
                       className="rounded-lg mb-2 max-w-full h-auto"
                     />
                   )}
@@ -352,7 +354,13 @@ export default function TenantMaintenance() {
 
             {uploadedImage && (
               <div className="relative inline-block">
-                <img src={uploadedImage} alt="Preview" className="h-20 rounded-lg" />
+                <PreviewableImage
+                  src={uploadedImage}
+                  alt="Selected photo"
+                  title="Selected photo"
+                  showHint={false}
+                  className="h-20 rounded-lg"
+                />
                 <Button
                   size="sm"
                   variant="destructive"

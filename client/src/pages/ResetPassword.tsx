@@ -8,6 +8,7 @@ import { useLocation, useSearch } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { BRAND_LOGO_ON_DARK } from "@/lib/brandAssets";
+import { MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
 
 export default function ResetPassword() {
   const searchParams = useSearch();
@@ -56,10 +57,10 @@ export default function ResetPassword() {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
       toast({
         title: "Error",
-        description: "Password must be at least 6 characters",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
         variant: "destructive",
       });
       return;
@@ -184,6 +185,7 @@ export default function ResetPassword() {
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="Enter new password"
+                        autoComplete="new-password"
                         required
                         disabled={isLoading}
                         data-testid="input-new-password"
@@ -192,6 +194,7 @@ export default function ResetPassword() {
                         type="button"
                         onClick={() => setShowNewPassword(!showNewPassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label={showNewPassword ? "Hide new password" : "Show new password"}
                         data-testid="button-toggle-new-password"
                       >
                         {showNewPassword ? (
@@ -201,6 +204,9 @@ export default function ResetPassword() {
                         )}
                       </button>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Must be at least {MIN_PASSWORD_LENGTH} characters
+                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -212,6 +218,7 @@ export default function ResetPassword() {
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="Confirm new password"
+                        autoComplete="new-password"
                         required
                         disabled={isLoading}
                         data-testid="input-confirm-password"
@@ -220,6 +227,7 @@ export default function ResetPassword() {
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
                         data-testid="button-toggle-confirm-password"
                       >
                         {showConfirmPassword ? (

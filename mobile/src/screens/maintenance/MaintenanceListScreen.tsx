@@ -32,6 +32,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize } from '../../utils/responsive';
 import { format, formatDistanceToNow } from 'date-fns';
 import { getTeamRoleDisplayLabel } from '../../constants/roleLabels';
+import { WorkOrderCertificateSheet } from '../../components/WorkOrderCertificateSheet';
 
 type NavigationProp = StackNavigationProp<MaintenanceStackParamList, 'MaintenanceList'>;
 
@@ -79,6 +80,7 @@ export default function MaintenanceListScreen() {
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderTeamId, setWorkOrderTeamId] = useState<string>('');
   const [workOrderContractorId, setWorkOrderContractorId] = useState<string>('');
+  const [certificateWorkOrder, setCertificateWorkOrder] = useState<WorkOrder | null>(null);
 
   const { data: requests = [], isLoading, refetch } = useQuery({
     queryKey: ['/api/maintenance'],
@@ -494,6 +496,15 @@ export default function MaintenanceListScreen() {
             </Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          style={[styles.statusSelect, { borderColor: themeColors.primary, marginTop: 12 }]}
+          onPress={() => setCertificateWorkOrder(item)}
+        >
+          <Text style={[styles.statusSelectText, { color: themeColors.primary }]}>
+            Upload Certificate
+          </Text>
+        </TouchableOpacity>
       </Card>
     );
   };
@@ -1044,6 +1055,13 @@ export default function MaintenanceListScreen() {
           </View>
         </View>
       </Modal>
+
+      <WorkOrderCertificateSheet
+        visible={!!certificateWorkOrder}
+        workOrderId={certificateWorkOrder?.id || null}
+        workOrderTitle={certificateWorkOrder?.maintenanceRequest.title}
+        onClose={() => setCertificateWorkOrder(null)}
+      />
     </View>
   );
 }

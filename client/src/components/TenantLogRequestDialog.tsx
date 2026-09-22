@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -325,9 +326,17 @@ export function TenantLogRequestDialog({
               <div className="flex flex-wrap gap-2 pt-1">
                 {photoUrls.map((url, index) => (
                   <div key={`${url}-${index}`} className="relative inline-block">
-                    <img
+                    <PreviewableImage
                       src={url}
                       alt={`Upload ${index + 1}`}
+                      title="Maintenance photo"
+                      showHint={false}
+                      gallery={photoUrls.map((src, photoIndex) => ({
+                        src,
+                        alt: `Upload ${photoIndex + 1}`,
+                        title: "Maintenance photo",
+                      }))}
+                      index={index}
                       className="h-20 w-20 object-cover rounded-lg"
                     />
                     <Button

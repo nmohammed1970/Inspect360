@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
@@ -597,7 +598,7 @@ export default function ComparisonReportDetail() {
               </SelectContent>
             </Select>
           )}
-          <Badge variant={statusInfo.variant} className="text-lg px-4 py-2">
+          <Badge variant={statusInfo.variant} className="h-9 px-4 text-sm font-medium inline-flex items-center">
             {statusInfo.label}
           </Badge>
         </div>
@@ -768,10 +769,27 @@ export default function ComparisonReportDetail() {
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkInPhotos && item.checkInPhotos.length > 0 ? (
                           item.checkInPhotos.map((photo, idx) => (
-                            <img
+                            <PreviewableImage
                               key={idx}
                               src={photo}
                               alt={`Check-in ${idx + 1}`}
+                              title={`${formatIdentifierLabel(item.sectionRef)} - Before`}
+                              caption={formatIdentifierLabel(item.fieldKey)}
+                              gallery={[
+                                ...(item.checkInPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-in ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - Before`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                                ...(item.checkOutPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-out ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - After`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                              ]}
+                              index={idx}
                               className="w-full h-32 object-cover rounded-lg border"
                             />
                           ))
@@ -787,10 +805,27 @@ export default function ComparisonReportDetail() {
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkOutPhotos && item.checkOutPhotos.length > 0 ? (
                           item.checkOutPhotos.map((photo, idx) => (
-                            <img
+                            <PreviewableImage
                               key={idx}
                               src={photo}
                               alt={`Check-out ${idx + 1}`}
+                              title={`${formatIdentifierLabel(item.sectionRef)} - After`}
+                              caption={formatIdentifierLabel(item.fieldKey)}
+                              gallery={[
+                                ...(item.checkInPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-in ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - Before`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                                ...(item.checkOutPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-out ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - After`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                              ]}
+                              index={(item.checkInPhotos?.length || 0) + idx}
                               className="w-full h-32 object-cover rounded-lg border"
                             />
                           ))
@@ -1017,9 +1052,10 @@ export default function ComparisonReportDetail() {
                     <span className="text-sm">Signed</span>
                   </div>
                   {report.operatorSignature.startsWith('data:image/') ? (
-                    <img 
-                      src={report.operatorSignature} 
-                      alt="Operator signature" 
+                    <PreviewableImage
+                      src={report.operatorSignature}
+                      alt="Operator signature"
+                      title="Operator signature"
                       className="h-16 object-contain border rounded bg-background mt-2"
                     />
                   ) : (
@@ -1055,9 +1091,10 @@ export default function ComparisonReportDetail() {
                     <span className="text-sm">Signed</span>
                   </div>
                   {report.tenantSignature.startsWith('data:image/') ? (
-                    <img 
-                      src={report.tenantSignature} 
-                      alt="Tenant signature" 
+                    <PreviewableImage
+                      src={report.tenantSignature}
+                      alt="Tenant signature"
+                      title="Tenant signature"
                       className="h-16 object-contain border rounded bg-background mt-2"
                     />
                   ) : (
@@ -1082,9 +1119,10 @@ export default function ComparisonReportDetail() {
                 <Card>
                   <CardContent className="p-4">
                     <div className="space-y-3">
-                      <img 
-                        src={signatureDataUrl} 
-                        alt="Signature" 
+                      <PreviewableImage
+                        src={signatureDataUrl}
+                        alt="Signature"
+                        title="Your signature"
                         className="w-full h-40 object-contain border rounded bg-background"
                         data-testid="img-signature"
                       />

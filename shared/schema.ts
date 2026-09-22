@@ -15,6 +15,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
+import { MIN_PASSWORD_LENGTH } from "./passwordPolicy";
 
 // Session storage table (required for Replit Auth)
 export const sessions = pgTable(
@@ -36,6 +37,14 @@ export const maintenanceStatusEnum = pgEnum("maintenance_status", ["open", "in_p
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "inactive", "cancelled"]);
 export const subscriptionLevelEnum = pgEnum("subscription_level", ["free", "starter", "professional", "enterprise", "freelancer", "btr", "pbsa", "housing_association", "council"]);
 export const workOrderStatusEnum = pgEnum("work_order_status", ["assigned", "in_progress", "waiting_parts", "completed", "rejected"]);
+export const workOrderCertificateExtractionStatusEnum = pgEnum("work_order_certificate_extraction_status", [
+  "uploaded",
+  "analysing",
+  "needs_info",
+  "ready_to_confirm",
+  "added_to_compliance",
+  "failed",
+]);
 export const assetConditionEnum = pgEnum("asset_condition", ["excellent", "good", "fair", "poor", "needs_replacement"]);
 export const inspectionPointDataTypeEnum = pgEnum("inspection_point_data_type", ["text", "number", "checkbox", "photo", "rating"]);
 export const conditionRatingEnum = pgEnum("condition_rating", ["excellent", "good", "fair", "poor", "not_applicable"]);
@@ -106,6 +115,7 @@ export const registerUserSchema = insertUserSchema.pick({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   countryCode: z.string().length(2).optional(), // ISO 3166-1 alpha-2
+  password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`),
 });
 
 export const loginUserSchema = z.object({
@@ -225,6 +235,31 @@ export const platformSettings = pgTable("platform_settings", {
 });
 
 export type PlatformSetting = typeof platformSettings.$inferSelect;
+
+/** A user's request for more credits. Granting a row does not add credits. */
+export const creditRequests = pgTable("credit_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  requestedByUserId: varchar("requested_by_user_id").notNull(),
+  requesterName: varchar("requester_name").notNull(),
+  requesterEmail: varchar("requester_email").notNull(),
+  organizationName: varchar("organization_name").notNull(),
+  creditsRequested: integer("credits_requested").notNull(),
+  message: text("message").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("REQUESTED"),
+  emailStatus: varchar("email_status", { length: 20 }).notNull().default("pending"),
+  emailError: text("email_error"),
+  grantedAt: timestamp("granted_at"),
+  grantedBy: varchar("granted_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_credit_requests_org").on(table.organizationId, table.createdAt),
+  index("idx_credit_requests_user").on(table.requestedByUserId, table.createdAt),
+  index("idx_credit_requests_status").on(table.status, table.createdAt),
+]);
+
+export type CreditRequest = typeof creditRequests.$inferSelect;
 
 /** One row per organization expiry email. The unique key stops duplicate sends. */
 export const entitlementNotificationLog = pgTable("entitlement_notification_log", {
@@ -389,6 +424,8 @@ export const tenantAssignments = pgTable("tenant_assignments", {
   nextOfKinRelationship: varchar("next_of_kin_relationship", { length: 100 }),
   // Tenant Portal Access
   hasPortalAccess: boolean("has_portal_access").notNull().default(true),
+  /** Day of month rent is due (1–28). Used to generate rent periods. */
+  rentDueDay: integer("rent_due_day").notNull().default(1),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -402,6 +439,166 @@ export const insertTenantAssignmentSchema = createInsertSchema(tenantAssignments
 export const updateTenantAssignmentSchema = insertTenantAssignmentSchema.partial();
 export type TenantAssignment = typeof tenantAssignments.$inferSelect;
 export type InsertTenantAssignment = z.infer<typeof insertTenantAssignmentSchema>;
+
+// --- Property finance (deposit / rent / expenses) ---
+
+export const propertyDepositStatusEnum = pgEnum("property_deposit_status", [
+  "held",
+  "partially_returned",
+  "returned",
+  "deducted",
+]);
+
+export const propertyDeposits = pgTable("property_deposits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  propertyId: varchar("property_id").notNull(),
+  tenantAssignmentId: varchar("tenant_assignment_id").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("GBP"),
+  receivedDate: timestamp("received_date"),
+  paymentMethod: varchar("payment_method", { length: 40 }),
+  status: propertyDepositStatusEnum("status").notNull().default("held"),
+  returnedAmount: numeric("returned_amount", { precision: 12, scale: 2 }),
+  deductedAmount: numeric("deducted_amount", { precision: 12, scale: 2 }),
+  deductionReason: text("deduction_reason"),
+  notes: text("notes"),
+  receiptUrl: text("receipt_url"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_property_deposits_org_property").on(table.organizationId, table.propertyId),
+  index("idx_property_deposits_assignment").on(table.tenantAssignmentId),
+]);
+
+export const insertPropertyDepositSchema = createInsertSchema(propertyDeposits).omit({
+  id: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type PropertyDeposit = typeof propertyDeposits.$inferSelect;
+export type InsertPropertyDeposit = z.infer<typeof insertPropertyDepositSchema>;
+
+export const rentPeriodStatusEnum = pgEnum("rent_period_status", [
+  "due",
+  "partial",
+  "collected",
+  "waived",
+]);
+
+export const rentPeriods = pgTable("rent_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  propertyId: varchar("property_id").notNull(),
+  tenantAssignmentId: varchar("tenant_assignment_id").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  amountDue: numeric("amount_due", { precision: 12, scale: 2 }).notNull(),
+  amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).notNull().default("0"),
+  currency: varchar("currency", { length: 3 }).notNull().default("GBP"),
+  status: rentPeriodStatusEnum("status").notNull().default("due"),
+  collectedAt: timestamp("collected_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_rent_periods_org_property").on(table.organizationId, table.propertyId),
+  index("idx_rent_periods_assignment").on(table.tenantAssignmentId),
+  index("idx_rent_periods_due").on(table.dueDate, table.status),
+  uniqueIndex("rent_periods_assignment_start_uidx").on(table.tenantAssignmentId, table.periodStart),
+]);
+
+export type RentPeriod = typeof rentPeriods.$inferSelect;
+
+export const propertyExpenseCategoryEnum = pgEnum("property_expense_category", [
+  "appliance",
+  "repair",
+  "furnishing",
+  "utilities",
+  "insurance",
+  "other",
+]);
+
+export const propertyExpenses = pgTable("property_expenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  propertyId: varchar("property_id").notNull(),
+  description: text("description").notNull(),
+  category: propertyExpenseCategoryEnum("category").notNull().default("other"),
+  expenseDate: timestamp("expense_date").notNull(),
+  supplier: varchar("supplier", { length: 255 }),
+  supplierContact: varchar("supplier_contact", { length: 255 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("GBP"),
+  warrantyExpiry: timestamp("warranty_expiry"),
+  warrantyNotes: text("warranty_notes"),
+  receiptUrl: text("receipt_url"),
+  assetInventoryId: varchar("asset_inventory_id"),
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_property_expenses_org_property").on(table.organizationId, table.propertyId),
+]);
+
+export const insertPropertyExpenseSchema = createInsertSchema(propertyExpenses).omit({
+  id: true,
+  organizationId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type PropertyExpense = typeof propertyExpenses.$inferSelect;
+export type InsertPropertyExpense = z.infer<typeof insertPropertyExpenseSchema>;
+
+export const organizationRentSettings = pgTable("organization_rent_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().unique(),
+  enabled: boolean("enabled").notNull().default(false),
+  daysBeforeDue1: integer("days_before_due_1").notNull().default(10),
+  daysBeforeDue2: integer("days_before_due_2").notNull().default(5),
+  daysBeforeDue3: integer("days_before_due_3").notNull().default(2),
+  reminder1Subject: text("reminder1_subject"),
+  reminder1Body: text("reminder1_body"),
+  reminder2Subject: text("reminder2_subject"),
+  reminder2Body: text("reminder2_body"),
+  reminder3Subject: text("reminder3_subject"),
+  reminder3Body: text("reminder3_body"),
+  overdueSubject: text("overdue_subject"),
+  overdueBody: text("overdue_body"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type OrganizationRentSettings = typeof organizationRentSettings.$inferSelect;
+
+export const rentReminderLog = pgTable("rent_reminder_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  rentPeriodId: varchar("rent_period_id").notNull(),
+  reminderType: varchar("reminder_type", { length: 40 }).notNull(),
+  scheduledForDate: varchar("scheduled_for_date", { length: 40 }).notNull(),
+  trigger: varchar("trigger", { length: 20 }).notNull().default("scheduled"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  recipientEmail: varchar("recipient_email"),
+  lastError: text("last_error"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("rent_reminder_log_claim_uidx").on(
+    table.rentPeriodId,
+    table.reminderType,
+    table.scheduledForDate,
+    table.trigger,
+  ),
+  index("idx_rent_reminder_log_org").on(table.organizationId, table.createdAt),
+]);
+
+export type RentReminderLog = typeof rentReminderLog.$inferSelect;
 
 // Tenant Assignment Tags (many-to-many relationship)
 export const tenantAssignmentTags = pgTable("tenant_assignment_tags", {
@@ -733,6 +930,7 @@ export const complianceDocuments = pgTable("compliance_documents", {
   expiryDate: timestamp("expiry_date"),
   status: complianceStatusEnum("status").notNull().default("current"),
   uploadedBy: varchar("uploaded_by").notNull(),
+  sourceWorkOrderId: varchar("source_work_order_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1068,6 +1266,40 @@ export const insertWorkOrderSchema = createInsertSchema(workOrders, {
 });
 export type WorkOrder = typeof workOrders.$inferSelect;
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+
+// Certificates uploaded against work orders → optional Compliance documents
+export const workOrderCertificates = pgTable("work_order_certificates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  workOrderId: varchar("work_order_id").notNull(),
+  propertyId: varchar("property_id"),
+  documentUrl: text("document_url").notNull(),
+  fileName: varchar("file_name", { length: 512 }),
+  mimeType: varchar("mime_type", { length: 128 }),
+  extractionStatus: workOrderCertificateExtractionStatusEnum("extraction_status").notNull().default("uploaded"),
+  certificateType: varchar("certificate_type", { length: 255 }),
+  expiryDate: timestamp("expiry_date"),
+  extractionConfidence: integer("extraction_confidence"), // 0–100
+  extractionRaw: jsonb("extraction_raw"),
+  processingError: text("processing_error"),
+  complianceDocumentId: varchar("compliance_document_id"),
+  createdBy: varchar("created_by").notNull(),
+  confirmedBy: varchar("confirmed_by"),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("work_order_certificates_work_order_id_idx").on(table.workOrderId),
+  index("work_order_certificates_organization_id_idx").on(table.organizationId),
+]);
+
+export const insertWorkOrderCertificateSchema = createInsertSchema(workOrderCertificates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type WorkOrderCertificate = typeof workOrderCertificates.$inferSelect;
+export type InsertWorkOrderCertificate = z.infer<typeof insertWorkOrderCertificateSchema>;
 
 // Work Logs (Activity logs for work orders)
 export const workLogs = pgTable("work_logs", {
@@ -1648,7 +1880,7 @@ export const createTeamMemberSchema = z.object({
   firstName: z.string().min(1).max(255).optional(),
   lastName: z.string().min(1).max(255).optional(),
   username: z.string().min(3, "Username must be at least 3 characters").max(100),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`),
   role: z.enum(["owner", "clerk", "compliance", "contractor", "tenant"]), // Include tenant for tenant user creation
   phone: z.string().max(50).optional(),
   address: z.union([
@@ -2619,6 +2851,21 @@ export const unitPricingCatalog = pgTable("unit_pricing_catalog", {
 
 export type UnitPricingCatalog = typeof unitPricingCatalog.$inferSelect;
 export type InsertUnitPricingCatalog = typeof unitPricingCatalog.$inferInsert;
+
+/** Per-organization unit pricing sheet (eco-admin). Falls back to unit_pricing_catalog when missing. */
+export const organizationUnitPricing = pgTable("organization_unit_pricing", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }).unique(),
+  pricePerUnitMonthly: numeric("price_per_unit_monthly", { precision: 12, scale: 2 }).notNull().default("0"),
+  pricePerUnitAnnual: numeric("price_per_unit_annual", { precision: 12, scale: 2 }).notNull().default("0"),
+  currencyCode: varchar("currency_code", { length: 3 }).notNull().default("GBP"),
+  featuresIncluded: text("features_included").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type OrganizationUnitPricing = typeof organizationUnitPricing.$inferSelect;
+export type InsertOrganizationUnitPricing = typeof organizationUnitPricing.$inferInsert;
 
 // 1.2 Subscription Tier Configuration
 export const subscriptionTiersTable = pgTable("subscription_tiers", {

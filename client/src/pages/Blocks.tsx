@@ -715,7 +715,7 @@ export default function Blocks() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Block Name *</Label>
+              <Label htmlFor="name" required>Block Name</Label>
               <Input
                 id="name"
                 value={name}
@@ -726,7 +726,7 @@ export default function Blocks() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="address">Address *</Label>
+              <Label htmlFor="address" required>Address</Label>
               <AddressInput
                 id="address"
                 value={address}

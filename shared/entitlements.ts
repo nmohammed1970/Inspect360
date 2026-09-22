@@ -17,6 +17,12 @@ export const LOCKED_API_PREFIXES = [
   "/api/comparison-reports",
   "/api/comparisons",
   "/api/maintenance",
+  "/api/work-orders",
+  "/api/analytics",
+  "/api/tenant/maintenance-chats",
+  "/api/tenant/maintenance-chat",
+  "/api/tenant/maintenance-requests",
+  "/api/community",
 ] as const;
 
 /** App routes for the same modules, including tenant equivalents. */
@@ -26,12 +32,16 @@ export const LOCKED_APP_PATHS = [
   "/inspections",
   "/comparisons",
   "/maintenance",
+  "/analytics",
+  "/disputes",
+  "/community-moderation",
   "/tenant/maintenance",
   "/tenant/log-request",
   "/tenant/requests",
   "/tenant/comparison-reports",
   "/tenant/inspection-review",
   "/tenant/check-in-review",
+  "/tenant/community",
 ] as const;
 
 export type EntitlementCode =

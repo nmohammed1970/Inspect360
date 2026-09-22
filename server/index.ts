@@ -212,6 +212,30 @@ app.use((req, res, next) => {
       console.error("❌ Failed to initialize expiry notification scheduler:", error);
     }
 
+    try {
+      const rentInterval = 60 * 60 * 1000;
+      const { processRentFinanceJobs } = await import("./propertyFinanceService");
+      setImmediate(async () => {
+        try {
+          console.log("[RentFinance] Running initial scan...");
+          await processRentFinanceJobs();
+        } catch (error) {
+          console.error("[RentFinance] Initial scan failed:", error);
+        }
+      });
+      setInterval(async () => {
+        try {
+          console.log("[RentFinance] Running scheduled scan...");
+          await processRentFinanceJobs();
+        } catch (error) {
+          console.error("[RentFinance] Scheduled scan failed:", error);
+        }
+      }, rentInterval);
+      console.log("✅ Rent finance scheduler initialized (reconcile + reminders, hourly)");
+    } catch (error) {
+      console.error("❌ Failed to initialize rent finance scheduler:", error);
+    }
+
     // Use traditional listen format for better Windows compatibility
     // Windows doesn't support reusePort option
     const totalStartupTime = Date.now() - startTime;

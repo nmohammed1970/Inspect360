@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import useEmblaCarousel from "embla-carousel-react";
@@ -298,9 +299,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               {logoUrl ? (
                 <div className="relative">
                   <div className="w-32 h-32 rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
-                    <img 
-                      src={logoUrl} 
-                      alt="Company logo" 
+                    <PreviewableImage
+                      src={logoUrl}
+                      alt="Company logo"
+                      title="Company logo"
+                      showHint={false}
                       className="w-full h-full object-contain"
                     />
                   </div>

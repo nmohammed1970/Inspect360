@@ -358,7 +358,9 @@ function detectImageMimeType(buffer: Buffer): string {
     Array.from(buffer.slice(0, 8)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
   return 'image/jpeg';
 }
-import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords } from "./auth";
+import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
+import { validateNewPassword } from "@shared/passwordPolicy";
+import { INSPECTION_NOTE_STRUCTURE_PROMPT } from "@shared/inspectionNoteSections";
 
 // Middleware that allows both regular users and admins
 const isUserOrAdmin = (req: any, res: any, next: any) => {
@@ -412,7 +414,7 @@ import { generateInspectionPDF } from "./pdfService";
 import { resolveCoverLogoSrc } from "./reportLogo";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
 import { formatSignerDisplayName, isTenantSignatureField, createSignatureValue } from "@shared/signature";
-import { extractTextFromFile, findRelevantChunks } from "./documentProcessor";
+import { extractTextFromFile, buildKnowledgeBaseContext } from "./documentProcessor";
 import {
   insertBlockSchema,
   insertContactSchema,
@@ -481,6 +483,7 @@ import {
 import { pricingService } from "./pricingService";
 import { planChangeStripeUpdateParams } from "@shared/stripeProrationPolicy";
 import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
+import { isExpiryDateInPast } from "@shared/workOrderCertificates";
 import {
   BILLING_FALLBACK_RATES_FROM_GBP,
   isSupportedBillingCurrency,
@@ -895,8 +898,8 @@ IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
 - Write in plain text only - do NOT use asterisks (*), hash symbols (#), bullet points, or numbered lists
 - Do NOT use any markdown formatting
-- Do NOT include emojis
-- Write in professional, flowing paragraphs`;
+- Do NOT use emojis
+${INSPECTION_NOTE_STRUCTURE_PROMPT}`;
       } else {
         promptText = `You are a property inspector analyzing photos for a specific inspection point.
 
@@ -906,18 +909,14 @@ INSPECTION CONTEXT:
 
 CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspectionPointTitle}" in the "${category}". The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
 
-Provide a focused assessment for "${inspectionPointTitle}" covering:
-- Overall condition assessment of "${inspectionPointTitle}" specifically
-- Any visible damage, defects, or wear on "${inspectionPointTitle}"
-- Cleanliness and maintenance issues related to "${inspectionPointTitle}"
-- Brief recommendation (only if action is needed for "${inspectionPointTitle}")
+Provide a focused assessment for "${inspectionPointTitle}" covering overall condition, any damage/defects/wear, cleanliness, and recommendations only if action is needed.
 
 IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
 - Write in plain text only - do NOT use asterisks (*), hash symbols (#), bullet points, or numbered lists
 - Do NOT use any markdown formatting
-- Do NOT include emojis
-- Write in professional, flowing paragraphs
+- Do NOT use emojis
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
 
 Be thorough but concise, specific, and objective about "${inspectionPointTitle}" in the "${category}". This will be used in a professional property inspection report.`;
       }
@@ -1487,39 +1486,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Change password endpoint
+  // Change password endpoint (authenticated session user only — never trust client userId)
   app.patch('/api/auth/change-password', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { currentPassword, newPassword } = req.body;
 
-      if (!currentPassword || !newPassword) {
-        return res.status(400).json({ message: "Current password and new password are required" });
+      if (!currentPassword || typeof currentPassword !== "string") {
+        return res.status(400).json({ message: "Current password is required" });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      const passwordCheck = validateNewPassword(newPassword);
+      if (!passwordCheck.ok) {
+        return res.status(400).json({ message: passwordCheck.message });
       }
 
-      // Get user from users table to verify current password
+      const rateKey = `change-password:${userId}`;
+      if (!consumeAuthRateLimit(rateKey, 10, 15 * 60 * 1000)) {
+        return res.status(429).json({ message: "Too many password change attempts. Please try again later." });
+      }
+
       const user = await storage.getUser(userId);
       if (!user || !user.password) {
         return res.status(404).json({ message: "User not found" });
       }
+      if (user.isActive === false) {
+        return res.status(403).json({ message: "Account is disabled" });
+      }
 
-      // Verify current password using comparePasswords (supports both scrypt and bcrypt formats)
       const isPasswordValid = await comparePasswords(currentPassword, user.password);
       if (!isPasswordValid) {
         return res.status(401).json({ message: "Current password is incorrect" });
       }
 
-      // Hash new password using the same method as registration (scrypt)
-      const hashedPassword = await hashPassword(newPassword);
+      if (await comparePasswords(passwordCheck.password, user.password)) {
+        return res.status(400).json({ message: "New password must be different from your current password" });
+      }
 
-      // Update password in users table (same table used for login)
+      const hashedPassword = await hashPassword(passwordCheck.password);
       await storage.updatePassword(userId, hashedPassword);
+      await storage.clearResetToken(userId);
 
-      console.log(`[Change Password] Password updated successfully for user ${userId} (${user.email})`);
       res.json({ message: "Password changed successfully" });
     } catch (error) {
       console.error("Error changing password:", error);
@@ -4294,6 +4301,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Document name and file URL are required" });
       }
 
+      if (expiryDate && isExpiryDateInPast(expiryDate)) {
+        return res.status(400).json({ message: "Expiry date cannot be in the past" });
+      }
+
       const document = await storage.createUserDocument({
         userId,
         organizationId: user.organizationId,
@@ -5439,6 +5450,293 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching property maintenance:", error);
       res.status(500).json({ message: "Failed to fetch maintenance requests" });
+    }
+  });
+
+  // ==================== PROPERTY FINANCE ROUTES ====================
+
+  async function assertPropertyInOrg(propertyId: string, organizationId: string) {
+    const property = await storage.getProperty(propertyId);
+    if (!property || property.organizationId !== organizationId) {
+      return null;
+    }
+    return property;
+  }
+
+  app.get("/api/properties/:id/deposits", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listPropertyDeposits } = await import("./propertyFinanceService");
+      res.json(await listPropertyDeposits(user.organizationId, req.params.id));
+    } catch (error) {
+      console.error("Error listing deposits:", error);
+      res.status(500).json({ message: "Failed to list deposits" });
+    }
+  });
+
+  app.post("/api/properties/:id/deposits", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const assignment = await storage.getTenantAssignment(req.body.tenantAssignmentId);
+      if (!assignment || assignment.organizationId !== user.organizationId || assignment.propertyId !== req.params.id) {
+        return res.status(400).json({ message: "Invalid tenant assignment for this property" });
+      }
+      const org = await storage.getOrganization(user.organizationId);
+      const { createPropertyDeposit } = await import("./propertyFinanceService");
+      const deposit = await createPropertyDeposit(user.organizationId, {
+        propertyId: req.params.id,
+        tenantAssignmentId: req.body.tenantAssignmentId,
+        amount: String(req.body.amount),
+        currency: req.body.currency || org?.preferredCurrency || "GBP",
+        receivedDate: req.body.receivedDate ? new Date(req.body.receivedDate) : null,
+        paymentMethod: req.body.paymentMethod || null,
+        status: req.body.status || "held",
+        returnedAmount: req.body.returnedAmount != null ? String(req.body.returnedAmount) : null,
+        deductedAmount: req.body.deductedAmount != null ? String(req.body.deductedAmount) : null,
+        deductionReason: req.body.deductionReason || null,
+        notes: req.body.notes || null,
+        receiptUrl: req.body.receiptUrl || null,
+        createdBy: user.id,
+      });
+      res.status(201).json(deposit);
+    } catch (error: any) {
+      console.error("Error creating deposit:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to create deposit" });
+    }
+  });
+
+  app.patch("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const updates: any = { updatedAt: new Date() };
+      for (const key of ["status", "paymentMethod", "notes", "receiptUrl", "deductionReason", "currency"] as const) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      for (const key of ["amount", "returnedAmount", "deductedAmount"] as const) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key] == null ? null : String(req.body[key]);
+      }
+      if (req.body.receivedDate !== undefined) {
+        updates.receivedDate = req.body.receivedDate ? new Date(req.body.receivedDate) : null;
+      }
+      const { updatePropertyDeposit } = await import("./propertyFinanceService");
+      res.json(await updatePropertyDeposit(user.organizationId, req.params.depositId, updates));
+    } catch (error: any) {
+      console.error("Error updating deposit:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to update deposit" });
+    }
+  });
+
+  app.delete("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { deletePropertyDeposit } = await import("./propertyFinanceService");
+      await deletePropertyDeposit(user.organizationId, req.params.depositId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting deposit:", error);
+      res.status(500).json({ message: "Failed to delete deposit" });
+    }
+  });
+
+  app.get("/api/properties/:id/expenses", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listPropertyExpenses } = await import("./propertyFinanceService");
+      res.json(await listPropertyExpenses(user.organizationId, req.params.id));
+    } catch (error) {
+      console.error("Error listing expenses:", error);
+      res.status(500).json({ message: "Failed to list expenses" });
+    }
+  });
+
+  app.post("/api/properties/:id/expenses", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      if (!req.body.description || !req.body.category || !req.body.expenseDate || req.body.amount == null) {
+        return res.status(400).json({ message: "Description, category, date, and amount are required" });
+      }
+      const org = await storage.getOrganization(user.organizationId);
+      const { createPropertyExpense } = await import("./propertyFinanceService");
+      const expense = await createPropertyExpense(user.organizationId, {
+        propertyId: req.params.id,
+        description: String(req.body.description).trim(),
+        category: req.body.category,
+        expenseDate: new Date(req.body.expenseDate),
+        supplier: req.body.supplier || null,
+        supplierContact: req.body.supplierContact || null,
+        amount: String(req.body.amount),
+        currency: req.body.currency || org?.preferredCurrency || "GBP",
+        warrantyExpiry: req.body.warrantyExpiry ? new Date(req.body.warrantyExpiry) : null,
+        warrantyNotes: req.body.warrantyNotes || null,
+        receiptUrl: req.body.receiptUrl || null,
+        assetInventoryId: req.body.assetInventoryId || null,
+        notes: req.body.notes || null,
+        createdBy: user.id,
+      });
+      res.status(201).json(expense);
+    } catch (error: any) {
+      console.error("Error creating expense:", error);
+      res.status(500).json({ message: error.message || "Failed to create expense" });
+    }
+  });
+
+  app.patch("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const updates: any = {};
+      for (const key of ["description", "category", "supplier", "supplierContact", "currency", "warrantyNotes", "receiptUrl", "assetInventoryId", "notes"] as const) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      if (req.body.amount !== undefined) updates.amount = String(req.body.amount);
+      if (req.body.expenseDate !== undefined) updates.expenseDate = new Date(req.body.expenseDate);
+      if (req.body.warrantyExpiry !== undefined) {
+        updates.warrantyExpiry = req.body.warrantyExpiry ? new Date(req.body.warrantyExpiry) : null;
+      }
+      const { updatePropertyExpense } = await import("./propertyFinanceService");
+      res.json(await updatePropertyExpense(user.organizationId, req.params.expenseId, updates));
+    } catch (error: any) {
+      console.error("Error updating expense:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to update expense" });
+    }
+  });
+
+  app.delete("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { deletePropertyExpense } = await import("./propertyFinanceService");
+      await deletePropertyExpense(user.organizationId, req.params.expenseId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting expense:", error);
+      res.status(500).json({ message: "Failed to delete expense" });
+    }
+  });
+
+  /** Read-only list — never generates periods. */
+  app.get("/api/properties/:id/rent-periods", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listRentPeriodsForProperty } = await import("./propertyFinanceService");
+      res.json(await listRentPeriodsForProperty(user.organizationId, req.params.id));
+    } catch (error) {
+      console.error("Error listing rent periods:", error);
+      res.status(500).json({ message: "Failed to list rent periods" });
+    }
+  });
+
+  app.patch("/api/properties/:propertyId/rent-periods/:periodId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { updateRentPeriodPayment } = await import("./propertyFinanceService");
+      const updated = await updateRentPeriodPayment(user.organizationId, req.params.periodId, {
+        amountPaid: req.body.amountPaid != null ? String(req.body.amountPaid) : undefined,
+        amountDue: req.body.amountDue != null ? String(req.body.amountDue) : undefined,
+        status: req.body.status,
+        notes: req.body.notes,
+      });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating rent period:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to update rent period" });
+    }
+  });
+
+  app.post("/api/properties/:propertyId/rent-periods/:periodId/send-reminder", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { sendManualRentReminder } = await import("./propertyFinanceService");
+      const result = await sendManualRentReminder(user.organizationId, req.params.periodId);
+      if (!result.ok) return res.status(result.status).json({ message: result.message });
+      res.json({ message: "Reminder sent successfully" });
+    } catch (error) {
+      console.error("Error sending rent reminder:", error);
+      res.status(500).json({ message: "Failed to send reminder" });
+    }
+  });
+
+  app.get("/api/organization/rent-settings", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const { getOrCreateRentSettings } = await import("./propertyFinanceService");
+      res.json(await getOrCreateRentSettings(user.organizationId));
+    } catch (error) {
+      console.error("Error fetching rent settings:", error);
+      res.status(500).json({ message: "Failed to fetch rent settings" });
+    }
+  });
+
+  app.patch("/api/organization/rent-settings", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const allowed = [
+        "enabled",
+        "daysBeforeDue1",
+        "daysBeforeDue2",
+        "daysBeforeDue3",
+        "reminder1Subject",
+        "reminder1Body",
+        "reminder2Subject",
+        "reminder2Body",
+        "reminder3Subject",
+        "reminder3Body",
+        "overdueSubject",
+        "overdueBody",
+      ] as const;
+      const updates: any = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      const { updateRentSettings } = await import("./propertyFinanceService");
+      res.json(await updateRentSettings(user.organizationId, updates));
+    } catch (error) {
+      console.error("Error updating rent settings:", error);
+      res.status(500).json({ message: "Failed to update rent settings" });
     }
   });
 
@@ -7684,7 +7982,7 @@ IMPORTANT RULES:
 - Keep your response under ${aiMaxWords} words
 - Be concise and direct - no unnecessary explanations
 - Write in plain text only - no markdown, asterisks, bullets, or emojis
-- Recommendations must be brief and actionable`;
+${INSPECTION_NOTE_STRUCTURE_PROMPT}`;
       } else {
         // Default prompt - highly focused on the specific inspection point
         promptText = `You are a property inspector analyzing photos for a specific inspection point.
@@ -7709,8 +8007,7 @@ FORMATTING RULES:
 - Maximum ${aiMaxWords} words
 - Be direct and concise - avoid filler language
 - Plain text only - no markdown, asterisks, bullets, numbered lists, or emojis
-- Write professionally in flowing sentences
-- Recommendations should be actionable and brief (e.g., "Recommend repainting" not "It would be advisable to consider having the area repainted at some point")
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
 
 Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing else in the photo matters for this inspection point.`;
       }
@@ -12268,6 +12565,10 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const { documentType, documentUrl, expiryDate, propertyId, blockId } = validation.data;
       const propertyIds = req.body.propertyIds as string[] | undefined;
 
+      if (expiryDate && isExpiryDateInPast(expiryDate)) {
+        return res.status(400).json({ message: "Expiry date cannot be in the past" });
+      }
+
       // Create the main document (for block or single property)
       const doc = await storage.createComplianceDocument({
         organizationId: user.organizationId,
@@ -12545,6 +12846,9 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const updateData: any = { ...validation.data };
       if (updateData.expiryDate) {
         updateData.expiryDate = new Date(updateData.expiryDate);
+        if (isExpiryDateInPast(updateData.expiryDate)) {
+          return res.status(400).json({ message: "Expiry date cannot be in the past" });
+        }
       }
 
       const updatedDoc = await storage.updateComplianceDocument(docId, updateData);
@@ -13891,6 +14195,9 @@ ${optionalNotes || "No details provided."}`;
       if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
         transformedBody.depositAmount = String(req.body.depositAmount);
       }
+      if (req.body.rentDueDay !== undefined && req.body.rentDueDay !== null) {
+        transformedBody.rentDueDay = Number(req.body.rentDueDay);
+      }
 
       const validatedData = insertTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
@@ -13951,6 +14258,13 @@ ${optionalNotes || "No details provided."}`;
         ...assignmentData,
         organizationId: user.organizationId,
       });
+
+      try {
+        const { generateRentPeriodsForAssignment } = await import("./propertyFinanceService");
+        await generateRentPeriodsForAssignment(assignment.id);
+      } catch (rentErr) {
+        console.error("Warning: Failed to generate rent periods after lease create:", rentErr);
+      }
 
       // Auto-create contact for this tenant if one doesn't exist
       try {
@@ -14023,6 +14337,9 @@ ${optionalNotes || "No details provided."}`;
       if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
         transformedBody.depositAmount = String(req.body.depositAmount);
       }
+      if (req.body.rentDueDay !== undefined && req.body.rentDueDay !== null) {
+        transformedBody.rentDueDay = Number(req.body.rentDueDay);
+      }
 
       const validatedData = updateTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
@@ -14068,6 +14385,14 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const updated = await storage.updateTenantAssignment(req.params.id, updateData);
+
+      try {
+        const { generateRentPeriodsForAssignment } = await import("./propertyFinanceService");
+        await generateRentPeriodsForAssignment(updated.id);
+      } catch (rentErr) {
+        console.error("Warning: Failed to generate rent periods after lease update:", rentErr);
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating tenant assignment:", error);
@@ -15331,6 +15656,124 @@ ${optionalNotes || "No details provided."}`;
     } catch (error) {
       console.error("Error updating work order cost:", error);
       res.status(500).json({ error: "Failed to update work order cost" });
+    }
+  });
+
+  app.patch("/api/work-orders/:id", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const { updateWorkOrderFields } = await import("./workOrderCertificateService");
+      const updated = await updateWorkOrderFields({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        userId: user.id,
+        userRole: user.role || "",
+        teamId: req.body.teamId,
+        assignedToId: req.body.assignedToId,
+        status: req.body.status,
+        slaDue: req.body.slaDue,
+        costEstimate:
+          req.body.costEstimate !== undefined && req.body.costEstimate !== null && req.body.costEstimate !== ""
+            ? Math.round(Number(req.body.costEstimate))
+            : req.body.costEstimate === null
+              ? null
+              : undefined,
+      });
+      // If client sends pounds as decimal string (Analytics), prefer cents when value looks like pounds
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating work order:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to update work order" });
+    }
+  });
+
+  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
+      if (user.role === "contractor" && wo.contractorId !== user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { listWorkOrderCertificates } = await import("./workOrderCertificateService");
+      res.json(await listWorkOrderCertificates(user.organizationId, req.params.id));
+    } catch (error: any) {
+      console.error("Error listing work order certificates:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to list certificates" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
+      if (user.role === "contractor" && wo.contractorId !== user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { createWorkOrderCertificate } = await import("./workOrderCertificateService");
+      const cert = await createWorkOrderCertificate({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        userId: user.id,
+        documentUrl: req.body.documentUrl,
+        fileName: req.body.fileName,
+        mimeType: req.body.mimeType,
+      });
+      res.status(201).json(cert);
+    } catch (error: any) {
+      console.error("Error creating work order certificate:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to create certificate" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
+      if (user.role === "contractor" && wo.contractorId !== user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { analyseWorkOrderCertificate } = await import("./workOrderCertificateService");
+      const cert = await analyseWorkOrderCertificate({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        certificateId: req.params.certId,
+      });
+      res.json(cert);
+    } catch (error: any) {
+      console.error("Error analysing work order certificate:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to analyse certificate" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
+      if (user.role === "contractor" && wo.contractorId !== user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { confirmWorkOrderCertificate } = await import("./workOrderCertificateService");
+      const cert = await confirmWorkOrderCertificate({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        certificateId: req.params.certId,
+        userId: user.id,
+        certificateType: req.body.certificateType,
+        expiryDate: req.body.expiryDate,
+      });
+      res.json(cert);
+    } catch (error: any) {
+      console.error("Error confirming work order certificate:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to confirm certificate" });
     }
   });
 
@@ -17185,7 +17628,12 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
+  const allowSignedInUserOrAdmin = (req: any, res: any, next: any) => {
+    if (req.session && (req.session as any).adminUser) return next();
+    return isAuthenticated(req, res, next);
+  };
+
+  app.post("/api/objects/upload", allowSignedInUserOrAdmin, async (req, res) => {
     try {
       const objectStorageService = new ObjectStorageService();
       const relativePath = await objectStorageService.getObjectEntityUploadURL();
@@ -17715,7 +18163,8 @@ ${optionalNotes || "No details provided."}`;
     res.set('Content-Type', 'application/json');
 
     // Check authentication first and return JSON if not authenticated
-    if (!req.isAuthenticated()) {
+    const isAdminSession = !!(req.session && (req.session as any).adminUser);
+    if (!req.isAuthenticated() && !isAdminSession) {
       console.error('[upload-direct] Unauthenticated PUT request');
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -17769,7 +18218,7 @@ ${optionalNotes || "No details provided."}`;
           res.set('Access-Control-Expose-Headers', 'ETag');
 
           // Set ACL to public
-          const userId = req.user?.claims?.sub || req.user?.id;
+          const userId = req.user?.claims?.sub || req.user?.id || (req.session as any)?.adminUser?.id;
           if (userId) {
             try {
               await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
@@ -18112,6 +18561,9 @@ ${optionalNotes || "No details provided."}`;
     return res.status(401).json({ message: "Unauthorized - Admin access required" });
   };
 
+  const { registerCreditRequestRoutes } = await import("./creditRequestRoutes");
+  registerCreditRequestRoutes(app, isAuthenticated, isAdminAuthenticated);
+
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {
     try {
@@ -18229,6 +18681,12 @@ ${optionalNotes || "No details provided."}`;
       const { getOrganizationAccessStatus } = await import("./entitlementService");
 
       // Enrich with instance subscription data and credit balance from batch system
+      await ensureOrganizationUnitPricingTable();
+      const { organizationUnitPricing } = await import("@shared/schema");
+      const defaultSheet = await getDefaultUnitPricingSheet();
+      const orgPricingRows = await db.select().from(organizationUnitPricing);
+      const orgPricingById = new Map(orgPricingRows.map((row) => [row.organizationId, row]));
+
       const instances = await Promise.all(orgs.map(async (org) => {
         const subscription = await storage.getInstanceSubscription(org.id);
         const tiers = await storage.getSubscriptionTiers();
@@ -18244,6 +18702,21 @@ ${optionalNotes || "No details provided."}`;
           enabledModuleCount = instanceModules.filter((m) => m.isEnabled).length;
         }
 
+        const orgPricing = orgPricingById.get(org.id);
+        const unitPricing = orgPricing
+          ? {
+              source: "instance" as const,
+              pricePerUnitMonthly: orgPricing.pricePerUnitMonthly,
+              pricePerUnitAnnual: orgPricing.pricePerUnitAnnual,
+              currencyCode: orgPricing.currencyCode,
+            }
+          : {
+              source: "default" as const,
+              pricePerUnitMonthly: defaultSheet.pricePerUnitMonthly,
+              pricePerUnitAnnual: defaultSheet.pricePerUnitAnnual,
+              currencyCode: defaultSheet.currencyCode,
+            };
+
         return {
           ...org,
           subscription,
@@ -18257,6 +18730,7 @@ ${optionalNotes || "No details provided."}`;
             expiresOn: creditBalance.expiresOn,
           },
           entitlement,
+          unitPricing,
         };
       }));
 
@@ -23445,21 +23919,68 @@ ${optionalNotes || "No details provided."}`;
     `);
   }
 
+  async function ensureOrganizationUnitPricingTable() {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS organization_unit_pricing (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id VARCHAR NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
+        price_per_unit_monthly NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        price_per_unit_annual NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        currency_code VARCHAR(3) NOT NULL DEFAULT 'GBP',
+        features_included TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  }
+
+  function parseUnitPricingBody(body: any) {
+    const monthly = Number(body?.pricePerUnitMonthly);
+    const annual = Number(body?.pricePerUnitAnnual);
+    const currencyCode = String(body?.currencyCode || "GBP").toUpperCase().slice(0, 3);
+    const featuresIncluded = String(body?.featuresIncluded ?? "");
+
+    if (!Number.isFinite(monthly) || monthly < 0) {
+      return { error: "Invalid per-unit monthly price" as const };
+    }
+    if (!Number.isFinite(annual) || annual < 0) {
+      return { error: "Invalid per-unit annual price" as const };
+    }
+    if (!/^[A-Z]{3}$/.test(currencyCode)) {
+      return { error: "Invalid currency code" as const };
+    }
+
+    return {
+      values: {
+        pricePerUnitMonthly: monthly.toFixed(2),
+        pricePerUnitAnnual: annual.toFixed(2),
+        currencyCode,
+        featuresIncluded,
+        updatedAt: new Date(),
+      },
+    };
+  }
+
+  async function getDefaultUnitPricingSheet() {
+    await ensureUnitPricingCatalogTable();
+    const { unitPricingCatalog } = await import("@shared/schema");
+    const rows = await db.select().from(unitPricingCatalog).limit(1);
+    if (rows.length === 0) {
+      return {
+        pricePerUnitMonthly: "0",
+        pricePerUnitAnnual: "0",
+        currencyCode: "GBP",
+        featuresIncluded: "",
+        updatedAt: null as Date | null,
+      };
+    }
+    return rows[0];
+  }
+
   app.get("/api/admin/unit-pricing", isAdminAuthenticated, async (_req, res) => {
     try {
-      await ensureUnitPricingCatalogTable();
-      const { unitPricingCatalog } = await import("@shared/schema");
-      const rows = await db.select().from(unitPricingCatalog).limit(1);
-      if (rows.length === 0) {
-        return res.json({
-          pricePerUnitMonthly: "0",
-          pricePerUnitAnnual: "0",
-          currencyCode: "GBP",
-          featuresIncluded: "",
-          updatedAt: null,
-        });
-      }
-      res.json(rows[0]);
+      const sheet = await getDefaultUnitPricingSheet();
+      res.json(sheet);
     } catch (error: any) {
       console.error("Error fetching unit pricing:", error);
       res.status(500).json({ message: "Failed to fetch unit pricing", error: error.message });
@@ -23470,38 +23991,19 @@ ${optionalNotes || "No details provided."}`;
     try {
       await ensureUnitPricingCatalogTable();
       const { unitPricingCatalog } = await import("@shared/schema");
-
-      const monthly = Number(req.body?.pricePerUnitMonthly);
-      const annual = Number(req.body?.pricePerUnitAnnual);
-      const currencyCode = String(req.body?.currencyCode || "GBP").toUpperCase().slice(0, 3);
-      const featuresIncluded = String(req.body?.featuresIncluded ?? "");
-
-      if (!Number.isFinite(monthly) || monthly < 0) {
-        return res.status(400).json({ message: "Invalid per-unit monthly price" });
+      const parsed = parseUnitPricingBody(req.body);
+      if ("error" in parsed) {
+        return res.status(400).json({ message: parsed.error });
       }
-      if (!Number.isFinite(annual) || annual < 0) {
-        return res.status(400).json({ message: "Invalid per-unit annual price" });
-      }
-      if (!/^[A-Z]{3}$/.test(currencyCode)) {
-        return res.status(400).json({ message: "Invalid currency code" });
-      }
-
-      const values = {
-        pricePerUnitMonthly: monthly.toFixed(2),
-        pricePerUnitAnnual: annual.toFixed(2),
-        currencyCode,
-        featuresIncluded,
-        updatedAt: new Date(),
-      };
 
       const existing = await db.select().from(unitPricingCatalog).limit(1);
       let row;
       if (existing.length === 0) {
-        [row] = await db.insert(unitPricingCatalog).values(values).returning();
+        [row] = await db.insert(unitPricingCatalog).values(parsed.values).returning();
       } else {
         [row] = await db
           .update(unitPricingCatalog)
-          .set(values)
+          .set(parsed.values)
           .where(eq(unitPricingCatalog.id, existing[0].id))
           .returning();
       }
@@ -23509,6 +24011,106 @@ ${optionalNotes || "No details provided."}`;
     } catch (error: any) {
       console.error("Error saving unit pricing:", error);
       res.status(500).json({ message: "Failed to save unit pricing", error: error.message });
+    }
+  });
+
+  app.get("/api/admin/instances/:id/unit-pricing", isAdminAuthenticated, async (req, res) => {
+    try {
+      const organizationId = req.params.id;
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Instance not found" });
+      }
+
+      await ensureOrganizationUnitPricingTable();
+      const { organizationUnitPricing } = await import("@shared/schema");
+      const [override] = await db
+        .select()
+        .from(organizationUnitPricing)
+        .where(eq(organizationUnitPricing.organizationId, organizationId))
+        .limit(1);
+
+      if (override) {
+        return res.json({
+          organizationId,
+          source: "instance",
+          id: override.id,
+          pricePerUnitMonthly: override.pricePerUnitMonthly,
+          pricePerUnitAnnual: override.pricePerUnitAnnual,
+          currencyCode: override.currencyCode,
+          featuresIncluded: override.featuresIncluded,
+          updatedAt: override.updatedAt,
+        });
+      }
+
+      const defaults = await getDefaultUnitPricingSheet();
+      return res.json({
+        organizationId,
+        source: "default",
+        id: null,
+        pricePerUnitMonthly: defaults.pricePerUnitMonthly,
+        pricePerUnitAnnual: defaults.pricePerUnitAnnual,
+        currencyCode: defaults.currencyCode,
+        featuresIncluded: defaults.featuresIncluded,
+        updatedAt: defaults.updatedAt,
+      });
+    } catch (error: any) {
+      console.error("Error fetching instance unit pricing:", error);
+      res.status(500).json({ message: "Failed to fetch instance unit pricing", error: error.message });
+    }
+  });
+
+  app.put("/api/admin/instances/:id/unit-pricing", isAdminAuthenticated, async (req, res) => {
+    try {
+      const organizationId = req.params.id;
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Instance not found" });
+      }
+
+      const parsed = parseUnitPricingBody(req.body);
+      if ("error" in parsed) {
+        return res.status(400).json({ message: parsed.error });
+      }
+
+      await ensureOrganizationUnitPricingTable();
+      const { organizationUnitPricing } = await import("@shared/schema");
+      const [existing] = await db
+        .select()
+        .from(organizationUnitPricing)
+        .where(eq(organizationUnitPricing.organizationId, organizationId))
+        .limit(1);
+
+      let row;
+      if (existing) {
+        [row] = await db
+          .update(organizationUnitPricing)
+          .set(parsed.values)
+          .where(eq(organizationUnitPricing.id, existing.id))
+          .returning();
+      } else {
+        [row] = await db
+          .insert(organizationUnitPricing)
+          .values({
+            organizationId,
+            ...parsed.values,
+          })
+          .returning();
+      }
+
+      res.json({
+        organizationId,
+        source: "instance",
+        id: row.id,
+        pricePerUnitMonthly: row.pricePerUnitMonthly,
+        pricePerUnitAnnual: row.pricePerUnitAnnual,
+        currencyCode: row.currencyCode,
+        featuresIncluded: row.featuresIncluded,
+        updatedAt: row.updatedAt,
+      });
+    } catch (error: any) {
+      console.error("Error saving instance unit pricing:", error);
+      res.status(500).json({ message: "Failed to save instance unit pricing", error: error.message });
     }
   });
 
@@ -28480,23 +29082,7 @@ You can help the tenant with:
       }
 
       const documents = await storage.searchKnowledgeBase(content);
-
-      let contextChunks: string[] = [];
-      const usedDocIds: string[] = [];
-
-      for (const doc of documents.slice(0, 3)) {
-        if (doc.extractedText) {
-          const relevantChunks = findRelevantChunks(doc.extractedText, content, 2);
-          contextChunks.push(...relevantChunks);
-          if (relevantChunks.length > 0) {
-            usedDocIds.push(doc.id);
-          }
-        }
-      }
-
-      const contextText = contextChunks.length > 0
-        ? `Based on the Inspect360 knowledge base:\n\n${contextChunks.join('\n\n---\n\n')}\n\n`
-        : '';
+      const { contextText, usedDocIds } = buildKnowledgeBaseContext(documents, content);
 
       const systemPrompt = `You are an AI assistant for Inspect360, a building inspection and property management platform. ${user?.role === 'tenant' ? 'You are helping a tenant with their property, maintenance requests, and tenancy-related questions.' : 'You help users with property management, inspections, compliance, and maintenance.'} ${contextText ? 'Use the knowledge base information provided to answer questions accurately.' : 'Answer questions about Inspect360 to the best of your ability.'}${tenantContext}`;
 
@@ -35183,6 +35769,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     try {
       const user = req.user as User;
+      if (!user.organizationId) {
+        return res.json([]);
+      }
+
+      // During an unlocked trial/credits period, provision modules once if missing
+      // (covers orgs created before auto-enable existed).
+      try {
+        const { getOrganizationAccessStatus, ensureTrialModulesEnabled } = await import("./entitlementService");
+        const access = await getOrganizationAccessStatus(user.organizationId);
+        if (access && !access.locked) {
+          await ensureTrialModulesEnabled(user.organizationId);
+        }
+      } catch (provisionError) {
+        console.error("[Marketplace] Trial module provision skipped:", provisionError);
+      }
+
       const instanceSub = await storage.getInstanceSubscription(user.organizationId!);
 
       if (!instanceSub) {

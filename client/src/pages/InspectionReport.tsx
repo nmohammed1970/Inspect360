@@ -1,4 +1,6 @@
 import { useParams, useLocation } from "wouter";
+import { PreviewableImage, type PreviewImage } from "@/components/ImagePreview";
+import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -43,8 +45,7 @@ import {
   Loader2,
   Camera,
   ChevronDown,
-  ChevronUp,
-  Search
+  ChevronUp
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Progress } from "@/components/ui/progress";
@@ -1949,22 +1950,26 @@ export default function InspectionReport() {
                                         const capturedDate = inspection?.completedDate
                                           ? locale.formatDate(new Date(inspection.completedDate))
                                           : locale.formatDate(new Date());
+                                        const gallery: PreviewImage[] = instancePhotos.map((item) => ({
+                                          src: item.photo.startsWith('/objects/') || item.photo.startsWith('http') ? item.photo : `/objects/${item.photo}`,
+                                          alt: `${item.field.label} - Photo ${item.photoIdx + 1}`,
+                                          title: `${instanceName} - ${item.field.label}`,
+                                          caption: `Photo ${item.photoIdx + 1}`,
+                                        }));
 
                                         return (
                                           <div key={`${entry.id}-${field.id || field.key}-${photoIdx}`} className="space-y-2">
                                             <div className="relative rounded-lg overflow-hidden border bg-background">
-                                              <img
+                                              <PreviewableImage
                                                 src={photoUrl}
                                                 alt={`${field.label} - Photo ${photoIdx + 1}`}
+                                                title={`${instanceName} - ${field.label}`}
+                                                caption={capturedDate}
+                                                gallery={gallery}
+                                                index={idx}
                                                 className="w-full h-40 object-contain bg-muted"
                                                 data-testid={`photo-${field.id || field.key}-${photoIdx}`}
                                               />
-                                              <button
-                                                className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 hover:bg-background shadow-sm"
-                                                onClick={() => window.open(photoUrl, '_blank')}
-                                              >
-                                                <Search className="w-3.5 h-3.5" />
-                                              </button>
                                             </div>
                                             <div className="text-xs space-y-0.5 text-muted-foreground bg-background rounded p-2 border">
                                               <div className="font-medium text-foreground mb-1">{field.label}</div>
@@ -2126,7 +2131,7 @@ export default function InspectionReport() {
                                       {field.label} Photos
                                     </h4>
                                     {entry?.note && (
-                                      <p className="text-sm text-muted-foreground mt-1">{entry.note}</p>
+                                      <InspectionNoteSectionsView note={entry.note} />
                                     )}
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2137,22 +2142,26 @@ export default function InspectionReport() {
                                       const capturedDate = inspection?.completedDate
                                         ? locale.formatDate(new Date(inspection.completedDate))
                                         : locale.formatDate(new Date());
+                                      const gallery: PreviewImage[] = entry.photos.map((item: string, photoIndex: number) => ({
+                                        src: item.startsWith('/objects/') || item.startsWith('http') ? item : `/objects/${item}`,
+                                        alt: `${field.label} - Photo ${photoIndex + 1}`,
+                                        title: field.label,
+                                        caption: `Photo ${photoIndex + 1}`,
+                                      }));
 
                                       return (
                                         <div key={`${entry.id}-${idx}`} className="space-y-2">
                                           <div className="relative rounded-lg overflow-hidden border bg-background">
-                                            <img
+                                            <PreviewableImage
                                               src={photoUrl}
                                               alt={`${field.label} - Photo ${idx + 1}`}
+                                              title={field.label}
+                                              caption={capturedDate}
+                                              gallery={gallery}
+                                              index={idx}
                                               className="w-full h-40 object-contain bg-muted"
                                               data-testid={`photo-${field.id || field.key}-${idx}`}
                                             />
-                                            <button
-                                              className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 hover:bg-background shadow-sm"
-                                              onClick={() => window.open(photoUrl, '_blank')}
-                                            >
-                                              <Search className="w-3.5 h-3.5" />
-                                            </button>
                                           </div>
                                           <div className="text-xs space-y-0.5 text-muted-foreground bg-background rounded p-2 border">
                                             <div className="flex justify-between">
@@ -2488,21 +2497,25 @@ export default function InspectionReport() {
                                     const capturedDate = checkOutDate
                                       ? locale.formatDate(new Date(checkOutDate))
                                       : locale.formatDate(new Date());
+                                    const gallery: PreviewImage[] = checkOutPhotos.map((item: string, photoIndex: number) => ({
+                                      src: item.startsWith('/objects/') || item.startsWith('http') ? item : `/objects/${item}`,
+                                      alt: `${field.label} - Photo ${photoIndex + 1}`,
+                                      title: `${section.title} - ${field.label}`,
+                                      caption: `Photo ${photoIndex + 1}`,
+                                    }));
 
                                     return (
                                       <div key={`${field.id}-${idx}`} className="space-y-2">
                                         <div className="relative rounded-lg overflow-hidden border bg-background">
-                                          <img
+                                          <PreviewableImage
                                             src={photoUrl}
                                             alt={`${field.label} - Photo ${idx + 1}`}
+                                            title={`${section.title} - ${field.label}`}
+                                            caption={capturedDate}
+                                            gallery={gallery}
+                                            index={idx}
                                             className="w-full h-32 object-cover"
                                           />
-                                          <button
-                                            className="absolute top-1 right-1 p-1 rounded-full bg-background/80 hover:bg-background shadow-sm"
-                                            onClick={() => window.open(photoUrl, '_blank')}
-                                          >
-                                            <Search className="w-3 h-3" />
-                                          </button>
                                         </div>
                                         <div className="text-xs space-y-0.5 text-muted-foreground">
                                           <div className="flex justify-between">

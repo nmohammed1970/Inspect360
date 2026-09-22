@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
@@ -345,9 +346,11 @@ export default function TenantCheckInReview() {
                         {sig?.image ? (
                           <div className="bg-muted p-3 rounded">
                             <Label className="text-xs text-muted-foreground">Signature</Label>
-                            <img
+                            <PreviewableImage
                               src={sig.image}
                               alt={field.label}
+                              title={field.label}
+                              caption="Signature"
                               className="mt-2 h-16 object-contain border rounded bg-background"
                             />
                           </div>
@@ -383,10 +386,19 @@ export default function TenantCheckInReview() {
                             <Label className="text-xs text-muted-foreground">Photos</Label>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
                               {entry.photos.map((photo: string, idx: number) => (
-                                <img
+                                <PreviewableImage
                                   key={idx}
                                   src={photo}
-                                  alt={`Photo ${idx + 1}`}
+                                  alt={`${field.label} photo ${idx + 1}`}
+                                  title={field.label}
+                                  caption={section.title}
+                                  gallery={entry.photos.map((src: string, photoIndex: number) => ({
+                                    src,
+                                    alt: `${field.label} photo ${photoIndex + 1}`,
+                                    title: field.label,
+                                    caption: section.title,
+                                  }))}
+                                  index={idx}
                                   className="w-full h-32 object-cover rounded border"
                                 />
                               ))}
@@ -455,9 +467,10 @@ export default function TenantCheckInReview() {
                 <span className="font-medium">Signed</span>
               </div>
               {(existingSignature?.image || signatureData) && (
-                <img
+                <PreviewableImage
                   src={existingSignature?.image || signatureData || ""}
                   alt="Your signature"
+                  title="Your signature"
                   className="h-20 object-contain border rounded bg-background"
                 />
               )}
@@ -473,9 +486,10 @@ export default function TenantCheckInReview() {
             <div className="space-y-3 p-4 bg-muted rounded-lg">
               {signatureData ? (
                 <div className="space-y-3">
-                  <img
+                  <PreviewableImage
                     src={signatureData}
                     alt="Your signature"
+                    title="Your signature"
                     className="w-full h-40 object-contain border rounded bg-background"
                   />
                   <Button

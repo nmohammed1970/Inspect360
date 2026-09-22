@@ -2491,6 +2491,7 @@ export class DatabaseStorage implements IStorage {
           description: maintenanceRequests.description,
           priority: maintenanceRequests.priority,
           propertyId: maintenanceRequests.propertyId,
+          blockId: maintenanceRequests.blockId,
         },
         contractor: {
           id: users.id,
@@ -2533,6 +2534,7 @@ export class DatabaseStorage implements IStorage {
           description: maintenanceRequests.description,
           priority: maintenanceRequests.priority,
           propertyId: maintenanceRequests.propertyId,
+          blockId: maintenanceRequests.blockId,
         },
       })
       .from(workOrders)
@@ -4080,20 +4082,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchKnowledgeBase(query: string): Promise<KnowledgeBaseDocument[]> {
-    const searchTerm = `%${query.toLowerCase()}%`;
+    const { knowledgeBaseSearchTerms } = await import("./documentProcessor");
+    const terms = knowledgeBaseSearchTerms(query);
+    if (terms.length === 0) return [];
+
+    const matches = terms.map((term) => {
+      const pattern = `%${term.replace(/[%_]/g, "")}%`;
+      return sql`(
+        LOWER(${knowledgeBaseDocuments.title}) LIKE ${pattern}
+        OR LOWER(COALESCE(${knowledgeBaseDocuments.extractedText}, '')) LIKE ${pattern}
+        OR LOWER(COALESCE(${knowledgeBaseDocuments.category}, '')) LIKE ${pattern}
+      )`;
+    });
+
     return await db
       .select()
       .from(knowledgeBaseDocuments)
-      .where(
-        and(
-          eq(knowledgeBaseDocuments.isActive, true),
-          or(
-            sql`LOWER(${knowledgeBaseDocuments.title}) LIKE ${searchTerm}`,
-            sql`LOWER(${knowledgeBaseDocuments.extractedText}) LIKE ${searchTerm}`,
-            sql`LOWER(${knowledgeBaseDocuments.category}) LIKE ${searchTerm}`
-          )
-        )
-      )
+      .where(and(eq(knowledgeBaseDocuments.isActive, true), or(...matches)))
       .orderBy(desc(knowledgeBaseDocuments.createdAt));
   }
 

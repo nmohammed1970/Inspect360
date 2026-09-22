@@ -1,3 +1,9 @@
+import { PreviewableImage } from "@/components/ImagePreview";
+import {
+  PropertyDepositPanel,
+  PropertyExpensesPanel,
+  PropertyRentCollectionPanel,
+} from "@/components/PropertyFinancePanels";
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -37,6 +43,9 @@ import {
   Mail,
   Phone,
   Plus,
+  Wallet,
+  Banknote,
+  Receipt,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -128,6 +137,7 @@ interface ComplianceDoc {
   status: string;
   documentUrl?: string;
   createdAt?: string;
+  sourceWorkOrderId?: string | null;
 }
 
 interface MaintenanceRequest {
@@ -401,9 +411,10 @@ export default function PropertyDetail() {
           <Card className="overflow-hidden">
             {property.imageUrl ? (
               <div className="relative aspect-video">
-                <img
+                <PreviewableImage
                   src={property.imageUrl}
                   alt={property.name}
+                  title={property.name}
                   className="w-full h-full object-cover"
                   data-testid="img-property"
                 />
@@ -579,6 +590,18 @@ export default function PropertyDetail() {
             <Wrench className="h-4 w-4 mr-2" />
             Maintenance
           </TabsTrigger>
+          <TabsTrigger value="deposit" data-testid="tab-deposit">
+            <Wallet className="h-4 w-4 mr-2" />
+            Deposit
+          </TabsTrigger>
+          <TabsTrigger value="rent-collection" data-testid="tab-rent-collection">
+            <Banknote className="h-4 w-4 mr-2" />
+            Rent Collection
+          </TabsTrigger>
+          <TabsTrigger value="expenses" data-testid="tab-expenses">
+            <Receipt className="h-4 w-4 mr-2" />
+            Expenses
+          </TabsTrigger>
         </TabsList>
 
         {/* Inspections Tab */}
@@ -651,6 +674,7 @@ export default function PropertyDetail() {
               onSuccess={() => {
                 queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
                 queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "rent-periods"] });
               }}
             >
               <Button data-testid="button-assign-tenant" size="sm" className="text-xs md:text-sm h-8 md:h-10 px-2 md:px-4">
@@ -671,6 +695,7 @@ export default function PropertyDetail() {
                   onSuccess={() => {
                     queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
                     queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "rent-periods"] });
                   }}
                 >
                   <Button data-testid="button-assign-first-tenant" size="sm">
@@ -754,23 +779,23 @@ export default function PropertyDetail() {
                     <div className="flex items-start gap-4">
                       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
                         {thumbUrl ? (
-                          <img
+                          <PreviewableImage
                             src={thumbUrl}
                             alt={item.name}
+                            title={item.name}
                             className="h-full w-full object-cover"
                             loading="lazy"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                              const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
-                              if (fallback) fallback.classList.remove("hidden");
-                            }}
+                            fallback={
+                              <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                <Package className="h-6 w-6" />
+                              </div>
+                            }
                           />
-                        ) : null}
-                        <div
-                          className={`flex h-full w-full items-center justify-center text-muted-foreground ${thumbUrl ? "hidden" : ""}`}
-                        >
-                          <Package className="h-6 w-6" />
-                        </div>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            <Package className="h-6 w-6" />
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2 flex-1 min-w-0">
                         <CardTitle className="text-base">{item.name}</CardTitle>
@@ -851,6 +876,14 @@ export default function PropertyDetail() {
                         <div className="space-y-2 flex-1">
                           <CardTitle className="text-base">{doc.documentName}</CardTitle>
                           <CardDescription>{doc.documentType}</CardDescription>
+                          {doc.sourceWorkOrderId && (
+                            <p
+                              className="text-xs text-muted-foreground"
+                              data-testid={`text-source-work-order-${doc.id}`}
+                            >
+                              Source: Work Order
+                            </p>
+                          )}
                           {expiryDate && (
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-2 text-sm">
@@ -959,9 +992,19 @@ export default function PropertyDetail() {
             </div>
           )}
         </TabsContent>
-      </Tabs>
 
-      {/* Edit Property Dialog */}
+        <TabsContent value="deposit" className="space-y-4">
+          <PropertyDepositPanel propertyId={propertyId!} />
+        </TabsContent>
+
+        <TabsContent value="rent-collection" className="space-y-4">
+          <PropertyRentCollectionPanel propertyId={propertyId!} />
+        </TabsContent>
+
+        <TabsContent value="expenses" className="space-y-4">
+          <PropertyExpensesPanel propertyId={propertyId!} />
+        </TabsContent>
+      </Tabs>
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -969,7 +1012,7 @@ export default function PropertyDetail() {
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="edit-name">Property Name *</Label>
+              <Label htmlFor="edit-name" required>Property Name</Label>
               <Input
                 id="edit-name"
                 value={editName}
@@ -980,7 +1023,7 @@ export default function PropertyDetail() {
               />
             </div>
             <div>
-              <Label htmlFor="edit-address">Address *</Label>
+              <Label htmlFor="edit-address" required>Address</Label>
               <AddressInput
                 id="edit-address"
                 value={editAddress}
@@ -1173,14 +1216,29 @@ export default function PropertyDetail() {
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Photos</h3>
                   <div className="grid grid-cols-3 gap-4">
-                    {selectedInventoryItem.photos.map((photo, index) => {
+                    {(selectedInventoryItem.photos || []).map((photo, index) => {
+                      const photos = selectedInventoryItem.photos || [];
                       const src = normalizeInventoryPhotoUrl(photo);
                       if (!src) return null;
                       return (
-                        <img
+                        <PreviewableImage
                           key={index}
                           src={src}
                           alt={`${selectedInventoryItem.name} - Photo ${index + 1}`}
+                          title={selectedInventoryItem.name}
+                          caption={`Photo ${index + 1}`}
+                          gallery={photos
+                            .map((item) => normalizeInventoryPhotoUrl(item))
+                            .filter((item): item is string => Boolean(item))
+                            .map((item, photoIndex) => ({
+                              src: item,
+                              alt: `${selectedInventoryItem.name} - Photo ${photoIndex + 1}`,
+                              title: selectedInventoryItem.name,
+                              caption: `Photo ${photoIndex + 1}`,
+                            }))}
+                          index={photos
+                            .slice(0, index)
+                            .filter((item) => Boolean(normalizeInventoryPhotoUrl(item))).length}
                           className="w-full h-32 object-cover rounded-md border"
                         />
                       );

@@ -512,7 +512,7 @@ export default function Properties() {
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="name">Property Name *</Label>
+                <Label htmlFor="name" required>Property Name</Label>
                 <Input
                   id="name"
                   value={name}
@@ -523,7 +523,7 @@ export default function Properties() {
                 />
               </div>
               <div>
-                <Label htmlFor="address">Address *</Label>
+                <Label htmlFor="address" required>Address</Label>
                 <AddressInput
                   id="address"
                   value={address}

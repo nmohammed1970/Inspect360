@@ -18,6 +18,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
 
 interface WorkOrderAnalytics {
   total: number;
@@ -43,6 +44,8 @@ interface WorkOrder {
     title: string;
     description?: string;
     priority: string;
+    propertyId?: string | null;
+    blockId?: string | null;
   };
   contractor?: {
     id?: string;
@@ -574,7 +577,14 @@ export default function Analytics() {
               <div className="space-y-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Average Resolution Time</p>
-                  <p className="text-2xl font-bold" data-testid="text-avg-resolution-time">
+                  <p
+                    className={
+                      analytics.averageResolutionTimeMinutes > 0
+                        ? "text-2xl font-bold"
+                        : "text-base font-semibold text-muted-foreground"
+                    }
+                    data-testid="text-avg-resolution-time"
+                  >
                     {analytics.averageResolutionTimeMinutes > 0
                       ? (() => {
                           const hours = Math.floor(analytics.averageResolutionTimeMinutes / 60);
@@ -590,8 +600,14 @@ export default function Analytics() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Completion Rate</p>
-                  <p className="text-2xl font-bold">
-                    {analytics.total > 0 
+                  <p
+                    className={
+                      analytics.total > 0
+                        ? "text-2xl font-bold"
+                        : "text-base font-semibold text-muted-foreground"
+                    }
+                  >
+                    {analytics.total > 0
                       ? `${Math.round(((analytics.statusDistribution?.completed || 0) / analytics.total) * 100)}%`
                       : "N/A"}
                   </p>
@@ -607,7 +623,7 @@ export default function Analytics() {
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Work Order</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="font-semibold text-foreground">
               {selectedWorkOrder?.maintenanceRequest.title}
             </DialogDescription>
           </DialogHeader>
@@ -694,6 +710,14 @@ export default function Analytics() {
                 data-testid="textarea-edit-notes"
               />
             </div>
+
+            {selectedWorkOrder && (
+              <WorkOrderCertificatePanel
+                workOrderId={selectedWorkOrder.id}
+                propertyId={selectedWorkOrder.maintenanceRequest.propertyId}
+                blockId={selectedWorkOrder.maintenanceRequest.blockId}
+              />
+            )}
 
             {/* Activity / Updates Section */}
             <div className="space-y-2 border-t pt-4">

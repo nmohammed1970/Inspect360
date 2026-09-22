@@ -1,12 +1,11 @@
 import {
+  CreditCard,
   LayoutDashboard,
   Users,
   BookOpen,
   Shield,
   Info,
-  FileText,
   Box,
-  BadgePoundSterling,
 } from "lucide-react";
 import {
   Sidebar,
@@ -20,10 +19,22 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 export function AdminSidebar() {
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { data: openRequests } = useQuery<{ count: number }>({
+    queryKey: ["/api/admin/credit-requests/open-count"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/credit-requests/open-count");
+      return res.json();
+    },
+    retry: false,
+    refetchInterval: 60000,
+  });
+  const openCount = openRequests?.count ?? 0;
 
   const menuItems = [
     {
@@ -52,14 +63,9 @@ export function AdminSidebar() {
       icon: Box,
     },
     {
-      title: "Unit Pricing",
-      url: "/admin/unit-pricing",
-      icon: BadgePoundSterling,
-    },
-    {
-      title: "Quotations",
-      url: "/admin/quotations",
-      icon: FileText,
+      title: openCount > 0 ? `Credit Requests (${openCount})` : "Credit Requests",
+      url: "/admin/credit-requests",
+      icon: CreditCard,
     },
   ];
 

@@ -915,9 +915,14 @@ export default function Inspections() {
       <Card className="hidden md:block">
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Filter className="w-4 h-4" />
-              <span className="text-sm font-medium">Filter by:</span>
+            <div className="flex flex-col">
+              <span className="mb-1.5 block text-sm font-medium invisible select-none" aria-hidden="true">
+                Filter
+              </span>
+              <div className="flex h-9 items-center gap-2 text-muted-foreground">
+                <Filter className="w-4 h-4 shrink-0" />
+                <span className="text-sm font-medium whitespace-nowrap">Filter by:</span>
+              </div>
             </div>
             <div className="flex-1 min-w-[200px] max-w-xs">
               <label className="text-sm font-medium mb-1.5 block">Block</label>
@@ -986,42 +991,54 @@ export default function Inspections() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end gap-3">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="filter-overdue"
-                  checked={filterOverdue}
-                  onCheckedChange={(checked) => setFilterOverdue(checked === true)}
-                  data-testid="filter-overdue"
-                />
-                <label htmlFor="filter-overdue" className="text-sm font-medium cursor-pointer">
-                  Overdue
-                </label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="filter-due-soon"
-                  checked={filterDueSoon}
-                  onCheckedChange={(checked) => setFilterDueSoon(checked === true)}
-                  data-testid="filter-due-soon"
-                />
-                <label htmlFor="filter-due-soon" className="text-sm font-medium cursor-pointer">
-                  Due Soon
-                </label>
+            <div className="flex flex-col">
+              <span className="mb-1.5 block text-sm font-medium invisible select-none" aria-hidden="true">
+                Options
+              </span>
+              <div className="flex h-9 items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="filter-overdue"
+                    checked={filterOverdue}
+                    onCheckedChange={(checked) => setFilterOverdue(checked === true)}
+                    data-testid="filter-overdue"
+                  />
+                  <label htmlFor="filter-overdue" className="text-sm font-medium cursor-pointer whitespace-nowrap">
+                    Overdue
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="filter-due-soon"
+                    checked={filterDueSoon}
+                    onCheckedChange={(checked) => setFilterDueSoon(checked === true)}
+                    data-testid="filter-due-soon"
+                  />
+                  <label htmlFor="filter-due-soon" className="text-sm font-medium cursor-pointer whitespace-nowrap">
+                    Due Soon
+                  </label>
+                </div>
               </div>
             </div>
             {(filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon || filterTenantId) && (
-              <ClearFiltersButton
-                onClick={() => {
-                  setFilterBlockId("");
-                  setFilterPropertyId("");
-                  setFilterStatus("");
-                  setFilterOverdue(false);
-                  setFilterDueSoon(false);
-                  setFilterTenantId("");
-                }}
-                data-testid="button-clear-filters"
-              />
+              <div className="flex flex-col">
+                <span className="mb-1.5 block text-sm font-medium invisible select-none" aria-hidden="true">
+                  Clear
+                </span>
+                <div className="flex h-9 items-center">
+                  <ClearFiltersButton
+                    onClick={() => {
+                      setFilterBlockId("");
+                      setFilterPropertyId("");
+                      setFilterStatus("");
+                      setFilterOverdue(false);
+                      setFilterDueSoon(false);
+                      setFilterTenantId("");
+                    }}
+                    data-testid="button-clear-filters"
+                  />
+                </div>
+              </div>
             )}
           </div>
         </CardContent>

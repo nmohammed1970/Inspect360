@@ -10,14 +10,20 @@ import { Badge } from "@/components/ui/badge";
 import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles, Trash2, Save, Eye, Wrench, ZoomIn, Mic, Square, Loader2, Play } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
+import { PreviewableImage } from "@/components/ImagePreview";
+import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
+import {
+  formatInspectionNote,
+  isLabeledInspectionNote,
+  parseInspectionNote,
+} from "@shared/inspectionNoteSections";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import SignatureCanvas from "react-signature-canvas";
-import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { createSignatureValue, parseSignatureValue, formatSignerDisplayName } from "@shared/signature";
 import { useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
@@ -146,7 +152,6 @@ export function FieldWidget({
     confidence?: string;
     notes?: string;
   } | null>(null);
-  const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
 
   // Voice recording state (multiple recordings)
   const [isRecording, setIsRecording] = useState(false);
@@ -1506,13 +1511,22 @@ export function FieldWidget({
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                       {checkInPhotos.map((photoUrl: string, index: number) => (
                         <div key={index} className="relative group">
-                          <img
+                          <PreviewableImage
                             src={photoUrl}
                             alt={`Check-In Reference ${index + 1}`}
+                            title={`${field.label} - Check-in reference`}
+                            caption={`Reference ${index + 1}`}
+                            gallery={checkInPhotos.map((src: string, photoIndex: number) => ({
+                              src,
+                              alt: `Check-In Reference ${photoIndex + 1}`,
+                              title: `${field.label} - Check-in reference`,
+                              caption: `Reference ${photoIndex + 1}`,
+                            }))}
+                            index={index}
                             className="w-full h-32 object-cover rounded-md border-2 border-primary/30"
                             data-testid={`img-check-in-reference-${index}`}
                           />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-md flex items-center justify-center">
+                          <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-md flex items-center justify-center">
                             <Badge variant="secondary" className="opacity-0 group-hover:opacity-100 transition-opacity">
                               Reference {index + 1}
                             </Badge>
@@ -1531,11 +1545,20 @@ export function FieldWidget({
                   <Card key={index} className="overflow-hidden">
                     <CardContent className="p-0">
                       <div className="relative bg-muted group">
-                        <img
+                        <PreviewableImage
                           src={photoUrl}
                           alt={`${field.label} ${index + 1}`}
+                          title={field.label}
+                          caption={`Photo ${index + 1}`}
+                          showHint={false}
+                          gallery={localPhotos.map((src, photoIndex) => ({
+                            src,
+                            alt: `${field.label} ${photoIndex + 1}`,
+                            title: field.label,
+                            caption: `Photo ${photoIndex + 1}`,
+                          }))}
+                          index={index}
                           className="w-full h-auto max-h-64 object-contain cursor-pointer"
-                          onClick={() => setEnlargedPhoto(photoUrl)}
                           data-testid={`img-photo-${index}`}
                         />
                         <div
@@ -2188,15 +2211,47 @@ export function FieldWidget({
           <Label htmlFor={`note-${field.id}`} className="text-sm font-bold text-muted-foreground">
             Notes (optional)
           </Label>
-          <Textarea
-            id={`note-${field.id}`}
-            value={localNote}
-            onChange={(e) => handleNoteChange(e.target.value)}
-            placeholder="Add any observations or notes..."
-            rows={2}
-            className="mt-1"
-            data-testid={`textarea-note-${field.id}`}
-          />
+          {isLabeledInspectionNote(localNote) ? (
+            <>
+              <Label
+                htmlFor={`note-description-${field.id}`}
+                className="mt-2 block text-sm font-bold"
+              >
+                Description
+              </Label>
+              <Textarea
+                id={`note-description-${field.id}`}
+                value={parseInspectionNote(localNote).description}
+                onChange={(e) => {
+                  const current = parseInspectionNote(localNote);
+                  handleNoteChange(
+                    formatInspectionNote({
+                      ...current,
+                      description: e.target.value,
+                    }),
+                  );
+                }}
+                placeholder="Add any observations or notes..."
+                rows={3}
+                className="mt-1"
+                data-testid={`textarea-note-${field.id}`}
+              />
+              <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
+            </>
+          ) : (
+            <>
+              <Textarea
+                id={`note-${field.id}`}
+                value={localNote}
+                onChange={(e) => handleNoteChange(e.target.value)}
+                placeholder="Add any observations or notes..."
+                rows={2}
+                className="mt-1"
+                data-testid={`textarea-note-${field.id}`}
+              />
+              <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
+            </>
+          )}
         </div>
       )}
 
@@ -2221,32 +2276,6 @@ export function FieldWidget({
           </Label>
         </div>
       )}
-
-      {/* Enlarged Photo Modal */}
-      <Dialog open={!!enlargedPhoto} onOpenChange={(open) => !open && setEnlargedPhoto(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] p-0 overflow-hidden">
-          <DialogTitle className="sr-only">Enlarged Photo View</DialogTitle>
-          {enlargedPhoto && (
-            <div className="relative">
-              <img
-                src={enlargedPhoto}
-                alt="Enlarged view"
-                className="w-full h-auto max-h-[85vh] object-contain"
-                data-testid="img-enlarged-photo"
-              />
-              <Button
-                size="icon"
-                variant="secondary"
-                className="absolute top-2 right-2"
-                onClick={() => setEnlargedPhoto(null)}
-                data-testid="button-close-enlarged"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

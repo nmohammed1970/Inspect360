@@ -52,6 +52,7 @@ function formatInclusiveUtcDate(iso: string | null | undefined): string {
   });
 }
 import { TagSearch } from "@/components/TagSearch";
+import { BuyCreditsButton, RequestCreditsDialog } from "@/components/RequestCreditsDialog";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
 import { 
@@ -205,6 +206,7 @@ export default function Dashboard() {
     }
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [creditRequestOpen, setCreditRequestOpen] = useState(false);
   
   // Inspection Schedule widget filter state
   const [inspectionScheduleBlockId, setInspectionScheduleBlockId] = useState<string>("");
@@ -785,47 +787,59 @@ export default function Dashboard() {
       )}
 
       {/* Trial / credit entitlement warning */}
-      {entitlement?.warning === "trial" && entitlement.daysRemaining != null && (
+      {(entitlement?.code === "TRIAL_ACTIVE" || entitlement?.code === "TRIAL_EXPIRING") && entitlement.daysRemaining != null && (
         <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-trial-expiring">
-          <CardContent className="p-4">
-            <p className="font-semibold text-yellow-700 dark:text-yellow-400">
-              Your free trial expires in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Please contact your administrator to purchase credits to continue using the system.
-            </p>
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+                Your free trial expires in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Please contact your administrator to purchase credits to continue using the system.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-trial" />
           </CardContent>
         </Card>
       )}
       {entitlement?.code === "TRIAL_EXPIRED" && (
         <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-trial-expired">
-          <CardContent className="p-4">
-            <p className="font-semibold text-destructive">Trial Period Ended</p>
-            <p className="text-sm text-muted-foreground">
-              Your free trial has ended and some features are currently locked. Please contact your administrator to purchase credits and continue using the system.
-            </p>
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-destructive">Trial Period Ended</p>
+              <p className="text-sm text-muted-foreground">
+                Your free trial has ended and some features are currently locked. Please contact your administrator to purchase credits and continue using the system.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-trial-expired" />
           </CardContent>
         </Card>
       )}
       {entitlement?.warning === "credits" && entitlement.daysRemaining != null && (
         <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-credits-expiring">
-          <CardContent className="p-4">
-            <p className="font-semibold text-yellow-700 dark:text-yellow-400">
-              Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Your current credits will expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Please contact your administrator to purchase more credits before they expire.
-            </p>
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+                Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Your current credits will expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Please contact your administrator to purchase more credits before they expire.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-expiry" />
           </CardContent>
         </Card>
       )}
       {entitlement?.code === "CREDITS_EXPIRED" && (
         <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-credits-expired">
-          <CardContent className="p-4">
-            <p className="font-semibold text-destructive">Credits Expired</p>
-            <p className="text-sm text-muted-foreground">
-              Your credits have expired. Some features are currently locked. Please contact your administrator to continue.
-            </p>
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-destructive">Credits Expired</p>
+              <p className="text-sm text-muted-foreground">
+                Your credits have expired. Some features are currently locked. Please contact your administrator to continue.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-expired" />
           </CardContent>
         </Card>
       )}
@@ -835,7 +849,7 @@ export default function Dashboard() {
         <UiTooltip>
           <TooltipTrigger asChild>
             <Card className="border-yellow-500/50 bg-yellow-500/5">
-              <CardContent className="flex items-center justify-between gap-4 p-4">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
                     <CreditCard className="w-5 h-5 text-yellow-600" />
@@ -845,9 +859,12 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">{creditsRemaining} credits remaining</p>
                   </div>
                 </div>
-                <Link href="/billing">
-                  <Button size="sm" data-testid="button-view-plan">View Modules</Button>
-                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link href="/billing">
+                    <Button size="sm" variant="outline" data-testid="button-view-plan">View Modules</Button>
+                  </Link>
+                  <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-low" />
+                </div>
               </CardContent>
             </Card>
           </TooltipTrigger>
@@ -856,6 +873,8 @@ export default function Dashboard() {
           </TooltipContent>
         </UiTooltip>
       )}
+
+      <RequestCreditsDialog open={creditRequestOpen} onOpenChange={setCreditRequestOpen} user={user} />
 
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (
@@ -1038,7 +1057,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.overdueInspectionsList ?? []).map((item) => (
-                        <Link key={item.id} href={`/inspections/${item.id}`}>
+                        <Link key={item.id} href={`/inspections/${item.id}/capture`}>
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-inspection-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
@@ -1137,15 +1156,18 @@ export default function Dashboard() {
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge
+                                variant="outline"
+                                className="text-xs border-orange-500 text-orange-600 w-[4.5rem] justify-center capitalize"
+                              >
+                                {item.priority}
+                              </Badge>
                               {item.daysOverdue && item.daysOverdue > 0 && (
                                 <Badge variant="destructive" className="text-xs">
                                   {item.daysOverdue}d overdue
                                 </Badge>
                               )}
-                              <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">
-                                {item.priority}
-                              </Badge>
                             </div>
                           </div>
                         </Link>

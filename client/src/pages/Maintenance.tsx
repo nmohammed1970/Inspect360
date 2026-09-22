@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -1189,9 +1190,17 @@ export default function Maintenance() {
                       <div className="flex flex-wrap gap-2 mt-2">
                         {uploadedImages.map((img, idx) => (
                           <div key={idx} className="relative" data-testid={`photo-preview-${idx}`}>
-                            <img
+                            <PreviewableImage
                               src={img}
                               alt={`Upload ${idx + 1}`}
+                              title="Maintenance photo"
+                              showHint={false}
+                              gallery={uploadedImages.map((src, photoIndex) => ({
+                                src,
+                                alt: `Upload ${photoIndex + 1}`,
+                                title: "Maintenance photo",
+                              }))}
+                              index={idx}
                               className="h-20 w-20 object-cover rounded border"
                             />
                             <Button
@@ -1828,7 +1837,7 @@ function WorkOrderForm({
       teamId: selectedTeamId && selectedTeamId !== "none" ? selectedTeamId : undefined,
       contractorId: selectedContractorId && selectedContractorId !== "none" ? selectedContractorId : undefined,
       assignedToId: assignedToId && assignedToId !== "none" ? assignedToId : undefined,
-      slaDue: slaDue ? new Date(slaDue).toISOString() : undefined,
+      slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
       costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
       status: "assigned",
     });
@@ -1906,11 +1915,10 @@ function WorkOrderForm({
         <label className="text-sm font-medium" htmlFor="sla-due">
           SLA Due Date
         </label>
-        <Input
+        <LocaleDateInput
           id="sla-due"
-          type="datetime-local"
-          value={slaDue}
-          onChange={(e) => setSlaDue(e.target.value)}
+          value={slaDue || null}
+          onChange={(ymd) => setSlaDue(ymd || "")}
           data-testid="input-sla-due"
         />
       </div>

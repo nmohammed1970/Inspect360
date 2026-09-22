@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BRAND_LOGO_MASTER, BRAND_LOGO_ON_DARK } from "@/lib/brandAssets";
 import { getCachedUserCountry } from "@/lib/geolocation";
 import { COMMON_COUNTRIES } from "@shared/countryUtils";
+import { MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -116,11 +117,11 @@ export default function Auth() {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Password must be at least 6 characters",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
       });
       return;
     }

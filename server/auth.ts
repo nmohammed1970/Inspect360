@@ -3,7 +3,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual, createHash, randomInt } from "crypto";
 import { promisify } from "util";
 import connectPg from "connect-pg-simple";
 import * as cookieSignature from "cookie-signature";
@@ -12,6 +12,7 @@ import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/sch
 import { billingNowUtc } from "@shared/billingClock";
 import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
 import { getOrganizationAccessStatus, recordEntitlementEvent } from "./entitlementService";
+import { MIN_PASSWORD_LENGTH, validateNewPassword } from "@shared/passwordPolicy";
 
 declare global {
   namespace Express {
@@ -20,6 +21,31 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
+
+/** Hash a password-reset code before storing it (never store the raw code). */
+export function hashResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function generateResetCode(): string {
+  return String(randomInt(100000, 1000000));
+}
+
+type RateBucket = { count: number; windowStart: number };
+const authRateLimits = new Map<string, RateBucket>();
+
+/** Simple in-memory rate limit. Returns false when the key is over the limit. */
+export function consumeAuthRateLimit(key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const bucket = authRateLimits.get(key);
+  if (!bucket || now - bucket.windowStart >= windowMs) {
+    authRateLimits.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (bucket.count >= max) return false;
+  bucket.count += 1;
+  return true;
+}
 
 // Password hashing utilities
 export async function hashPassword(password: string): Promise<string> {
@@ -405,6 +431,15 @@ export async function setupAuth(app: Express) {
             console.error("Warning: Failed to grant signup credits:", creditError);
           }
 
+          // Enable all marketplace modules for the trial so the org can use the full product.
+          // When trial/credits expire, entitlement locking blocks access (modules stay enabled in DB).
+          try {
+            const { ensureTrialModulesEnabled } = await import("./entitlementService");
+            await ensureTrialModulesEnabled(organization.id);
+          } catch (moduleError) {
+            console.error("Warning: Failed to enable trial modules:", moduleError);
+          }
+
           // Create default inspection templates
           try {
             const { DEFAULT_TEMPLATES } = await import('./defaultTemplates');
@@ -641,6 +676,13 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Email is required" });
       }
 
+      const clientKey = `forgot:${String(req.ip || "unknown")}:${String(email).toLowerCase().trim()}`;
+      if (!consumeAuthRateLimit(clientKey, 5, 15 * 60 * 1000)) {
+        return res.status(429).json({
+          message: "Too many password reset requests. Please try again later.",
+        });
+      }
+
       // Normalize email to lowercase for case-insensitive matching
       const normalizedEmail = email.toLowerCase().trim();
       const user = await storage.getUserByEmail(normalizedEmail);
@@ -652,15 +694,14 @@ export async function setupAuth(app: Express) {
         emailSent: true,
       };
 
-      if (!user) {
+      if (!user || user.isActive === false) {
         return res.json(genericSuccess);
       }
 
-      // Generate reset token (6-digit code for simplicity)
-      const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+      // Cryptographically secure 6-digit code; store only the hash
+      const resetToken = generateResetCode();
       const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-      await storage.setResetToken(user.id, resetToken, expiry);
+      await storage.setResetToken(user.id, hashResetToken(resetToken), expiry);
 
       // Send password reset email
       try {
@@ -703,8 +744,16 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Email, token, and new password are required" });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      const passwordCheck = validateNewPassword(newPassword);
+      if (!passwordCheck.ok) {
+        return res.status(400).json({ message: passwordCheck.message });
+      }
+
+      const clientKey = `reset:${String(req.ip || "unknown")}:${String(email).toLowerCase().trim()}`;
+      if (!consumeAuthRateLimit(clientKey, 10, 15 * 60 * 1000)) {
+        return res.status(429).json({
+          message: "Too many reset attempts. Please try again later.",
+        });
       }
 
       // Normalize email and token (digits only, 6 chars)
@@ -715,17 +764,22 @@ export async function setupAuth(app: Express) {
       }
 
       const user = await storage.getUserByEmail(normalizedEmail);
-      if (!user || !user.resetToken || !user.resetTokenExpiry) {
+      if (!user || !user.resetToken || !user.resetTokenExpiry || user.isActive === false) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
-      // Check if token matches and hasn't expired
-      if (user.resetToken !== normalizedToken || new Date() > user.resetTokenExpiry) {
+      // Accept hashed storage (preferred) or legacy plaintext 6-digit codes during transition
+      const tokenHash = hashResetToken(normalizedToken);
+      const tokenMatches =
+        user.resetToken === tokenHash ||
+        (user.resetToken.length === 6 && user.resetToken === normalizedToken);
+
+      if (!tokenMatches || new Date() > user.resetTokenExpiry) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
-      // Update password and clear reset token
-      const hashedPassword = await hashPassword(newPassword);
+      // Update password and clear reset token (single-use)
+      const hashedPassword = await hashPassword(passwordCheck.password);
       await storage.updatePassword(user.id, hashedPassword);
       await storage.clearResetToken(user.id);
 

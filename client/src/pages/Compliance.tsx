@@ -11,12 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon, Pencil, Filter, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon, Pencil, Filter, ArrowUpDown, ArrowUp, ArrowDown, Wrench } from "lucide-react";
 import { SheetTrigger } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { format as formatDate, differenceInDays, isPast } from "date-fns";
@@ -29,6 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 // Default document types (fallback if no custom types exist)
 const DEFAULT_DOCUMENT_TYPES = [
@@ -909,7 +909,7 @@ export default function Compliance() {
                 </div>
 
                 <FormItem>
-                  <FormLabel>Document Files *</FormLabel>
+                  <FormLabel required>Document Files</FormLabel>
                   <div className="space-y-2">
                     <ObjectUploader
                       buttonClassName="w-full"
@@ -1059,32 +1059,14 @@ export default function Compliance() {
                         <CalendarIcon className="h-4 w-4" />
                         Expiry Date
                       </FormLabel>
-                      <Popover modal={false}>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-full justify-start text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                              data-testid="button-expiry-date"
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {field.value ? formatDate(new Date(field.value), "PPP") : <span>Pick a date</span>}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0 z-[70]" align="start">
-                          <CalendarComponent
-                            mode="single"
-                            selected={field.value ? new Date(field.value) : undefined}
-                            onSelect={(date) => field.onChange(date ? date.toISOString() : undefined)}
-                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+                      <FormControl>
+                        <LocaleDateInput
+                          value={field.value || null}
+                          onChange={(ymd) => field.onChange(ymd || undefined)}
+                          disablePast
+                          data-testid="button-expiry-date"
+                        />
+                      </FormControl>
                       <FormDescription>
                         Set an expiry date to receive alerts when this document needs renewal
                       </FormDescription>
@@ -1711,37 +1693,14 @@ export default function Compliance() {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Expiry Date (Optional)</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            className={cn(
-                              "w-full pl-3 text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                            data-testid="button-edit-expiry-date"
-                          >
-                            {field.value ? (
-                              formatDate(new Date(field.value), "PPP")
-                            ) : (
-                              <span>Pick a date</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={field.value ? new Date(field.value) : undefined}
-                          onSelect={(date) => {
-                            field.onChange(date ? date.toISOString().split('T')[0] : undefined);
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <FormControl>
+                      <LocaleDateInput
+                        value={field.value || null}
+                        onChange={(ymd) => field.onChange(ymd || undefined)}
+                        disablePast
+                        data-testid="button-edit-expiry-date"
+                      />
+                    </FormControl>
                     <FormDescription>
                       Leave blank if the document does not expire
                     </FormDescription>
@@ -1928,6 +1887,16 @@ function DocumentCard({
                 <div className="flex items-center gap-1.5">
                   <Building2 className="w-3 h-3 md:w-4 md:h-4" />
                   <span className="truncate max-w-[150px] md:max-w-none">{blockName}</span>
+                </div>
+              )}
+
+              {doc.sourceWorkOrderId && (
+                <div
+                  className="flex items-center gap-1.5"
+                  data-testid={`text-source-work-order-${doc.id}`}
+                >
+                  <Wrench className="w-3 h-3 md:w-4 md:h-4" />
+                  <span>Source: Work Order</span>
                 </div>
               )}
             </div>

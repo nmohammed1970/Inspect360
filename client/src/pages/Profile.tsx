@@ -4,40 +4,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { User as UserIcon, Loader2, Plus, X, Upload, FileText, Trash2, Calendar as CalendarIcon } from "lucide-react";
+import { User as UserIcon, Loader2, Plus, X, Upload, FileText, Trash2, Lock, Eye, EyeOff } from "lucide-react";
 import { updateSelfProfileSchema, type User, type UserDocument } from "@shared/schema";
+import { changePasswordFormSchema, type ChangePasswordFormValues, MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
 import { z } from "zod";
 import { PhoneInput } from "@/components/PhoneInput";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { useImagePreview } from "@/components/ImagePreview";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
 export default function Profile() {
   const { toast } = useToast();
+  const { openPreview } = useImagePreview();
   const [skills, setSkills] = useState<string[]>([]);
   const [qualifications, setQualifications] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState("");
   const [newQualification, setNewQualification] = useState("");
   const [newDocName, setNewDocName] = useState("");
   const [newDocType, setNewDocType] = useState("other");
-  const [newDocExpiry, setNewDocExpiry] = useState<Date | undefined>();
+  const [newDocExpiry, setNewDocExpiry] = useState<string | null>(null);
   const [showDocForm, setShowDocForm] = useState(false);
   const [pendingDocFileUrl, setPendingDocFileUrl] = useState<string | null>(null);
   const [documentToDelete, setDocumentToDelete] = useState<UserDocument | null>(null);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Fetch current user profile
   const { data: user, isLoading } = useQuery<User>({
@@ -88,7 +92,7 @@ export default function Profile() {
       queryClient.invalidateQueries({ queryKey: ["/api/user-documents"] });
       setNewDocName("");
       setNewDocType("other");
-      setNewDocExpiry(undefined);
+      setNewDocExpiry(null);
       setShowDocForm(false);
       setPendingDocFileUrl(null);
       toast({
@@ -147,8 +151,48 @@ export default function Profile() {
     },
   });
 
+  const passwordForm = useForm<ChangePasswordFormValues>({
+    resolver: zodResolver(changePasswordFormSchema),
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
+      return await apiRequest("PATCH", "/api/auth/change-password", data);
+    },
+    onSuccess: () => {
+      passwordForm.reset();
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+      toast({
+        title: "Password updated",
+        description: "Your password has been changed successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Unable to change password",
+        description: error.message || "Failed to change password",
+      });
+    },
+  });
+
   const onSubmit = (data: ProfileFormValues) => {
     updateMutation.mutate(data);
+  };
+
+  const onPasswordSubmit = (data: ChangePasswordFormValues) => {
+    if (changePasswordMutation.isPending) return;
+    changePasswordMutation.mutate({
+      currentPassword: data.currentPassword,
+      newPassword: data.newPassword,
+    });
   };
 
   const handleAddSkill = () => {
@@ -262,7 +306,7 @@ export default function Profile() {
       documentName: newDocName.trim(),
       documentType: newDocType,
       fileUrl: pendingDocFileUrl,
-      expiryDate: newDocExpiry ? newDocExpiry.toISOString() : undefined,
+      expiryDate: newDocExpiry ? new Date(`${newDocExpiry}T12:00:00.000Z`).toISOString() : undefined,
     });
   };
 
@@ -315,7 +359,23 @@ export default function Profile() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <div className="flex items-start gap-6">
                 <div className="flex flex-col items-center gap-3">
-                  <Avatar className="w-24 h-24">
+                  <Avatar
+                    className={`w-24 h-24 ${(form.watch("profileImageUrl") || user?.profileImageUrl) ? "cursor-pointer" : ""}`}
+                    role={(form.watch("profileImageUrl") || user?.profileImageUrl) ? "button" : undefined}
+                    tabIndex={(form.watch("profileImageUrl") || user?.profileImageUrl) ? 0 : undefined}
+                    aria-label="View profile photo"
+                    onClick={() => {
+                      const src = form.watch("profileImageUrl") || user?.profileImageUrl;
+                      if (src) openPreview({ src, alt: "Profile photo", title: "Profile photo" });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      const src = form.watch("profileImageUrl") || user?.profileImageUrl;
+                      if (!src) return;
+                      event.preventDefault();
+                      openPreview({ src, alt: "Profile photo", title: "Profile photo" });
+                    }}
+                  >
                     <AvatarImage src={form.watch("profileImageUrl") || user?.profileImageUrl || ""} alt="Profile" />
                     <AvatarFallback className="text-2xl">{getUserInitials()}</AvatarFallback>
                   </Avatar>
@@ -534,29 +594,12 @@ export default function Profile() {
               </div>
               <div className="mb-4">
                 <Label>Expiry Date (Optional)</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !newDocExpiry && "text-muted-foreground"
-                      )}
-                      data-testid="button-doc-expiry"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {newDocExpiry ? format(newDocExpiry, "PPP") : "Select expiry date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={newDocExpiry}
-                      onSelect={setNewDocExpiry}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <LocaleDateInput
+                  value={newDocExpiry}
+                  onChange={setNewDocExpiry}
+                  disablePast
+                  data-testid="button-doc-expiry"
+                />
               </div>
               <div className="flex gap-2">
                 <Button onClick={handleSaveDocument} disabled={createDocumentMutation.isPending} data-testid="button-save-document">
@@ -570,7 +613,7 @@ export default function Profile() {
                     setPendingDocFileUrl(null);
                     setNewDocName("");
                     setNewDocType("other");
-                    setNewDocExpiry(undefined);
+                    setNewDocExpiry(null);
                   }}
                   data-testid="button-cancel-document"
                 >
@@ -643,6 +686,145 @@ export default function Profile() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6" data-testid="card-change-password">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Lock className="w-5 h-5" />
+            Change Password
+          </CardTitle>
+          <CardDescription>
+            Update your password to keep your account secure
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...passwordForm}>
+            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+              <FormField
+                control={passwordForm.control}
+                name="currentPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Current Password</FormLabel>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showCurrentPassword ? "text" : "password"}
+                          placeholder="Enter your current password"
+                          autoComplete="current-password"
+                          className="pr-10"
+                          data-testid="input-current-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowCurrentPassword((v) => !v)}
+                        aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                        data-testid="button-toggle-current-password"
+                      >
+                        {showCurrentPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={passwordForm.control}
+                name="newPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New Password</FormLabel>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showNewPassword ? "text" : "password"}
+                          placeholder="Enter your new password"
+                          autoComplete="new-password"
+                          className="pr-10"
+                          data-testid="input-new-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowNewPassword((v) => !v)}
+                        aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                        data-testid="button-toggle-new-password"
+                      >
+                        {showNewPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <FormDescription>
+                      Must be at least {MIN_PASSWORD_LENGTH} characters
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={passwordForm.control}
+                name="confirmPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirm New Password</FormLabel>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Confirm your new password"
+                          autoComplete="new-password"
+                          className="pr-10"
+                          data-testid="input-confirm-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowConfirmPassword((v) => !v)}
+                        aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                        data-testid="button-toggle-confirm-password"
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex justify-end">
+                <Button
+                  type="submit"
+                  disabled={changePasswordMutation.isPending}
+                  data-testid="button-change-password"
+                >
+                  {changePasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Change Password
+                </Button>
+              </div>
+            </form>
+          </Form>
         </CardContent>
       </Card>
 

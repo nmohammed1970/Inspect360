@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, AlertCircle, ChevronLeft, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
 import type { Inspection } from "@shared/schema";
 
 interface TemplateSection {
@@ -286,9 +287,7 @@ export default function InspectionReview() {
                             {renderFieldValue(entry, field)}
                           </div>
                           {entry?.note && (
-                            <div className="mt-2 text-sm text-muted-foreground">
-                              <span className="font-bold">Note:</span> {entry.note}
-                            </div>
+                            <InspectionNoteSectionsView note={entry.note} />
                           )}
                         </div>
                       </div>

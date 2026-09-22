@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -669,9 +670,10 @@ export default function InspectionDetail() {
                   {newItem.photoUrl && (
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-md overflow-hidden bg-muted border">
-                        <img
+                        <PreviewableImage
                           src={newItem.photoUrl.startsWith('/objects/') ? newItem.photoUrl : `/objects/${newItem.photoUrl}`}
-                          alt="Preview"
+                          alt="Inspection item photo"
+                          title="Inspection item photo"
                           className="object-cover w-full h-full"
                         />
                       </div>
@@ -761,9 +763,11 @@ export default function InspectionDetail() {
                   <CardContent className="space-y-3">
                     {item.photoUrl && (
                       <div className="relative aspect-video rounded-md overflow-hidden bg-muted">
-                        <img
+                        <PreviewableImage
                           src={item.photoUrl.startsWith('/objects/') ? item.photoUrl : `/objects/${item.photoUrl}`}
                           alt={item.itemName}
+                          title={item.itemName}
+                          caption={item.category}
                           className="object-cover w-full h-full"
                           data-testid={`img-item-${item.id}`}
                         />

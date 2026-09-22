@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation, Link } from "wouter";
@@ -446,10 +447,27 @@ export default function TenantComparisonReportDetail() {
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkInPhotos && item.checkInPhotos.length > 0 ? (
                           item.checkInPhotos.map((photo, idx) => (
-                            <img
+                            <PreviewableImage
                               key={idx}
                               src={photo}
                               alt={`Check-in ${idx + 1}`}
+                              title={`${formatIdentifierLabel(item.sectionRef)} - Before`}
+                              caption={formatIdentifierLabel(item.fieldKey)}
+                              gallery={[
+                                ...(item.checkInPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-in ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - Before`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                                ...(item.checkOutPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-out ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - After`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                              ]}
+                              index={idx}
                               className="w-full h-32 object-cover rounded-lg border"
                             />
                           ))
@@ -465,10 +483,27 @@ export default function TenantComparisonReportDetail() {
                       <div className="grid grid-cols-2 gap-2">
                         {item.checkOutPhotos && item.checkOutPhotos.length > 0 ? (
                           item.checkOutPhotos.map((photo, idx) => (
-                            <img
+                            <PreviewableImage
                               key={idx}
                               src={photo}
                               alt={`Check-out ${idx + 1}`}
+                              title={`${formatIdentifierLabel(item.sectionRef)} - After`}
+                              caption={formatIdentifierLabel(item.fieldKey)}
+                              gallery={[
+                                ...(item.checkInPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-in ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - Before`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                                ...(item.checkOutPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-out ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - After`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                              ]}
+                              index={(item.checkInPhotos?.length || 0) + idx}
                               className="w-full h-32 object-cover rounded-lg border"
                             />
                           ))
@@ -675,9 +710,10 @@ export default function TenantComparisonReportDetail() {
                   </div>
                   {report.operatorSignature.startsWith('data:image/') ? (
                     <div className="mt-2">
-                      <img 
-                        src={report.operatorSignature} 
-                        alt="Property Manager signature" 
+                      <PreviewableImage
+                        src={report.operatorSignature}
+                        alt="Property Manager signature"
+                        title="Property Manager signature"
                         className="h-16 object-contain border rounded bg-background"
                       />
                     </div>
@@ -710,9 +746,10 @@ export default function TenantComparisonReportDetail() {
                   </div>
                   {report.tenantSignature.startsWith('data:image/') ? (
                     <div className="mt-2">
-                      <img 
-                        src={report.tenantSignature} 
-                        alt="Your signature" 
+                      <PreviewableImage
+                        src={report.tenantSignature}
+                        alt="Your signature"
+                        title="Your signature"
                         className="h-16 object-contain border rounded bg-background"
                       />
                     </div>
@@ -745,9 +782,10 @@ export default function TenantComparisonReportDetail() {
                 <Card>
                   <CardContent className="p-4">
                     <div className="space-y-3">
-                      <img 
-                        src={signatureData} 
-                        alt="Your signature" 
+                      <PreviewableImage
+                        src={signatureData}
+                        alt="Your signature"
+                        title="Your signature"
                         className="w-full h-40 object-contain border rounded bg-background"
                         data-testid="img-signature"
                       />

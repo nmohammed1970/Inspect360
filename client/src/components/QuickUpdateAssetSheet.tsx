@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -260,7 +261,8 @@ export function QuickUpdateAssetSheet({
           {/* Asset Selection */}
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="asset-select">
-              Select Asset *
+              Select Asset
+              <span className="text-destructive" aria-hidden="true"> *</span>
             </label>
             <Select
               value={selectedAssetId}
@@ -345,9 +347,16 @@ export function QuickUpdateAssetSheet({
                     <div className="grid grid-cols-3 gap-2">
                       {selectedAsset.photos.map((photoUrl, index) => (
                         <div key={index} className="relative group">
-                          <img
+                          <PreviewableImage
                             src={photoUrl}
                             alt={`Asset photo ${index + 1}`}
+                            title={selectedAsset.name || "Asset photo"}
+                            gallery={(selectedAsset.photos || []).map((src, photoIndex) => ({
+                              src,
+                              alt: `Asset photo ${photoIndex + 1}`,
+                              title: selectedAsset.name || "Asset photo",
+                            }))}
+                            index={index}
                             className="w-full h-20 object-cover rounded border"
                           />
                         </div>
@@ -465,9 +474,17 @@ export function QuickUpdateAssetSheet({
                         <Card key={index} className="overflow-hidden">
                           <CardContent className="p-0">
                             <div className="relative group">
-                              <img
+                              <PreviewableImage
                                 src={photoUrl}
                                 alt={`Asset photo ${index + 1}`}
+                                title="Asset photo"
+                                showHint={false}
+                                gallery={photos.map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Asset photo ${photoIndex + 1}`,
+                                  title: "Asset photo",
+                                }))}
+                                index={index}
                                 className="w-full h-32 object-cover"
                                 data-testid={`img-asset-photo-${index}`}
                               />

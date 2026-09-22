@@ -19,6 +19,7 @@ export interface WorkOrder {
     title: string;
     description?: string;
     priority: string;
+    propertyId?: string | null;
   };
   contractor?: {
     id?: string;
@@ -31,6 +32,20 @@ export interface WorkOrder {
     name?: string;
     email?: string;
   } | null;
+}
+
+export interface WorkOrderCertificate {
+  id: string;
+  workOrderId: string;
+  propertyId?: string | null;
+  documentUrl: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+  extractionStatus: string;
+  certificateType?: string | null;
+  expiryDate?: string | null;
+  processingError?: string | null;
+  complianceDocumentId?: string | null;
 }
 
 export const maintenanceService = {
@@ -82,6 +97,37 @@ export const maintenanceService = {
 
   async updateWorkOrderStatus(id: string, status: string): Promise<void> {
     await apiRequestJson('PATCH', `/api/work-orders/${id}/status`, { status });
+  },
+
+  async listWorkOrderCertificates(workOrderId: string): Promise<WorkOrderCertificate[]> {
+    return apiRequestJson<WorkOrderCertificate[]>('GET', `/api/work-orders/${workOrderId}/certificates`);
+  },
+
+  async createWorkOrderCertificate(
+    workOrderId: string,
+    data: { documentUrl: string; fileName?: string; mimeType?: string },
+  ): Promise<WorkOrderCertificate> {
+    return apiRequestJson<WorkOrderCertificate>('POST', `/api/work-orders/${workOrderId}/certificates`, data);
+  },
+
+  async analyseWorkOrderCertificate(workOrderId: string, certId: string): Promise<WorkOrderCertificate> {
+    return apiRequestJson<WorkOrderCertificate>(
+      'POST',
+      `/api/work-orders/${workOrderId}/certificates/${certId}/analyse`,
+      {},
+    );
+  },
+
+  async confirmWorkOrderCertificate(
+    workOrderId: string,
+    certId: string,
+    data: { certificateType: string; expiryDate: string },
+  ): Promise<WorkOrderCertificate> {
+    return apiRequestJson<WorkOrderCertificate>(
+      'POST',
+      `/api/work-orders/${workOrderId}/certificates/${certId}/confirm`,
+      data,
+    );
   },
 
   async analyzeImage(imageUrl: string, issueDescription: string): Promise<{ suggestedFixes: string }> {

@@ -122,7 +122,7 @@ export default function AdminUnitPricing() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">Unit Pricing</h1>
         <p className="text-muted-foreground">
-          Record per-unit monthly and annual pricing for the product catalog
+          Platform default per-unit monthly and annual pricing. Instances start from this sheet until you customize them under Manage → Unit pricing.
         </p>
       </div>
 
@@ -130,7 +130,7 @@ export default function AdminUnitPricing() {
         <CardHeader>
           <CardTitle>Price sheet</CardTitle>
           <CardDescription>
-            Eco-admin reference pricing. This does not charge customers automatically.
+            Platform default price sheet. Customize rates per organization from Dashboard → Manage → Unit pricing.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

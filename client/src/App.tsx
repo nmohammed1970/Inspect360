@@ -1,5 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
+import { ImagePreviewProvider } from "@/components/ImagePreview";
 import { EntitlementLockHost } from "@/components/EntitlementLockHost";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -50,6 +51,7 @@ import PropertyTenants from "@/pages/PropertyTenants";
 import TenantDetail from "@/pages/TenantDetail";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminDashboard from "@/pages/AdminDashboard";
+import AdminCreditRequests from "@/pages/AdminCreditRequests";
 import AdminTeam from "@/pages/AdminTeam";
 import AdminUnitPricing from "@/pages/AdminUnitPricing";
 import KnowledgeBase from "@/pages/KnowledgeBase";
@@ -116,6 +118,7 @@ function AppContent() {
     "/admin/modules",
     "/admin/unit-pricing",
     "/admin/quotations",
+    "/admin/credit-requests",
     "/tenant/login",
   ];
 
@@ -244,6 +247,13 @@ function AppContent() {
               </AdminPageWrapper>
             )}
           </Route>
+          <Route path="/admin/credit-requests">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Credit Requests" }]}>
+                <AdminCreditRequests />
+              </AdminPageWrapper>
+            )}
+          </Route>
           <Route path="/admin/quotations">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Quotations" }]}>
@@ -358,6 +368,13 @@ function AppContent() {
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
                 <AdminUnitPricing />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/credit-requests">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Credit Requests" }]}>
+                <AdminCreditRequests />
               </AdminPageWrapper>
             )}
           </Route>
@@ -598,8 +615,10 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <LocaleProvider>
-        <EntitlementLockHost />
-        <AppContent />
+        <ImagePreviewProvider>
+          <EntitlementLockHost />
+          <AppContent />
+        </ImagePreviewProvider>
       </LocaleProvider>
     </QueryClientProvider>
   );

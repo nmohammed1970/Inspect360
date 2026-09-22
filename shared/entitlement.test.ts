@@ -288,10 +288,16 @@ assert(isLockedApiPath("/api/inspections/1/complete"), "inspection action locked
 assert(isLockedApiPath("/api/comparison-reports"), "comparison reports locked");
 assert(isLockedApiPath("/api/comparisons/1"), "comparisons locked");
 assert(isLockedApiPath("/api/maintenance"), "maintenance locked");
+assert(isLockedApiPath("/api/work-orders"), "work orders locked");
+assert(isLockedApiPath("/api/analytics/work-orders"), "analytics locked");
+assert(isLockedApiPath("/api/tenant/maintenance-requests"), "tenant maintenance locked");
+assert(isLockedAppPath("/disputes"), "disputes app locked");
+assert(isLockedAppPath("/analytics"), "analytics app locked");
 assert(!isLockedApiPath("/api/dashboard/stats"), "dashboard stats open");
 assert(!isLockedApiPath("/api/billing/inspection-balance"), "billing open");
 assert(!isLockedApiPath("/api/entitlement"), "entitlement open");
 assert(!isLockedApiPath("/api/admin/instances"), "admin open");
+assert(!isLockedApiPath("/api/marketplace/modules"), "marketplace browse open");
 assert(isLockedAppPath("/inspections/1/report"), "inspection page locked");
 assert(!isLockedAppPath("/dashboard"), "dashboard page open");
 assert(!isLockedAppPath("/reports"), "reports hub open");

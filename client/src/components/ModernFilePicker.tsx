@@ -1,3 +1,4 @@
+import { PreviewableFileImage } from "@/components/ImagePreview";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Upload, Camera, Image as ImageIcon, FileText, Loader2, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -270,11 +271,7 @@ export function ModernFilePicker({
                     className="flex items-center gap-3 p-3 bg-muted rounded-lg"
                   >
                     {file.type.startsWith("image/") ? (
-                      <img
-                        src={URL.createObjectURL(file)}
-                        alt={file.name}
-                        className="h-12 w-12 object-cover rounded"
-                      />
+                      <PreviewableFileImage file={file} className="h-12 w-12 object-cover rounded" />
                     ) : (
                       <div className="h-12 w-12 flex items-center justify-center bg-background rounded">
                         {getFileIcon(file)}

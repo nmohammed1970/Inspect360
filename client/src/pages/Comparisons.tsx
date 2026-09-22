@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -321,9 +322,11 @@ export default function Comparisons() {
                                       data-testid={`item-check-in-${idx}`}
                                     >
                                       {item.photoUrl && (
-                                        <img 
-                                          src={item.photoUrl} 
-                                          alt={item.itemName} 
+                                        <PreviewableImage
+                                          src={item.photoUrl}
+                                          alt={item.itemName}
+                                          title={`${item.itemName} - Check-in`}
+                                          caption={item.category}
                                           className="w-full h-32 object-cover rounded-md"
                                           data-testid={`photo-check-in-${idx}`}
                                         />
@@ -366,9 +369,11 @@ export default function Comparisons() {
                                         data-testid={`item-check-out-${idx}`}
                                       >
                                         {item.photoUrl && (
-                                          <img 
-                                            src={item.photoUrl} 
-                                            alt={item.itemName} 
+                                          <PreviewableImage
+                                            src={item.photoUrl}
+                                            alt={item.itemName}
+                                            title={`${item.itemName} - Check-out`}
+                                            caption={item.category}
                                             className="w-full h-32 object-cover rounded-md"
                                             data-testid={`photo-check-out-${idx}`}
                                           />

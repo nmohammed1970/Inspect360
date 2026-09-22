@@ -412,7 +412,7 @@ export default function Contacts() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="type">Contact Type *</Label>
+                    <Label htmlFor="type" required>Contact Type</Label>
                     <Select
                       name="type"
                       defaultValue={editingContact?.type || "other"}
@@ -448,7 +448,7 @@ export default function Contacts() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="firstName">First Name *</Label>
+                    <Label htmlFor="firstName" required>First Name</Label>
                     <Input
                       id="firstName"
                       name="firstName"
@@ -461,7 +461,7 @@ export default function Contacts() {
                   </div>
 
                   <div>
-                    <Label htmlFor="lastName">Last Name *</Label>
+                    <Label htmlFor="lastName" required>Last Name</Label>
                     <Input
                       id="lastName"
                       name="lastName"

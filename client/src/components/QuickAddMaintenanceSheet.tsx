@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -312,7 +313,7 @@ export function QuickAddMaintenanceSheet({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Issue Title *</FormLabel>
+                  <FormLabel required>Issue Title</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -389,9 +390,17 @@ export function QuickAddMaintenanceSheet({
                   <div className="grid grid-cols-4 gap-2">
                     {photoUrls.map((url, index) => (
                       <div key={index} className="relative aspect-square">
-                        <img
+                        <PreviewableImage
                           src={url}
                           alt={`Photo ${index + 1}`}
+                          title="Maintenance photo"
+                          showHint={false}
+                          gallery={photoUrls.map((src, photoIndex) => ({
+                            src,
+                            alt: `Photo ${photoIndex + 1}`,
+                            title: "Maintenance photo",
+                          }))}
+                          index={index}
                           className="w-full h-full object-cover rounded-md border"
                         />
                         <button

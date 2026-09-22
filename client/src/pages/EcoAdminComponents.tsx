@@ -304,7 +304,7 @@ export function SubscriptionTierManagement() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Tier Name <span className="text-destructive">*</span></Label>
+              <Label required>Tier Name</Label>
               <Input
                 required
                 value={formData.name || ""}
@@ -313,7 +313,7 @@ export function SubscriptionTierManagement() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Tier Code <span className="text-destructive">*</span></Label>
+              <Label required>Tier Code</Label>
               <Input
                 required
                 value={formData.code || ""}
@@ -340,7 +340,7 @@ export function SubscriptionTierManagement() {
               )}
             </div>
             <div className="space-y-2">
-              <Label>Included Inspections <span className="text-destructive">*</span></Label>
+              <Label required>Included Inspections</Label>
               <Input
                 type="number"
                 required
@@ -381,7 +381,7 @@ export function SubscriptionTierManagement() {
               })()}
             </div>
             <div className="space-y-2">
-              <Label>Annual Discount % <span className="text-destructive">*</span></Label>
+              <Label required>Annual Discount %</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -397,7 +397,7 @@ export function SubscriptionTierManagement() {
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Base Monthly Price (GBP) <span className="text-destructive">*</span></Label>
+              <Label required>Base Monthly Price (GBP)</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -443,7 +443,7 @@ export function SubscriptionTierManagement() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Per-Inspection Price (GBP) <span className="text-destructive">*</span></Label>
+              <Label required>Per-Inspection Price (GBP)</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -461,7 +461,7 @@ export function SubscriptionTierManagement() {
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Description <span className="text-destructive">*</span></Label>
+            <Label required>Description</Label>
             <Textarea
               required
               value={formData.description || ""}

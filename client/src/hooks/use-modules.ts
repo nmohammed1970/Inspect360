@@ -1,6 +1,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useEntitlement } from "@/hooks/useEntitlement";
 
 export type MarketplaceModule = {
     id: string;
@@ -28,6 +29,7 @@ export type InstanceModule = {
 
 export function useModules() {
     const queryClient = useQueryClient();
+    const { data: entitlement } = useEntitlement();
 
     const { data: myModules = [], isLoading: isLoadingMyModules } = useQuery<InstanceModule[]>({
         queryKey: ["/api/marketplace/my-modules"],
@@ -63,9 +65,8 @@ export function useModules() {
     });
 
     const isModuleEnabled = (key: string) => {
-        // If we're still loading, default to false (safe) or true (permissive)? Safe is false.
-        // However, for better UX on initial load (avoid flicker), maybe one should check if data is undefined.
-        // But boolean return is simplest.
+        // Match entitlement locking: modules stay enabled in DB, but are unusable when locked.
+        if (entitlement?.locked) return false;
         if (!myModules) return false;
         return myModules.some(m => m.moduleKey && m.moduleKey === key && m.isEnabled);
     };

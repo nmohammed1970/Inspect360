@@ -58,7 +58,7 @@ export default function KnowledgeBase() {
 
     try {
       // Get upload parameters
-      const response = await fetch('/api/object-storage/upload', {
+      const response = await fetch('/api/objects/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -83,6 +83,7 @@ export default function KnowledgeBase() {
       const uploadResponse = await fetch(uploadURL, {
         method: 'PUT',
         body: file,
+        credentials: 'include',
         headers: {
           'Content-Type': file.type,
         },
@@ -392,7 +393,7 @@ export default function KnowledgeBase() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="title">Document Title *</Label>
+              <Label htmlFor="title" required>Document Title</Label>
               <Input
                 id="title"
                 value={uploadData.title}
@@ -423,7 +424,7 @@ export default function KnowledgeBase() {
               />
             </div>
             <div>
-              <Label>Upload File *</Label>
+              <Label required>Upload File</Label>
               <div className="mt-2">
                 <ModernFilePickerInline
                   onFilesSelected={handleFileSelected}

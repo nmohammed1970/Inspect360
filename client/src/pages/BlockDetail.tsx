@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
@@ -11,8 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
@@ -22,6 +21,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { MapPreview } from "@/components/MapPreview";
 import { insertComplianceDocumentSchema } from "@shared/schema";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { 
   ArrowLeft, Building2, MapPin, Users, CheckCircle2, Calendar as CalendarIcon, 
   AlertTriangle, FileCheck, ClipboardCheck, Upload, AlertCircle, ExternalLink, Clock,
@@ -318,9 +318,10 @@ export default function BlockDetail() {
           <Card className="overflow-hidden">
             {block.imageUrl ? (
               <div className="relative aspect-video">
-                <img
+                <PreviewableImage
                   src={block.imageUrl}
                   alt={block.name}
+                  title={block.name}
                   className="w-full h-full object-cover"
                   data-testid="img-block"
                 />
@@ -644,28 +645,14 @@ export default function BlockDetail() {
                       render={({ field }) => (
                         <FormItem className="flex flex-col">
                           <FormLabel>Expiry Date</FormLabel>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button
-                                  variant="outline"
-                                  className="w-full justify-start text-left font-normal"
-                                  data-testid="button-expiry-date"
-                                >
-                                  <CalendarIcon className="mr-2 h-4 w-4" />
-                                  {field.value ? format(new Date(field.value), "PPP") : "Select expiry date"}
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0 z-[100]" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value ? new Date(field.value) : undefined}
-                                onSelect={(date) => field.onChange(date?.toISOString())}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
+                          <FormControl>
+                            <LocaleDateInput
+                              value={field.value || null}
+                              onChange={(ymd) => field.onChange(ymd || undefined)}
+                              disablePast
+                              data-testid="button-expiry-date"
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}

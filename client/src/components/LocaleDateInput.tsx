@@ -13,6 +13,11 @@ function toYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Local calendar date as `YYYY-MM-DD` (today). */
+export function todayYmd(): string {
+  return toYmd(new Date());
+}
+
 function parseIncomingToYmd(value: string | Date | null | undefined): string {
   if (value == null || value === "") return "";
   if (value instanceof Date) return isNaN(value.getTime()) ? "" : toYmd(value);
@@ -23,16 +28,39 @@ function parseIncomingToYmd(value: string | Date | null | undefined): string {
 }
 
 export interface LocaleDateInputProps
-  extends Omit<React.ComponentProps<typeof Input>, "type" | "value" | "onChange"> {
+  extends Omit<React.ComponentProps<typeof Input>, "type" | "value" | "onChange" | "min" | "max"> {
   value?: string | Date | null;
   /** Called with `YYYY-MM-DD` when valid, or `null` when cleared. */
   onChange: (ymd: string | null) => void;
+  /** Inclusive earliest allowed date as `YYYY-MM-DD`. */
+  min?: string;
+  /** Inclusive latest allowed date as `YYYY-MM-DD`. */
+  max?: string;
+  /** When true, dates before today cannot be selected or typed. */
+  disablePast?: boolean;
+}
+
+function clampYmd(ymd: string, min?: string, max?: string): string | null {
+  if (min && ymd < min) return null;
+  if (max && ymd > max) return null;
+  return ymd;
+}
+
+function mergeMin(min: string | undefined, disablePast: boolean | undefined): string | undefined {
+  if (!disablePast) return min;
+  const today = todayYmd();
+  if (!min) return today;
+  return min > today ? min : today;
 }
 
 export const LocaleDateInput = forwardRef<HTMLInputElement, LocaleDateInputProps>(
-  function LocaleDateInput({ value, onChange, className, onBlur, onFocus, ...props }, ref) {
+  function LocaleDateInput(
+    { value, onChange, className, onBlur, onFocus, min, max, disablePast, ...props },
+    ref,
+  ) {
     const { dateFormat } = useLocale();
     const placeholder = dateFormat.toLowerCase();
+    const effectiveMin = mergeMin(min, disablePast);
     const ymdFromProp = parseIncomingToYmd(value);
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const suppressNextFocusOpenRef = useRef(false);
@@ -40,6 +68,15 @@ export const LocaleDateInput = forwardRef<HTMLInputElement, LocaleDateInputProps
       () => (ymdFromProp ? new Date(`${ymdFromProp}T12:00:00`) : undefined),
       [ymdFromProp],
     );
+    const disabledMatcher = useMemo(() => {
+      if (!effectiveMin && !max) return undefined;
+      return (date: Date) => {
+        const ymd = toYmd(date);
+        if (effectiveMin && ymd < effectiveMin) return true;
+        if (max && ymd > max) return true;
+        return false;
+      };
+    }, [effectiveMin, max]);
 
     const [text, setText] = useState(() =>
       ymdFromProp ? format(new Date(`${ymdFromProp}T12:00:00`), dateFormat) : "",
@@ -70,8 +107,14 @@ export const LocaleDateInput = forwardRef<HTMLInputElement, LocaleDateInputProps
                 const parsed = parse(raw, dateFormat, new Date());
                 if (isValid(parsed)) {
                   const ymd = toYmd(parsed);
-                  onChange(ymd);
-                  setText(format(parsed, dateFormat));
+                  const allowed = clampYmd(ymd, effectiveMin, max);
+                  if (allowed) {
+                    onChange(allowed);
+                    setText(format(parsed, dateFormat));
+                  } else {
+                    const y = parseIncomingToYmd(value);
+                    setText(y ? format(new Date(`${y}T12:00:00`), dateFormat) : "");
+                  }
                 } else {
                   const y = parseIncomingToYmd(value);
                   setText(y ? format(new Date(`${y}T12:00:00`), dateFormat) : "");
@@ -92,26 +135,29 @@ export const LocaleDateInput = forwardRef<HTMLInputElement, LocaleDateInputProps
             {...props}
           />
         </PopoverTrigger>
-          <PopoverContent className="w-auto p-0 z-[120]" align="end">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              month={selectedDate}
-              onSelect={(date) => {
-                if (!date) {
-                  onChange(null);
-                  setText("");
-                } else {
-                  const ymd = toYmd(date);
-                  onChange(ymd);
-                  setText(format(date, dateFormat));
-                }
-                suppressNextFocusOpenRef.current = true;
-                setIsPickerOpen(false);
-              }}
-              initialFocus
-            />
-          </PopoverContent>
+        <PopoverContent className="w-auto p-0 z-[120]" align="end">
+          <Calendar
+            mode="single"
+            selected={selectedDate}
+            month={selectedDate}
+            disabled={disabledMatcher}
+            onSelect={(date) => {
+              if (!date) {
+                onChange(null);
+                setText("");
+              } else {
+                const ymd = toYmd(date);
+                const allowed = clampYmd(ymd, effectiveMin, max);
+                if (!allowed) return;
+                onChange(allowed);
+                setText(format(date, dateFormat));
+              }
+              suppressNextFocusOpenRef.current = true;
+              setIsPickerOpen(false);
+            }}
+            initialFocus
+          />
+        </PopoverContent>
       </Popover>
     );
   },

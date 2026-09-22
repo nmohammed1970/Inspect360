@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, Link } from "wouter";
@@ -716,7 +717,7 @@ export default function AssetInventory() {
                 <h3 className="font-semibold text-lg">Basic Information</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="name">Asset Name *</Label>
+                    <Label htmlFor="name" required>Asset Name</Label>
                     <Input
                       id="name"
                       value={formData.name || ""}
@@ -745,7 +746,7 @@ export default function AssetInventory() {
                   </div>
 
                   <div>
-                    <Label htmlFor="condition">Condition *</Label>
+                    <Label htmlFor="condition" required>Condition</Label>
                     <Select
                       value={formData.condition || ""}
                       onValueChange={(value) => setFormData({ ...formData, condition: value as any })}
@@ -978,6 +979,7 @@ export default function AssetInventory() {
                           warrantyExpiryDate: ymd ? (new Date(`${ymd}T12:00:00`) as any) : undefined,
                         })
                       }
+                      disablePast
                       data-testid="input-warranty-expiry"
                     />
                   </div>
@@ -1045,9 +1047,19 @@ export default function AssetInventory() {
                             return renderDocumentCard(url);
                           }
                           return (
-                            <img
+                            <PreviewableImage
                               src={resolvedUrl}
                               alt={`Asset file ${index + 1}`}
+                              title="Asset photo"
+                              showHint={false}
+                              gallery={uploadedPhotos
+                                .filter((item) => !isAssetDocumentPreviewUrl(item))
+                                .map((item, photoIndex) => ({
+                                  src: normalizePhotoUrl(item) || item,
+                                  alt: `Asset file ${photoIndex + 1}`,
+                                  title: "Asset photo",
+                                }))}
+                              index={uploadedPhotos.slice(0, index).filter((item) => !isAssetDocumentPreviewUrl(item)).length}
                               className="w-full h-24 object-cover rounded"
                             />
                           );
@@ -1356,9 +1368,18 @@ export default function AssetInventory() {
                       {isAssetDocumentPreviewUrl(asset.photos[0]) ? (
                         renderDocumentCard(firstPhoto, false)
                       ) : (
-                        <img
+                        <PreviewableImage
                           src={firstPhoto}
                           alt={asset.name}
+                          title={asset.name}
+                          showHint={false}
+                          gallery={asset.photos
+                            .filter((item) => !isAssetDocumentPreviewUrl(item))
+                            .map((item) => ({
+                              src: normalizePhotoUrl(item) || item,
+                              alt: asset.name,
+                              title: asset.name,
+                            }))}
                           className="w-full h-full object-cover"
                         />
                       )}

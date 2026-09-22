@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -164,10 +165,19 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
                 {request.photoUrls && request.photoUrls.length > 0 && (
                   <div className="flex gap-2 overflow-x-auto">
                     {request.photoUrls.map((url: string, index: number) => (
-                      <img
+                      <PreviewableImage
                         key={index}
                         src={url}
-                        alt={`Photo ${index + 1}`}
+                        alt={`Maintenance photo ${index + 1}`}
+                        title={request.title || "Maintenance request"}
+                        caption={`Photo ${index + 1}`}
+                        gallery={request.photoUrls.map((src: string, photoIndex: number) => ({
+                          src,
+                          alt: `Maintenance photo ${photoIndex + 1}`,
+                          title: request.title || "Maintenance request",
+                          caption: `Photo ${photoIndex + 1}`,
+                        }))}
+                        index={index}
                         className="h-24 w-24 object-cover rounded-lg"
                       />
                     ))}

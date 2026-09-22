@@ -17,11 +17,11 @@ import { subscribeEntitlementLock } from "@/lib/queryClient";
 const COPY: Record<LockCode, { title: string; body: string }> = {
   TRIAL_EXPIRED: {
     title: "Your trial has ended",
-    body: "Your 7-day trial period has expired. Access to Property, Block, Inspection, Comparison Reports, and Maintenance is currently locked. Please contact your administrator to purchase credits and continue using the system.",
+    body: "Your trial period has expired. Access to Properties, Blocks, Inspections, Comparisons, Maintenance, Work Orders, Disputes, and other modules is locked. Purchase credits to continue.",
   },
   CREDITS_EXPIRED: {
     title: "Your credits have expired",
-    body: "Your credits have expired. Access to Property, Block, Inspection, Comparison Reports, and Maintenance is currently locked. Please contact your administrator to purchase credits and continue using the system.",
+    body: "Your credits have expired. Access to Properties, Blocks, Inspections, Comparisons, Maintenance, Work Orders, Disputes, and other modules is locked. Purchase credits to continue.",
   },
 };
 

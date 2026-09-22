@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Trash2, GripVertical, Save, X, Eye, Code, ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { z } from "zod";
@@ -356,7 +357,14 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
           </div>
         );
       case "date":
-        return <Input disabled type="date" className="bg-muted/50 max-w-[200px]" />;
+        return (
+          <LocaleDateInput
+            disabled
+            value={null}
+            onChange={() => {}}
+            className="bg-muted/50 max-w-[200px]"
+          />
+        );
       case "time":
         return <Input disabled type="time" className="bg-muted/50 max-w-[150px]" />;
       case "datetime":
