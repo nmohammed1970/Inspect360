@@ -1,12 +1,11 @@
 import {
+  CreditCard,
   LayoutDashboard,
   Users,
   BookOpen,
   Shield,
   Info,
-  FileText,
   Box,
-  BadgePoundSterling,
 } from "lucide-react";
 import {
   Sidebar,
@@ -20,10 +19,22 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 export function AdminSidebar() {
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { data: openRequests } = useQuery<{ count: number }>({
+    queryKey: ["/api/admin/credit-requests/open-count"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/credit-requests/open-count");
+      return res.json();
+    },
+    retry: false,
+    refetchInterval: 60000,
+  });
+  const openCount = openRequests?.count ?? 0;
 
   const menuItems = [
     {
@@ -52,25 +63,20 @@ export function AdminSidebar() {
       icon: Box,
     },
     {
-      title: "Unit Pricing",
-      url: "/admin/unit-pricing",
-      icon: BadgePoundSterling,
-    },
-    {
-      title: "Quotations",
-      url: "/admin/quotations",
-      icon: FileText,
+      title: openCount > 0 ? `Credit Requests (${openCount})` : "Credit Requests",
+      url: "/admin/credit-requests",
+      icon: CreditCard,
     },
   ];
 
   return (
     <Sidebar data-testid="sidebar-admin">
       <SidebarHeader className="p-4 border-b">
-        <div className="flex items-center gap-2">
-          <Shield className="h-6 w-6 text-primary" />
-          <div className="flex flex-col">
-            <span className="font-bold text-sm">INSPECT 360</span>
-            <span className="text-xs text-muted-foreground">Admin Portal</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <Shield className="h-6 w-6 text-primary shrink-0" />
+          <div className="flex flex-col min-w-0">
+            <span className="font-bold text-sm truncate">INSPECT 360</span>
+            <span className="text-xs text-muted-foreground truncate">Admin Portal</span>
           </div>
         </div>
       </SidebarHeader>

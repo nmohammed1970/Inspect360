@@ -73,6 +73,35 @@ export const inspectionsService = {
     return this.getInspectionEntries(inspectionId, updatedAfter);
   },
 
+  async saveTenantComments(inspectionId: string, comments: string): Promise<any> {
+    return apiRequestJson('PATCH', `/api/inspections/${inspectionId}/tenant-comments`, { comments });
+  },
+
+  async tenantSignInspection(
+    inspectionId: string,
+    data: {
+      image: string;
+      signedByName?: string;
+      signedAt?: string;
+      comments?: string;
+    },
+  ): Promise<any> {
+    return apiRequestJson('POST', `/api/inspections/${inspectionId}/tenant-sign`, data);
+  },
+
+  async createQuickMaintenance(data: {
+    title: string;
+    description?: string;
+    propertyId?: string;
+    priority?: string;
+    photoUrls?: string[];
+    inspectionId?: string;
+    inspectionEntryId?: string;
+    source?: string;
+  }): Promise<any> {
+    return apiRequestJson('POST', '/api/maintenance/quick', data);
+  },
+
   async saveInspectionEntry(entry: InspectionEntry): Promise<InspectionEntry> {
     // Filter out local paths (file://) from photos and valueJson before sending to server
     // Also sanitize condition and cleanliness values to ensure they're valid strings

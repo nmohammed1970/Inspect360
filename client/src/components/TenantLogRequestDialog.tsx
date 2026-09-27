@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -19,10 +20,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ClipboardList, Home, ImagePlus, Loader2, MapPin, Sparkles, X } from "lucide-react";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import {
+  MaintenanceAiAnalysisView,
+  applyMaintenanceAiNote,
+} from "@/components/MaintenanceAiAnalysisView";
+import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 
 interface TenantLogRequestDialogProps {
   open: boolean;
@@ -73,7 +78,11 @@ export function TenantLogRequestDialog({
       return await res.json();
     },
     onSuccess: (data: any) => {
-      setAiSuggestions(data.suggestedFixes || "");
+      const applied = applyMaintenanceAiNote(data.suggestedFixes || "", {
+        preferExistingDescription: description,
+      });
+      setAiSuggestions(applied.aiSuggestedFixes);
+      if (applied.description) setDescription(applied.description);
       toast({
         title: "AI Analysis Complete",
         description: "Review the suggested fixes below",
@@ -171,7 +180,7 @@ export function TenantLogRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-log-request">
+      <DialogContent className="sm:max-w-2xl" data-testid="dialog-log-request">
         <DialogHeader>
           <DialogTitle>Log a Maintenance Request</DialogTitle>
           <DialogDescription>
@@ -325,9 +334,17 @@ export function TenantLogRequestDialog({
               <div className="flex flex-wrap gap-2 pt-1">
                 {photoUrls.map((url, index) => (
                   <div key={`${url}-${index}`} className="relative inline-block">
-                    <img
+                    <PreviewableImage
                       src={url}
                       alt={`Upload ${index + 1}`}
+                      title="Maintenance photo"
+                      showHint={false}
+                      gallery={photoUrls.map((src, photoIndex) => ({
+                        src,
+                        alt: `Upload ${photoIndex + 1}`,
+                        title: "Maintenance photo",
+                      }))}
+                      index={index}
                       className="h-20 w-20 object-cover rounded-lg"
                     />
                     <Button
@@ -368,17 +385,20 @@ export function TenantLogRequestDialog({
           )}
 
           {aiSuggestions && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Sparkles className="w-4 h-4 text-primary" />
-                  AI-Suggested Fixes
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{aiSuggestions}</p>
-              </CardContent>
-            </Card>
+            <MaintenanceAiAnalysisView
+              note={aiSuggestions}
+              description={description}
+              onDescriptionChange={(value) => {
+                setDescription(value);
+                const sections = parseInspectionNote(aiSuggestions);
+                setAiSuggestions(
+                  formatInspectionNote({
+                    ...sections,
+                    description: value,
+                  }),
+                );
+              }}
+            />
           )}
 
           <Button

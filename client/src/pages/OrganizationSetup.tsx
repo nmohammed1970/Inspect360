@@ -64,15 +64,15 @@ export default function OrganizationSetup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-dvh flex items-start sm:items-center justify-center overflow-y-auto bg-background p-4 py-8">
+      <Card className="w-full max-w-md min-w-0">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
               <Building2 className="w-8 h-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl">Welcome to Inspect360</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl">Welcome to Inspect360</CardTitle>
           <CardDescription>
             Let's get started by creating your organization
           </CardDescription>

@@ -18,9 +18,12 @@ import { TagFilter } from "@/components/TagFilter";
 import { AddressInput } from "@/components/AddressInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tag } from "@shared/schema";
 import { Tag as TagIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase } from "@/lib/responsive";
 
 function getBlockDeleteReason(block: Block): string | null {
   const stats = block.stats;
@@ -313,7 +316,7 @@ export default function Blocks() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Modern Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -326,17 +329,16 @@ export default function Blocks() {
         </Button>
       </div>
 
-      {/* Modern Search Filter - Desktop */}
       {blocks.length > 0 && (
-        <>
-          <div className="hidden md:flex items-center gap-4">
-            <div className="relative flex-1 max-w-md">
+        <FiltersSection headingId="blocks-filters-heading">
+          <div className="hidden md:flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-0 max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search blocks by name or address..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 h-8"
                 data-testid="input-search-blocks"
               />
             </div>
@@ -347,22 +349,22 @@ export default function Blocks() {
             />
           </div>
 
-          {/* Search and Filter - Mobile */}
-          <div className="flex md:hidden gap-2 items-center mb-4">
+          <div className="flex md:hidden gap-2 items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search blocks..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 h-8"
                 data-testid="input-search-blocks-mobile"
               />
             </div>
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="shrink-0">
-                  <Filter className="w-4 h-4" />
+                <Button variant="outline" size="sm" className="relative shrink-0 h-8">
+                  <Filter className="w-4 h-4 mr-2" />
+                  Filters
                   {filterTags.length > 0 && (
                     <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
                   )}
@@ -395,7 +397,7 @@ export default function Blocks() {
               </SheetContent>
             </Sheet>
           </div>
-        </>
+        </FiltersSection>
       )}
 
       {/* Content Area */}
@@ -631,7 +633,7 @@ export default function Blocks() {
                 {/* Quick Actions */}
                 <div className="mt-auto space-y-5">
                   <div className="h-px bg-border/30" />
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
                     <Link href={`/properties?blockId=${block.id}`} className="w-full">
                       <Button 
                         variant="ghost" 
@@ -706,7 +708,7 @@ export default function Blocks() {
       )}
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent>
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
           <DialogHeader>
             <DialogTitle>{editingBlock ? "Edit Block" : "Create New Block"}</DialogTitle>
             <DialogDescription>
@@ -715,7 +717,7 @@ export default function Blocks() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Block Name *</Label>
+              <Label htmlFor="name" required>Block Name</Label>
               <Input
                 id="name"
                 value={name}
@@ -726,7 +728,7 @@ export default function Blocks() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="address">Address *</Label>
+              <Label htmlFor="address" required>Address</Label>
               <AddressInput
                 id="address"
                 value={address}

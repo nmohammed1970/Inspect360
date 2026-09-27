@@ -352,7 +352,7 @@ export default function ComplianceDocumentCalendar({ entityType, entityId, docum
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 pt-6 border-t mt-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t mt-6">
           <div>
             <div className="text-sm text-muted-foreground">Total Documents</div>
             <div className="text-2xl font-bold">{documents.length}</div>

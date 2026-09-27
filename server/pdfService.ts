@@ -3,6 +3,8 @@ import puppeteer from "puppeteer";
 import chromium from "@sparticuz/chromium";
 import { format } from "date-fns";
 import { parseSignatureValue, isTenantSignatureField, formatSignerDisplayName } from "@shared/signature";
+import { parseInspectionNote } from "@shared/inspectionNoteSections";
+import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 
 // Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
 const isReplit = process.env.REPL_ID || process.env.REPLIT;
@@ -331,15 +333,20 @@ export async function generateInspectionPDF(
     
     processedBranding = { ...branding };
     
-    // Convert logo to base64
+    // Convert logo to base64 (org logo, or Inspect360 LogoWhite for teal covers)
     if (branding.logoUrl) {
       const logoBase64 = await imageUrlToBase64(branding.logoUrl, baseUrl);
       if (logoBase64) {
         processedBranding.logoUrl = logoBase64;
         console.log('[PDF] Logo converted to base64 successfully');
       } else {
-        console.log('[PDF] Logo conversion failed, keeping original URL');
+        const fallback = getDefaultCoverLogoDataUrl("on-dark");
+        processedBranding.logoUrl = fallback;
+        console.log('[PDF] Logo conversion failed, using Inspect360 default cover logo');
       }
+    } else {
+      processedBranding.logoUrl = getDefaultCoverLogoDataUrl("on-dark");
+      console.log('[PDF] No org logo — using Inspect360 LogoWhite for cover');
     }
     
     // Convert legacy trademark to base64
@@ -370,6 +377,12 @@ export async function generateInspectionPDF(
     }
     
     console.log('[PDF] Branding image processing complete');
+  } else {
+    processedBranding = {
+      logoUrl: getDefaultCoverLogoDataUrl("on-dark"),
+      brandingName: "Inspect360",
+    };
+    console.log('[PDF] No branding provided — using Inspect360 LogoWhite for cover');
   }
   
   const html = generateInspectionHTML(inspection, entries, baseUrl, processedBranding, maintenanceRequests, reportConfig);
@@ -755,16 +768,36 @@ function generateInspectionHTML(
       </tr>
     `;
 
-    // Add note row if exists
+    // Add note row if exists — split into description + maintenance + recommended panels
     if (note) {
+      const sections = parseInspectionNote(note);
       const colspan = 2 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1;
+      const descriptionBlock = sections.description
+        ? `<div style="margin-bottom: 8px; padding: 10px 12px; border-radius: 8px; border: 1px solid #e5e7eb; background: #f3f4f6;">
+            <div style="font-weight: 700; color: #111827; font-size: 13px; margin-bottom: 4px;">Description</div>
+            <div style="color: #374151; font-size: 13px; line-height: 1.5;">${formatText(sections.description)}</div>
+          </div>`
+        : !sections.maintenanceIssues && !sections.recommendedActions
+          ? `<div style="color: #78350f; font-size: 13px;">${formatText(note)}</div>`
+          : "";
+      const maintenanceBlock = sections.maintenanceIssues
+        ? `<div style="margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid #fecaca; background: #fef2f2;">
+            <div style="font-weight: 700; color: #991b1b; font-size: 13px; margin-bottom: 4px;">Maintenance Issues</div>
+            <div style="color: #7f1d1d; font-size: 13px; line-height: 1.5;">${formatText(sections.maintenanceIssues)}</div>
+          </div>`
+        : "";
+      const recommendedBlock = sections.recommendedActions
+        ? `<div style="margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid #99f6e4; background: #f0fdfa;">
+            <div style="font-weight: 700; color: #0f766e; font-size: 13px; margin-bottom: 4px;">Recommended Actions</div>
+            <div style="color: #115e59; font-size: 13px; line-height: 1.5;">${formatText(sections.recommendedActions)}</div>
+          </div>`
+        : "";
       rowHTML += `
         <tr>
-          <td colspan="${colspan}" style="padding: 8px 16px; border-bottom: 1px solid #e5e7eb; background: #fef3c7;">
-            <div style="display: flex; align-items: flex-start; gap: 8px;">
-              <span style="font-weight: 500; color: #92400e; font-size: 13px;">Note:</span>
-              <span style="color: #78350f; font-size: 13px;">${formatText(note)}</span>
-            </div>
+          <td colspan="${colspan}" style="padding: 10px 16px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
+            ${descriptionBlock}
+            ${maintenanceBlock}
+            ${recommendedBlock}
           </td>
         </tr>
       `;

@@ -30,11 +30,15 @@ const BIOMETRIC_EMAIL_KEY = 'biometric_email';
 const BIOMETRIC_PASSWORD_KEY = 'biometric_password';
 const LAST_LOGIN_EMAIL_KEY = 'last_login_email';
 
-const MOBILE_APP_ROLES = ['owner', 'clerk', 'contractor'] as const;
+const MOBILE_APP_ROLES = ['owner', 'clerk', 'contractor', 'tenant'] as const;
 
 function isMobileAppRole(role: string | undefined): boolean {
   if (!role) return false;
   return (MOBILE_APP_ROLES as readonly string[]).includes(role);
+}
+
+export function isTenantRole(role: string | undefined): boolean {
+  return role === 'tenant';
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -221,7 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await deleteStorageItem(USER_STORAGE_KEY);
           queryClient.clear();
           throw new Error(
-            'Access denied. This app is for organization owners, inspectors, and contractors.'
+            'Access denied. This app is for organization owners, inspectors, contractors, and tenants.'
           );
         }
 

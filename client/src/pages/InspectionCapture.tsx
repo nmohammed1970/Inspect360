@@ -1359,18 +1359,18 @@ export default function InspectionCapture() {
   }
 
   return (
-    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6">
+    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6 min-w-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2" data-testid="text-inspection-title">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2 break-words" data-testid="text-inspection-title">
             Inspection Capture
           </h1>
           <p className="text-xs sm:text-sm md:text-base text-muted-foreground">
             {inspection.propertyId ? "Property" : "Block"} Inspection
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
           {/* Online/Offline status */}
           <Badge
             variant={isOnline ? "default" : "secondary"}
@@ -1681,7 +1681,7 @@ export default function InspectionCapture() {
       </Card>
 
       {/* Section navigation */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-3 sm:mx-0 px-3 sm:px-0 min-w-0">
         {sections.map((section, index) => (
           <Button
             key={section.id}
@@ -1689,7 +1689,7 @@ export default function InspectionCapture() {
             size="sm"
             onClick={() => setCurrentSectionIndex(index)}
             data-testid={`button-section-${index}`}
-            className="text-xs sm:text-sm whitespace-nowrap flex-shrink-0"
+            className="text-xs sm:text-sm whitespace-nowrap shrink-0 min-h-11 px-3"
           >
             {section.title}
           </Button>
@@ -1698,27 +1698,28 @@ export default function InspectionCapture() {
 
       {/* Current section */}
       {currentSection && (
-        <Card className="border-2">
-          <CardHeader>
-            <CardTitle data-testid="text-section-title" className="text-xl font-bold">{currentSection.title}</CardTitle>
+        <Card className="border-2 min-w-0">
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle data-testid="text-section-title" className="text-lg sm:text-xl font-bold break-words">{currentSection.title}</CardTitle>
             {currentSection.description && (
-              <p className="text-sm text-muted-foreground" data-testid="text-section-description">
+              <p className="text-sm text-muted-foreground break-words" data-testid="text-section-description">
                 {currentSection.description}
               </p>
             )}
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 p-4 sm:p-6 pt-0">
             {/* Repeatable section count input */}
             {currentSection.repeatable && (
-              <div className="p-4 bg-muted/50 rounded-lg border-2 border-dashed">
-                <Label htmlFor={`repeatable-count-${currentSection.id}`} className="text-base font-semibold mb-2 block">
+              <div className="p-3 sm:p-4 bg-muted/50 rounded-lg border-2 border-dashed">
+                <Label htmlFor={`repeatable-count-${currentSection.id}`} className="text-base font-semibold mb-2 block break-words">
                   How many {currentSection.title.toLowerCase()}?
                 </Label>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
+                    className="min-h-11 min-w-11 shrink-0"
                     onClick={() => {
                       const currentCount = repeatableCounts[currentSection.id] ?? 1;
                       handleRepeatableCountChange(currentSection.id, currentCount - 1);
@@ -1737,12 +1738,13 @@ export default function InspectionCapture() {
                       const count = parseInt(e.target.value, 10) || 1;
                       handleRepeatableCountChange(currentSection.id, count);
                     }}
-                    className="w-24 text-center"
+                    className="w-24 min-h-11 text-center"
                   />
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
+                    className="min-h-11 min-w-11 shrink-0"
                     onClick={() => {
                       const currentCount = repeatableCounts[currentSection.id] ?? 1;
                       handleRepeatableCountChange(currentSection.id, currentCount + 1);
@@ -1751,7 +1753,7 @@ export default function InspectionCapture() {
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-muted-foreground break-words min-w-0 basis-full sm:basis-auto">
                     {(repeatableCounts[currentSection.id] ?? 1) > 0 
                       ? `${repeatableCounts[currentSection.id] ?? 1} ${currentSection.title.toLowerCase()} will be created`
                       : "Enter the number of items to inspect"}
@@ -1766,8 +1768,8 @@ export default function InspectionCapture() {
               Array.from({ length: repeatableCounts[currentSection.id] ?? 1 }).map((_, instanceIndex) => {
                 const instanceName = `${currentSection.title} ${instanceIndex + 1}`;
                 return (
-                  <div key={`instance-${instanceIndex}`} className="space-y-6 p-4 border-2 rounded-lg bg-card">
-                    <h3 className="text-lg font-semibold text-primary">{instanceName}</h3>
+                  <div key={`instance-${instanceIndex}`} className="space-y-6 p-3 sm:p-4 border-2 rounded-lg bg-card min-w-0">
+                    <h3 className="text-base sm:text-lg font-semibold text-primary break-words">{instanceName}</h3>
                     {currentSection.fields.map((field) => {
                       const sectionRef = `${currentSection.id}/${instanceName}`;
                       const entryKey = `${sectionRef}-${field.id}`;
@@ -1936,23 +1938,25 @@ export default function InspectionCapture() {
       )}
 
       {/* Navigation buttons */}
-      <div className="flex justify-between">
+      <div className="flex flex-wrap justify-between gap-2">
         <Button
           variant="outline"
+          className="min-h-11 flex-1 sm:flex-none"
           onClick={goToPreviousSection}
           disabled={currentSectionIndex === 0}
           data-testid="button-previous-section"
         >
-          <ChevronLeft className="w-4 h-4 mr-2" />
+          <ChevronLeft className="w-4 h-4 mr-2 shrink-0" />
           Previous
         </Button>
         <Button
+          className="min-h-11 flex-1 sm:flex-none"
           onClick={goToNextSection}
           disabled={currentSectionIndex === sections.length - 1}
           data-testid="button-next-section"
         >
           Next
-          <ChevronRight className="w-4 h-4 ml-2" />
+          <ChevronRight className="w-4 h-4 ml-2 shrink-0" />
         </Button>
       </div>
 

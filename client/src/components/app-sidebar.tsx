@@ -34,6 +34,9 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
 import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
+import { isLockedAppPath } from "@shared/entitlements";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { notifyEntitlementLock } from "@/lib/queryClient";
 
 export function AppSidebar() {
   const { user } = useAuth();
@@ -59,13 +62,14 @@ export function AppSidebar() {
   const companyName = organization?.brandingName || organization?.name || "Inspect360";
 
   const { isModuleEnabled } = useModules();
+  const { data: entitlement } = useEntitlement();
 
   const mainMenuItems = [
     {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
-      roles: ["owner", "compliance", "tenant", "contractor"],
+      roles: ["owner", "compliance", "tenant"],
     },
     {
       title: "Contacts",
@@ -116,6 +120,12 @@ export function AppSidebar() {
       roles: ["owner"],
     },
     {
+      title: "My Work Orders",
+      url: "/maintenance?tab=work-orders",
+      icon: Clipboard,
+      roles: ["clerk", "contractor"],
+    },
+    {
       title: "Reports",
       url: "/reports",
       icon: FileBarChart,
@@ -125,7 +135,7 @@ export function AppSidebar() {
       title: "Asset Inventory",
       url: "/asset-inventory",
       icon: Package,
-      roles: ["owner", "clerk", "compliance"],
+      roles: ["owner", "clerk", "compliance", "contractor"],
     },
     {
       title: "Community",
@@ -160,12 +170,12 @@ export function AppSidebar() {
   return (
     <Sidebar data-testid="sidebar-main">
       <SidebarHeader className="p-4 border-b">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <img
             key={organization?.logoUrl || 'default'}
             src={logoSrc}
             alt={companyName}
-            className="h-8 max-w-[180px] object-contain"
+            className="h-8 w-auto max-w-full object-contain"
             data-testid="img-sidebar-logo"
             onError={(e) => {
               // Fallback to default logo if image fails to load
@@ -182,8 +192,13 @@ export function AppSidebar() {
             <SidebarMenu>
               {filteredMainMenu.map((item) => {
                 const isActive = location === item.url;
-                const handleClick = () => {
-                  // Close sidebar on mobile when navigation item is clicked
+                const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
+                const handleClick = (event: { preventDefault: () => void }) => {
+                  if (itemLocked && (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")) {
+                    event.preventDefault();
+                    notifyEntitlementLock(entitlement.code);
+                    return;
+                  }
                   if (isMobile) {
                     setOpenMobile(false);
                   }
@@ -197,9 +212,9 @@ export function AppSidebar() {
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Link href={item.url} onClick={handleClick}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
+                      <Link href={item.url} onClick={handleClick} className={itemLocked ? "opacity-50" : undefined}>
+                        <item.icon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -209,7 +224,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {user?.role !== "clerk" && (
+        {user?.role !== "clerk" && user?.role !== "contractor" && (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>

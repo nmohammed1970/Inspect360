@@ -97,9 +97,16 @@ export default function SettingsTeamsPanel() {
     queryKey: ['/api/teams'],
   });
 
-  // Fetch users (organization members)
+  // Fetch users (organization members) — staff only; tenants don't belong on maintenance teams
   const { data: users = [] } = useQuery<User[]>({
     queryKey: ['/api/users'],
+  });
+  const staffUsers = users.filter((u) => u.role !== 'tenant');
+  const staffUserIdSet = new Set(staffUsers.map((u) => u.id));
+  const sanitizeTeamPayload = (data: TeamFormValues): TeamFormValues => ({
+    ...data,
+    // Never persist tenants on maintenance teams
+    userIds: (data.userIds || []).filter((id) => staffUserIdSet.has(id)),
   });
 
   // Fetch contacts (contractors)
@@ -116,7 +123,7 @@ export default function SettingsTeamsPanel() {
   const createMutation = useMutation({
     mutationFn: async (data: TeamFormValues) => {
       // Single server-side transactional create
-      return await apiRequest("POST", "/api/teams/full", data);
+      return await apiRequest("POST", "/api/teams/full", sanitizeTeamPayload(data));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/teams'] });
@@ -140,7 +147,7 @@ export default function SettingsTeamsPanel() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: TeamFormValues }) => {
       // Single server-side transactional update
-      return await apiRequest("PATCH", `/api/teams/${id}/full`, data);
+      return await apiRequest("PATCH", `/api/teams/${id}/full`, sanitizeTeamPayload(data));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/teams'] });
@@ -210,20 +217,36 @@ export default function SettingsTeamsPanel() {
 
   // Load team data when editing
   const loadTeamForEdit = async (team: Team) => {
-    const members: any = await apiRequest("GET", `/api/teams/${team.id}/members`);
-    const categories: any = await apiRequest("GET", `/api/teams/${team.id}/categories`);
-    
-    editForm.reset({
-      name: team.name,
-      description: team.description || "",
-      email: team.email,
-      isActive: team.isActive,
-      userIds: members.filter((m: any) => m.userId).map((m: any) => m.userId!),
-      contactIds: members.filter((m: any) => m.contactId).map((m: any) => m.contactId!),
-      categories: categories.map((c: any) => c.category),
-    });
-    
-    setEditingTeam(team);
+    try {
+      const membersRes = await apiRequest("GET", `/api/teams/${team.id}/members`);
+      const categoriesRes = await apiRequest("GET", `/api/teams/${team.id}/categories`);
+      const members = await membersRes.json();
+      const categories = await categoriesRes.json();
+
+      editForm.reset({
+        name: team.name,
+        description: team.description || "",
+        email: team.email,
+        isActive: team.isActive,
+        userIds: Array.isArray(members)
+          ? members.filter((m: any) => m.userId).map((m: any) => m.userId!)
+          : [],
+        contactIds: Array.isArray(members)
+          ? members.filter((m: any) => m.contactId).map((m: any) => m.contactId!)
+          : [],
+        categories: Array.isArray(categories)
+          ? categories.map((c: any) => c.category)
+          : [],
+      });
+
+      setEditingTeam(team);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to load team for editing",
+      });
+    }
   };
 
   return (
@@ -331,7 +354,7 @@ export default function SettingsTeamsPanel() {
 
       {/* Create Team Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-create-team">
+        <DialogContent className="max-w-2xl max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto" data-testid="dialog-create-team">
           <DialogHeader>
             <DialogTitle>Create Team</DialogTitle>
             <DialogDescription>
@@ -390,7 +413,7 @@ export default function SettingsTeamsPanel() {
                   <FormItem>
                     <FormLabel>Team Members (Staff)</FormLabel>
                     <div className="space-y-2">
-                      {users.map((user) => (
+                      {staffUsers.map((user) => (
                         <div key={user.id} className="flex items-center space-x-2">
                           <Checkbox
                             checked={field.value?.includes(user.id)}
@@ -407,6 +430,9 @@ export default function SettingsTeamsPanel() {
                           </Label>
                         </div>
                       ))}
+                      {staffUsers.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No staff users available.</p>
+                      )}
                     </div>
                     <FormMessage />
                   </FormItem>
@@ -522,7 +548,7 @@ export default function SettingsTeamsPanel() {
 
       {/* Edit Team Dialog */}
       <Dialog open={!!editingTeam} onOpenChange={(open) => !open && setEditingTeam(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-team">
+        <DialogContent className="max-w-2xl max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto" data-testid="dialog-edit-team">
           <DialogHeader>
             <DialogTitle>Edit Team</DialogTitle>
             <DialogDescription>
@@ -584,7 +610,7 @@ export default function SettingsTeamsPanel() {
                   <FormItem>
                     <FormLabel>Team Members (Staff)</FormLabel>
                     <div className="space-y-2 max-h-40 overflow-y-auto">
-                      {users.map((user) => (
+                      {staffUsers.map((user) => (
                         <div key={user.id} className="flex items-center space-x-2">
                           <Checkbox
                             checked={field.value?.includes(user.id)}
@@ -601,6 +627,9 @@ export default function SettingsTeamsPanel() {
                           </Label>
                         </div>
                       ))}
+                      {staffUsers.length === 0 && (
+                        <p className="text-sm text-muted-foreground">No staff users available.</p>
+                      )}
                     </div>
                     <FormMessage />
                   </FormItem>

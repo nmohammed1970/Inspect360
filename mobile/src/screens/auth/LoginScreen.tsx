@@ -6,16 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  useWindowDimensions,
-  Dimensions,
   Alert,
   Modal,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Eye, EyeOff, AlertCircle, Fingerprint } from 'lucide-react-native';
@@ -23,10 +16,15 @@ import { biometricService } from '../../services/biometric';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequestJson } from '../../services/api';
 import Logo from '../../components/ui/Logo';
+import FormScreen from '../../components/ui/FormScreen';
 import { colors, spacing, typography, borderRadius } from '../../theme';
-import { moderateScale, getButtonHeight, getFontSize } from '../../utils/responsive';
+import { useResponsive } from '../../hooks/useResponsive';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { AuthStackParamList } from '../../navigation/types';
 
 export default function LoginScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +49,14 @@ export default function LoginScreen() {
     hasBiometricCredentials 
   } = useAuth();
   const theme = useTheme();
-  const windowDimensions = useWindowDimensions();
-  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
+  const {
+    formMaxWidth,
+    isSmall,
+    moderateScale,
+    getButtonHeight,
+    getFontSize,
+    modalMaxHeight,
+  } = useResponsive();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   // Ensure text colors are always defined for visibility
@@ -391,14 +395,29 @@ export default function LoginScreen() {
       let errorStatus = err?.status;
 
       // Handle network connection errors FIRST (status might be undefined)
-      if (err?.message?.includes('Failed to fetch') || 
-          err?.message?.includes('Network request failed') ||
-          err?.message?.includes('ERR_CONNECTION_REFUSED') ||
-          err?.message?.includes('NetworkError') ||
-          err?.message?.includes('No network connection') ||
-          err?.message?.includes('Cannot connect to server') ||
-          err?.message?.includes('Server problem')) {
-        errorMessage = err.message || 'Server problem. Cannot connect to server. Please check your internet connection and try again later.';
+      const rawMessage = String(err?.message || '');
+      const isNetworkError =
+          rawMessage.includes('Failed to fetch') ||
+          rawMessage.includes('Network request failed') ||
+          rawMessage.includes('ERR_CONNECTION_REFUSED') ||
+          rawMessage.includes('NetworkError') ||
+          rawMessage.includes('No network connection') ||
+          rawMessage.includes('Cannot connect to server') ||
+          rawMessage.includes('Server problem') ||
+          rawMessage.includes('FetchRequestCanceled') ||
+          rawMessage.includes('Fetch request has been canceled') ||
+          rawMessage.includes('The network connection was lost') ||
+          rawMessage.includes('NoRouteToHost') ||
+          rawMessage.includes('Host unreachable') ||
+          rawMessage.includes('ECONNREFUSED') ||
+          rawMessage.includes('ENETUNREACH') ||
+          rawMessage.includes('EHOSTUNREACH') ||
+          rawMessage.includes('fetch failed') ||
+          /\bcanceled\b/i.test(rawMessage) ||
+          /\bcancelled\b/i.test(rawMessage);
+      if (isNetworkError) {
+        errorMessage =
+          'Cannot reach the server. Check that your phone and PC are on the same Wi‑Fi and that EXPO_PUBLIC_API_URL matches your PC IP (currently needs a Metro restart after .env changes).';
       }
       // Handle authentication errors (wrong password/email)
       else if (err?.status === 401 || err?.status === 403 || errorStatus === 401 || errorStatus === 403) {
@@ -455,14 +474,6 @@ export default function LoginScreen() {
       console.log('[LoginScreen] 🔴 SETTING ERROR STATE:', errorMessage);
       setError(errorMessage);
       
-      // Also show Alert as immediate fallback (always works)
-      Alert.alert(
-        modalTitle,
-        errorMessage,
-        [{ text: 'OK', onPress: () => console.log('[LoginScreen] Alert dismissed') }],
-        { cancelable: true }
-      );
-      
       // Determine modal title based on error type
       let modalTitle = 'Can\'t find account';
       const finalStatus = err?.status || errorStatus;
@@ -470,15 +481,23 @@ export default function LoginScreen() {
         modalTitle = 'Wrong credentials';
       } else if (finalStatus === 500 || finalStatus === 502 || finalStatus === 503 || finalStatus === 504) {
         modalTitle = 'Server error';
-      } else if (err?.message?.includes('Failed to fetch') || 
-                 err?.message?.includes('Network request failed') ||
-                 err?.message?.includes('ERR_CONNECTION_REFUSED') ||
-                 err?.message?.includes('Cannot connect to server') ||
-                 err?.message?.includes('No network connection')) {
+      } else if (isNetworkError ||
+                 rawMessage.includes('Cannot reach the server') ||
+                 rawMessage.includes('NoRouteToHost') ||
+                 rawMessage.includes('Host unreachable') ||
+                 rawMessage.includes('fetch failed')) {
         modalTitle = 'Connection error';
-      } else if (err?.name === 'AbortError' || err?.message?.includes('timeout')) {
+      } else if (err?.name === 'AbortError' || rawMessage.includes('timeout')) {
         modalTitle = 'Connection timeout';
       }
+
+      // Also show Alert as immediate fallback (always works)
+      Alert.alert(
+        modalTitle,
+        errorMessage,
+        [{ text: 'OK', onPress: () => console.log('[LoginScreen] Alert dismissed') }],
+        { cancelable: true }
+      );
       
       // ALWAYS show modal for any login error - this is critical for user feedback
       console.log('[LoginScreen] ⚠️ FORCING MODAL TO SHOW - Error detected:', {
@@ -534,182 +553,188 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: themeColors.background }}>
-      <StatusBar style={theme?.theme === 'dark' ? 'light' : 'dark'} />
-      <KeyboardAvoidingView
-        style={[styles.container, { backgroundColor: themeColors.background }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <View style={{ flex: 1, backgroundColor: themeColors.background }}>
+      <FormScreen
+        constrainWidth
+        edges={{ top: true, bottom: true }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isSmall && styles.scrollContentCompact,
+        ]}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.content}>
-            {/* Logo and App Name */}
-            <View style={styles.logoContainer}>
-              <Logo size={80} color={themeColors.primary.DEFAULT} />
-              <Text style={[styles.appName, { color: textPrimary }]}>INSPECT 360</Text>
-            </View>
+        <View style={[styles.content, { maxWidth: formMaxWidth }]}>
+          {/* Brand logo (wordmark includes the app name) */}
+          <View style={[styles.logoContainer, isSmall && styles.logoContainerCompact]}>
+            <Logo size={isSmall ? moderateScale(40) : moderateScale(52)} />
+          </View>
 
-            {/* Login Card */}
-            <View style={[
-              styles.card,
-              {
-                backgroundColor: themeColors.card.DEFAULT,
-                borderColor: themeColors.border.DEFAULT,
-                shadowColor: theme?.theme === 'dark' ? '#000000' : '#000000',
-                shadowOpacity: theme?.theme === 'dark' ? 0.3 : 0.1,
-              }
-            ]}>
-              <Text style={[styles.welcomeTitle, { color: textPrimary }]}>Welcome back</Text>
-              <Text style={[styles.welcomeSubtitle, { color: textSecondary }]}>
-                Enter your credentials to access your account
-              </Text>
+          {/* Login Card */}
+          <View style={[
+            styles.card,
+            isSmall && styles.cardCompact,
+            {
+              backgroundColor: themeColors.card.DEFAULT,
+              borderColor: themeColors.border.DEFAULT,
+              shadowColor: theme?.theme === 'dark' ? '#000000' : '#000000',
+              shadowOpacity: theme?.theme === 'dark' ? 0.3 : 0.1,
+            }
+          ]}>
+            <Text style={[styles.welcomeTitle, { color: textPrimary, fontSize: getFontSize(typography.fontSize['2xl']) }]}>
+              Welcome back
+            </Text>
+            <Text style={[styles.welcomeSubtitle, { color: textSecondary }]}>
+              Enter your credentials to access your account
+            </Text>
 
-              <View style={styles.form}>
-                <View style={styles.inputContainer}>
-                  <Text style={[styles.label, { color: textPrimary }]}>Email Address</Text>
+            <View style={styles.form}>
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: textPrimary }]}>Email Address</Text>
+                <TextInput
+                  style={[styles.input, {
+                    borderColor: error && !email.trim() ? themeColors.destructive.DEFAULT : themeColors.border.DEFAULT,
+                    backgroundColor: themeColors.input,
+                    color: themeColors.text.primary
+                  }]}
+                  placeholder="Enter your email address"
+                  placeholderTextColor={themeColors.text.muted}
+                  value={email}
+                  onChangeText={(text) => {
+                    handleEmailChange(text);
+                    // Only clear error if user is actively typing (not on initial load)
+                    if (error && text.length > 0) {
+                      setError(null);
+                    }
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  editable={!isLoading}
+                  autoComplete="email"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: textPrimary }]}>Password</Text>
+                <View style={styles.passwordContainer}>
                   <TextInput
-                    style={[styles.input, {
-                      borderColor: error && !email.trim() ? themeColors.destructive.DEFAULT : themeColors.border.DEFAULT,
+                    ref={passwordInputRef}
+                    style={[styles.passwordInput, {
+                      borderColor: error && !password.trim() ? themeColors.destructive.DEFAULT : themeColors.border.DEFAULT,
                       backgroundColor: themeColors.input,
                       color: themeColors.text.primary
                     }]}
-                    placeholder="Enter your email address"
+                    placeholder={biometricEnabled && isBiometricAvailable ? `Use ${biometricType} or enter password` : "Enter your password"}
                     placeholderTextColor={themeColors.text.muted}
-                    value={email}
+                    value={password}
                     onChangeText={(text) => {
-                      handleEmailChange(text);
+                      setPassword(text);
                       // Only clear error if user is actively typing (not on initial load)
                       if (error && text.length > 0) {
                         setError(null);
                       }
                     }}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="email-address"
+                    onFocus={handlePasswordFocus}
+                    secureTextEntry={!showPassword}
                     editable={!isLoading}
-                    autoComplete="email"
+                    onSubmitEditing={handleLogin}
+                    autoComplete="password"
+                    textContentType="password"
                   />
-                </View>
-
-                <View style={styles.inputContainer}>
-                  <Text style={[styles.label, { color: textPrimary }]}>Password</Text>
-                  <View style={styles.passwordContainer}>
-                    <TextInput
-                      ref={passwordInputRef}
-                      style={[styles.passwordInput, {
-                        borderColor: error && !password.trim() ? themeColors.destructive.DEFAULT : themeColors.border.DEFAULT,
-                        backgroundColor: themeColors.input,
-                        color: themeColors.text.primary
-                      }]}
-                      placeholder={biometricEnabled && isBiometricAvailable ? `Use ${biometricType} or enter password` : "Enter your password"}
-                      placeholderTextColor={themeColors.text.muted}
-                      value={password}
-                      onChangeText={(text) => {
-                        setPassword(text);
-                        // Only clear error if user is actively typing (not on initial load)
-                        if (error && text.length > 0) {
-                          setError(null);
-                        }
-                      }}
-                      onFocus={handlePasswordFocus}
-                      secureTextEntry={!showPassword}
-                      editable={!isLoading}
-                      onSubmitEditing={handleLogin}
-                      autoComplete="password"
-                      textContentType="password"
-                    />
-                    {biometricEnabled && isBiometricAvailable ? (
-                      <TouchableOpacity
-                        style={styles.biometricButton}
-                        onPress={handleBiometricLogin}
-                        disabled={!!isLoading}
-                      >
-                        <Fingerprint size={20} color={themeColors.primary.DEFAULT} />
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.eyeButton}
-                        onPress={() => setShowPassword(!showPassword)}
-                        disabled={!!isLoading}
-                      >
-                        {showPassword ? (
-                          <EyeOff size={20} color={themeColors.text.secondary} />
-                        ) : (
-                          <Eye size={20} color={themeColors.text.secondary} />
-                        )}
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {biometricEnabled && isBiometricAvailable && (
-                    <Text style={[styles.biometricHint, { color: themeColors.text.muted }]}>
-                      Tap {biometricType} icon or password field to login with {biometricType}
-                    </Text>
-                  )}
-                </View>
-
-                <TouchableOpacity
-                  style={styles.forgotPassword}
-                  onPress={() => {
-                    // TODO: Implement forgot password
-                  }}
-                  disabled={!!isLoading}
-                >
-                  <Text style={[styles.forgotPasswordText, { color: themeColors.primary.DEFAULT }]}>Forgot password?</Text>
-                </TouchableOpacity>
-
-                {/* Error Message Display - Always visible when error exists */}
-                {(error || errorStateRef.current?.message) && (
-                  <View style={[styles.errorContainer, {
-                    backgroundColor: themeColors.destructive.DEFAULT + '20',
-                    borderColor: themeColors.destructive.DEFAULT,
-                  }]}>
-                    <View style={styles.errorContent}>
-                      <AlertCircle size={18} color={themeColors.destructive.DEFAULT} style={styles.errorIcon} />
-                      <Text style={[styles.errorText, { color: themeColors.destructive.DEFAULT }]}>
-                        {error || errorStateRef.current?.message || 'An error occurred. Please try again.'}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={[
-                    {
-                      backgroundColor: themeColors.primary.DEFAULT,
-                      borderRadius: moderateScale(borderRadius.md, 0.2, screenWidth),
-                      paddingVertical: moderateScale(spacing[4], 0.3, screenWidth),
-                      paddingHorizontal: moderateScale(spacing[4], 0.3, screenWidth),
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minHeight: getButtonHeight('md', screenWidth),
-                      marginTop: moderateScale(spacing[2], 0.3, screenWidth),
-                    },
-                    isLoading && { opacity: 0.6 }
-                  ]}
-                  onPress={handleLogin}
-                  disabled={!!isLoading}
-                  activeOpacity={0.8}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color={themeColors.primary.foreground} />
+                  {biometricEnabled && isBiometricAvailable ? (
+                    <TouchableOpacity
+                      style={styles.biometricButton}
+                      onPress={handleBiometricLogin}
+                      disabled={!!isLoading}
+                    >
+                      <Fingerprint size={20} color={themeColors.primary.DEFAULT} />
+                    </TouchableOpacity>
                   ) : (
-                    <Text style={[
-                      {
-                        fontSize: getFontSize(typography.fontSize.base, screenWidth),
-                        fontWeight: typography.fontWeight.semibold,
-                        color: themeColors.primary.foreground,
-                      }
-                    ]}>Sign in</Text>
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword(!showPassword)}
+                      disabled={!!isLoading}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={20} color={themeColors.text.secondary} />
+                      ) : (
+                        <Eye size={20} color={themeColors.text.secondary} />
+                      )}
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
+                </View>
+                {biometricEnabled && isBiometricAvailable && (
+                  <Text style={[styles.biometricHint, { color: themeColors.text.muted }]}>
+                    Tap {biometricType} icon or password field to login with {biometricType}
+                  </Text>
+                )}
               </View>
+
+              <TouchableOpacity
+                style={styles.forgotPassword}
+                onPress={() => navigation.navigate('ForgotPassword')}
+                disabled={!!isLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Forgot password"
+              >
+                <Text style={[styles.forgotPasswordText, { color: themeColors.primary.DEFAULT }]}>Forgot password?</Text>
+              </TouchableOpacity>
+
+              {/* Error Message Display - Always visible when error exists */}
+              {(error || errorStateRef.current?.message) && (
+                <View style={[styles.errorContainer, {
+                  backgroundColor: themeColors.destructive.DEFAULT + '20',
+                  borderColor: themeColors.destructive.DEFAULT,
+                  padding: moderateScale(spacing[3], 0.3),
+                  borderRadius: moderateScale(borderRadius.md, 0.2),
+                  minHeight: moderateScale(44, 0.3),
+                }]}>
+                  <View style={styles.errorContent}>
+                    <AlertCircle size={18} color={themeColors.destructive.DEFAULT} style={styles.errorIcon} />
+                    <Text style={[styles.errorText, {
+                      color: themeColors.destructive.DEFAULT,
+                      fontSize: moderateScale(typography.fontSize.sm, 0.3),
+                      lineHeight: moderateScale(20, 0.3),
+                    }]}>
+                      {error || errorStateRef.current?.message || 'An error occurred. Please try again.'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  {
+                    backgroundColor: themeColors.primary.DEFAULT,
+                    borderRadius: moderateScale(borderRadius.md, 0.2),
+                    paddingVertical: moderateScale(spacing[4], 0.3),
+                    paddingHorizontal: moderateScale(spacing[4], 0.3),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: getButtonHeight('md'),
+                    marginTop: moderateScale(spacing[2], 0.3),
+                  },
+                  isLoading && { opacity: 0.6 }
+                ]}
+                onPress={handleLogin}
+                disabled={!!isLoading}
+                activeOpacity={0.8}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color={themeColors.primary.foreground} />
+                ) : (
+                  <Text style={[
+                    {
+                      fontSize: getFontSize(typography.fontSize.base),
+                      fontWeight: typography.fontWeight.semibold,
+                      color: themeColors.primary.foreground,
+                    }
+                  ]}>Sign in</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </View>
+      </FormScreen>
 
       {/* Error Modal - Shows for wrong credentials, server errors, and connection issues */}
       <Modal
@@ -739,18 +764,35 @@ export default function LoginScreen() {
             style={[styles.modalContainer, {
               backgroundColor: themeColors.card.DEFAULT,
               borderColor: themeColors.border.DEFAULT,
+              maxWidth: formMaxWidth,
+              maxHeight: modalMaxHeight(0.85),
+              borderRadius: moderateScale(borderRadius.lg, 0.2),
+              padding: moderateScale(spacing[6], 0.3),
             }]}
           >
-            <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>
+            <Text style={[styles.modalTitle, {
+              color: themeColors.text.primary,
+              fontSize: moderateScale(typography.fontSize.xl, 0.3),
+              marginBottom: moderateScale(spacing[3], 0.3),
+            }]}>
               {errorModalTitle}
             </Text>
-            <Text style={[styles.modalMessage, { color: themeColors.text.secondary }]}>
+            <Text style={[styles.modalMessage, {
+              color: themeColors.text.secondary,
+              fontSize: moderateScale(typography.fontSize.base, 0.3),
+              lineHeight: moderateScale(22, 0.3),
+              marginBottom: moderateScale(spacing[6], 0.3),
+            }]}>
               {errorModalMessage || 'We couldn\'t log you in. Please check your credentials and try again.'}
             </Text>
-            <View style={styles.modalButtons}>
+            <View style={[styles.modalButtons, { gap: moderateScale(spacing[3], 0.3) }]}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonPrimary, {
                   backgroundColor: themeColors.primary.DEFAULT,
+                  paddingVertical: moderateScale(spacing[3], 0.3),
+                  paddingHorizontal: moderateScale(spacing[4], 0.3),
+                  borderRadius: moderateScale(borderRadius.md, 0.2),
+                  minHeight: moderateScale(44, 0.3),
                 }]}
                 onPress={() => {
                   console.log('[LoginScreen] TRY AGAIN button pressed');
@@ -758,7 +800,10 @@ export default function LoginScreen() {
                   setError(null);
                 }}
               >
-                <Text style={[styles.modalButtonText, { color: themeColors.primary.foreground }]}>
+                <Text style={[styles.modalButtonText, {
+                  color: themeColors.primary.foreground,
+                  fontSize: moderateScale(typography.fontSize.sm, 0.3),
+                }]}>
                   TRY AGAIN
                 </Text>
               </TouchableOpacity>
@@ -766,36 +811,30 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: spacing[4],
+  },
+  scrollContentCompact: {
+    justifyContent: 'flex-start',
   },
   content: {
     width: '100%',
-    maxWidth: 400,
+    minWidth: 0,
     alignSelf: 'center',
   },
   logoContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing[8],
-    gap: spacing[3],
   },
-  appName: {
-    fontSize: typography.fontSize['2xl'],
-    fontWeight: typography.fontWeight.bold,
-    letterSpacing: 1,
-    // Color applied dynamically via themeColors
+  logoContainerCompact: {
+    marginBottom: spacing[4],
   },
   card: {
     borderRadius: borderRadius.xl,
@@ -809,10 +848,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
     borderWidth: 1,
-    // Border and background colors applied dynamically via themeColors
+  },
+  cardCompact: {
+    padding: spacing[4],
   },
   welcomeTitle: {
-    fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
     marginBottom: spacing[2],
   },
@@ -822,6 +862,7 @@ const styles = StyleSheet.create({
   },
   form: {
     width: '100%',
+    minWidth: 0,
   },
   inputContainer: {
     marginBottom: spacing[5],
@@ -837,14 +878,17 @@ const styles = StyleSheet.create({
     padding: spacing[3],
     fontSize: typography.fontSize.base,
     minHeight: 44,
+    width: '100%',
   },
   passwordContainer: {
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
   },
   passwordInput: {
     flex: 1,
+    minWidth: 0,
     borderWidth: 1,
     borderRadius: borderRadius.md,
     padding: spacing[3],
@@ -879,10 +923,7 @@ const styles = StyleSheet.create({
   errorContainer: {
     marginBottom: spacing[4],
     marginTop: spacing[2],
-    padding: moderateScale(spacing[3], 0.3, Dimensions.get('window').width),
-    borderRadius: moderateScale(borderRadius.md, 0.2, Dimensions.get('window').width),
     borderWidth: 1,
-    minHeight: moderateScale(44, 0.3, Dimensions.get('window').width),
   },
   errorContent: {
     flexDirection: 'row',
@@ -895,11 +936,10 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   errorText: {
-    fontSize: moderateScale(typography.fontSize.sm, 0.3, Dimensions.get('window').width),
     flex: 1,
+    minWidth: 0,
     textAlign: 'left',
     fontWeight: typography.fontWeight.medium,
-    lineHeight: moderateScale(20, 0.3, Dimensions.get('window').width),
   },
   modalOverlay: {
     flex: 1,
@@ -908,18 +948,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing[4],
   },
-  modalOverlayTouchable: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
   modalContainer: {
     width: '100%',
-    maxWidth: 400,
-    borderRadius: moderateScale(borderRadius.lg, 0.2, Dimensions.get('window').width),
-    padding: moderateScale(spacing[6], 0.3, Dimensions.get('window').width),
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: {
@@ -931,35 +961,25 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   modalTitle: {
-    fontSize: moderateScale(typography.fontSize.xl, 0.3, Dimensions.get('window').width),
     fontWeight: typography.fontWeight.bold,
-    marginBottom: moderateScale(spacing[3], 0.3, Dimensions.get('window').width),
     textAlign: 'center',
   },
   modalMessage: {
-    fontSize: moderateScale(typography.fontSize.base, 0.3, Dimensions.get('window').width),
-    lineHeight: moderateScale(22, 0.3, Dimensions.get('window').width),
-    marginBottom: moderateScale(spacing[6], 0.3, Dimensions.get('window').width),
     textAlign: 'center',
   },
   modalButtons: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: moderateScale(spacing[3], 0.3, Dimensions.get('window').width),
   },
   modalButton: {
     flex: 1,
-    paddingVertical: moderateScale(spacing[3], 0.3, Dimensions.get('window').width),
-    paddingHorizontal: moderateScale(spacing[4], 0.3, Dimensions.get('window').width),
-    borderRadius: moderateScale(borderRadius.md, 0.2, Dimensions.get('window').width),
+    minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalButtonPrimary: {
-    minHeight: moderateScale(44, 0.3, Dimensions.get('window').width),
-  },
+  modalButtonPrimary: {},
   modalButtonText: {
-    fontSize: moderateScale(typography.fontSize.sm, 0.3, Dimensions.get('window').width),
     fontWeight: typography.fontWeight.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,

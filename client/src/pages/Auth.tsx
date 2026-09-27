@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BRAND_LOGO_MASTER, BRAND_LOGO_ON_DARK } from "@/lib/brandAssets";
 import { getCachedUserCountry } from "@/lib/geolocation";
 import { COMMON_COUNTRIES } from "@shared/countryUtils";
+import { MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
+import { formGrid2 } from "@/lib/responsive";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -116,11 +118,11 @@ export default function Auth() {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Password must be at least 6 characters",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
       });
       return;
     }
@@ -154,13 +156,13 @@ export default function Auth() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex min-h-dvh lg:h-dvh">
       {/* Left Column - Form */}
-      <div className="flex flex-1 items-center justify-center p-4 md:p-8 bg-background">
-        <div className="w-full max-w-md">
+      <div className="flex flex-1 items-start justify-center overflow-y-auto max-h-dvh p-4 md:p-8 bg-background">
+        <div className="w-full max-w-md py-4 sm:py-8">
           {/* Logo above card */}
-          <div className="flex justify-center mb-8">
-            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-14 w-auto object-contain" />
+          <div className="flex justify-center mb-6 sm:mb-8">
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-12 sm:h-14 w-auto object-contain" />
           </div>
           
           <Card className="border-border/60">
@@ -240,7 +242,7 @@ export default function Auth() {
                 </form>
               ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={formGrid2}>
                     <div className="space-y-2">
                       <Label htmlFor="first-name">First name</Label>
                       <Input

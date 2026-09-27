@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   TouchableOpacity,
   Image,
@@ -10,17 +9,17 @@ import {
   Modal,
   FlatList,
   Linking,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { Upload, Plus, X, FileText, Trash2, User as UserIcon, Mail, Shield, LogOut, Fingerprint } from 'lucide-react-native';
+import { Upload, Plus, X, FileText, Trash2, User as UserIcon, Mail, Shield, LogOut, Fingerprint, ChevronLeft } from 'lucide-react-native';
 import { profileService, type UpdateProfileData, type UserDocument } from '../../services/profile';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
 import { biometricService } from '../../services/biometric';
@@ -34,6 +33,8 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { Moon, Sun, Monitor } from 'lucide-react-native';
 import { getTeamRoleDisplayLabel } from '../../constants/roleLabels';
+import { useResponsive } from '../../hooks/useResponsive';
+import FormScreen from '../../components/ui/FormScreen';
 
 const DOCUMENT_TYPES = [
   { value: 'license', label: 'License' },
@@ -44,12 +45,19 @@ const DOCUMENT_TYPES = [
 
 export default function ProfileScreen() {
   const { user, logout, storeBiometricCredentials, clearBiometricCredentials, getStoredEmail } = useAuth();
+  const isTenant = user?.role === 'tenant';
   const isOnline = useOnlineStatus();
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   const { themeMode, setThemeMode, isDark } = theme;
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
+  const navigation = useNavigation();
+  const canGoBack = navigation.canGoBack();
+  const { moderateScale, modalMaxHeight, stackDirection, formMaxWidth } = useResponsive();
+  const avatarSize = moderateScale(120);
+  const avatarOverlaySize = moderateScale(36);
+  const modalDir = stackDirection(360);
   const queryClient = useQueryClient();
   
   // Biometric state
@@ -73,6 +81,10 @@ export default function ProfileScreen() {
   const [pendingDocFileExtension, setPendingDocFileExtension] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [biometricPassword, setBiometricPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // Fetch current user profile
   const { data: profile, isLoading } = useQuery({
@@ -110,10 +122,11 @@ export default function ProfileScreen() {
     }
   }, [profile]);
 
-  // Fetch user documents
+  // Fetch user documents (operators only — tenants do not manage inspector docs)
   const { data: documents = [], isLoading: documentsLoading } = useQuery<UserDocument[]>({
     queryKey: ['/api/user-documents'],
     queryFn: () => profileService.getUserDocuments(),
+    enabled: !isTenant,
   });
 
   // Initialize form data from profile or user (auth context) - prefer profile, fall back to user
@@ -242,12 +255,14 @@ export default function ProfileScreen() {
       data.profileImageUrl = profileImageUrl;
     }
 
-    // Only include arrays if they have items
-    if (skills.length > 0) {
-      data.skills = skills;
-    }
-    if (qualifications.length > 0) {
-      data.qualifications = qualifications;
+    // Skills/qualifications are operator-only
+    if (!isTenant) {
+      if (skills.length > 0) {
+        data.skills = skills;
+      }
+      if (qualifications.length > 0) {
+        data.qualifications = qualifications;
+      }
     }
 
     // Ensure we have at least one field to update
@@ -290,7 +305,7 @@ export default function ProfileScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images' as any,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -725,6 +740,23 @@ export default function ProfileScreen() {
         ]}
       >
         <View style={styles.screenHeaderTitleBlock}>
+          {canGoBack ? (
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              hitSlop={12}
+              style={[
+                styles.backButton,
+                {
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: themeColors.background,
+                },
+              ]}
+            >
+              <ChevronLeft size={22} color={themeColors.text.primary} />
+            </TouchableOpacity>
+          ) : null}
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: themeColors.text.primary }]}>Profile</Text>
             <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>
@@ -734,22 +766,17 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView
+      <FormScreen
         style={{ flex: 1, backgroundColor: themeColors.background }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        edges={{ bottom: true }}
+        contentContainerStyle={{
+          paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
+          maxWidth: formMaxWidth,
+          width: '100%',
+          alignSelf: 'center',
+        }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? Math.max(insets.top, 8) : 0}
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.contentContainer,
-            {
-              paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
           {/* Personal Information */}
           <Card style={styles.card} padding="sm">
             <View
@@ -767,7 +794,16 @@ export default function ProfileScreen() {
 
             <View style={[styles.avatarSection, styles.personalInfoAvatarSection]}>
               <View style={[styles.avatarWrapper, styles.personalInfoAvatarWrapper]}>
-                <View style={styles.avatarContainer}>
+                <View
+                  style={[
+                    styles.avatarContainer,
+                    {
+                      width: avatarSize,
+                      height: avatarSize,
+                      borderRadius: avatarSize / 2,
+                    },
+                  ]}
+                >
                   {getProfileImageUrl() ? (
                     <Image
                       source={{ uri: getProfileImageUrl() || '' }}
@@ -791,7 +827,16 @@ export default function ProfileScreen() {
                   )}
                 </View>
                 <TouchableOpacity
-                  style={[styles.avatarOverlay, { backgroundColor: themeColors.primary.DEFAULT, borderColor: themeColors.background }]}
+                  style={[
+                    styles.avatarOverlay,
+                    {
+                      backgroundColor: themeColors.primary.DEFAULT,
+                      borderColor: themeColors.background,
+                      width: avatarOverlaySize,
+                      height: avatarOverlaySize,
+                      borderRadius: avatarOverlaySize / 2,
+                    },
+                  ]}
                   onPress={handleUploadPhoto}
                   activeOpacity={0.8}
                 >
@@ -850,6 +895,9 @@ export default function ProfileScreen() {
             />
           </Card>
 
+          {/* Skills / Qualifications / Documents — operators only */}
+          {!isTenant && (
+            <>
           {/* Skills */}
           <Card style={styles.card}>
             <View style={[styles.cardHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -971,7 +1019,7 @@ export default function ProfileScreen() {
                 <View style={styles.cardTitleRow}>
                   <View style={styles.cardTitleContainer}>
                     <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Documents</Text>
-                    <Text style={[styles.cardSubtitle, { color: themeColors.text.secondary }]}>Upload and manage your professional documents</Text>
+                    <Text style={[styles.cardSubtitle, { color: themeColors.text.secondary, minWidth: 0 }]}>Upload and manage your professional documents</Text>
                   </View>
                   <Button
                     title="Upload"
@@ -1009,7 +1057,11 @@ export default function ProfileScreen() {
                     >
                       <FileText size={20} color={themeColors.primary.DEFAULT} />
                       <View style={styles.documentDetails}>
-                        <Text style={[styles.documentName, { color: themeColors.text.primary }]}>{doc.documentName}</Text>
+                        <Text
+                          style={[styles.documentName, { color: themeColors.text.primary, minWidth: 0 }]}
+                        >
+                          {doc.documentName}
+                        </Text>
                         <Text style={[styles.documentType, { color: themeColors.text.secondary }]}>
                           {DOCUMENT_TYPES.find((t) => t.value === doc.documentType)?.label || doc.documentType}
                         </Text>
@@ -1026,6 +1078,8 @@ export default function ProfileScreen() {
               </View>
             )}
           </Card>
+            </>
+          )}
 
           {/* Appearance Settings */}
           <Card style={styles.card}>
@@ -1129,7 +1183,7 @@ export default function ProfileScreen() {
               </View>
 
               <View style={styles.biometricToggleRow}>
-                <View style={styles.biometricToggleLeft}>
+                <View style={[styles.biometricToggleLeft, { minWidth: 0 }]}>
                   <Text style={[styles.biometricToggleLabel, { color: themeColors.text.primary }]}>
                     Enable Biometric Login
                   </Text>
@@ -1240,9 +1294,9 @@ export default function ProfileScreen() {
                   <View style={[styles.infoIconContainer, { backgroundColor: `${themeColors.primary.DEFAULT} 15` }]}>
                     <Mail size={18} color={themeColors.primary.DEFAULT} />
                   </View>
-                  <View style={styles.infoTextContainer}>
+                  <View style={[styles.infoTextContainer, { minWidth: 0 }]}>
                     <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Email</Text>
-                    <Text style={[styles.infoValue, { color: themeColors.text.primary }]} numberOfLines={1}>
+                    <Text style={[styles.infoValue, { color: themeColors.text.primary, minWidth: 0 }]}>
                       {displayUser?.email || 'N/A'}
                     </Text>
                   </View>
@@ -1254,9 +1308,9 @@ export default function ProfileScreen() {
                   <View style={[styles.infoIconContainer, { backgroundColor: `${themeColors.primary.DEFAULT} 15` }]}>
                     <UserIcon size={18} color={themeColors.primary.DEFAULT} />
                   </View>
-                  <View style={styles.infoTextContainer}>
+                  <View style={[styles.infoTextContainer, { minWidth: 0 }]}>
                     <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Username</Text>
-                    <Text style={[styles.infoValue, { color: themeColors.text.primary }]} numberOfLines={1}>
+                    <Text style={[styles.infoValue, { color: themeColors.text.primary, minWidth: 0 }]}>
                       {displayUser?.username || 'N/A'}
                     </Text>
                   </View>
@@ -1276,6 +1330,71 @@ export default function ProfileScreen() {
                   </View>
                 </View>
               </View>
+            </View>
+          </Card>
+
+          {/* Change Password */}
+          <Card style={styles.card}>
+            <View style={[styles.cardHeader, { borderBottomColor: themeColors.border.light }]}>
+              <View>
+                <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Change password</Text>
+                <Text style={[styles.cardSubtitle, { color: themeColors.text.secondary }]}>
+                  Update your account password
+                </Text>
+              </View>
+            </View>
+            <View style={{ gap: 12 }}>
+              <Input
+                label="Current password"
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <Input
+                label="New password"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <Input
+                label="Confirm new password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <Button
+                title="Update password"
+                loading={changingPassword}
+                onPress={async () => {
+                  if (!currentPassword || !newPassword) {
+                    Alert.alert('Missing fields', 'Please fill in all password fields.');
+                    return;
+                  }
+                  if (newPassword !== confirmPassword) {
+                    Alert.alert('Mismatch', 'New password and confirmation do not match.');
+                    return;
+                  }
+                  if (newPassword.length < 8) {
+                    Alert.alert('Too short', 'New password must be at least 8 characters.');
+                    return;
+                  }
+                  setChangingPassword(true);
+                  try {
+                    await profileService.changePassword({ currentPassword, newPassword });
+                    setCurrentPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                    Alert.alert('Password updated', 'Your password has been changed successfully.');
+                  } catch (e: any) {
+                    Alert.alert('Unable to change password', e?.message || 'Please try again.');
+                  } finally {
+                    setChangingPassword(false);
+                  }
+                }}
+              />
             </View>
           </Card>
 
@@ -1321,9 +1440,16 @@ export default function ProfileScreen() {
             }}
           >
             <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
+              <View style={[
+                styles.modalContent,
+                {
+                  backgroundColor: themeColors.card.DEFAULT,
+                  borderColor: themeColors.border.DEFAULT,
+                  maxHeight: modalMaxHeight(0.9),
+                },
+              ]}>
                 <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
-                  <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Enter Password</Text>
+                  <Text style={[styles.modalTitle, { color: themeColors.text.primary, minWidth: 0, flex: 1 }]}>Enter Password</Text>
                   <TouchableOpacity
                     onPress={() => {
                       setShowPasswordModal(false);
@@ -1347,7 +1473,7 @@ export default function ProfileScreen() {
                     secureTextEntry
                     autoFocus
                   />
-                  <View style={styles.modalButtons}>
+                  <View style={[styles.modalButtons, { flexDirection: modalDir }]}>
                     <TouchableOpacity
                       style={[styles.modalButton, styles.modalButtonCancel, { borderColor: themeColors.border.DEFAULT }]}
                       onPress={() => {
@@ -1433,11 +1559,12 @@ export default function ProfileScreen() {
                 styles.modalContent,
                 {
                   backgroundColor: themeColors.background,
-                  paddingBottom: Math.max(insets.bottom || 0, spacing[4])
+                  paddingBottom: Math.max(insets.bottom || 0, spacing[4]),
+                  maxHeight: modalMaxHeight(0.9),
                 }
               ]}>
                 <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
-                  <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Add Document</Text>
+                  <Text style={[styles.modalTitle, { color: themeColors.text.primary, minWidth: 0, flex: 1 }]}>Add Document</Text>
                   <TouchableOpacity
                     onPress={() => setShowDocumentForm(false)}
                     style={[styles.modalCloseButton, { backgroundColor: themeColors.card.DEFAULT }]}
@@ -1498,8 +1625,7 @@ export default function ProfileScreen() {
               </View>
             </View>
           </Modal>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
     </View>
   );
 }
@@ -1516,12 +1642,22 @@ const styles = StyleSheet.create({
   },
   screenHeaderTitleBlock: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: spacing[3],
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
   },
   headerText: {
     flex: 1,
     marginRight: spacing[2],
+    minWidth: 0,
   },
   title: {
     fontSize: typography.fontSize['2xl'],
@@ -1578,6 +1714,7 @@ const styles = StyleSheet.create({
   cardTitleContainer: {
     flex: 1,
     marginRight: spacing[2],
+    minWidth: 0,
   },
   cardTitle: {
     fontSize: typography.fontSize.xl || 20,
@@ -1599,9 +1736,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing[3],
   },
   avatarContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
     overflow: 'hidden',
     borderWidth: 3,
     borderColor: colors.primary.DEFAULT + '40',
@@ -1611,9 +1745,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
@@ -1731,11 +1862,13 @@ const styles = StyleSheet.create({
   },
   documentDetails: {
     flex: 1,
+    minWidth: 0,
   },
   documentName: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
     marginBottom: spacing[1],
+    flexShrink: 1,
   },
   documentType: {
     fontSize: typography.fontSize.sm,
@@ -1772,6 +1905,7 @@ const styles = StyleSheet.create({
   infoTextContainer: {
     flex: 1,
     gap: spacing[1],
+    minWidth: 0,
   },
   infoLabel: {
     fontSize: typography.fontSize.sm,
@@ -1782,6 +1916,7 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold,
+    flexShrink: 1,
   },
   logoutButton: {
     marginTop: spacing[4],
@@ -1812,9 +1947,9 @@ const styles = StyleSheet.create({
   modalContent: {
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    maxHeight: '85%',
     paddingTop: spacing[4],
     paddingHorizontal: spacing[4],
+    width: '100%',
     ...shadows.lg,
   },
   modalHeader: {
@@ -1824,11 +1959,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing[4],
     paddingBottom: spacing[4],
     borderBottomWidth: 1,
+    gap: spacing[2],
   },
   modalTitle: {
     fontSize: typography.fontSize.xl || 20,
     fontWeight: typography.fontWeight.bold,
     letterSpacing: 0.3,
+    minWidth: 0,
   },
   modalClose: {
     fontSize: typography.fontSize.xl || 20,
@@ -1914,11 +2051,13 @@ const styles = StyleSheet.create({
   },
   themeOptions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing[3],
     marginTop: spacing[2],
   },
   themeOption: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: 100,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1975,6 +2114,7 @@ const styles = StyleSheet.create({
   biometricToggleLeft: {
     flex: 1,
     marginRight: spacing[4],
+    minWidth: 0,
   },
   biometricToggleLabel: {
     fontSize: typography.fontSize.base,

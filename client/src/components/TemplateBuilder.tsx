@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Trash2, GripVertical, Save, X, Eye, Code, ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { z } from "zod";
@@ -321,7 +322,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       case "long_text":
         return <Textarea disabled placeholder={field.placeholder || "Enter text..."} className="bg-muted/50 min-h-[80px]" />;
       case "number":
-        return <Input disabled type="number" placeholder={field.placeholder || "0"} className="bg-muted/50 max-w-[200px]" />;
+        return <Input disabled type="number" placeholder={field.placeholder || "0"} className="bg-muted/50 w-full max-w-[200px]" />;
       case "rating":
         return (
           <div className="flex gap-1">
@@ -335,7 +336,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       case "select":
         return (
           <Select disabled>
-            <SelectTrigger className="bg-muted/50 max-w-[300px]">
+            <SelectTrigger className="bg-muted/50 w-full max-w-[300px]">
               <SelectValue placeholder={field.options?.[0] || "Select option..."} />
             </SelectTrigger>
           </Select>
@@ -356,7 +357,14 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
           </div>
         );
       case "date":
-        return <Input disabled type="date" className="bg-muted/50 max-w-[200px]" />;
+        return (
+          <LocaleDateInput
+            disabled
+            value={null}
+            onChange={() => {}}
+            className="bg-muted/50 max-w-[200px]"
+          />
+        );
       case "time":
         return <Input disabled type="time" className="bg-muted/50 max-w-[150px]" />;
       case "datetime":
@@ -417,38 +425,40 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl h-[90vh] p-0 gap-0 flex flex-col">
-        <DialogHeader className="p-6 pb-4 border-b">
-          <div className="flex items-center justify-between">
-            <DialogTitle className="text-2xl">
+      <DialogContent className="max-w-6xl h-[min(90vh,calc(100dvh-2rem))] p-0 gap-0 flex flex-col overflow-hidden">
+        <DialogHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b shrink-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pr-8 sm:pr-0">
+            <DialogTitle className="text-xl sm:text-2xl break-words min-w-0">
               {template ? "Edit Template" : "Create Template"}
             </DialogTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPreviewMode(!previewMode)}
                 data-testid="button-toggle-preview"
               >
-                {previewMode ? <Code className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+                {previewMode ? <Code className="w-4 h-4 mr-2 shrink-0" /> : <Eye className="w-4 h-4 mr-2 shrink-0" />}
                 {previewMode ? "Edit" : "Preview"}
               </Button>
               <Button
+                className="min-h-11"
                 onClick={handleSave}
                 disabled={saveMutation.isPending}
                 data-testid="button-save-template"
               >
-                <Save className="w-4 h-4 mr-2" />
+                <Save className="w-4 h-4 mr-2 shrink-0" />
                 {saveMutation.isPending ? "Saving..." : "Save Template"}
               </Button>
-              <Button variant="ghost" size="icon" onClick={onClose} data-testid="button-close-builder">
+              <Button variant="ghost" size="icon" className="min-h-11 min-w-11 hidden sm:inline-flex" onClick={onClose} data-testid="button-close-builder">
                 <X className="w-4 h-4" />
               </Button>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 sm:p-6 min-w-0">
           {previewMode ? (
             <div className="space-y-6 max-w-3xl mx-auto">
               <div className="mb-6">
@@ -483,10 +493,10 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                       ) : (
                         section.fields.map((field) => (
                           <div key={field.id} className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">{field.label}</span>
-                              {field.required && <span className="text-destructive text-xs">*</span>}
-                              <Badge variant="outline" className="text-xs">
+                            <div className="flex flex-wrap items-center gap-2 min-w-0">
+                              <span className="text-sm font-medium break-words min-w-0">{field.label}</span>
+                              {field.required && <span className="text-destructive text-xs shrink-0">*</span>}
+                              <Badge variant="outline" className="text-xs shrink-0">
                                 {FIELD_TYPES.find(t => t.value === field.type)?.label || field.type}
                               </Badge>
                             </div>
@@ -890,23 +900,23 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
 
               {/* Structure Editor & Report Content */}
               <div className="lg:col-span-2 space-y-4">
-                <Tabs defaultValue="structure" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="structure" className="gap-2" data-testid="tab-template-structure">
-                      <Layers className="w-4 h-4" />
-                      Template Structure
+                <Tabs defaultValue="structure" className="w-full min-w-0">
+                  <TabsList className="grid w-full grid-cols-2 h-auto min-h-11">
+                    <TabsTrigger value="structure" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-11 px-2" data-testid="tab-template-structure">
+                      <Layers className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Structure</span>
                     </TabsTrigger>
-                    <TabsTrigger value="content" className="gap-2" data-testid="tab-report-content">
-                      <FileText className="w-4 h-4" />
-                      Report Content
+                    <TabsTrigger value="content" className="gap-1 sm:gap-2 text-xs sm:text-sm min-h-11 px-2" data-testid="tab-report-content">
+                      <FileText className="w-4 h-4 shrink-0" />
+                      <span className="truncate">Report Content</span>
                     </TabsTrigger>
                   </TabsList>
                   
                   <TabsContent value="structure" className="space-y-4 mt-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-lg font-semibold">Template Structure</h3>
-                      <Button onClick={addSection} size="sm" data-testid="button-add-section">
-                        <Plus className="w-4 h-4 mr-2" />
+                      <Button onClick={addSection} size="sm" className="min-h-11 w-full sm:w-auto" data-testid="button-add-section">
+                        <Plus className="w-4 h-4 mr-2 shrink-0" />
                         Add Section
                       </Button>
                     </div>
@@ -930,9 +940,9 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                           onOpenChange={() => toggleSection(section.id)}
                         >
                           <CardHeader className="pb-3">
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
                               <CollapsibleTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0">
                                   {expandedSections.has(section.id) ? (
                                     <ChevronDown className="w-4 h-4" />
                                   ) : (
@@ -940,23 +950,26 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                   )}
                                 </Button>
                               </CollapsibleTrigger>
-                              <GripVertical className="w-4 h-4 text-muted-foreground" />
+                              <GripVertical className="w-4 h-4 text-muted-foreground hidden sm:block shrink-0" />
                               <Input
                                 value={section.title}
                                 onChange={(e) => updateSection(section.id, { title: e.target.value })}
-                                className="font-semibold flex-1"
+                                className="font-semibold flex-1 min-w-[10rem] min-h-11"
                                 placeholder="Section Title"
                                 data-testid={`input-section-title-${sectionIndex}`}
                               />
-                              <Switch
-                                checked={section.repeatable || false}
-                                onCheckedChange={(checked) => updateSection(section.id, { repeatable: checked })}
-                                data-testid={`switch-section-repeatable-${sectionIndex}`}
-                              />
-                              <span className="text-xs text-muted-foreground">Repeatable</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Switch
+                                  checked={section.repeatable || false}
+                                  onCheckedChange={(checked) => updateSection(section.id, { repeatable: checked })}
+                                  data-testid={`switch-section-repeatable-${sectionIndex}`}
+                                />
+                                <span className="text-xs text-muted-foreground">Repeatable</span>
+                              </div>
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="min-h-11 min-w-11 shrink-0"
                                 onClick={() => deleteSection(section.id)}
                                 data-testid={`button-delete-section-${sectionIndex}`}
                               >
@@ -979,51 +992,58 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                 {section.fields.map((field, fieldIndex) => (
                                   <div key={field.key} className="space-y-2">
                                     <div className="space-y-2">
-                                      <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                                        <GripVertical className="w-4 h-4 text-muted-foreground" />
-                                        <Input
-                                          value={field.label}
-                                          onChange={(e) => updateField(section.id, field.key, { label: e.target.value })}
-                                          placeholder="Field Label"
-                                          className="flex-1"
-                                          data-testid={`input-field-label-${sectionIndex}-${fieldIndex}`}
-                                        />
-                                        <Select
-                                          value={field.type}
-                                          onValueChange={(type) => updateField(section.id, field.key, { type })}
-                                        >
-                                          <SelectTrigger className="w-40" data-testid={`select-field-type-${sectionIndex}-${fieldIndex}`}>
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {FIELD_TYPES.map((ft) => (
-                                              <SelectItem key={ft.value} value={ft.value}>
-                                                {ft.label}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                        <Switch
-                                          checked={field.required || false}
-                                          onCheckedChange={(checked) =>
-                                            updateField(section.id, field.key, { required: checked })
-                                          }
-                                          data-testid={`switch-field-required-${sectionIndex}-${fieldIndex}`}
-                                        />
-                                        <span className="text-xs text-muted-foreground w-16">Required</span>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => deleteField(section.id, field.key)}
-                                          data-testid={`button-delete-field-${sectionIndex}-${fieldIndex}`}
-                                        >
-                                          <Trash2 className="w-4 h-4 text-destructive" />
-                                        </Button>
+                                      <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg sm:flex-row sm:flex-wrap sm:items-center min-w-0">
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 hidden sm:block" />
+                                          <Input
+                                            value={field.label}
+                                            onChange={(e) => updateField(section.id, field.key, { label: e.target.value })}
+                                            placeholder="Field Label"
+                                            className="flex-1 min-w-0 min-h-11"
+                                            data-testid={`input-field-label-${sectionIndex}-${fieldIndex}`}
+                                          />
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Select
+                                            value={field.type}
+                                            onValueChange={(type) => updateField(section.id, field.key, { type })}
+                                          >
+                                            <SelectTrigger className="w-full sm:w-40 min-h-11" data-testid={`select-field-type-${sectionIndex}-${fieldIndex}`}>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {FIELD_TYPES.map((ft) => (
+                                                <SelectItem key={ft.value} value={ft.value}>
+                                                  {ft.label}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                          <div className="flex items-center gap-2">
+                                            <Switch
+                                              checked={field.required || false}
+                                              onCheckedChange={(checked) =>
+                                                updateField(section.id, field.key, { required: checked })
+                                              }
+                                              data-testid={`switch-field-required-${sectionIndex}-${fieldIndex}`}
+                                            />
+                                            <span className="text-xs text-muted-foreground">Required</span>
+                                          </div>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="min-h-11 min-w-11 shrink-0"
+                                            onClick={() => deleteField(section.id, field.key)}
+                                            data-testid={`button-delete-field-${sectionIndex}-${fieldIndex}`}
+                                          >
+                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                          </Button>
+                                        </div>
                                       </div>
                                       
                                       {/* Additional Options Row */}
-                                      <div className="flex items-center gap-4 ml-8 px-3">
-                                        <div className="flex items-center gap-2">
+                                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 ml-0 sm:ml-8 px-1 sm:px-3">
+                                        <div className="flex items-center gap-2 min-h-11">
                                           <Switch
                                             checked={field.includeCondition || false}
                                             onCheckedChange={(checked) =>
@@ -1033,7 +1053,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                           />
                                           <span className="text-xs text-muted-foreground">Include Condition</span>
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 min-h-11">
                                           <Switch
                                             checked={field.includeCleanliness || false}
                                             onCheckedChange={(checked) =>
@@ -1048,12 +1068,13 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                     
                                     {/* Options editor for select/multiselect fields */}
                                     {(field.type === "select" || field.type === "multiselect") && (
-                                      <div className="ml-8 p-3 bg-background border rounded-lg space-y-2">
-                                        <div className="flex items-center justify-between">
+                                      <div className="ml-0 sm:ml-8 p-3 bg-background border rounded-lg space-y-2 min-w-0">
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                           <label className="text-sm font-medium">Dropdown Options</label>
                                           <Button
                                             variant="outline"
                                             size="sm"
+                                            className="min-h-11 w-full sm:w-auto"
                                             onClick={() => {
                                               const options = field.options || [];
                                               updateField(section.id, field.key, { options: [...options, ""] });
@@ -1209,20 +1230,21 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                         {/* Custom Sections */}
                         <Card className="shadow-sm">
                           <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                <CardTitle className="text-base">Custom Sections</CardTitle>
-                                <p className="text-sm text-muted-foreground mt-1">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+                              <div className="min-w-0">
+                                <CardTitle className="text-base break-words">Custom Sections</CardTitle>
+                                <p className="text-sm text-muted-foreground mt-1 break-words">
                                   Add additional formatted text sections to your report
                                 </p>
                               </div>
                               <Button
                                 variant="outline"
                                 size="sm"
+                                className="min-h-11 w-full sm:w-auto shrink-0"
                                 onClick={addCustomSection}
                                 data-testid="button-add-custom-section"
                               >
-                                <Plus className="w-4 h-4 mr-2" />
+                                <Plus className="w-4 h-4 mr-2 shrink-0" />
                                 Add Section
                               </Button>
                             </div>
@@ -1240,10 +1262,10 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                 <Card key={fieldItem.id} className="border shadow-none">
                                   <Collapsible defaultOpen={true}>
                                     <CardHeader className="p-3 pb-0">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <CollapsibleTrigger className="flex items-center gap-2 flex-1 hover-elevate rounded p-1 -m-1">
-                                          <GripVertical className="w-4 h-4 text-muted-foreground" />
-                                          <span className="font-medium text-sm">
+                                      <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                                        <CollapsibleTrigger className="flex items-center gap-2 flex-1 min-w-0 hover-elevate rounded p-1 -m-1">
+                                          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+                                          <span className="font-medium text-sm break-words min-w-0">
                                             {form.watch(`reportConfig.customSections.${index}.title` as any) || `Section ${index + 1}`}
                                           </span>
                                           <ChevronDown className="w-4 h-4 text-muted-foreground ml-auto" />

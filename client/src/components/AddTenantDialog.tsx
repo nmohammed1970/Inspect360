@@ -38,6 +38,8 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { useModules } from "@/hooks/use-modules";
 import { PhoneInput } from "@/components/PhoneInput";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { cn } from "@/lib/utils";
+import { dialogFooterSticky, formGrid2 } from "@/lib/responsive";
 
 interface User {
   id: string;
@@ -53,6 +55,7 @@ const selectTenantFormSchema = z.object({
   leaseEndDate: z.string().optional(),
   monthlyRent: z.string().optional(),
   depositAmount: z.string().optional(),
+  rentDueDay: z.string().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -67,6 +70,7 @@ const createTenantFormSchema = z.object({
   leaseEndDate: z.string().optional(),
   monthlyRent: z.string().optional(),
   depositAmount: z.string().optional(),
+  rentDueDay: z.string().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -141,6 +145,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       leaseEndDate: "",
       monthlyRent: "",
       depositAmount: "",
+      rentDueDay: "1",
       isActive: true,
     },
   });
@@ -157,6 +162,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
       leaseEndDate: "",
       monthlyRent: "",
       depositAmount: "",
+      rentDueDay: "1",
       isActive: true,
     },
   });
@@ -334,6 +340,13 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         }
       }
 
+      if (data.leaseData.rentDueDay !== undefined && data.leaseData.rentDueDay !== null && String(data.leaseData.rentDueDay).trim() !== '') {
+        const day = parseInt(String(data.leaseData.rentDueDay), 10);
+        if (!isNaN(day) && day >= 1 && day <= 28) {
+          payload.rentDueDay = day;
+        }
+      }
+
       console.log('[AddTenantDialog] Assigning tenant with payload:', payload);
 
       // Include original password in the request so it can be stored for later retrieval
@@ -437,6 +450,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         leaseEndDate: data.leaseEndDate,
         monthlyRent: data.monthlyRent,
         depositAmount: data.depositAmount,
+        rentDueDay: data.rentDueDay,
         isActive: data.isActive,
       };
 
@@ -473,7 +487,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[550px]">
         {!isTenantPortalEnabled && !isLoadingModules ? (
           <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
             <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
@@ -505,7 +519,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
             {isTenantPortalEnabled && (
               <Tabs value={mode} onValueChange={(v) => setMode(v as "select" | "create")} className="w-full">
 
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2">
                   <TabsTrigger value="select" data-testid="tab-select-tenant">
                     <Users className="h-4 w-4 mr-2" />
                     Select Existing
@@ -524,7 +538,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         name="tenantId"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Tenant *</FormLabel>
+                            <FormLabel required>Tenant</FormLabel>
                             <Select
                               onValueChange={field.onChange}
                               value={field.value}
@@ -558,7 +572,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         )}
                       />
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={formGrid2}>
                         <FormField
                           control={selectForm.control}
                           name="leaseStartDate"
@@ -602,7 +616,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={formGrid2}>
                         <FormField
                           control={selectForm.control}
                           name="monthlyRent"
@@ -648,6 +662,28 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
 
                       <FormField
                         control={selectForm.control}
+                        name="rentDueDay"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Rent due day of month</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={28}
+                                placeholder="1"
+                                {...field}
+                                data-testid="input-rent-due-day"
+                              />
+                            </FormControl>
+                            <FormDescription>Day 1–28 when rent is due each month (default 1)</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={selectForm.control}
                         name="isActive"
                         render={({ field }) => (
                           <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
@@ -668,7 +704,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         )}
                       />
 
-                      <div className="flex justify-end gap-2 pt-4">
+                      <div className={cn(dialogFooterSticky)}>
                         <Button
                           type="button"
                           variant="outline"
@@ -702,13 +738,13 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                       <div className="space-y-4 p-4 border rounded-lg bg-muted/50">
                         <h4 className="text-sm font-medium">Tenant User Details</h4>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={formGrid2}>
                           <FormField
                             control={createForm.control}
                             name="firstName"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>First Name *</FormLabel>
+                                <FormLabel required>First Name</FormLabel>
                                 <FormControl>
                                   <Input
                                     placeholder="John"
@@ -726,7 +762,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                             name="lastName"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Last Name *</FormLabel>
+                                <FormLabel required>Last Name</FormLabel>
                                 <FormControl>
                                   <Input
                                     placeholder="Doe"
@@ -745,7 +781,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                           name="email"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Email *</FormLabel>
+                              <FormLabel required>Email</FormLabel>
                               <FormControl>
                                 <Input
                                   type="email"
@@ -785,7 +821,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                           name="password"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Password *</FormLabel>
+                              <FormLabel required>Password</FormLabel>
                               <FormControl>
                                 <div className="relative">
                                   {/* Hidden dummy password field to prevent browser autofill */}
@@ -828,7 +864,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                       <div className="space-y-4">
                         <h4 className="text-sm font-medium">Lease Details</h4>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={formGrid2}>
                           <FormField
                             control={createForm.control}
                             name="leaseStartDate"
@@ -872,7 +908,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                           />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={formGrid2}>
                           <FormField
                             control={createForm.control}
                             name="monthlyRent"
@@ -918,6 +954,28 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
 
                         <FormField
                           control={createForm.control}
+                          name="rentDueDay"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Rent due day of month</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={28}
+                                  placeholder="1"
+                                  {...field}
+                                  data-testid="input-create-rent-due-day"
+                                />
+                              </FormControl>
+                              <FormDescription>Day 1–28 when rent is due each month (default 1)</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={createForm.control}
                           name="isActive"
                           render={({ field }) => (
                             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
@@ -939,7 +997,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         />
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-4">
+                      <div className={cn(dialogFooterSticky)}>
                         <Button
                           type="button"
                           variant="outline"

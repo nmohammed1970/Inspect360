@@ -1,5 +1,11 @@
-import { useState } from "react";
-import { useRoute, Link } from "wouter";
+import { PreviewableImage } from "@/components/ImagePreview";
+import {
+  PropertyDepositPanel,
+  PropertyExpensesPanel,
+  PropertyRentCollectionPanel,
+} from "@/components/PropertyFinancePanels";
+import { useState, useEffect, useMemo } from "react";
+import { useRoute, Link, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +43,9 @@ import {
   Mail,
   Phone,
   Plus,
+  Wallet,
+  Banknote,
+  Receipt,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -44,6 +53,8 @@ import { AddressInput } from "@/components/AddressInput";
 import { useToast } from "@/hooks/use-toast";
 import { MapPreview } from "@/components/MapPreview";
 import AddTenantDialog from "@/components/AddTenantDialog";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, formGrid2, textBreak } from "@/lib/responsive";
 
 interface Property {
   id: string;
@@ -128,6 +139,7 @@ interface ComplianceDoc {
   status: string;
   documentUrl?: string;
   createdAt?: string;
+  sourceWorkOrderId?: string | null;
 }
 
 interface MaintenanceRequest {
@@ -146,6 +158,30 @@ interface MaintenanceRequest {
 export default function PropertyDetail() {
   const [, params] = useRoute("/properties/:id");
   const propertyId = params?.id;
+  const searchParams = useSearch();
+  const urlTab = new URLSearchParams(searchParams).get("tab");
+  const propertyTabs = useMemo(
+    () =>
+      new Set([
+        "inspections",
+        "tenants",
+        "inventory",
+        "inspection-schedule",
+        "compliance-schedule",
+        "maintenance",
+        "deposit",
+        "rent-collection",
+        "expenses",
+      ]),
+    [],
+  );
+  const resolvedTab =
+    urlTab === "compliance"
+      ? "compliance-schedule"
+      : urlTab && propertyTabs.has(urlTab)
+        ? urlTab
+        : "inspections";
+  const [activeTab, setActiveTab] = useState(resolvedTab);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editAddress, setEditAddress] = useState("");
@@ -154,6 +190,10 @@ export default function PropertyDetail() {
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
   const [propertyImageDialogOpen, setPropertyImageDialogOpen] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    setActiveTab(resolvedTab);
+  }, [resolvedTab]);
 
   // Mutation to update property image
   const updatePropertyImage = useMutation({
@@ -330,7 +370,7 @@ export default function PropertyDetail() {
 
   if (propertyLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">Loading...</div>
       </div>
     );
@@ -338,7 +378,7 @@ export default function PropertyDetail() {
 
   if (!property) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Property not found</p>
           <Link href="/properties">
@@ -353,7 +393,7 @@ export default function PropertyDetail() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex items-center gap-2 md:gap-4">
         <Link href={property.blockId ? `/blocks/${property.blockId}` : "/properties"}>
@@ -368,7 +408,7 @@ export default function PropertyDetail() {
       {/* Property Header */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-2 flex-1 min-w-0">
+          <div className={cn("space-y-2 flex-1", textBreak)}>
             <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2 md:gap-3" data-testid="heading-property-name">
               <Building2 className="h-5 w-5 md:h-6 md:w-6 lg:h-8 lg:w-8 text-primary shrink-0" />
               <span className="truncate">{property.name}</span>
@@ -396,14 +436,15 @@ export default function PropertyDetail() {
         </div>
 
         {/* Property Image and Map Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={formGrid2}>
           {/* Property Image with Upload */}
           <Card className="overflow-hidden">
             {property.imageUrl ? (
               <div className="relative aspect-video">
-                <img
+                <PreviewableImage
                   src={property.imageUrl}
                   alt={property.name}
+                  title={property.name}
                   className="w-full h-full object-cover"
                   data-testid="img-property"
                 />
@@ -446,7 +487,7 @@ export default function PropertyDetail() {
 
         {/* Property Image Upload Dialog */}
         <Dialog open={propertyImageDialogOpen} onOpenChange={setPropertyImageDialogOpen}>
-          <DialogContent>
+          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
             <DialogHeader>
               <DialogTitle>Upload Property Photo</DialogTitle>
               <DialogDescription>
@@ -553,7 +594,7 @@ export default function PropertyDetail() {
       )}
 
       {/* Tabbed Content */}
-      <Tabs defaultValue="inspections" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="inspections" data-testid="tab-inspections">
             <ClipboardCheck className="h-4 w-4 mr-2" />
@@ -578,6 +619,18 @@ export default function PropertyDetail() {
           <TabsTrigger value="maintenance" data-testid="tab-maintenance">
             <Wrench className="h-4 w-4 mr-2" />
             Maintenance
+          </TabsTrigger>
+          <TabsTrigger value="deposit" data-testid="tab-deposit">
+            <Wallet className="h-4 w-4 mr-2" />
+            Deposit
+          </TabsTrigger>
+          <TabsTrigger value="rent-collection" data-testid="tab-rent-collection">
+            <Banknote className="h-4 w-4 mr-2" />
+            Rent Collection
+          </TabsTrigger>
+          <TabsTrigger value="expenses" data-testid="tab-expenses">
+            <Receipt className="h-4 w-4 mr-2" />
+            Expenses
           </TabsTrigger>
         </TabsList>
 
@@ -651,6 +704,7 @@ export default function PropertyDetail() {
               onSuccess={() => {
                 queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
                 queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "rent-periods"] });
               }}
             >
               <Button data-testid="button-assign-tenant" size="sm" className="text-xs md:text-sm h-8 md:h-10 px-2 md:px-4">
@@ -671,6 +725,7 @@ export default function PropertyDetail() {
                   onSuccess={() => {
                     queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "tenants"] });
                     queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "stats"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "rent-periods"] });
                   }}
                 >
                   <Button data-testid="button-assign-first-tenant" size="sm">
@@ -754,23 +809,23 @@ export default function PropertyDetail() {
                     <div className="flex items-start gap-4">
                       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
                         {thumbUrl ? (
-                          <img
+                          <PreviewableImage
                             src={thumbUrl}
                             alt={item.name}
+                            title={item.name}
                             className="h-full w-full object-cover"
                             loading="lazy"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                              const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
-                              if (fallback) fallback.classList.remove("hidden");
-                            }}
+                            fallback={
+                              <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                <Package className="h-6 w-6" />
+                              </div>
+                            }
                           />
-                        ) : null}
-                        <div
-                          className={`flex h-full w-full items-center justify-center text-muted-foreground ${thumbUrl ? "hidden" : ""}`}
-                        >
-                          <Package className="h-6 w-6" />
-                        </div>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            <Package className="h-6 w-6" />
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2 flex-1 min-w-0">
                         <CardTitle className="text-base">{item.name}</CardTitle>
@@ -851,6 +906,14 @@ export default function PropertyDetail() {
                         <div className="space-y-2 flex-1">
                           <CardTitle className="text-base">{doc.documentName}</CardTitle>
                           <CardDescription>{doc.documentType}</CardDescription>
+                          {doc.sourceWorkOrderId && (
+                            <p
+                              className="text-xs text-muted-foreground"
+                              data-testid={`text-source-work-order-${doc.id}`}
+                            >
+                              Source: Work Order
+                            </p>
+                          )}
                           {expiryDate && (
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-2 text-sm">
@@ -959,17 +1022,27 @@ export default function PropertyDetail() {
             </div>
           )}
         </TabsContent>
-      </Tabs>
 
-      {/* Edit Property Dialog */}
+        <TabsContent value="deposit" className="space-y-4">
+          <PropertyDepositPanel propertyId={propertyId!} />
+        </TabsContent>
+
+        <TabsContent value="rent-collection" className="space-y-4">
+          <PropertyRentCollectionPanel propertyId={propertyId!} />
+        </TabsContent>
+
+        <TabsContent value="expenses" className="space-y-4">
+          <PropertyExpensesPanel propertyId={propertyId!} />
+        </TabsContent>
+      </Tabs>
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
           <DialogHeader>
             <DialogTitle>Edit Property</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="edit-name">Property Name *</Label>
+              <Label htmlFor="edit-name" required>Property Name</Label>
               <Input
                 id="edit-name"
                 value={editName}
@@ -980,7 +1053,7 @@ export default function PropertyDetail() {
               />
             </div>
             <div>
-              <Label htmlFor="edit-address">Address *</Label>
+              <Label htmlFor="edit-address" required>Address</Label>
               <AddressInput
                 id="edit-address"
                 value={editAddress}
@@ -1014,7 +1087,7 @@ export default function PropertyDetail() {
 
       {/* Inventory Item Details Dialog */}
       <Dialog open={inventoryDialogOpen} onOpenChange={setInventoryDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={cn(dialogContentBase, "max-w-3xl")}>
           <DialogHeader>
             <DialogTitle>{selectedInventoryItem?.name || "Inventory Item Details"}</DialogTitle>
             <DialogDescription>
@@ -1028,7 +1101,7 @@ export default function PropertyDetail() {
               {/* Basic Information */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Basic Information</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label className="text-muted-foreground">Name</Label>
                     <p className="font-medium">{selectedInventoryItem.name}</p>
@@ -1073,7 +1146,7 @@ export default function PropertyDetail() {
               {(selectedInventoryItem.datePurchased || selectedInventoryItem.purchasePrice || selectedInventoryItem.supplier) && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Purchase Information</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={formGrid2}>
                     {selectedInventoryItem.datePurchased && (
                       <div>
                         <Label className="text-muted-foreground">Date Purchased</Label>
@@ -1106,7 +1179,7 @@ export default function PropertyDetail() {
               {(selectedInventoryItem.serialNumber || selectedInventoryItem.modelNumber || selectedInventoryItem.expectedLifespanYears) && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Asset Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={formGrid2}>
                     {selectedInventoryItem.serialNumber && (
                       <div>
                         <Label className="text-muted-foreground">Serial Number</Label>
@@ -1145,7 +1218,7 @@ export default function PropertyDetail() {
               {(selectedInventoryItem.lastMaintenanceDate || selectedInventoryItem.nextMaintenanceDate || selectedInventoryItem.maintenanceNotes) && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Maintenance</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={formGrid2}>
                     {selectedInventoryItem.lastMaintenanceDate && (
                       <div>
                         <Label className="text-muted-foreground">Last Maintenance</Label>
@@ -1172,15 +1245,30 @@ export default function PropertyDetail() {
               {selectedInventoryItem.photos && selectedInventoryItem.photos.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Photos</h3>
-                  <div className="grid grid-cols-3 gap-4">
-                    {selectedInventoryItem.photos.map((photo, index) => {
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+                    {(selectedInventoryItem.photos || []).map((photo, index) => {
+                      const photos = selectedInventoryItem.photos || [];
                       const src = normalizeInventoryPhotoUrl(photo);
                       if (!src) return null;
                       return (
-                        <img
+                        <PreviewableImage
                           key={index}
                           src={src}
                           alt={`${selectedInventoryItem.name} - Photo ${index + 1}`}
+                          title={selectedInventoryItem.name}
+                          caption={`Photo ${index + 1}`}
+                          gallery={photos
+                            .map((item) => normalizeInventoryPhotoUrl(item))
+                            .filter((item): item is string => Boolean(item))
+                            .map((item, photoIndex) => ({
+                              src: item,
+                              alt: `${selectedInventoryItem.name} - Photo ${photoIndex + 1}`,
+                              title: selectedInventoryItem.name,
+                              caption: `Photo ${photoIndex + 1}`,
+                            }))}
+                          index={photos
+                            .slice(0, index)
+                            .filter((item) => Boolean(normalizeInventoryPhotoUrl(item))).length}
                           className="w-full h-32 object-cover rounded-md border"
                         />
                       );

@@ -8,11 +8,10 @@ import {
   useWindowDimensions,
   Dimensions,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 import { colors, spacing, typography, borderRadius } from '../../theme';
-import { moderateScale, getFontSize } from '../../utils/responsive';
+import { useResponsive } from '../../hooks/useResponsive';
 import { setOnboardingCompleted } from '../../utils/onboarding';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -48,50 +47,68 @@ interface OnboardingSlide {
 export default function OnboardingScreen({ navigation }: OnboardingScreenProps) {
   const theme = useTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const windowDimensions = useWindowDimensions();
   const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
+  const { moderateScale, isSmall } = useResponsive();
   const [currentSlide, setCurrentSlide] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
-  
+
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   const textPrimary = themeColors?.text?.primary || (theme?.theme === 'dark' ? '#fafafa' : '#0a0a0a');
   const textSecondary = themeColors?.text?.secondary || (theme?.theme === 'dark' ? '#a3a3a3' : '#737373');
+
+  const cardSize = Math.min(moderateScale(240, 0.35), screenWidth * 0.62);
+  const iconWrapSize = Math.min(moderateScale(160, 0.35), cardSize * 0.67);
+  const floatIconSize = Math.min(moderateScale(64, 0.3), screenWidth * 0.16);
+  const mainIconSize = Math.min(moderateScale(72, 0.25), iconWrapSize * 0.45);
+  const decoIconSize = Math.min(moderateScale(22, 0.25), floatIconSize * 0.35);
+  const illustrationMaxHeight = isSmall ? screenWidth * 0.72 : Math.min(360, screenWidth * 0.9);
 
   const slides: OnboardingSlide[] = [
     {
       id: 0,
       title: 'Streamlined Inspections',
       description: 'Capture detailed property inspections with photos, notes, and digital signatures. Complete inspections entirely using AI - from intelligent image analysis that identifies issues automatically to AI-generated inspection reports. Work faster and more accurately with our intuitive mobile interface.',
-      icon: <Home size={moderateScale(80, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} />,
+      icon: <Home size={moderateScale(80, 0.2)} color={themeColors.primary.DEFAULT} />,
       illustration: (
-        <View style={styles.illustrationContainer}>
-          {/* Gradient background effect */}
+        <View style={[styles.illustrationContainer, { maxHeight: illustrationMaxHeight }]}>
           <View style={[styles.gradientBackground, { backgroundColor: themeColors.primary.light || '#E0F7FA' }]} />
-          
-          {/* Main illustration card with enhanced styling */}
-          <View style={[styles.illustrationCard, styles.illustrationCardElevated, { 
+          <View style={[styles.illustrationCard, styles.illustrationCardElevated, {
+            width: cardSize,
+            height: cardSize,
             backgroundColor: themeColors.primary.light || '#E0F7FA',
             borderColor: themeColors.primary.DEFAULT + '20',
           }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: themeColors.primary.DEFAULT + '15' }]}>
-              <Home size={moderateScale(72, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
+            <View style={[styles.iconWrapper, {
+              width: iconWrapSize,
+              height: iconWrapSize,
+              backgroundColor: themeColors.primary.DEFAULT + '15',
+            }]}>
+              <Home size={mainIconSize} color={themeColors.primary.DEFAULT} strokeWidth={2} />
             </View>
           </View>
-          
-          {/* Floating decorative icons with modern styling */}
-          <View style={[styles.illustrationIcon, styles.illustrationIconModern, styles.iconTopRight, { 
-            backgroundColor: themeColors.card.DEFAULT, 
+          <View style={[styles.illustrationIcon, styles.illustrationIconModern, {
+            width: floatIconSize,
+            height: floatIconSize,
+            backgroundColor: themeColors.card.DEFAULT,
             borderColor: themeColors.primary.DEFAULT + '30',
             borderWidth: 2,
+            top: screenWidth * 0.05,
+            right: screenWidth * 0.08,
           }]}>
-            <Sparkles size={moderateScale(22, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} fill={themeColors.primary.DEFAULT} />
+            <Sparkles size={decoIconSize} color={themeColors.primary.DEFAULT} fill={themeColors.primary.DEFAULT} />
           </View>
-          <View style={[styles.illustrationIcon, styles.illustrationIconModern, styles.iconBottomLeft, { 
-            backgroundColor: themeColors.card.DEFAULT, 
+          <View style={[styles.illustrationIcon, styles.illustrationIconModern, {
+            width: floatIconSize,
+            height: floatIconSize,
+            backgroundColor: themeColors.card.DEFAULT,
             borderColor: themeColors.primary.DEFAULT + '30',
             borderWidth: 2,
+            bottom: screenWidth * 0.05,
+            left: screenWidth * 0.08,
           }]}>
-            <ClipboardList size={moderateScale(20, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
+            <ClipboardList size={Math.min(moderateScale(20, 0.25), floatIconSize * 0.32)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
           </View>
         </View>
       ),
@@ -100,36 +117,45 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
       id: 1,
       title: 'Maintenance Management',
       description: 'Track and manage maintenance requests seamlessly. Create work orders, assign tasks, and monitor progress all from your mobile device.',
-      icon: <Hammer size={moderateScale(80, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} />,
+      icon: <Hammer size={moderateScale(80, 0.2)} color={themeColors.primary.DEFAULT} />,
       illustration: (
-        <View style={styles.illustrationContainer}>
-          {/* Gradient background effect */}
+        <View style={[styles.illustrationContainer, { maxHeight: illustrationMaxHeight }]}>
           <View style={[styles.gradientBackground, { backgroundColor: themeColors.primary.light || '#E0F7FA' }]} />
-          
-          {/* Main illustration card with enhanced styling */}
-          <View style={[styles.illustrationCard, styles.illustrationCardElevated, { 
+          <View style={[styles.illustrationCard, styles.illustrationCardElevated, {
+            width: cardSize,
+            height: cardSize,
             backgroundColor: themeColors.primary.light || '#E0F7FA',
             borderColor: themeColors.primary.DEFAULT + '20',
           }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: themeColors.primary.DEFAULT + '15' }]}>
-              <Hammer size={moderateScale(72, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
+            <View style={[styles.iconWrapper, {
+              width: iconWrapSize,
+              height: iconWrapSize,
+              backgroundColor: themeColors.primary.DEFAULT + '15',
+            }]}>
+              <Hammer size={mainIconSize} color={themeColors.primary.DEFAULT} strokeWidth={2} />
             </View>
           </View>
-          
-          {/* Floating decorative icons with modern styling */}
-          <View style={[styles.illustrationIcon, styles.illustrationIconModern, styles.iconTopRight, { 
-            backgroundColor: themeColors.card.DEFAULT, 
+          <View style={[styles.illustrationIcon, styles.illustrationIconModern, {
+            width: floatIconSize,
+            height: floatIconSize,
+            backgroundColor: themeColors.card.DEFAULT,
             borderColor: themeColors.primary.DEFAULT + '30',
             borderWidth: 2,
+            top: screenWidth * 0.05,
+            right: screenWidth * 0.08,
           }]}>
-            <Sparkles size={moderateScale(22, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} fill={themeColors.primary.DEFAULT} />
+            <Sparkles size={decoIconSize} color={themeColors.primary.DEFAULT} fill={themeColors.primary.DEFAULT} />
           </View>
-          <View style={[styles.illustrationIcon, styles.illustrationIconModern, styles.iconBottomLeft, { 
-            backgroundColor: themeColors.card.DEFAULT, 
+          <View style={[styles.illustrationIcon, styles.illustrationIconModern, {
+            width: floatIconSize,
+            height: floatIconSize,
+            backgroundColor: themeColors.card.DEFAULT,
             borderColor: themeColors.primary.DEFAULT + '30',
             borderWidth: 2,
+            bottom: screenWidth * 0.05,
+            left: screenWidth * 0.08,
           }]}>
-            <Wrench size={moderateScale(20, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
+            <Wrench size={Math.min(moderateScale(20, 0.25), floatIconSize * 0.32)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
           </View>
         </View>
       ),
@@ -138,36 +164,45 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
       id: 2,
       title: 'Asset Inventory',
       description: 'Keep track of all property assets and inventory items. Organize, categorize, and manage your asset database with ease.',
-      icon: <Boxes size={moderateScale(80, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} />,
+      icon: <Boxes size={moderateScale(80, 0.2)} color={themeColors.primary.DEFAULT} />,
       illustration: (
-        <View style={styles.illustrationContainer}>
-          {/* Gradient background effect */}
+        <View style={[styles.illustrationContainer, { maxHeight: illustrationMaxHeight }]}>
           <View style={[styles.gradientBackground, { backgroundColor: themeColors.primary.light || '#E0F7FA' }]} />
-          
-          {/* Main illustration card with enhanced styling */}
-          <View style={[styles.illustrationCard, styles.illustrationCardElevated, { 
+          <View style={[styles.illustrationCard, styles.illustrationCardElevated, {
+            width: cardSize,
+            height: cardSize,
             backgroundColor: themeColors.primary.light || '#E0F7FA',
             borderColor: themeColors.primary.DEFAULT + '20',
           }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: themeColors.primary.DEFAULT + '15' }]}>
-              <Boxes size={moderateScale(72, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
+            <View style={[styles.iconWrapper, {
+              width: iconWrapSize,
+              height: iconWrapSize,
+              backgroundColor: themeColors.primary.DEFAULT + '15',
+            }]}>
+              <Boxes size={mainIconSize} color={themeColors.primary.DEFAULT} strokeWidth={2} />
             </View>
           </View>
-          
-          {/* Floating decorative icons with modern styling */}
-          <View style={[styles.illustrationIcon, styles.illustrationIconModern, styles.iconTopRight, { 
-            backgroundColor: themeColors.card.DEFAULT, 
+          <View style={[styles.illustrationIcon, styles.illustrationIconModern, {
+            width: floatIconSize,
+            height: floatIconSize,
+            backgroundColor: themeColors.card.DEFAULT,
             borderColor: themeColors.primary.DEFAULT + '30',
             borderWidth: 2,
+            top: screenWidth * 0.05,
+            right: screenWidth * 0.08,
           }]}>
-            <Sparkles size={moderateScale(22, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} fill={themeColors.primary.DEFAULT} />
+            <Sparkles size={decoIconSize} color={themeColors.primary.DEFAULT} fill={themeColors.primary.DEFAULT} />
           </View>
-          <View style={[styles.illustrationIcon, styles.illustrationIconModern, styles.iconBottomLeft, { 
-            backgroundColor: themeColors.card.DEFAULT, 
+          <View style={[styles.illustrationIcon, styles.illustrationIconModern, {
+            width: floatIconSize,
+            height: floatIconSize,
+            backgroundColor: themeColors.card.DEFAULT,
             borderColor: themeColors.primary.DEFAULT + '30',
             borderWidth: 2,
+            bottom: screenWidth * 0.05,
+            left: screenWidth * 0.08,
           }]}>
-            <Package size={moderateScale(20, 0.2, screenWidth)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
+            <Package size={Math.min(moderateScale(20, 0.25), floatIconSize * 0.32)} color={themeColors.primary.DEFAULT} strokeWidth={2} />
           </View>
         </View>
       ),
@@ -183,7 +218,6 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
         animated: true,
       });
     } else {
-      // Last slide - complete onboarding for this user
       if (user?.id) {
         await setOnboardingCompleted(user.id);
         if (__DEV__) {
@@ -192,7 +226,6 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
       } else {
         console.warn('[OnboardingScreen] No user ID available, cannot mark onboarding as completed');
       }
-      // Navigate to Main screen - use reset to clear navigation stack
       navigation.reset({
         index: 0,
         routes: [{ name: 'Main' }],
@@ -201,7 +234,6 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
   };
 
   const handleSkip = async () => {
-    // Mark onboarding as completed for this user
     if (user?.id) {
       await setOnboardingCompleted(user.id);
       if (__DEV__) {
@@ -210,7 +242,6 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
     } else {
       console.warn('[OnboardingScreen] No user ID available, cannot mark onboarding as completed');
     }
-    // Navigate to Main screen - use reset to clear navigation stack
     navigation.reset({
       index: 0,
       routes: [{ name: 'Main' }],
@@ -235,13 +266,19 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]}>
-      <StatusBar style={theme?.theme === 'dark' ? 'light' : 'dark'} />
-      
-      {/* Skip button - only show on first two slides */}
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: themeColors.background }]}
+      edges={['bottom', 'left', 'right']}
+    >
       {currentSlide < slides.length - 1 && (
         <TouchableOpacity
-          style={styles.skipButton}
+          style={[
+            styles.skipButton,
+            {
+              top: insets.top + spacing[2],
+              right: Math.max(insets.right, spacing[4]),
+            },
+          ]}
           onPress={handleSkip}
         >
           <Text style={[styles.skipButtonText, { color: textSecondary }]}>Skip</Text>
@@ -257,19 +294,17 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
         scrollEventThrottle={16}
         style={styles.scrollView}
       >
-        {slides.map((slide, index) => (
+        {slides.map((slide) => (
           <View
             key={slide.id}
             style={[styles.slide, { width: screenWidth }]}
           >
-            {/* Illustration */}
-            <View style={styles.illustrationWrapper}>
+            <View style={[styles.illustrationWrapper, isSmall && styles.illustrationWrapperCompact]}>
               {slide.illustration}
             </View>
 
-            {/* Content */}
-            <View style={styles.content}>
-              <Text style={[styles.title, { color: textPrimary }]}>
+            <View style={[styles.content, { maxWidth: Math.min(400, screenWidth - spacing[8]) }]}>
+              <Text style={[styles.title, { color: textPrimary, fontSize: isSmall ? typography.fontSize['2xl'] : typography.fontSize['3xl'] }]}>
                 {slide.title}
               </Text>
               <Text style={[styles.description, { color: textSecondary }]}>
@@ -280,7 +315,6 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
         ))}
       </ScrollView>
 
-      {/* Pagination dots */}
       <View style={styles.pagination}>
         {slides.map((_, index) => (
           <View
@@ -292,16 +326,15 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
                   ? themeColors.primary.DEFAULT
                   : themeColors.border.DEFAULT,
                 width: index === currentSlide
-                  ? moderateScale(24, 0.2, screenWidth)
-                  : moderateScale(8, 0.2, screenWidth),
+                  ? moderateScale(24, 0.2)
+                  : moderateScale(8, 0.2),
               },
             ]}
           />
         ))}
       </View>
 
-      {/* Navigation buttons */}
-      <View style={styles.buttonContainer}>
+      <View style={[styles.buttonContainer, { paddingBottom: spacing[6] }]}>
         {currentSlide > 0 && (
           <TouchableOpacity
             style={[
@@ -319,14 +352,14 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
             </Text>
           </TouchableOpacity>
         )}
-        
+
         <TouchableOpacity
           style={[
             styles.button,
             styles.buttonPrimary,
             {
               backgroundColor: themeColors.primary.DEFAULT,
-              flex: currentSlide === 0 ? 1 : 1,
+              flex: 1,
             },
           ]}
           onPress={handleNext}
@@ -336,9 +369,9 @@ export default function OnboardingScreen({ navigation }: OnboardingScreenProps) 
           </Text>
           {currentSlide < slides.length - 1 && (
             <ChevronRight
-              size={moderateScale(20, 0.2, screenWidth)}
+              size={moderateScale(20, 0.2)}
               color={themeColors.primary.foreground}
-              style={{ marginLeft: moderateScale(4, 0.3, screenWidth) }}
+              style={{ marginLeft: moderateScale(4, 0.3) }}
             />
           )}
         </TouchableOpacity>
@@ -353,8 +386,6 @@ const styles = StyleSheet.create({
   },
   skipButton: {
     position: 'absolute',
-    top: 50,
-    right: 20,
     zIndex: 10,
     padding: spacing[3],
   },
@@ -378,10 +409,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: spacing[12],
   },
+  illustrationWrapperCompact: {
+    paddingTop: spacing[8],
+  },
   illustrationContainer: {
     width: '100%',
     flex: 1,
-    maxHeight: 360,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -395,8 +428,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   illustrationCard: {
-    width: 240,
-    height: 240,
     borderRadius: borderRadius['3xl'],
     alignItems: 'center',
     justifyContent: 'center',
@@ -412,8 +443,6 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   iconWrapper: {
-    width: 160,
-    height: 160,
     borderRadius: borderRadius['2xl'],
     alignItems: 'center',
     justifyContent: 'center',
@@ -422,8 +451,6 @@ const styles = StyleSheet.create({
   },
   illustrationIcon: {
     position: 'absolute',
-    width: 64,
-    height: 64,
     borderRadius: borderRadius.xl,
     alignItems: 'center',
     justifyContent: 'center',
@@ -433,25 +460,14 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  illustrationIconModern: {
-    // Additional modern styling applied via inline styles
-  },
-  iconTopRight: {
-    top: 20,
-    right: 40,
-  },
-  iconBottomLeft: {
-    bottom: 20,
-    left: 40,
-  },
+  illustrationIconModern: {},
   content: {
     paddingHorizontal: spacing[4],
     paddingBottom: spacing[8],
     alignItems: 'center',
-    maxWidth: 400,
+    width: '100%',
   },
   title: {
-    fontSize: typography.fontSize['3xl'],
     fontWeight: typography.fontWeight.bold,
     textAlign: 'center',
     marginBottom: spacing[4],
@@ -478,12 +494,13 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: spacing[6],
-    paddingBottom: spacing[8],
     gap: spacing[3],
   },
   button: {
     flex: 1,
+    minWidth: 120,
     paddingVertical: spacing[4],
     paddingHorizontal: spacing[6],
     borderRadius: borderRadius.xl,
@@ -506,11 +523,6 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold,
   },
-  buttonTextPrimary: {
-    // Color applied via style prop
-  },
-  buttonTextSecondary: {
-    // Color applied via style prop
-  },
+  buttonTextPrimary: {},
+  buttonTextSecondary: {},
 });
-

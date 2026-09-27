@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FiltersSection } from "@/components/FiltersSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,8 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 export default function BlocksReport() {
   const { toast } = useToast();
@@ -126,7 +129,7 @@ export default function BlocksReport() {
   };
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 md:p-8 lg:p-12 space-y-4 sm:space-y-6 md:space-y-8">
+    <div className={cn("container mx-auto min-w-0", pagePad, "space-y-4 md:space-y-6")}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="space-y-2">
@@ -172,16 +175,9 @@ export default function BlocksReport() {
         </Button>
       </div>
 
-      {/* Filters - Desktop */}
-      <Card className="glass-card hidden md:block">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Filter className="h-5 w-5 text-primary" />
-            <CardTitle>Search & Filter</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
+      <FiltersSection headingId="blocks-report-filters-heading">
+        <div className="hidden md:block">
+<div className="space-y-2">
             <Label>Search Blocks</Label>
             <Input
               placeholder="Search by name, address, or postcode..."
@@ -190,11 +186,9 @@ export default function BlocksReport() {
               data-testid="input-search-blocks"
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Filters - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
+        <div className="flex md:hidden gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -206,6 +200,7 @@ export default function BlocksReport() {
           />
         </div>
       </div>
+      </FiltersSection>
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">

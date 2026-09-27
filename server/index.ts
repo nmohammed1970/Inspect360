@@ -75,6 +75,39 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: false }));
 
+const SENSITIVE_LOG_KEYS = new Set([
+  "apikey",
+  "api_key",
+  "password",
+  "hashedpassword",
+  "token",
+  "accesstoken",
+  "refreshtoken",
+  "secret",
+  "authorization",
+  "clientsecret",
+  "stripesecretkey",
+]);
+
+function redactForLog(value: unknown, depth = 0): unknown {
+  if (value == null || depth > 4) return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((item) => redactForLog(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_LOG_KEYS.has(key.toLowerCase())) {
+        out[key] = "[REDACTED]";
+      } else {
+        out[key] = redactForLog(nested, depth + 1);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -91,7 +124,7 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        logLine += ` :: ${JSON.stringify(redactForLog(capturedJsonResponse))}`;
       }
 
       if (logLine.length > 80) {
@@ -112,6 +145,8 @@ app.use((req, res, next) => {
 
     const routesStartTime = Date.now();
     const server = await registerRoutes(app);
+    const { registerAdminPasswordResetRoutes } = await import("./adminPasswordResetRoutes");
+    registerAdminPasswordResetRoutes(app);
     const routesTime = Date.now() - routesStartTime;
     console.log(`✅ Routes registered successfully (took ${routesTime}ms)`);
 
@@ -186,6 +221,54 @@ app.use((req, res, next) => {
       console.log(
         "ℹ️ Monthly reset / credit expiry scheduler is OFF (admin-managed credits). Set ENABLE_MONTHLY_RESET_SCHEDULER=true only for legacy subscription renewals."
       );
+    }
+
+    try {
+      const noticeInterval = 60 * 60 * 1000;
+      const { processExpiryNotifications } = await import("./entitlementNotificationService");
+      setImmediate(async () => {
+        try {
+          console.log("[EntitlementNotice] Running initial scan...");
+          await processExpiryNotifications();
+        } catch (error) {
+          console.error("[EntitlementNotice] Initial scan failed:", error);
+        }
+      });
+      setInterval(async () => {
+        try {
+          console.log("[EntitlementNotice] Running scheduled scan...");
+          await processExpiryNotifications();
+        } catch (error) {
+          console.error("[EntitlementNotice] Scheduled scan failed:", error);
+        }
+      }, noticeInterval);
+      console.log("✅ Expiry notification scheduler initialized (runs hourly)");
+    } catch (error) {
+      console.error("❌ Failed to initialize expiry notification scheduler:", error);
+    }
+
+    try {
+      const rentInterval = 60 * 60 * 1000;
+      const { processRentFinanceJobs } = await import("./propertyFinanceService");
+      setImmediate(async () => {
+        try {
+          console.log("[RentFinance] Running initial scan...");
+          await processRentFinanceJobs();
+        } catch (error) {
+          console.error("[RentFinance] Initial scan failed:", error);
+        }
+      });
+      setInterval(async () => {
+        try {
+          console.log("[RentFinance] Running scheduled scan...");
+          await processRentFinanceJobs();
+        } catch (error) {
+          console.error("[RentFinance] Scheduled scan failed:", error);
+        }
+      }, rentInterval);
+      console.log("✅ Rent finance scheduler initialized (reconcile + reminders, hourly)");
+    } catch (error) {
+      console.error("❌ Failed to initialize rent finance scheduler:", error);
     }
 
     // Use traditional listen format for better Windows compatibility

@@ -51,14 +51,14 @@ export function AdminLayout({ children, breadcrumbs }: AdminLayoutProps) {
 
   return (
     <SidebarProvider style={style}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full min-w-0">
         <AdminSidebar />
-        <div className="flex flex-col flex-1">
-          <header className="flex items-center justify-between p-4 border-b bg-card">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger data-testid="button-admin-sidebar-toggle" />
-              <Breadcrumb>
-                <BreadcrumbList>
+        <div className="flex flex-col flex-1 min-w-0">
+          <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+              <SidebarTrigger data-testid="button-admin-sidebar-toggle" className="shrink-0" />
+              <Breadcrumb className="min-w-0 overflow-hidden">
+                <BreadcrumbList className="flex-wrap">
                   {finalBreadcrumbs.map((crumb, index) => (
                     <div key={index} className="flex items-center">
                       {index > 0 && <BreadcrumbSeparator />}
@@ -70,7 +70,7 @@ export function AdminLayout({ children, breadcrumbs }: AdminLayoutProps) {
                             </Link>
                           </BreadcrumbLink>
                         ) : (
-                          <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                          <BreadcrumbPage className="truncate max-w-[140px] sm:max-w-none">{crumb.label}</BreadcrumbPage>
                         )}
                       </BreadcrumbItem>
                     </div>
@@ -80,7 +80,7 @@ export function AdminLayout({ children, breadcrumbs }: AdminLayoutProps) {
             </div>
             <AdminProfileMenu />
           </header>
-          <main className="flex-1 overflow-auto bg-background">
+          <main className="flex-1 overflow-auto bg-background min-w-0">
             {children}
           </main>
         </div>

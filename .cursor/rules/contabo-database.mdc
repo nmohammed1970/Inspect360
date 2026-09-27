@@ -1,0 +1,28 @@
+---
+description: How to open and change the Contabo Postgres databases
+alwaysApply: true
+---
+
+# Contabo database access
+
+When the user asks how to add or run SQL on the server database, give these commands. Always connect as `creativecloud`. Never use the `inspect360` database user to run migrations (it is not the table owner). Do not tell them to run `npx tsx` on the server; the app source is not checked out there.
+
+SSH to the Contabo host, then:
+
+Development (`inspect360_dev`, prompt must be `inspect360_dev=#`):
+
+```bash
+docker exec -it postgres psql -U creativecloud -d inspect360_dev
+```
+
+Production (`inspect360`, prompt must be `inspect360=#`):
+
+```bash
+docker exec -it postgres psql -U creativecloud -d inspect360
+```
+
+The app itself still connects as user `inspect360`. After creating a new table as `creativecloud`, grant that user access:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON <table_name> TO inspect360;
+```

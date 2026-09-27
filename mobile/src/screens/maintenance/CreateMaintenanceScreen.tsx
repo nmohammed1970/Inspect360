@@ -9,9 +9,7 @@ import {
   TouchableOpacity,
   Modal,
   ImageStyle,
-  KeyboardAvoidingView,
   Platform,
-  Dimensions,
 } from 'react-native';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -32,8 +30,12 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { format, parse, isValid } from 'date-fns';
-import { moderateScale, getFontSize } from '../../utils/responsive';
-import { useWindowDimensions } from 'react-native';
+import { useResponsive } from '../../hooks/useResponsive';
+import FormScreen from '../../components/ui/FormScreen';
+import MaintenanceAiAnalysisView, {
+  applyMaintenanceAiNote,
+} from '../../components/MaintenanceAiAnalysisView';
+import { formatInspectionNote, parseInspectionNote } from '../../../../shared/inspectionNoteSections';
 
 type RoutePropType = RouteProp<MaintenanceStackParamList, 'CreateMaintenance'>;
 
@@ -43,8 +45,9 @@ export default function CreateMaintenanceScreen() {
   const route = useRoute<RoutePropType>();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
-  const windowDimensions = useWindowDimensions();
-  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
+  const { formMaxWidth, stackDirection, getResponsivePadding, modalMaxHeight, moderateScale, width: screenWidth } = useResponsive();
+  const photoDir = stackDirection(375);
+  const contentPad = getResponsivePadding(16);
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const theme = useTheme();
@@ -107,7 +110,7 @@ export default function CreateMaintenanceScreen() {
       setPropertyId('');
       setBlockId('');
       setPriority('medium');
-      setDueDate('');
+      setDueDate(null);
       setUploadedImages([]);
       setAiSuggestions('');
       setFormBlockFilter('all');
@@ -326,7 +329,7 @@ export default function CreateMaintenanceScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images' as any,
+        mediaTypes: ['images'],
         quality: 0.8,
         allowsMultipleSelection: true,
       });
@@ -353,7 +356,7 @@ export default function CreateMaintenanceScreen() {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: 'images' as any,
+        mediaTypes: ['images'],
         quality: 0.8,
       });
 
@@ -385,11 +388,15 @@ export default function CreateMaintenanceScreen() {
     },
     onSuccess: (data) => {
       setIsAnalyzing(false);
-      setAiSuggestions(data.suggestedFixes);
+      const applied = applyMaintenanceAiNote(data.suggestedFixes || '', {
+        preferExistingDescription: description,
+      });
+      setAiSuggestions(applied.aiSuggestedFixes);
+      if (applied.description) setDescription(applied.description);
       if (isTenant) {
         setCurrentStep('suggestions');
       }
-      Alert.alert('AI Analysis Complete', 'Review the suggested fixes below');
+      Alert.alert('AI Analysis Complete', 'Review the description, issues, and recommended actions below');
     },
     onError: (error: any) => {
       setIsAnalyzing(false);
@@ -506,7 +513,7 @@ export default function CreateMaintenanceScreen() {
             Failed to load maintenance request.{'\n'}
             {requestError instanceof Error ? requestError.message : 'Please try again.'}
           </Text>
-          <View style={styles.errorActions}>
+          <View style={[styles.errorActions, { maxWidth: formMaxWidth, flexDirection: stackDirection(360) }]}>
             <Button
               title="Go Back"
               onPress={() => navigation.goBack()}
@@ -531,21 +538,19 @@ export default function CreateMaintenanceScreen() {
   if (isTenant && !isEditMode) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]}>
-        <KeyboardAvoidingView
+        <FormScreen
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          edges={{ bottom: true }}
+          contentContainerStyle={{
+            paddingTop: spacing[4],
+            paddingBottom: Math.max(insets.bottom + 80, 32),
+            maxWidth: formMaxWidth,
+            width: '100%',
+            alignSelf: 'center',
+            paddingHorizontal: contentPad,
+          }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? Math.max(insets.top, 8) : 0}
         >
-          <ScrollView
-            contentContainerStyle={[
-              styles.content,
-              {
-                paddingTop: spacing[4],
-                paddingBottom: Math.max(insets.bottom + 80, 32),
-              },
-            ]}
-            keyboardShouldPersistTaps="handled"
-          >
             {/* Step 1: Basic Form */}
             {currentStep === 'form' && (
               <Card style={[styles.card, { backgroundColor: themeColors.card.DEFAULT }]}>
@@ -613,18 +618,18 @@ export default function CreateMaintenanceScreen() {
                   Upload photos of the issue for AI analysis
                 </Text>
 
-                <View style={styles.photoActions}>
+                <View style={[styles.photoActions, { flexDirection: photoDir }]}>
                   <Button
                     title="Pick from Library"
                     onPress={handlePickPhoto}
                     variant="outline"
-                    style={styles.photoButton}
+                    style={[styles.photoButton, photoDir === 'column' && { width: '100%' }]}
                   />
                   <Button
                     title="Take Photo"
                     onPress={handleTakePhoto}
                     variant="outline"
-                    style={styles.photoButton}
+                    style={[styles.photoButton, photoDir === 'column' && { width: '100%' }]}
                   />
                 </View>
 
@@ -651,12 +656,12 @@ export default function CreateMaintenanceScreen() {
                   {uploadedImages.length} image(s) uploaded
                 </Text>
 
-                <View style={styles.stepActions}>
+                <View style={[styles.stepActions, { flexDirection: photoDir }]}>
                   <Button
                     title="Back"
                     onPress={() => setCurrentStep('form')}
                     variant="outline"
-                    style={styles.stepButton}
+                    style={[styles.stepButton, photoDir === 'column' && { width: '100%' }]}
                   />
                   <Button
                     title={isAnalyzing ? 'Analyzing...' : 'Get AI Suggestions'}
@@ -664,7 +669,7 @@ export default function CreateMaintenanceScreen() {
                     disabled={isAnalyzing || uploadedImages.length === 0}
                     variant="primary"
                     icon={isAnalyzing ? <Loader2 size={16} color={themeColors.primary.foreground || '#ffffff'} /> : <Sparkles size={16} color={themeColors.primary.foreground || '#ffffff'} />}
-                    style={styles.stepButton}
+                    style={[styles.stepButton, photoDir === 'column' && { width: '100%' }]}
                   />
                 </View>
               </Card>
@@ -673,37 +678,46 @@ export default function CreateMaintenanceScreen() {
             {/* Step 3: AI Suggestions */}
             {currentStep === 'suggestions' && (
               <Card style={[styles.card, { backgroundColor: themeColors.card.DEFAULT }]}>
-                <View style={styles.aiHeader}>
-                  <Sparkles size={24} color={themeColors.primary.DEFAULT} />
-                  <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>AI-Suggested Fixes</Text>
-                </View>
                 {aiSuggestions ? (
-                  <Text style={[styles.aiSuggestions, { color: themeColors.text.primary }]}>{aiSuggestions}</Text>
+                  <MaintenanceAiAnalysisView
+                    note={aiSuggestions}
+                    description={description}
+                    onDescriptionChange={(value) => {
+                      setDescription(value);
+                      const sections = parseInspectionNote(aiSuggestions);
+                      setAiSuggestions(
+                        formatInspectionNote({
+                          ...sections,
+                          description: value,
+                        }),
+                      );
+                    }}
+                    isDark={!!theme?.isDark}
+                  />
                 ) : (
                   <Text style={[styles.aiSuggestions, { color: themeColors.text.primary }]}>
                     AI Preventative Maintenance is disabled. You can still submit your request.
                   </Text>
                 )}
 
-                <View style={styles.stepActions}>
+                <View style={[styles.stepActions, { flexDirection: photoDir }]}>
                   <Button
                     title="Back"
                     onPress={() => setCurrentStep('images')}
                     variant="outline"
-                    style={styles.stepButton}
+                    style={[styles.stepButton, photoDir === 'column' && { width: '100%' }]}
                   />
                   <Button
                     title={createMutation.isPending ? 'Submitting...' : 'Submit Request'}
                     onPress={handleSubmit}
                     disabled={createMutation.isPending}
                     variant="primary"
-                    style={styles.stepButton}
+                    style={[styles.stepButton, photoDir === 'column' && { width: '100%' }]}
                   />
                 </View>
               </Card>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </FormScreen>
 
         {/* Block Picker Modal */}
         <Modal
@@ -713,7 +727,7 @@ export default function CreateMaintenanceScreen() {
           onRequestClose={() => setShowBlockPicker(false)}
         >
           <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-            <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT }]}>
+            <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT, maxHeight: modalMaxHeight(0.9) }]}>
               <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
                 <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Select Block</Text>
                 <TouchableOpacity onPress={() => setShowBlockPicker(false)}>
@@ -785,7 +799,7 @@ export default function CreateMaintenanceScreen() {
           onRequestClose={() => setShowPropertyPicker(false)}
         >
           <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-            <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT }]}>
+            <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT, maxHeight: modalMaxHeight(0.9) }]}>
               <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
                 <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Select Property</Text>
                 <TouchableOpacity onPress={() => setShowPropertyPicker(false)}>
@@ -851,21 +865,19 @@ export default function CreateMaintenanceScreen() {
   // Standard form for non-tenants or edit mode
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]}>
-      <KeyboardAvoidingView
+      <FormScreen
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        edges={{ bottom: true }}
+        contentContainerStyle={{
+          paddingTop: spacing[4],
+          paddingBottom: Math.max(insets.bottom + 80, 32),
+          maxWidth: formMaxWidth,
+          width: '100%',
+          alignSelf: 'center',
+          paddingHorizontal: contentPad,
+        }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? Math.max(insets.top, 8) : 0}
       >
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingTop: spacing[4],
-              paddingBottom: Math.max(insets.bottom + 80, 32),
-            },
-          ]}
-          keyboardShouldPersistTaps="handled"
-        >
           <Card style={[styles.card, { backgroundColor: themeColors.card.DEFAULT }]}>
             <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>
               {isEditMode ? 'Edit Maintenance Request' : 'Create Maintenance Request'}
@@ -933,14 +945,14 @@ export default function CreateMaintenanceScreen() {
             {/* Priority Selection */}
             <View style={styles.selectContainer}>
               <Text style={[styles.label, { color: themeColors.text.primary }]}>Priority</Text>
-              <View style={[styles.priorityContainer, { gap: moderateScale(8, 0.3, screenWidth) }]}>
+              <View style={[styles.priorityContainer, { gap: moderateScale(8, 0.3) }]}>
                 {(['low', 'medium', 'high'] as const).map((p) => (
                   <Button
                     key={p}
                     title={p.charAt(0).toUpperCase() + p.slice(1)}
                     onPress={() => setPriority(p)}
                     variant={priority === p ? 'primary' : 'outline'}
-                    style={[styles.priorityButton, { minWidth: moderateScale(80, 0.3, screenWidth) }]}
+                    style={[styles.priorityButton, { minWidth: moderateScale(80, 0.3) }]}
                   />
                 ))}
               </View>
@@ -968,20 +980,20 @@ export default function CreateMaintenanceScreen() {
             {/* Photo Upload Section */}
             <View style={styles.photoSection}>
               <Text style={[styles.label, { color: themeColors.text.primary }]}>Photos (Optional)</Text>
-              <View style={styles.photoActions}>
+              <View style={[styles.photoActions, { flexDirection: photoDir }]}>
                 <Button
                   title="Pick from Library"
                   onPress={handlePickPhoto}
                   variant="outline"
                   icon={<Upload size={16} color={themeColors.text.primary} />}
-                  style={styles.photoButton}
+                  style={[styles.photoButton, photoDir === 'column' && { width: '100%' }]}
                 />
                 <Button
                   title="Take Photo"
                   onPress={handleTakePhoto}
                   variant="outline"
                   icon={<Upload size={16} color={themeColors.text.primary} />}
-                  style={styles.photoButton}
+                  style={[styles.photoButton, photoDir === 'column' && { width: '100%' }]}
                 />
               </View>
 
@@ -1027,13 +1039,21 @@ export default function CreateMaintenanceScreen() {
 
               {/* AI Suggestions Display */}
               {aiSuggestions && (
-                <Card style={[styles.aiCard, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.light }]}>
-                  <View style={styles.aiHeader}>
-                    <Sparkles size={20} color={themeColors.primary.DEFAULT} />
-                    <Text style={[styles.aiTitle, { color: themeColors.text.primary }]}>AI-Suggested Fixes</Text>
-                  </View>
-                  <Text style={[styles.aiSuggestions, { color: themeColors.text.primary }]}>{aiSuggestions}</Text>
-                </Card>
+                <MaintenanceAiAnalysisView
+                  note={aiSuggestions}
+                  description={description}
+                  onDescriptionChange={(value) => {
+                    setDescription(value);
+                    const sections = parseInspectionNote(aiSuggestions);
+                    setAiSuggestions(
+                      formatInspectionNote({
+                        ...sections,
+                        description: value,
+                      }),
+                    );
+                  }}
+                  isDark={!!theme?.isDark}
+                />
               )}
             </View>
 
@@ -1048,8 +1068,7 @@ export default function CreateMaintenanceScreen() {
               loading={createMutation.isPending || updateMutation.isPending}
             />
           </Card>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
 
       {/* Block Picker Modal */}
       <Modal
@@ -1059,7 +1078,7 @@ export default function CreateMaintenanceScreen() {
         onRequestClose={() => setShowBlockPicker(false)}
       >
         <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT }]}>
+          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT, maxHeight: modalMaxHeight(0.9) }]}>
             <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
               <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Select Block</Text>
               <TouchableOpacity onPress={() => setShowBlockPicker(false)}>
@@ -1131,7 +1150,7 @@ export default function CreateMaintenanceScreen() {
         onRequestClose={() => setShowPropertyPicker(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT }]}>
+          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 16) + 16, backgroundColor: themeColors.card.DEFAULT, maxHeight: modalMaxHeight(0.9) }]}>
             <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
               <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Select Property</Text>
               <TouchableOpacity onPress={() => setShowPropertyPicker(false)}>
@@ -1212,9 +1231,9 @@ const styles = StyleSheet.create({
   },
   errorActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing[3],
     width: '100%',
-    maxWidth: 400,
   },
   errorButton: {
     flex: 1,
@@ -1349,11 +1368,13 @@ const styles = StyleSheet.create({
   },
   photoActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 16,
   },
   photoButton: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: 140,
   },
   photosGrid: {
     flexDirection: 'row',
@@ -1410,10 +1431,12 @@ const styles = StyleSheet.create({
   },
   stepActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     marginTop: 24,
   },
   stepButton: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: 140,
   },
 });

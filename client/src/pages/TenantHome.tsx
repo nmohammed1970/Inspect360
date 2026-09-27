@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, Home, Calendar, MapPin, FileText } from "lucide-react";
 import { Link } from "wouter";
@@ -13,6 +12,8 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { ActionRequiredBanner } from "@/components/ActionRequiredBanner";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
 
 export default function TenantHome() {
   const locale = useLocale();
@@ -50,7 +51,7 @@ export default function TenantHome() {
 
   if (isLoading) {
     return (
-      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-8 md:h-12 w-48 md:w-64" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <Skeleton className="h-48" />
@@ -64,7 +65,7 @@ export default function TenantHome() {
 
   if (!tenancyData) {
     return (
-      <div className="p-4 md:p-6">
+      <div className={cn(pagePad, "min-w-0")}>
         <Card>
           <CardHeader>
             <CardTitle>No Tenancy Found</CardTitle>
@@ -80,7 +81,7 @@ export default function TenantHome() {
   const { tenancy, property, block } = tenancyData;
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -105,15 +106,13 @@ export default function TenantHome() {
               inspection.type === "check_out" ? "check-out" : "check-in";
             return (
               <Link key={inspection.id} href={`/tenant/inspection-review/${inspection.id}`}>
-                <div className="w-full rounded-lg border border-orange-500 bg-[#FFF8E7] p-4 cursor-pointer hover:bg-[#FFF5D6] transition-colors">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 mt-0.5">
+                <div className="w-full rounded-lg border border-orange-500 bg-[#FFF8E7] p-4 cursor-pointer hover:bg-[#FFF5D6] transition-colors min-w-0">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="shrink-0 mt-0.5">
                       <FileText className="h-5 w-5 text-orange-600" />
                     </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-orange-600 text-base leading-tight">Action Required</h3>
-                      </div>
+                    <div className={cn("flex-1 space-y-1", textBreak)}>
+                      <h3 className="font-bold text-orange-600 text-base leading-tight">Action Required</h3>
                       <p className="text-sm text-orange-600 leading-relaxed">
                         A {typeLabel} inspection requires your review and signature. Please review the details and sign.
                       </p>
@@ -136,30 +135,30 @@ export default function TenantHome() {
       )}
 
       {/* Property Information */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 min-w-0">
         {/* Property Card */}
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 bg-primary/10 rounded-lg shrink-0">
                 <Home className="h-5 w-5 text-primary" />
               </div>
-              <CardTitle>Your Property</CardTitle>
+              <CardTitle className={textTruncate}>Your Property</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
+            <div className="min-w-0">
               <div className="text-sm text-muted-foreground">Property Name</div>
-              <div className="font-semibold text-lg" data-testid="text-property-name">
+              <div className={cn("font-semibold text-lg", textBreak)} data-testid="text-property-name">
                 {property?.name}
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-sm text-muted-foreground flex items-center gap-2">
-                <MapPin className="h-4 w-4" />
+                <MapPin className="h-4 w-4 shrink-0" />
                 Address
               </div>
-              <div className="font-medium" data-testid="text-property-address">
+              <div className={cn("font-medium", textBreak)} data-testid="text-property-address">
                 {property?.address}
               </div>
             </div>
@@ -186,16 +185,16 @@ export default function TenantHome() {
             <CardContent className="space-y-4">
               <div>
                 <div className="text-sm text-muted-foreground">Block Name</div>
-                <div className="font-semibold text-lg" data-testid="text-block-name">
+                <div className={cn("font-semibold text-lg", textBreak)} data-testid="text-block-name">
                   {block.name}
                 </div>
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm text-muted-foreground flex items-center gap-2">
-                  <MapPin className="h-4 w-4" />
+                  <MapPin className="h-4 w-4 shrink-0" />
                   Address
                 </div>
-                <div className="font-medium" data-testid="text-block-address">
+                <div className={cn("font-medium", textBreak)} data-testid="text-block-address">
                   {block.address}
                 </div>
               </div>
@@ -301,7 +300,7 @@ export default function TenantHome() {
               }
               
               return (
-                <div className="mt-6 p-4 bg-muted rounded-lg">
+                <div className={cn("mt-6 p-4 bg-muted rounded-lg", textBreak)}>
                   <div className="text-sm text-muted-foreground mb-2">Notes</div>
                   <div className="text-sm whitespace-pre-wrap">{displayNotes}</div>
                 </div>

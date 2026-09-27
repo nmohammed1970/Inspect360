@@ -9,7 +9,15 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 import { storage } from "./storage";
+import {
+  buildWorkOrderIdentity,
+  canAccessWorkOrder,
+  isAllowedWorkOrderStatus,
+  listScopeForUser,
+  type WorkOrderIdentity,
+} from "./workOrderAccess";
 import { getUncachableStripeClient, getStripeSecretKey } from "./stripeClient";
+import { isHeicOrHeifBuffer, toOpenAIImageDataUrl } from "./imageForAi";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -352,13 +360,20 @@ function detectImageMimeType(buffer: Buffer): string {
     return 'image/bmp';
   }
 
+  // HEIC/HEIF (iPhone): ....ftypheic / heif / mif1
+  if (isHeicOrHeifBuffer(buffer)) {
+    return 'image/heic';
+  }
+
   // Default to JPEG if we can't detect (most common image format)
   // This ensures we always return a valid image MIME type
   console.warn('[detectImageMimeType] Could not detect image type from magic bytes, defaulting to image/jpeg. First bytes:',
     Array.from(buffer.slice(0, 8)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
   return 'image/jpeg';
 }
-import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords } from "./auth";
+import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
+import { validateNewPassword } from "@shared/passwordPolicy";
+import { INSPECTION_NOTE_STRUCTURE_PROMPT, formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 
 // Middleware that allows both regular users and admins
 const isUserOrAdmin = (req: any, res: any, next: any) => {
@@ -409,9 +424,10 @@ import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
+import { resolveCoverLogoSrc } from "./reportLogo";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
 import { formatSignerDisplayName, isTenantSignatureField, createSignatureValue } from "@shared/signature";
-import { extractTextFromFile, findRelevantChunks } from "./documentProcessor";
+import { extractTextFromFile, buildKnowledgeBaseContext } from "./documentProcessor";
 import {
   insertBlockSchema,
   insertContactSchema,
@@ -480,6 +496,7 @@ import {
 import { pricingService } from "./pricingService";
 import { planChangeStripeUpdateParams } from "@shared/stripeProrationPolicy";
 import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
+import { isExpiryDateInPast } from "@shared/workOrderCertificates";
 import {
   BILLING_FALLBACK_RATES_FROM_GBP,
   isSupportedBillingCurrency,
@@ -894,8 +911,8 @@ IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
 - Write in plain text only - do NOT use asterisks (*), hash symbols (#), bullet points, or numbered lists
 - Do NOT use any markdown formatting
-- Do NOT include emojis
-- Write in professional, flowing paragraphs`;
+- Do NOT use emojis
+${INSPECTION_NOTE_STRUCTURE_PROMPT}`;
       } else {
         promptText = `You are a property inspector analyzing photos for a specific inspection point.
 
@@ -905,18 +922,14 @@ INSPECTION CONTEXT:
 
 CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspectionPointTitle}" in the "${category}". The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
 
-Provide a focused assessment for "${inspectionPointTitle}" covering:
-- Overall condition assessment of "${inspectionPointTitle}" specifically
-- Any visible damage, defects, or wear on "${inspectionPointTitle}"
-- Cleanliness and maintenance issues related to "${inspectionPointTitle}"
-- Brief recommendation (only if action is needed for "${inspectionPointTitle}")
+Provide a focused assessment for "${inspectionPointTitle}" covering overall condition, any damage/defects/wear, cleanliness, and recommendations only if action is needed.
 
 IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
 - Write in plain text only - do NOT use asterisks (*), hash symbols (#), bullet points, or numbered lists
 - Do NOT use any markdown formatting
-- Do NOT include emojis
-- Write in professional, flowing paragraphs
+- Do NOT use emojis
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
 
 Be thorough but concise, specific, and objective about "${inspectionPointTitle}" in the "${category}". This will be used in a professional property inspection report.`;
       }
@@ -1285,26 +1298,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/config/google-maps-key", async (req: any, res) => {
     try {
-      // Check all possible ways the key might be set
       const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim() ||
         process.env['GOOGLE_MAPS_API_KEY']?.trim();
 
-      console.log('[Google Maps API] Checking API key:', {
-        exists: !!apiKey,
-        length: apiKey?.length || 0,
-        rawEnvValue: process.env.GOOGLE_MAPS_API_KEY ? 'present' : 'missing',
-        allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
-      });
-
       if (!apiKey || apiKey.length === 0) {
-        console.warn('[Google Maps API] API key not configured in environment variables');
-        console.warn('[Google Maps API] Available env vars with GOOGLE:',
-          Object.keys(process.env).filter(k => k.toUpperCase().includes('GOOGLE')));
-        // Return 200 with null to indicate API key is not configured
-        // This allows the client to gracefully handle missing API key
+        // Return 200 with null so the client can handle a missing key gracefully
         return res.json({ apiKey: null, configured: false });
       }
-      console.log('[Google Maps API] API key found, returning to client (length:', apiKey.length, ')');
       res.json({ apiKey, configured: true });
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : (error?.message || error?.toString() || "Unknown error");
@@ -1486,39 +1486,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Change password endpoint
+  // Change password endpoint (authenticated session user only — never trust client userId)
   app.patch('/api/auth/change-password', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { currentPassword, newPassword } = req.body;
 
-      if (!currentPassword || !newPassword) {
-        return res.status(400).json({ message: "Current password and new password are required" });
+      if (!currentPassword || typeof currentPassword !== "string") {
+        return res.status(400).json({ message: "Current password is required" });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      const passwordCheck = validateNewPassword(newPassword);
+      if (!passwordCheck.ok) {
+        return res.status(400).json({ message: passwordCheck.message });
       }
 
-      // Get user from users table to verify current password
+      const rateKey = `change-password:${userId}`;
+      if (!consumeAuthRateLimit(rateKey, 10, 15 * 60 * 1000)) {
+        return res.status(429).json({ message: "Too many password change attempts. Please try again later." });
+      }
+
       const user = await storage.getUser(userId);
       if (!user || !user.password) {
         return res.status(404).json({ message: "User not found" });
       }
+      if (user.isActive === false) {
+        return res.status(403).json({ message: "Account is disabled" });
+      }
 
-      // Verify current password using comparePasswords (supports both scrypt and bcrypt formats)
       const isPasswordValid = await comparePasswords(currentPassword, user.password);
       if (!isPasswordValid) {
         return res.status(401).json({ message: "Current password is incorrect" });
       }
 
-      // Hash new password using the same method as registration (scrypt)
-      const hashedPassword = await hashPassword(newPassword);
+      if (await comparePasswords(passwordCheck.password, user.password)) {
+        return res.status(400).json({ message: "New password must be different from your current password" });
+      }
 
-      // Update password in users table (same table used for login)
+      const hashedPassword = await hashPassword(passwordCheck.password);
       await storage.updatePassword(userId, hashedPassword);
+      await storage.clearResetToken(userId);
 
-      console.log(`[Change Password] Password updated successfully for user ${userId} (${user.email})`);
       res.json({ message: "Password changed successfully" });
     } catch (error) {
       console.error("Error changing password:", error);
@@ -1547,11 +1555,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      const { billingNowUtc } = await import("@shared/billingClock");
+      const { addDaysUtc } = await import("@shared/entitlements");
+      const { recordEntitlementEvent, getDefaultTrialDays } = await import("./entitlementService");
+      const trialStartAt = billingNowUtc();
+      const trialDays = await getDefaultTrialDays();
+      const trialEndAt = addDaysUtc(trialStartAt, trialDays);
+
       // Create organization
       const organization = await storage.createOrganization({
         name: validation.data.name,
         ownerId: userId,
-        // Credits are now granted via credit batch system (see below)
+        trialEnforced: true,
+        trialStartAt,
+        trialEndAt,
       });
 
       // Update user with organization ID and set role to owner (preserving all existing fields)
@@ -1568,6 +1585,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: "purchase",
         description: "Welcome credits",
       });
+
+      try {
+        await recordEntitlementEvent({
+          organizationId: organization.id,
+          eventType: "trial_created",
+          actorUserId: userId,
+          newTrialEnd: trialEndAt,
+          additionalDays: trialDays,
+          notes: "Trial started when organization was created",
+        });
+      } catch (auditError) {
+        console.error("Warning: Failed to record trial creation:", auditError);
+      }
 
       // Create default inspection templates (Check In and Check Out)
       // Use defensive error handling so org creation succeeds even if template seeding fails
@@ -2931,6 +2961,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/entitlement", isAuthenticated, async (req: any, res) => {
+    try {
+      const organizationId = req.user?.organizationId;
+      if (!organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const { getOrganizationAccessStatus } = await import("./entitlementService");
+      const status = await getOrganizationAccessStatus(organizationId);
+      if (!status) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+      res.json(status);
+    } catch (error) {
+      console.error("Error fetching entitlement:", error);
+      res.status(500).json({ message: "Failed to load account status" });
+    }
+  });
+
   app.get("/api/billing/inspection-balance", isAuthenticated, async (req: any, res) => {
     try {
       const organizationId = req.user.organizationId;
@@ -4253,6 +4301,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Document name and file URL are required" });
       }
 
+      if (expiryDate && isExpiryDateInPast(expiryDate)) {
+        return res.status(400).json({ message: "Expiry date cannot be in the past" });
+      }
+
       const document = await storage.createUserDocument({
         userId,
         organizationId: user.organizationId,
@@ -5401,6 +5453,371 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== PROPERTY FINANCE ROUTES ====================
+
+  async function assertPropertyInOrg(propertyId: string, organizationId: string) {
+    const property = await storage.getProperty(propertyId);
+    if (!property || property.organizationId !== organizationId) {
+      return null;
+    }
+    return property;
+  }
+
+  app.get("/api/properties/:id/deposits", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listPropertyDeposits } = await import("./propertyFinanceService");
+      res.json(await listPropertyDeposits(user.organizationId, req.params.id));
+    } catch (error) {
+      console.error("Error listing deposits:", error);
+      res.status(500).json({ message: "Failed to list deposits" });
+    }
+  });
+
+  app.post("/api/properties/:id/deposits", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const assignment = await storage.getTenantAssignment(req.body.tenantAssignmentId);
+      if (!assignment || assignment.organizationId !== user.organizationId || assignment.propertyId !== req.params.id) {
+        return res.status(400).json({ message: "Invalid tenant assignment for this property" });
+      }
+      const org = await storage.getOrganization(user.organizationId);
+      const { createPropertyDeposit } = await import("./propertyFinanceService");
+      const deposit = await createPropertyDeposit(user.organizationId, {
+        propertyId: req.params.id,
+        tenantAssignmentId: req.body.tenantAssignmentId,
+        amount: String(req.body.amount),
+        currency: req.body.currency || org?.preferredCurrency || "GBP",
+        receivedDate: req.body.receivedDate ? new Date(req.body.receivedDate) : null,
+        paymentMethod: req.body.paymentMethod || null,
+        status: req.body.status || "held",
+        returnedAmount: req.body.returnedAmount != null ? String(req.body.returnedAmount) : null,
+        deductedAmount: req.body.deductedAmount != null ? String(req.body.deductedAmount) : null,
+        deductionReason: req.body.deductionReason || null,
+        notes: req.body.notes || null,
+        receiptUrl: req.body.receiptUrl || null,
+        createdBy: user.id,
+      });
+      res.status(201).json(deposit);
+    } catch (error: any) {
+      console.error("Error creating deposit:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to create deposit" });
+    }
+  });
+
+  app.patch("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const updates: any = { updatedAt: new Date() };
+      for (const key of [
+        "status",
+        "paymentMethod",
+        "notes",
+        "receiptUrl",
+        "deductionReason",
+        "currency",
+        "tenantAssignmentId",
+      ] as const) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      for (const key of ["amount", "returnedAmount", "deductedAmount"] as const) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key] == null ? null : String(req.body[key]);
+      }
+      if (req.body.receivedDate !== undefined) {
+        updates.receivedDate = req.body.receivedDate ? new Date(req.body.receivedDate) : null;
+      }
+      const { updatePropertyDeposit } = await import("./propertyFinanceService");
+      res.json(await updatePropertyDeposit(user.organizationId, req.params.depositId, updates));
+    } catch (error: any) {
+      console.error("Error updating deposit:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to update deposit" });
+    }
+  });
+
+  app.delete("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { deletePropertyDeposit } = await import("./propertyFinanceService");
+      await deletePropertyDeposit(user.organizationId, req.params.depositId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting deposit:", error);
+      res.status(500).json({ message: "Failed to delete deposit" });
+    }
+  });
+
+  app.get("/api/properties/:id/expenses", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listPropertyExpenses } = await import("./propertyFinanceService");
+      res.json(await listPropertyExpenses(user.organizationId, req.params.id));
+    } catch (error) {
+      console.error("Error listing expenses:", error);
+      res.status(500).json({ message: "Failed to list expenses" });
+    }
+  });
+
+  app.post("/api/properties/:id/expenses", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      if (!req.body.description || !req.body.category || !req.body.expenseDate || req.body.amount == null) {
+        return res.status(400).json({ message: "Description, category, date, and amount are required" });
+      }
+      const org = await storage.getOrganization(user.organizationId);
+      const category = String(req.body.category);
+      const description = String(req.body.description).trim();
+      const amountStr = String(req.body.amount);
+      const expenseDate = new Date(req.body.expenseDate);
+      const photoUrl = req.body.photoUrl || null;
+      const receiptUrl = req.body.receiptUrl || null;
+      const supplier = req.body.supplier || null;
+      const supplierContact = req.body.supplierContact || null;
+      const warrantyExpiry = req.body.warrantyExpiry ? new Date(req.body.warrantyExpiry) : null;
+      const warrantyNotes = req.body.warrantyNotes || null;
+      const notes = req.body.notes || null;
+
+      // Asset-like spend (not repair/insurance) → also create inventory item (same transaction)
+      const skipInventory = category === "repair" || category === "insurance";
+      const existingAssetId = req.body.assetInventoryId || null;
+      let inventoryPayload: any = null;
+      if (!existingAssetId && !skipInventory) {
+        const property = await storage.getProperty(req.params.id);
+        const inventoryCategoryMap: Record<string, string> = {
+          appliance: "Appliances",
+          furnishing: "Furniture",
+          utilities: "Other",
+          other: "Other",
+        };
+        const photos = photoUrl ? [String(photoUrl)] : [];
+        const documents = receiptUrl ? [String(receiptUrl)] : [];
+        inventoryPayload = {
+          propertyId: req.params.id,
+          name: description,
+          category: inventoryCategoryMap[category] || "Other",
+          description: notes || description,
+          location: property?.address || property?.name || null,
+          supplier,
+          supplierContact,
+          datePurchased: Number.isNaN(expenseDate.getTime()) ? new Date() : expenseDate,
+          purchasePrice: amountStr,
+          currentValue: amountStr,
+          warrantyExpiryDate: warrantyExpiry,
+          condition: "excellent",
+          cleanliness: "clean",
+          photos: photos.length ? photos : undefined,
+          documents: documents.length ? documents : undefined,
+          maintenanceNotes: warrantyNotes,
+        };
+      }
+
+      const { createPropertyExpenseWithOptionalInventory, createPropertyExpense } =
+        await import("./propertyFinanceService");
+
+      const expense = inventoryPayload
+        ? await createPropertyExpenseWithOptionalInventory({
+            organizationId: user.organizationId,
+            inventory: inventoryPayload,
+            expense: {
+              propertyId: req.params.id,
+              description,
+              category: category as any,
+              expenseDate,
+              supplier,
+              supplierContact,
+              amount: amountStr,
+              currency: req.body.currency || org?.preferredCurrency || "GBP",
+              warrantyExpiry,
+              warrantyNotes,
+              photoUrl,
+              receiptUrl,
+              notes,
+              createdBy: user.id,
+            },
+          })
+        : await createPropertyExpense(user.organizationId, {
+            propertyId: req.params.id,
+            description,
+            category: category as any,
+            expenseDate,
+            supplier,
+            supplierContact,
+            amount: amountStr,
+            currency: req.body.currency || org?.preferredCurrency || "GBP",
+            warrantyExpiry,
+            warrantyNotes,
+            photoUrl,
+            receiptUrl,
+            assetInventoryId: existingAssetId,
+            notes,
+            createdBy: user.id,
+          });
+      res.status(201).json(expense);
+    } catch (error: any) {
+      console.error("Error creating expense:", error);
+      res.status(500).json({ message: error.message || "Failed to create expense" });
+    }
+  });
+
+  app.patch("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const updates: any = {};
+      for (const key of ["description", "category", "supplier", "supplierContact", "currency", "warrantyNotes", "photoUrl", "receiptUrl", "assetInventoryId", "notes"] as const) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      if (req.body.amount !== undefined) updates.amount = String(req.body.amount);
+      if (req.body.expenseDate !== undefined) updates.expenseDate = new Date(req.body.expenseDate);
+      if (req.body.warrantyExpiry !== undefined) {
+        updates.warrantyExpiry = req.body.warrantyExpiry ? new Date(req.body.warrantyExpiry) : null;
+      }
+      const { updatePropertyExpense } = await import("./propertyFinanceService");
+      res.json(await updatePropertyExpense(user.organizationId, req.params.expenseId, updates));
+    } catch (error: any) {
+      console.error("Error updating expense:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to update expense" });
+    }
+  });
+
+  app.delete("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { deletePropertyExpense } = await import("./propertyFinanceService");
+      await deletePropertyExpense(user.organizationId, req.params.expenseId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting expense:", error);
+      res.status(500).json({ message: "Failed to delete expense" });
+    }
+  });
+
+  /** Read-only list — never generates periods. */
+  app.get("/api/properties/:id/rent-periods", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.id, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listRentPeriodsForProperty } = await import("./propertyFinanceService");
+      res.json(await listRentPeriodsForProperty(user.organizationId, req.params.id));
+    } catch (error) {
+      console.error("Error listing rent periods:", error);
+      res.status(500).json({ message: "Failed to list rent periods" });
+    }
+  });
+
+  app.patch("/api/properties/:propertyId/rent-periods/:periodId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { updateRentPeriodPayment } = await import("./propertyFinanceService");
+      const updated = await updateRentPeriodPayment(user.organizationId, req.params.periodId, {
+        amountPaid: req.body.amountPaid != null ? String(req.body.amountPaid) : undefined,
+        amountDue: req.body.amountDue != null ? String(req.body.amountDue) : undefined,
+        status: req.body.status,
+        notes: req.body.notes,
+      });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating rent period:", error);
+      res.status(error.status || 500).json({ message: error.message || "Failed to update rent period" });
+    }
+  });
+
+  app.post("/api/properties/:propertyId/rent-periods/:periodId/send-reminder", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      if (!(await assertPropertyInOrg(req.params.propertyId, user.organizationId))) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { sendManualRentReminder } = await import("./propertyFinanceService");
+      const result = await sendManualRentReminder(user.organizationId, req.params.periodId);
+      if (!result.ok) return res.status(result.status).json({ message: result.message });
+      res.json({ message: "Reminder sent successfully" });
+    } catch (error) {
+      console.error("Error sending rent reminder:", error);
+      res.status(500).json({ message: "Failed to send reminder" });
+    }
+  });
+
+  app.get("/api/organization/rent-settings", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const { getOrCreateRentSettings } = await import("./propertyFinanceService");
+      res.json(await getOrCreateRentSettings(user.organizationId));
+    } catch (error) {
+      console.error("Error fetching rent settings:", error);
+      res.status(500).json({ message: "Failed to fetch rent settings" });
+    }
+  });
+
+  app.patch("/api/organization/rent-settings", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const allowed = [
+        "enabled",
+        "daysBeforeDue1",
+        "daysBeforeDue2",
+        "daysBeforeDue3",
+        "reminder1Subject",
+        "reminder1Body",
+        "reminder2Subject",
+        "reminder2Body",
+        "reminder3Subject",
+        "reminder3Body",
+        "overdueSubject",
+        "overdueBody",
+      ] as const;
+      const updates: any = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      const { updateRentSettings } = await import("./propertyFinanceService");
+      res.json(await updateRentSettings(user.organizationId, updates));
+    } catch (error) {
+      console.error("Error updating rent settings:", error);
+      res.status(500).json({ message: "Failed to update rent settings" });
+    }
+  });
+
   // ==================== USER ROUTES ====================
 
   app.get("/api/users/clerks", isAuthenticated, async (req: any, res) => {
@@ -5461,7 +5878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== INSPECTION ROUTES ====================
 
-  app.post("/api/inspections", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/inspections", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
@@ -5612,7 +6029,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk schedule multiple inspections at once from calendar
-  app.post("/api/inspections/bulk-schedule", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/inspections/bulk-schedule", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
@@ -5709,7 +6126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Copy an inspection as a new type (check_in or check_out)
-  app.post("/api/inspections/:id/copy", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/inspections/:id/copy", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { type, scheduledDate, copyImages, copyText } = req.body;
@@ -5851,8 +6268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
 
-      // Owners see all inspections in their organization
-      // Clerks see only inspections assigned to them
+      // Owners/compliance see all org inspections; clerks/contractors see only assigned to them
       let inspections;
       if (user.role === "owner" || user.role === "compliance") {
         inspections = await storage.getInspectionsByOrganization(user.organizationId);
@@ -7643,7 +8059,7 @@ IMPORTANT RULES:
 - Keep your response under ${aiMaxWords} words
 - Be concise and direct - no unnecessary explanations
 - Write in plain text only - no markdown, asterisks, bullets, or emojis
-- Recommendations must be brief and actionable`;
+${INSPECTION_NOTE_STRUCTURE_PROMPT}`;
       } else {
         // Default prompt - highly focused on the specific inspection point
         promptText = `You are a property inspector analyzing photos for a specific inspection point.
@@ -7668,8 +8084,7 @@ FORMATTING RULES:
 - Maximum ${aiMaxWords} words
 - Be direct and concise - avoid filler language
 - Plain text only - no markdown, asterisks, bullets, numbered lists, or emojis
-- Write professionally in flowing sentences
-- Recommendations should be actionable and brief (e.g., "Recommend repainting" not "It would be advisable to consider having the area repainted at some point")
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
 
 Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing else in the photo matters for this inspection point.`;
       }
@@ -10653,11 +11068,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       return 'badge-warning'; // default to warning for unknown priorities
     };
 
-    // Branding
+    // Branding — org logo, or Inspect360 LogoWhite on teal covers
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -11775,11 +12192,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       return escapeHtml(trimmed);
     };
 
-    // Branding for cover page
+    // Branding for cover page — org logo, or Inspect360 LogoWhite on teal covers
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : '';
     // Always show company name, below logo if logo exists
     const companyNameHtml = `<div class="cover-company-name">${escapeHtml(companyName)}</div>`;
@@ -12223,6 +12642,10 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const { documentType, documentUrl, expiryDate, propertyId, blockId } = validation.data;
       const propertyIds = req.body.propertyIds as string[] | undefined;
 
+      if (expiryDate && isExpiryDateInPast(expiryDate)) {
+        return res.status(400).json({ message: "Expiry date cannot be in the past" });
+      }
+
       // Create the main document (for block or single property)
       const doc = await storage.createComplianceDocument({
         organizationId: user.organizationId,
@@ -12500,6 +12923,9 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const updateData: any = { ...validation.data };
       if (updateData.expiryDate) {
         updateData.expiryDate = new Date(updateData.expiryDate);
+        if (isExpiryDateInPast(updateData.expiryDate)) {
+          return res.status(400).json({ message: "Expiry date cannot be in the past" });
+        }
       }
 
       const updatedDoc = await storage.updateComplianceDocument(docId, updateData);
@@ -12547,19 +12973,27 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       let imageUrlForAI: string | null = null;
       let suggestedFixes = "";
 
-      // Process image URL - convert localhost/internal URLs to base64
+      // Process image URL - convert localhost/internal/LAN URLs to OpenAI-safe JPEG data URL
       if (imageUrl) {
         const isLocalhost = imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1');
-        const isInternalPath = imageUrl.startsWith('/objects/') || (!imageUrl.startsWith('http') && imageUrl.includes('/objects/'));
-        const isLocalhostHttp = imageUrl.startsWith('http://localhost') || imageUrl.startsWith('https://localhost');
+        const isInternalPath =
+          imageUrl.startsWith('/objects/') ||
+          imageUrl.includes('/objects/') ||
+          (!imageUrl.startsWith('http') && imageUrl.includes('/objects/'));
+        const isLocalhostHttp =
+          imageUrl.startsWith('http://localhost') || imageUrl.startsWith('https://localhost');
+        // Private LAN hosts (Expo / local API) — OpenAI cannot fetch these; convert to data URL
+        const isPrivateLan =
+          /https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/i.test(imageUrl);
 
-        const needsConversion = isLocalhost || isInternalPath || isLocalhostHttp;
+        const needsConversion = isLocalhost || isInternalPath || isLocalhostHttp || isPrivateLan;
 
         console.log("[Maintenance Analyze Image] URL check:", {
           imageUrl,
           isLocalhost,
           isInternalPath,
           isLocalhostHttp,
+          isPrivateLan,
           needsConversion
         });
 
@@ -12596,16 +13030,14 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
             console.log("[Maintenance Analyze Image] File loaded, size:", photoBuffer.length, "bytes");
 
-            let mimeType = detectImageMimeType(photoBuffer);
-            if (!mimeType || !mimeType.startsWith('image/')) {
-              console.warn(`[Maintenance Analyze Image] Invalid MIME type detected: ${mimeType}, defaulting to image/jpeg`);
-              mimeType = 'image/jpeg';
-            }
+            // iPhone HEIC (and other formats) → JPEG data URL OpenAI accepts
+            imageUrlForAI = await toOpenAIImageDataUrl(photoBuffer);
 
-            const base64Image = photoBuffer.toString('base64');
-            imageUrlForAI = `data:${mimeType};base64,${base64Image}`;
-
-            console.log("[Maintenance Analyze Image] Successfully converted to base64 data URL, MIME type:", mimeType, "Size:", base64Image.length, "chars");
+            console.log(
+              "[Maintenance Analyze Image] Successfully prepared OpenAI image data URL, size:",
+              imageUrlForAI.length,
+              "chars",
+            );
           } catch (error: any) {
             console.error("[Maintenance Analyze Image] Error converting image to base64, will proceed with text-only:", {
               imageUrl,
@@ -12633,18 +13065,22 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const optionalNotes = (issueDescription && issueDescription.trim()) || "";
       const visionPrompt = `Carefully examine the attached property maintenance photo.
 
-You MUST base your analysis on what is visible in the photo (not assumptions from a short title).
+You MUST base your analysis on what is visible in the photo (not assumptions from a short title alone).
 
-Respond in this structure:
-1. What you see in the photo (specific visual details)
-2. Likely cause based on the photo evidence
-3. 3-5 practical next steps (DIY first, then when to call a professional)
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
+
+Map the photo into those sections as follows:
+- DESCRIPTION: what you see visually (materials, condition, cleanliness, location of the problem)
+- MAINTENANCE ISSUES: defects, damage, hazards, or problems that need attention (or None)
+- RECOMMENDED ACTIONS: brief practical next steps — DIY first, then when to call a professional (or None)
 
 ${optionalNotes
   ? `Optional user notes (secondary hints only — if they conflict with the photo, trust the photo):\n${optionalNotes}`
   : "The user did not provide extra notes. Infer the issue only from the photo."}`;
 
-      const textOnlyPrompt = `Analyze this property maintenance issue and provide 3-5 brief, practical suggestions (DIY first, then when to call a professional).
+      const textOnlyPrompt = `Analyze this property maintenance issue.
+
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
 
 Issue details:
 ${optionalNotes || "No details provided."}`;
@@ -12699,7 +13135,10 @@ ${optionalNotes || "No details provided."}`;
           /unable to (help|assist)/i.test(trimmed);
 
         if (trimmed && !looksLikeRefusal) {
-          suggestedFixes = cleanMarkdownText(trimmed);
+          // Normalize into DESCRIPTION / MAINTENANCE ISSUES / RECOMMENDED ACTIONS
+          const cleaned = cleanMarkdownText(trimmed);
+          const sections = parseInspectionNote(cleaned);
+          suggestedFixes = formatInspectionNote(sections);
           aiCallSucceeded = true;
           console.log("[Maintenance Analyze Image] Successfully got AI response, length:", suggestedFixes.length);
         } else {
@@ -13846,6 +14285,9 @@ ${optionalNotes || "No details provided."}`;
       if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
         transformedBody.depositAmount = String(req.body.depositAmount);
       }
+      if (req.body.rentDueDay !== undefined && req.body.rentDueDay !== null) {
+        transformedBody.rentDueDay = Number(req.body.rentDueDay);
+      }
 
       const validatedData = insertTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
@@ -13906,6 +14348,13 @@ ${optionalNotes || "No details provided."}`;
         ...assignmentData,
         organizationId: user.organizationId,
       });
+
+      try {
+        const { generateRentPeriodsForAssignment } = await import("./propertyFinanceService");
+        await generateRentPeriodsForAssignment(assignment.id);
+      } catch (rentErr) {
+        console.error("Warning: Failed to generate rent periods after lease create:", rentErr);
+      }
 
       // Auto-create contact for this tenant if one doesn't exist
       try {
@@ -13978,6 +14427,9 @@ ${optionalNotes || "No details provided."}`;
       if (req.body.depositAmount !== undefined && req.body.depositAmount !== null) {
         transformedBody.depositAmount = String(req.body.depositAmount);
       }
+      if (req.body.rentDueDay !== undefined && req.body.rentDueDay !== null) {
+        transformedBody.rentDueDay = Number(req.body.rentDueDay);
+      }
 
       const validatedData = updateTenantAssignmentSchema.safeParse(transformedBody);
       if (!validatedData.success) {
@@ -14023,6 +14475,14 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const updated = await storage.updateTenantAssignment(req.params.id, updateData);
+
+      try {
+        const { generateRentPeriodsForAssignment } = await import("./propertyFinanceService");
+        await generateRentPeriodsForAssignment(updated.id);
+      } catch (rentErr) {
+        console.error("Warning: Failed to generate rent periods after lease update:", rentErr);
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating tenant assignment:", error);
@@ -15037,6 +15497,33 @@ ${optionalNotes || "No details provided."}`;
 
   // ==================== WORK ORDER ROUTES ====================
 
+  async function loadWorkOrderIdentity(user: {
+    id: string;
+    organizationId: string;
+    role?: string | null;
+    email?: string | null;
+  }): Promise<WorkOrderIdentity> {
+    const orgContacts = await storage.getContactsByOrganization(user.organizationId);
+    return buildWorkOrderIdentity({
+      userId: user.id,
+      organizationId: user.organizationId,
+      role: user.role || "",
+      email: user.email,
+      orgContacts,
+    });
+  }
+
+  async function assertWorkOrderAccess(
+    user: { id: string; organizationId: string; role?: string | null; email?: string | null },
+    workOrder: { organizationId: string; contractorId?: string | null; assignedToId?: string | null },
+  ): Promise<WorkOrderIdentity | null> {
+    const identity = await loadWorkOrderIdentity(user);
+    if (!canAccessWorkOrder(identity, workOrder)) {
+      return null;
+    }
+    return identity;
+  }
+
   app.post("/api/work-orders", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -15047,17 +15534,42 @@ ${optionalNotes || "No details provided."}`;
 
       const validatedData = insertWorkOrderSchema.parse(req.body);
 
-      // Security: Validate teamId belongs to organization if provided
-      if (validatedData.teamId) {
-        const team = await storage.getTeam(validatedData.teamId);
-        if (!team || team.organizationId !== user.organizationId) {
-          return res.status(403).json({ error: "Team not found or access denied" });
-        }
+      // Work orders must be assigned via a Maintenance Team (Settings → Maintenance Team)
+      if (!validatedData.teamId) {
+        return res.status(400).json({
+          error: "A maintenance team is required. Assign work orders only to people on a Maintenance Team.",
+        });
+      }
+      if (!validatedData.assignedToId) {
+        return res.status(400).json({
+          error: "An assigned team member is required.",
+        });
       }
 
-      // Security: Validate contractorId belongs to organization if provided
-      // Contractors are stored in the contacts table, not users table
+      const team = await storage.getTeam(validatedData.teamId);
+      if (!team || team.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Team not found or access denied" });
+      }
+
+      const members = await storage.getTeamMembers(validatedData.teamId);
+      const assigneeIsMember = members.some(
+        (m: any) =>
+          m.userId === validatedData.assignedToId || m.contactId === validatedData.assignedToId,
+      );
+      if (!assigneeIsMember) {
+        return res.status(403).json({
+          error: "Assignee must be a member of the selected Maintenance Team.",
+        });
+      }
+
+      // If contractorId is set, it must be a contact that is on this team
       if (validatedData.contractorId) {
+        const contractorOnTeam = members.some((m: any) => m.contactId === validatedData.contractorId);
+        if (!contractorOnTeam) {
+          return res.status(403).json({
+            error: "Maintenance contractor must be a member of the selected Maintenance Team.",
+          });
+        }
         const contractor = await storage.getContact(validatedData.contractorId);
         if (!contractor || contractor.organizationId !== user.organizationId) {
           return res.status(403).json({ error: "Maintenance contractor not found or access denied" });
@@ -15075,7 +15587,6 @@ ${optionalNotes || "No details provided."}`;
       // Send email notification to team if teamId is provided (best-effort, non-blocking)
       if (validatedData.teamId) {
         try {
-          const team = await storage.getTeam(validatedData.teamId);
           const maintenanceRequest = await db
             .select()
             .from(maintenanceRequests)
@@ -15185,10 +15696,23 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      // If user is a contractor, show only their work orders
-      const workOrders = user.role === "contractor"
-        ? await storage.getWorkOrdersByContractor(userId)
-        : await storage.getWorkOrdersByOrganization(user.organizationId);
+      const identity = await loadWorkOrderIdentity({
+        id: user.id,
+        organizationId: user.organizationId,
+        role: user.role,
+        email: user.email,
+      });
+
+      let workOrders;
+      if (listScopeForUser(user.role) === "assignee") {
+        workOrders = await storage.getWorkOrdersForAssignee(user.organizationId, {
+          userId: identity.userId,
+          contactIds: identity.contactIds,
+          role: user.role === "clerk" ? "clerk" : "contractor",
+        });
+      } else {
+        workOrders = await storage.getWorkOrdersByOrganization(user.organizationId);
+      }
 
       res.json(workOrders);
     } catch (error) {
@@ -15210,12 +15734,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access: owner/org members can see all, contractors can only see their assigned orders
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -15239,16 +15758,20 @@ ${optionalNotes || "No details provided."}`;
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
       const { status } = req.body;
+      if (!status || !isAllowedWorkOrderStatus(user.role, status)) {
+        return res.status(400).json({ error: "Invalid or unauthorized status" });
+      }
+
+      // Field staff and org members with access may update status; compliance uses org scope but status already gated
+      if (user.role === "compliance") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const completedAt = status === "completed" ? new Date() : undefined;
       const updated = await storage.updateWorkOrderStatus(req.params.id, status, completedAt);
       res.json(updated);
@@ -15271,12 +15794,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -15289,9 +15807,135 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
+  app.patch("/api/work-orders/:id", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (req.body.status !== undefined && !isAllowedWorkOrderStatus(user.role, req.body.status)) {
+        return res.status(400).json({ error: "Invalid or unauthorized status" });
+      }
+      const { updateWorkOrderFields } = await import("./workOrderCertificateService");
+      const updated = await updateWorkOrderFields({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        userId: user.id,
+        userRole: user.role || "",
+        teamId: req.body.teamId,
+        assignedToId: req.body.assignedToId,
+        contractorId: req.body.contractorId,
+        status: req.body.status,
+        slaDue: req.body.slaDue,
+        costEstimate:
+          req.body.costEstimate !== undefined && req.body.costEstimate !== null && req.body.costEstimate !== ""
+            ? Math.round(Number(req.body.costEstimate))
+            : req.body.costEstimate === null
+              ? null
+              : undefined,
+      });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating work order:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to update work order" });
+    }
+  });
+
+  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { listWorkOrderCertificates } = await import("./workOrderCertificateService");
+      res.json(await listWorkOrderCertificates(user.organizationId, req.params.id));
+    } catch (error: any) {
+      console.error("Error listing work order certificates:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to list certificates" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { createWorkOrderCertificate } = await import("./workOrderCertificateService");
+      const cert = await createWorkOrderCertificate({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        userId: user.id,
+        documentUrl: req.body.documentUrl,
+        fileName: req.body.fileName,
+        mimeType: req.body.mimeType,
+      });
+      res.status(201).json(cert);
+    } catch (error: any) {
+      console.error("Error creating work order certificate:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to create certificate" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { analyseWorkOrderCertificate } = await import("./workOrderCertificateService");
+      const cert = await analyseWorkOrderCertificate({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        certificateId: req.params.certId,
+      });
+      res.json(cert);
+    } catch (error: any) {
+      console.error("Error analysing work order certificate:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to analyse certificate" });
+    }
+  });
+
+  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { confirmWorkOrderCertificate } = await import("./workOrderCertificateService");
+      const cert = await confirmWorkOrderCertificate({
+        organizationId: user.organizationId,
+        workOrderId: req.params.id,
+        certificateId: req.params.certId,
+        userId: user.id,
+        certificateType: req.body.certificateType,
+        expiryDate: req.body.expiryDate,
+      });
+      res.json(cert);
+    } catch (error: any) {
+      console.error("Error confirming work order certificate:", error);
+      res.status(error.status || 500).json({ error: error.message || "Failed to confirm certificate" });
+    }
+  });
+
   // ==================== WORK LOG ROUTES ====================
 
-  app.post("/api/work-logs", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
+  app.post("/api/work-logs", isAuthenticated, requireRole("owner", "contractor", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15301,18 +15945,12 @@ ${optionalNotes || "No details provided."}`;
 
       const validatedData = insertWorkLogSchema.parse(req.body);
 
-      // Verify parent work order belongs to user's organization or contractor
       const workOrder = await storage.getWorkOrder(validatedData.workOrderId);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -15335,18 +15973,12 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      // Verify work order belongs to user's organization or contractor
       const workOrder = await storage.getWorkOrder(req.params.workOrderId);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -16212,6 +16844,15 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
+      // Overdue rent periods (respect property/block filters)
+      const { listOverdueRentPeriodsForOrganization } = await import("./propertyFinanceService");
+      const overdueRentPropertyIds =
+        filterPropertyId || filterBlockId ? properties.map((p: any) => p.id) : undefined;
+      const overdueRentPeriods = await listOverdueRentPeriodsForOrganization(
+        orgId,
+        overdueRentPropertyIds,
+      );
+
       res.json({
         // Summary counts
         totals: {
@@ -16267,6 +16908,17 @@ ${optionalNotes || "No details provided."}`;
               createdAt: m.createdAt
             };
           }),
+          overdueRent: overdueRentPeriods.length,
+          overdueRentList: overdueRentPeriods.slice(0, 10).map((r) => ({
+            id: r.id,
+            propertyId: r.propertyId,
+            tenantName: r.tenantName,
+            periodLabel: r.periodLabel,
+            amountOutstanding: r.amountOutstanding,
+            currency: r.currency,
+            dueDate: r.dueDate,
+            daysOverdue: r.daysOverdue,
+          })),
         },
 
         // Due soon
@@ -17140,7 +17792,12 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
+  const allowSignedInUserOrAdmin = (req: any, res: any, next: any) => {
+    if (req.session && (req.session as any).adminUser) return next();
+    return isAuthenticated(req, res, next);
+  };
+
+  app.post("/api/objects/upload", allowSignedInUserOrAdmin, async (req, res) => {
     try {
       const objectStorageService = new ObjectStorageService();
       const relativePath = await objectStorageService.getObjectEntityUploadURL();
@@ -17670,7 +18327,8 @@ ${optionalNotes || "No details provided."}`;
     res.set('Content-Type', 'application/json');
 
     // Check authentication first and return JSON if not authenticated
-    if (!req.isAuthenticated()) {
+    const isAdminSession = !!(req.session && (req.session as any).adminUser);
+    if (!req.isAuthenticated() && !isAdminSession) {
       console.error('[upload-direct] Unauthenticated PUT request');
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -17724,7 +18382,7 @@ ${optionalNotes || "No details provided."}`;
           res.set('Access-Control-Expose-Headers', 'ETag');
 
           // Set ACL to public
-          const userId = req.user?.claims?.sub || req.user?.id;
+          const userId = req.user?.claims?.sub || req.user?.id || (req.session as any)?.adminUser?.id;
           if (userId) {
             try {
               await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
@@ -18067,6 +18725,9 @@ ${optionalNotes || "No details provided."}`;
     return res.status(401).json({ message: "Unauthorized - Admin access required" });
   };
 
+  const { registerCreditRequestRoutes } = await import("./creditRequestRoutes");
+  registerCreditRequestRoutes(app, isAuthenticated, isAdminAuthenticated);
+
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {
     try {
@@ -18120,13 +18781,9 @@ ${optionalNotes || "No details provided."}`;
         });
       });
 
-      res.json({
-        id: adminUser.id,
-        email: adminUser.email,
-        firstName: adminUser.firstName,
-        lastName: adminUser.lastName,
-      });
-    } catch (error) {
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = adminUser as any;
+      res.json(sanitizedAdmin);
+    } catch (error: any) {
       console.error("Admin login error:", error);
       res.status(500).json({ message: "Login failed" });
     }
@@ -18181,8 +18838,15 @@ ${optionalNotes || "No details provided."}`;
   app.get("/api/admin/instances", isAdminAuthenticated, async (req, res) => {
     try {
       const orgs = await storage.getAllOrganizationsWithOwners();
+      const { getOrganizationAccessStatus } = await import("./entitlementService");
 
       // Enrich with instance subscription data and credit balance from batch system
+      await ensureOrganizationUnitPricingTable();
+      const { organizationUnitPricing } = await import("@shared/schema");
+      const defaultSheet = await getDefaultUnitPricingSheet();
+      const orgPricingRows = await db.select().from(organizationUnitPricing);
+      const orgPricingById = new Map(orgPricingRows.map((row) => [row.organizationId, row]));
+
       const instances = await Promise.all(orgs.map(async (org) => {
         const subscription = await storage.getInstanceSubscription(org.id);
         const tiers = await storage.getSubscriptionTiers();
@@ -18190,12 +18854,28 @@ ${optionalNotes || "No details provided."}`;
 
         // Get credit balance from batch system (not legacy creditsRemaining)
         const creditBalance = await storage.getCreditBalance(org.id);
+        const entitlement = await getOrganizationAccessStatus(org.id);
 
         let enabledModuleCount = 0;
         if (subscription) {
           const instanceModules = await storage.getInstanceModules(subscription.id);
           enabledModuleCount = instanceModules.filter((m) => m.isEnabled).length;
         }
+
+        const orgPricing = orgPricingById.get(org.id);
+        const unitPricing = orgPricing
+          ? {
+              source: "instance" as const,
+              pricePerUnitMonthly: orgPricing.pricePerUnitMonthly,
+              pricePerUnitAnnual: orgPricing.pricePerUnitAnnual,
+              currencyCode: orgPricing.currencyCode,
+            }
+          : {
+              source: "default" as const,
+              pricePerUnitMonthly: defaultSheet.pricePerUnitMonthly,
+              pricePerUnitAnnual: defaultSheet.pricePerUnitAnnual,
+              currencyCode: defaultSheet.currencyCode,
+            };
 
         return {
           ...org,
@@ -18209,6 +18889,8 @@ ${optionalNotes || "No details provided."}`;
             rolled: creditBalance.rolled,
             expiresOn: creditBalance.expiresOn,
           },
+          entitlement,
+          unitPricing,
         };
       }));
 
@@ -18228,6 +18910,8 @@ ${optionalNotes || "No details provided."}`;
       }
       const subscription = await storage.getInstanceSubscription(req.params.id);
       const creditBalance = await storage.getCreditBalance(req.params.id);
+      const { getOrganizationAccessStatus } = await import("./entitlementService");
+      const entitlement = await getOrganizationAccessStatus(req.params.id);
       const tiers = await storage.getSubscriptionTiers();
       const tier = subscription?.currentTierId ? tiers.find(t => t.id === subscription.currentTierId) : null;
       let enabledModules: any[] = [];
@@ -18245,6 +18929,7 @@ ${optionalNotes || "No details provided."}`;
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        entitlement,
         instanceModules: enabledModules,
       });
     } catch (error) {
@@ -18256,7 +18941,7 @@ ${optionalNotes || "No details provided."}`;
   // Update instance (tier, credits, active status, modules)
   app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
     try {
-      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason } = req.body;
+      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason, creditExpiresAt } = req.body;
 
       // Get organization to get currency
       const org = await storage.getOrganization(req.params.id);
@@ -18309,14 +18994,30 @@ ${optionalNotes || "No details provided."}`;
           ? String(creditReason)
           : `Admin adjustment: Updated from ${currentBalanceTotal} to ${targetCredits} credits`;
         
+        const { billingNowUtc } = await import("@shared/billingClock");
+        const { parseCreditExpiryInput } = await import("@shared/entitlements");
+        const { subscriptionService } = await import("./subscriptionService");
+        const { recordEntitlementEvent } = await import("./entitlementService");
+
+        let parsedExpiry: { expiresAt: Date } | null = null;
+        const expiryProvided = typeof creditExpiresAt === "string" && creditExpiresAt.trim().length > 0;
+        if (creditsToAdjust > 0 || expiryProvided) {
+          const parsed = parseCreditExpiryInput(creditExpiresAt, billingNowUtc());
+          if (!parsed.ok) {
+            return res.status(400).json({ message: parsed.message });
+          }
+          parsedExpiry = parsed;
+        }
+
         if (creditsToAdjust > 0) {
-          // Grant credits using the subscription service
-          const { subscriptionService } = await import("./subscriptionService");
+          if (!parsedExpiry) {
+            return res.status(400).json({ message: "Credit expiration date is required" });
+          }
           await subscriptionService.grantCredits(
             req.params.id,
             creditsToAdjust,
             "admin_grant",
-            undefined, // No expiration
+            parsedExpiry.expiresAt,
             {
               adminNotes: notes,
               createdBy: adminId,
@@ -18325,10 +19026,25 @@ ${optionalNotes || "No details provided."}`;
           console.log(`[Admin] Granted ${creditsToAdjust} credits to org ${req.params.id} (new total: ${targetCredits})`);
         } else if (creditsToAdjust < 0) {
           // For reducing credits, consume them — hard-fail if unable
-          const { subscriptionService } = await import("./subscriptionService");
           const creditsToConsume = Math.abs(creditsToAdjust);
           await subscriptionService.consumeInspectionCredits(req.params.id, creditsToConsume, "admin_adjustment");
           console.log(`[Admin] Consumed ${creditsToConsume} credits from org ${req.params.id} (new total: ${targetCredits})`);
+        }
+
+        if (parsedExpiry) {
+          const updatedBatches = await subscriptionService.setRemainingCreditsExpiry(
+            req.params.id,
+            parsedExpiry.expiresAt,
+          );
+          await recordEntitlementEvent({
+            organizationId: req.params.id,
+            eventType: "credits_granted",
+            actorUserId: adminId,
+            notes: `${notes}. Expires ${parsedExpiry.expiresAt.toISOString()} (${updatedBatches} open batches).`,
+          }).catch((auditError) => {
+            console.error("Failed to record credit expiry audit:", auditError);
+          });
+          console.log(`[Admin] Set credit expiry for org ${req.params.id} on ${updatedBatches} batches`);
         }
       }
 
@@ -18573,7 +19289,7 @@ ${optionalNotes || "No details provided."}`;
     try {
       const admins = await storage.getAllAdmins();
       // Remove password from response
-      const sanitizedAdmins = admins.map(({ password, ...admin }) => admin);
+      const sanitizedAdmins = admins.map(({ password, resetToken, resetTokenExpiry, ...admin }) => admin);
       res.json(sanitizedAdmins);
     } catch (error) {
       console.error("Error fetching admin team:", error);
@@ -18612,7 +19328,7 @@ ${optionalNotes || "No details provided."}`;
       }
 
       // Remove password from response
-      const { password: _, ...sanitizedAdmin } = admin;
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = admin;
       res.json(sanitizedAdmin);
     } catch (error: any) {
       console.error("Error creating admin:", error);
@@ -18634,7 +19350,7 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const admin = await storage.updateAdmin(req.params.id, updateData);
-      const { password: _, ...sanitizedAdmin } = admin;
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = admin;
       res.json(sanitizedAdmin);
     } catch (error) {
       console.error("Error updating admin:", error);
@@ -18682,7 +19398,7 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
-      const { password: _, ...sanitizedAdmin } = updatedAdmin;
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = updatedAdmin;
       res.json({ message: "Password reset successfully", admin: sanitizedAdmin });
     } catch (error: any) {
       console.error("Error resetting admin password:", error);
@@ -23075,10 +23791,17 @@ ${optionalNotes || "No details provided."}`;
   // Admin: Grant credits (eco-admin session)
   app.post("/api/admin/credits/grant", isAdminAuthenticated, async (req: any, res) => {
     try {
-      const { organizationId, quantity, reason } = req.body;
+      const { organizationId, quantity, reason, expiresAt } = req.body;
 
       if (!organizationId || !quantity || Number(quantity) <= 0) {
         return res.status(400).json({ message: "organizationId and a positive quantity are required" });
+      }
+
+      const { billingNowUtc } = await import("@shared/billingClock");
+      const { parseCreditExpiryInput } = await import("@shared/entitlements");
+      const parsedExpiry = parseCreditExpiryInput(expiresAt, billingNowUtc());
+      if (!parsedExpiry.ok) {
+        return res.status(400).json({ message: parsedExpiry.message });
       }
 
       const org = await storage.getOrganization(organizationId);
@@ -23088,13 +23811,22 @@ ${optionalNotes || "No details provided."}`;
 
       const adminId = (req.session as any).adminUser?.id || "admin";
       const { subscriptionService: subService } = await import("./subscriptionService");
+      const { recordEntitlementEvent } = await import("./entitlementService");
       await subService.grantCredits(
         organizationId,
         Number(quantity),
         "admin_grant",
-        undefined,
+        parsedExpiry.expiresAt,
         { adminNotes: reason || "Admin grant", createdBy: adminId }
       );
+      await recordEntitlementEvent({
+        organizationId,
+        eventType: "credits_granted",
+        actorUserId: adminId,
+        notes: `${reason || "Admin grant"}. Expires ${parsedExpiry.expiresAt.toISOString()}.`,
+      }).catch((auditError) => {
+        console.error("Failed to record credit grant audit:", auditError);
+      });
 
       const creditBalance = await storage.getCreditBalance(organizationId);
       res.json({
@@ -23110,6 +23842,51 @@ ${optionalNotes || "No details provided."}`;
     } catch (error: any) {
       console.error("Error granting credits:", error);
       res.status(500).json({ message: "Failed to grant credits", error: error.message });
+    }
+  });
+
+  app.get("/api/admin/settings/trial", isAdminAuthenticated, async (_req, res) => {
+    try {
+      const { getDefaultTrialDays } = await import("./entitlementService");
+      const days = await getDefaultTrialDays();
+      res.json({ days });
+    } catch (error: any) {
+      console.error("Error reading default trial days:", error);
+      res.status(500).json({ message: "Failed to load trial settings" });
+    }
+  });
+
+  app.patch("/api/admin/settings/trial", isAdminAuthenticated, async (req, res) => {
+    try {
+      const { setDefaultTrialDays } = await import("./entitlementService");
+      const days = await setDefaultTrialDays(req.body?.days);
+      res.json({ days });
+    } catch (error: any) {
+      const status = error.status || 500;
+      if (status >= 500) console.error("Error saving default trial days:", error);
+      res.status(status).json({
+        message: status >= 500 ? "Failed to save trial settings" : String(error.message || "").replace(/^Additional days/, "Trial days"),
+      });
+    }
+  });
+
+  app.post("/api/admin/instances/:id/extend-trial", isAdminAuthenticated, async (req: any, res) => {
+    try {
+      const adminId = (req.session as any).adminUser?.id;
+      if (!adminId) {
+        return res.status(403).json({ message: "Admin session required" });
+      }
+      const { extendOrganizationTrial } = await import("./entitlementService");
+      const status = await extendOrganizationTrial(req.params.id, req.body?.additionalDays, adminId);
+      res.json({ success: true, entitlement: status });
+    } catch (error: any) {
+      const status = error.status || 500;
+      if (status >= 500) {
+        console.error("Error extending trial:", error);
+      }
+      res.status(status).json({
+        message: status >= 500 ? "Failed to extend trial" : error.message,
+      });
     }
   });
 
@@ -23302,21 +24079,68 @@ ${optionalNotes || "No details provided."}`;
     `);
   }
 
+  async function ensureOrganizationUnitPricingTable() {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS organization_unit_pricing (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id VARCHAR NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
+        price_per_unit_monthly NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        price_per_unit_annual NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        currency_code VARCHAR(3) NOT NULL DEFAULT 'GBP',
+        features_included TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  }
+
+  function parseUnitPricingBody(body: any) {
+    const monthly = Number(body?.pricePerUnitMonthly);
+    const annual = Number(body?.pricePerUnitAnnual);
+    const currencyCode = String(body?.currencyCode || "GBP").toUpperCase().slice(0, 3);
+    const featuresIncluded = String(body?.featuresIncluded ?? "");
+
+    if (!Number.isFinite(monthly) || monthly < 0) {
+      return { error: "Invalid per-unit monthly price" as const };
+    }
+    if (!Number.isFinite(annual) || annual < 0) {
+      return { error: "Invalid per-unit annual price" as const };
+    }
+    if (!/^[A-Z]{3}$/.test(currencyCode)) {
+      return { error: "Invalid currency code" as const };
+    }
+
+    return {
+      values: {
+        pricePerUnitMonthly: monthly.toFixed(2),
+        pricePerUnitAnnual: annual.toFixed(2),
+        currencyCode,
+        featuresIncluded,
+        updatedAt: new Date(),
+      },
+    };
+  }
+
+  async function getDefaultUnitPricingSheet() {
+    await ensureUnitPricingCatalogTable();
+    const { unitPricingCatalog } = await import("@shared/schema");
+    const rows = await db.select().from(unitPricingCatalog).limit(1);
+    if (rows.length === 0) {
+      return {
+        pricePerUnitMonthly: "0",
+        pricePerUnitAnnual: "0",
+        currencyCode: "GBP",
+        featuresIncluded: "",
+        updatedAt: null as Date | null,
+      };
+    }
+    return rows[0];
+  }
+
   app.get("/api/admin/unit-pricing", isAdminAuthenticated, async (_req, res) => {
     try {
-      await ensureUnitPricingCatalogTable();
-      const { unitPricingCatalog } = await import("@shared/schema");
-      const rows = await db.select().from(unitPricingCatalog).limit(1);
-      if (rows.length === 0) {
-        return res.json({
-          pricePerUnitMonthly: "0",
-          pricePerUnitAnnual: "0",
-          currencyCode: "GBP",
-          featuresIncluded: "",
-          updatedAt: null,
-        });
-      }
-      res.json(rows[0]);
+      const sheet = await getDefaultUnitPricingSheet();
+      res.json(sheet);
     } catch (error: any) {
       console.error("Error fetching unit pricing:", error);
       res.status(500).json({ message: "Failed to fetch unit pricing", error: error.message });
@@ -23327,38 +24151,19 @@ ${optionalNotes || "No details provided."}`;
     try {
       await ensureUnitPricingCatalogTable();
       const { unitPricingCatalog } = await import("@shared/schema");
-
-      const monthly = Number(req.body?.pricePerUnitMonthly);
-      const annual = Number(req.body?.pricePerUnitAnnual);
-      const currencyCode = String(req.body?.currencyCode || "GBP").toUpperCase().slice(0, 3);
-      const featuresIncluded = String(req.body?.featuresIncluded ?? "");
-
-      if (!Number.isFinite(monthly) || monthly < 0) {
-        return res.status(400).json({ message: "Invalid per-unit monthly price" });
+      const parsed = parseUnitPricingBody(req.body);
+      if ("error" in parsed) {
+        return res.status(400).json({ message: parsed.error });
       }
-      if (!Number.isFinite(annual) || annual < 0) {
-        return res.status(400).json({ message: "Invalid per-unit annual price" });
-      }
-      if (!/^[A-Z]{3}$/.test(currencyCode)) {
-        return res.status(400).json({ message: "Invalid currency code" });
-      }
-
-      const values = {
-        pricePerUnitMonthly: monthly.toFixed(2),
-        pricePerUnitAnnual: annual.toFixed(2),
-        currencyCode,
-        featuresIncluded,
-        updatedAt: new Date(),
-      };
 
       const existing = await db.select().from(unitPricingCatalog).limit(1);
       let row;
       if (existing.length === 0) {
-        [row] = await db.insert(unitPricingCatalog).values(values).returning();
+        [row] = await db.insert(unitPricingCatalog).values(parsed.values).returning();
       } else {
         [row] = await db
           .update(unitPricingCatalog)
-          .set(values)
+          .set(parsed.values)
           .where(eq(unitPricingCatalog.id, existing[0].id))
           .returning();
       }
@@ -23366,6 +24171,106 @@ ${optionalNotes || "No details provided."}`;
     } catch (error: any) {
       console.error("Error saving unit pricing:", error);
       res.status(500).json({ message: "Failed to save unit pricing", error: error.message });
+    }
+  });
+
+  app.get("/api/admin/instances/:id/unit-pricing", isAdminAuthenticated, async (req, res) => {
+    try {
+      const organizationId = req.params.id;
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Instance not found" });
+      }
+
+      await ensureOrganizationUnitPricingTable();
+      const { organizationUnitPricing } = await import("@shared/schema");
+      const [override] = await db
+        .select()
+        .from(organizationUnitPricing)
+        .where(eq(organizationUnitPricing.organizationId, organizationId))
+        .limit(1);
+
+      if (override) {
+        return res.json({
+          organizationId,
+          source: "instance",
+          id: override.id,
+          pricePerUnitMonthly: override.pricePerUnitMonthly,
+          pricePerUnitAnnual: override.pricePerUnitAnnual,
+          currencyCode: override.currencyCode,
+          featuresIncluded: override.featuresIncluded,
+          updatedAt: override.updatedAt,
+        });
+      }
+
+      const defaults = await getDefaultUnitPricingSheet();
+      return res.json({
+        organizationId,
+        source: "default",
+        id: null,
+        pricePerUnitMonthly: defaults.pricePerUnitMonthly,
+        pricePerUnitAnnual: defaults.pricePerUnitAnnual,
+        currencyCode: defaults.currencyCode,
+        featuresIncluded: defaults.featuresIncluded,
+        updatedAt: defaults.updatedAt,
+      });
+    } catch (error: any) {
+      console.error("Error fetching instance unit pricing:", error);
+      res.status(500).json({ message: "Failed to fetch instance unit pricing", error: error.message });
+    }
+  });
+
+  app.put("/api/admin/instances/:id/unit-pricing", isAdminAuthenticated, async (req, res) => {
+    try {
+      const organizationId = req.params.id;
+      const org = await storage.getOrganization(organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Instance not found" });
+      }
+
+      const parsed = parseUnitPricingBody(req.body);
+      if ("error" in parsed) {
+        return res.status(400).json({ message: parsed.error });
+      }
+
+      await ensureOrganizationUnitPricingTable();
+      const { organizationUnitPricing } = await import("@shared/schema");
+      const [existing] = await db
+        .select()
+        .from(organizationUnitPricing)
+        .where(eq(organizationUnitPricing.organizationId, organizationId))
+        .limit(1);
+
+      let row;
+      if (existing) {
+        [row] = await db
+          .update(organizationUnitPricing)
+          .set(parsed.values)
+          .where(eq(organizationUnitPricing.id, existing.id))
+          .returning();
+      } else {
+        [row] = await db
+          .insert(organizationUnitPricing)
+          .values({
+            organizationId,
+            ...parsed.values,
+          })
+          .returning();
+      }
+
+      res.json({
+        organizationId,
+        source: "instance",
+        id: row.id,
+        pricePerUnitMonthly: row.pricePerUnitMonthly,
+        pricePerUnitAnnual: row.pricePerUnitAnnual,
+        currencyCode: row.currencyCode,
+        featuresIncluded: row.featuresIncluded,
+        updatedAt: row.updatedAt,
+      });
+    } catch (error: any) {
+      console.error("Error saving instance unit pricing:", error);
+      res.status(500).json({ message: "Failed to save instance unit pricing", error: error.message });
     }
   });
 
@@ -28337,23 +29242,7 @@ You can help the tenant with:
       }
 
       const documents = await storage.searchKnowledgeBase(content);
-
-      let contextChunks: string[] = [];
-      const usedDocIds: string[] = [];
-
-      for (const doc of documents.slice(0, 3)) {
-        if (doc.extractedText) {
-          const relevantChunks = findRelevantChunks(doc.extractedText, content, 2);
-          contextChunks.push(...relevantChunks);
-          if (relevantChunks.length > 0) {
-            usedDocIds.push(doc.id);
-          }
-        }
-      }
-
-      const contextText = contextChunks.length > 0
-        ? `Based on the Inspect360 knowledge base:\n\n${contextChunks.join('\n\n---\n\n')}\n\n`
-        : '';
+      const { contextText, usedDocIds } = buildKnowledgeBaseContext(documents, content);
 
       const systemPrompt = `You are an AI assistant for Inspect360, a building inspection and property management platform. ${user?.role === 'tenant' ? 'You are helping a tenant with their property, maintenance requests, and tenancy-related questions.' : 'You help users with property management, inspections, compliance, and maintenance.'} ${contextText ? 'Use the knowledge base information provided to answer questions accurately.' : 'Answer questions about Inspect360 to the best of your ability.'}${tenantContext}`;
 
@@ -29846,11 +30735,21 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     trademarks?: ReportTrademarkInfo[];
   }
 
-  // Sanitize URL for use in HTML attributes
+  // Sanitize URL for use in HTML attributes (allow http(s) + safe image data URLs for default logos)
   function sanitizeReportUrl(url: string): string {
     if (typeof url !== 'string' || !url.trim()) return '';
     const trimmed = url.trim();
     const lower = trimmed.toLowerCase();
+    const safeDataImages = [
+      'data:image/png',
+      'data:image/jpeg',
+      'data:image/jpg',
+      'data:image/gif',
+      'data:image/webp',
+    ];
+    if (safeDataImages.some((prefix) => lower.startsWith(prefix))) {
+      return trimmed;
+    }
     const safeProtocols = ['https://', 'http://'];
     const isSafeProtocol = safeProtocols.some(protocol => lower.startsWith(protocol));
     if (!isSafeProtocol) return '';
@@ -29905,9 +30804,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -30131,9 +31032,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -30566,9 +31469,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -30916,9 +31821,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -31262,9 +32169,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -31602,9 +32511,11 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const hasLogo = !!branding?.logoUrl;
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
+    const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
-      ? `<img src="${sanitizeReportUrl(branding.logoUrl!)}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
+      ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
     const companyNameHtml = hasLogo
       ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
@@ -35018,6 +35929,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     try {
       const user = req.user as User;
+      if (!user.organizationId) {
+        return res.json([]);
+      }
+
+      // During an unlocked trial/credits period, provision modules once if missing
+      // (covers orgs created before auto-enable existed).
+      try {
+        const { getOrganizationAccessStatus, ensureTrialModulesEnabled } = await import("./entitlementService");
+        const access = await getOrganizationAccessStatus(user.organizationId);
+        if (access && !access.locked) {
+          await ensureTrialModulesEnabled(user.organizationId);
+        }
+      } catch (provisionError) {
+        console.error("[Marketplace] Trial module provision skipped:", provisionError);
+      }
+
       const instanceSub = await storage.getInstanceSubscription(user.organizationId!);
 
       if (!instanceSub) {

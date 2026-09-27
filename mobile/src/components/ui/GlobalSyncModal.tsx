@@ -2,8 +2,11 @@ import React from 'react';
 import SyncProgressModal from './SyncProgressModal';
 import { useSync } from '../../contexts/SyncContext';
 
+/** Staff-only offline sync progress. Tenants never see this. */
 export default function GlobalSyncModal() {
-  const { showSyncModal, setShowSyncModal, syncProgress } = useSync();
+  const { offlineSyncEnabled, showSyncModal, setShowSyncModal, syncProgress } = useSync();
+
+  if (!offlineSyncEnabled) return null;
 
   return (
     <SyncProgressModal
@@ -13,4 +16,3 @@ export default function GlobalSyncModal() {
     />
   );
 }
-

@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
@@ -29,6 +30,8 @@ import {
   formatSignerDisplayName,
 } from "@shared/signature";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak } from "@/lib/responsive";
 
 interface Inspection {
   id: string;
@@ -182,7 +185,7 @@ export default function TenantCheckInReview() {
 
   if (inspectionLoading || entriesLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-12 w-64" />
         <Skeleton className="h-96" />
       </div>
@@ -191,7 +194,7 @@ export default function TenantCheckInReview() {
 
   if (!inspection) {
     return (
-      <div className="p-6">
+      <div className={cn(pagePad, "min-w-0")}>
         <Card>
           <CardHeader>
             <CardTitle>Inspection Not Found</CardTitle>
@@ -226,23 +229,23 @@ export default function TenantCheckInReview() {
   const existingSignature = parseSignatureValue(tenantSignatureEntry?.valueJson);
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className={cn(pagePad, "space-y-4 sm:space-y-6 max-w-6xl mx-auto min-w-0")}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <Button
             variant="ghost"
             onClick={() => navigate("/dashboard")}
-            className="mb-4"
+            className="mb-3 sm:mb-4 min-h-11 -ml-2"
           >
-            <ArrowLeft className="w-4 h-4 mr-2" />
+            <ArrowLeft className="w-4 h-4 mr-2 shrink-0" />
             Back to Home
           </Button>
-          <h1 className="text-3xl font-bold">{typeLabel} Inspection Review</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className={cn("text-2xl sm:text-3xl font-bold", textBreak)}>{typeLabel} Inspection Review</h1>
+          <p className={cn("text-sm sm:text-base text-muted-foreground mt-1", textBreak)}>
             Review the inspection details, add comments if needed, and provide your signature.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {isSigned && <Badge className="bg-green-500">Signed</Badge>}
           {isPending && (
             <Badge variant="outline" className="border-orange-500 text-orange-600">
@@ -257,17 +260,17 @@ export default function TenantCheckInReview() {
           <CardTitle>Inspection Details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-w-0">
             {inspection.property && (
-              <div>
+              <div className="min-w-0">
                 <Label className="text-sm text-muted-foreground">Property</Label>
-                <div className="flex items-center gap-2 mt-1">
-                  <Building2 className="w-4 h-4" />
-                  <span className="font-medium">{inspection.property.name}</span>
+                <div className="flex items-center gap-2 mt-1 min-w-0">
+                  <Building2 className="w-4 h-4 shrink-0" />
+                  <span className={cn("font-medium", textBreak)}>{inspection.property.name}</span>
                 </div>
-                <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-                  <MapPin className="w-4 h-4" />
-                  {inspection.property.address}
+                <div className="flex items-start gap-2 mt-1 text-sm text-muted-foreground min-w-0">
+                  <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className={textBreak}>{inspection.property.address}</span>
                 </div>
               </div>
             )}
@@ -308,8 +311,8 @@ export default function TenantCheckInReview() {
             if (sectionEntries.length === 0) return null;
 
             return (
-              <div key={section.id} className="space-y-4 border-b pb-6 last:border-0">
-                <h3 className="text-xl font-semibold">{section.title}</h3>
+              <div key={section.id} className="space-y-4 border-b pb-6 last:border-0 min-w-0">
+                <h3 className={cn("text-lg sm:text-xl font-semibold", textBreak)}>{section.title}</h3>
                 <div className="space-y-4">
                   {sectionEntries.map((entry: any) => {
                     const field = section.fields?.find((f: any) => f.id === entry.fieldKey || f.key === entry.fieldKey);
@@ -321,12 +324,12 @@ export default function TenantCheckInReview() {
                     const sig = field.type === "signature" ? parseSignatureValue(entry.valueJson) : null;
 
                     return (
-                      <div key={entry.id} className="border rounded-lg p-4 space-y-3">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-medium">{field.label}</h4>
+                      <div key={entry.id} className="border rounded-lg p-3 sm:p-4 space-y-3 min-w-0">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <h4 className={cn("font-medium", textBreak)}>{field.label}</h4>
                             {field.description && (
-                              <p className="text-sm text-muted-foreground">{field.description}</p>
+                              <p className={cn("text-sm text-muted-foreground", textBreak)}>{field.description}</p>
                             )}
                           </div>
                           {isPending && (
@@ -334,27 +337,29 @@ export default function TenantCheckInReview() {
                               variant="outline"
                               size="sm"
                               onClick={() => handleLogMaintenance(entry.id, field.label, section.title)}
-                              className="ml-4"
+                              className="w-full sm:w-auto sm:ml-4 min-h-11 shrink-0"
                             >
-                              <Wrench className="w-4 h-4 mr-2" />
+                              <Wrench className="w-4 h-4 mr-2 shrink-0" />
                               Log Maintenance
                             </Button>
                           )}
                         </div>
 
                         {sig?.image ? (
-                          <div className="bg-muted p-3 rounded">
+                          <div className="bg-muted p-3 rounded min-w-0">
                             <Label className="text-xs text-muted-foreground">Signature</Label>
-                            <img
+                            <PreviewableImage
                               src={sig.image}
                               alt={field.label}
-                              className="mt-2 h-16 object-contain border rounded bg-background"
+                              title={field.label}
+                              caption="Signature"
+                              className="mt-2 max-w-full h-16 object-contain border rounded bg-background"
                             />
                           </div>
                         ) : entry.valueJson != null && entry.valueJson !== "" ? (
-                          <div className="bg-muted p-3 rounded">
+                          <div className="bg-muted p-3 rounded min-w-0">
                             <Label className="text-xs text-muted-foreground">Value</Label>
-                            <div className="mt-1 text-sm">
+                            <div className={cn("mt-1 text-sm", textBreak)}>
                               {typeof entry.valueJson === "object" ? (
                                 <ul className="list-disc list-inside space-y-1">
                                   {Object.entries(entry.valueJson).map(([key, value]) => (
@@ -372,21 +377,30 @@ export default function TenantCheckInReview() {
                         ) : null}
 
                         {entry.note && (
-                          <div className="bg-muted p-3 rounded">
+                          <div className="bg-muted p-3 rounded min-w-0">
                             <Label className="text-xs text-muted-foreground">Inspector Notes</Label>
-                            <p className="text-sm mt-1">{entry.note}</p>
+                            <p className={cn("text-sm mt-1", textBreak)}>{entry.note}</p>
                           </div>
                         )}
 
                         {entry.photos && entry.photos.length > 0 && (
                           <div>
                             <Label className="text-xs text-muted-foreground">Photos</Label>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                               {entry.photos.map((photo: string, idx: number) => (
-                                <img
+                                <PreviewableImage
                                   key={idx}
                                   src={photo}
-                                  alt={`Photo ${idx + 1}`}
+                                  alt={`${field.label} photo ${idx + 1}`}
+                                  title={field.label}
+                                  caption={section.title}
+                                  gallery={entry.photos.map((src: string, photoIndex: number) => ({
+                                    src,
+                                    alt: `${field.label} photo ${photoIndex + 1}`,
+                                    title: field.label,
+                                    caption: section.title,
+                                  }))}
+                                  index={idx}
                                   className="w-full h-32 object-cover rounded border"
                                 />
                               ))}
@@ -455,9 +469,10 @@ export default function TenantCheckInReview() {
                 <span className="font-medium">Signed</span>
               </div>
               {(existingSignature?.image || signatureData) && (
-                <img
+                <PreviewableImage
                   src={existingSignature?.image || signatureData || ""}
                   alt="Your signature"
+                  title="Your signature"
                   className="h-20 object-contain border rounded bg-background"
                 />
               )}
@@ -473,9 +488,10 @@ export default function TenantCheckInReview() {
             <div className="space-y-3 p-4 bg-muted rounded-lg">
               {signatureData ? (
                 <div className="space-y-3">
-                  <img
+                  <PreviewableImage
                     src={signatureData}
                     alt="Your signature"
+                    title="Your signature"
                     className="w-full h-40 object-contain border rounded bg-background"
                   />
                   <Button

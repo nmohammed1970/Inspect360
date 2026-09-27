@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
 
 const CONTACT_ADMIN = "Please contact admin to activate this module.";
 const CONTACT_ADMIN_CREDITS = "Contact your administrator if you need more credits.";
@@ -82,7 +83,7 @@ export default function Billing() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6 flex items-center justify-center min-h-[50vh]">
+      <div className={cn("container mx-auto min-w-0 flex items-center justify-center min-h-[50vh]", pagePad)}>
         <div className="text-center space-y-3">
           <Loader2 className="h-10 w-10 animate-spin mx-auto text-primary" />
           <p className="text-sm text-muted-foreground">Loading modules…</p>
@@ -93,10 +94,10 @@ export default function Billing() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         {/* Page header — matches Inspections / Properties */}
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-page-title">
               Modules
             </h1>

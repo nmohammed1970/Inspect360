@@ -42,6 +42,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useLocale } from "@/contexts/LocaleContext";
 import { PhoneInput } from "@/components/PhoneInput";
+import { cn } from "@/lib/utils";
+import { dialogFooterSticky, formGrid2 } from "@/lib/responsive";
 
 const formSchema = z.object({
   firstName: z.string().optional().refine((val) => !val || val.trim().length > 0, {
@@ -57,6 +59,7 @@ const formSchema = z.object({
   leaseEndDate: z.string().optional(),
   monthlyRent: z.string().optional(),
   depositAmount: z.string().optional(),
+  rentDueDay: z.string().optional(),
   isActive: z.boolean(),
   hasPortalAccess: z.boolean(),
   nextOfKinName: z.string().optional(),
@@ -78,6 +81,7 @@ interface TenantAssignment {
     leaseEndDate?: Date | string;
     monthlyRent?: string;
     depositAmount?: string;
+    rentDueDay?: number;
     isActive: boolean;
     hasPortalAccess?: boolean;
     nextOfKinName?: string;
@@ -159,6 +163,7 @@ export default function EditTenantDialog({
       leaseEndDate: "",
       monthlyRent: "",
       depositAmount: "",
+      rentDueDay: "1",
       isActive: true,
       hasPortalAccess: true,
       nextOfKinName: "",
@@ -185,6 +190,7 @@ export default function EditTenantDialog({
         leaseEndDate,
         monthlyRent: tenant.assignment.monthlyRent || "",
         depositAmount: tenant.assignment.depositAmount || "",
+        rentDueDay: String(tenant.assignment.rentDueDay ?? 1),
         isActive: tenant.assignment.isActive,
         hasPortalAccess: tenant.assignment.hasPortalAccess ?? true,
         nextOfKinName: tenant.assignment.nextOfKinName || "",
@@ -262,6 +268,12 @@ export default function EditTenantDialog({
           payload.depositAmount = deposit.toString();
         }
       }
+      if (data.rentDueDay && data.rentDueDay.trim() !== '') {
+        const day = parseInt(data.rentDueDay, 10);
+        if (!isNaN(day) && day >= 1 && day <= 28) {
+          payload.rentDueDay = day;
+        }
+      }
 
       // Add optional next of kin fields (allow clearing by sending null/empty)
       payload.nextOfKinName = data.nextOfKinName?.trim() || null;
@@ -309,6 +321,7 @@ export default function EditTenantDialog({
           leaseEndDate,
           monthlyRent: updatedAssignment.monthlyRent || "",
           depositAmount: updatedAssignment.depositAmount || "",
+          rentDueDay: String(updatedAssignment.rentDueDay ?? 1),
           isActive: updatedAssignment.isActive,
           hasPortalAccess: updatedAssignment.hasPortalAccess ?? true,
           nextOfKinName: updatedAssignment.nextOfKinName || "",
@@ -330,6 +343,7 @@ export default function EditTenantDialog({
           leaseEndDate,
           monthlyRent: variables.monthlyRent || "",
           depositAmount: variables.depositAmount || "",
+          rentDueDay: variables.rentDueDay || "1",
           isActive: variables.isActive,
           hasPortalAccess: variables.hasPortalAccess,
           nextOfKinName: variables.nextOfKinName || "",
@@ -508,7 +522,7 @@ export default function EditTenantDialog({
     <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
           <DialogTitle>Edit Tenant Assignment</DialogTitle>
           <DialogDescription>Update lease details for {fullName}</DialogDescription>
@@ -519,13 +533,13 @@ export default function EditTenantDialog({
             {/* Tenant Information Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold">Tenant Information</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="firstName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>First Name *</FormLabel>
+                      <FormLabel required>First Name</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
@@ -543,7 +557,7 @@ export default function EditTenantDialog({
                   name="lastName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Last Name *</FormLabel>
+                      <FormLabel required>Last Name</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
@@ -562,7 +576,7 @@ export default function EditTenantDialog({
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email *</FormLabel>
+                    <FormLabel required>Email</FormLabel>
                     <FormControl>
                       <Input
                         type="email"
@@ -582,7 +596,7 @@ export default function EditTenantDialog({
             {/* Lease Details Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold">Lease Details</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="leaseStartDate"
@@ -626,7 +640,7 @@ export default function EditTenantDialog({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="monthlyRent"
@@ -669,6 +683,28 @@ export default function EditTenantDialog({
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="rentDueDay"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Rent due day of month</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={28}
+                        placeholder="1"
+                        {...field}
+                        data-testid="input-rent-due-day"
+                      />
+                    </FormControl>
+                    <FormDescription>Day 1–28 when rent is due each month</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
             <Separator />
@@ -676,7 +712,7 @@ export default function EditTenantDialog({
             {/* Next of Kin Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold">Next of Kin Information</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="nextOfKinName"
@@ -726,7 +762,7 @@ export default function EditTenantDialog({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="nextOfKinPhone"
@@ -796,8 +832,8 @@ export default function EditTenantDialog({
 
                 {form.watch("hasPortalAccess") && (
                   <div className="rounded-lg border p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-0.5 min-w-0">
                         <p className="text-sm font-medium">Send Portal Credentials</p>
                         <p className="text-sm text-muted-foreground">
                           Email login credentials to {tenant.email}
@@ -956,7 +992,7 @@ export default function EditTenantDialog({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4">
+            <div className={cn(dialogFooterSticky)}>
               <Button
                 type="button"
                 variant="outline"

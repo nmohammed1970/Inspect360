@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -36,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, Package, Camera, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { formGrid2 } from "@/lib/responsive";
 
 interface QuickUpdateAssetSheetProps {
   open: boolean;
@@ -248,7 +250,10 @@ export function QuickUpdateAssetSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent side="bottom" className="h-[85vh] overflow-y-auto max-w-3xl mx-auto">
+      <SheetContent
+        side="bottom"
+        className="mx-auto flex h-[85vh] max-h-[min(85vh,calc(100dvh-2rem))] max-w-3xl flex-col overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>Quick Update Asset</SheetTitle>
           <SheetDescription>
@@ -260,7 +265,8 @@ export function QuickUpdateAssetSheet({
           {/* Asset Selection */}
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="asset-select">
-              Select Asset *
+              Select Asset
+              <span className="text-destructive" aria-hidden="true"> *</span>
             </label>
             <Select
               value={selectedAssetId}
@@ -303,7 +309,7 @@ export function QuickUpdateAssetSheet({
                 <CardDescription>Review before updating</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Asset Name</p>
                     <p className="font-medium">{selectedAsset.name}</p>
@@ -342,12 +348,19 @@ export function QuickUpdateAssetSheet({
                 {selectedAsset.photos && selectedAsset.photos.length > 0 && (
                   <div>
                     <p className="text-xs text-muted-foreground mb-2">Current Photos</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {selectedAsset.photos.map((photoUrl, index) => (
                         <div key={index} className="relative group">
-                          <img
+                          <PreviewableImage
                             src={photoUrl}
                             alt={`Asset photo ${index + 1}`}
+                            title={selectedAsset.name || "Asset photo"}
+                            gallery={(selectedAsset.photos || []).map((src, photoIndex) => ({
+                              src,
+                              alt: `Asset photo ${photoIndex + 1}`,
+                              title: selectedAsset.name || "Asset photo",
+                            }))}
+                            index={index}
                             className="w-full h-20 object-cover rounded border"
                           />
                         </div>
@@ -460,14 +473,22 @@ export function QuickUpdateAssetSheet({
                   <FormLabel>Update Photos</FormLabel>
                   
                   {photos.length > 0 && (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {photos.map((photoUrl, index) => (
                         <Card key={index} className="overflow-hidden">
                           <CardContent className="p-0">
                             <div className="relative group">
-                              <img
+                              <PreviewableImage
                                 src={photoUrl}
                                 alt={`Asset photo ${index + 1}`}
+                                title="Asset photo"
+                                showHint={false}
+                                gallery={photos.map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Asset photo ${photoIndex + 1}`,
+                                  title: "Asset photo",
+                                }))}
+                                index={index}
                                 className="w-full h-32 object-cover"
                                 data-testid={`img-asset-photo-${index}`}
                               />

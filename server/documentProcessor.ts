@@ -1,4 +1,6 @@
 import mammoth from 'mammoth';
+import { readFile } from "fs/promises";
+import { ObjectStorageService } from "./objectStorage";
 
 export interface ProcessedDocument {
   extractedText: string;
@@ -11,13 +13,7 @@ export async function extractTextFromFile(
   fileType: string
 ): Promise<ProcessedDocument> {
   try {
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch file: ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const fileBuffer = Buffer.from(arrayBuffer);
+    const fileBuffer = await readDocumentBytes(fileUrl);
 
     if (fileType === 'pdf' || fileType === 'application/pdf') {
       return await extractTextFromPDF(fileBuffer);
@@ -45,20 +41,42 @@ export async function extractTextFromFile(
   }
 }
 
-async function extractTextFromPDF(buffer: Buffer): Promise<ProcessedDocument> {
+async function readDocumentBytes(fileUrl: string): Promise<Buffer> {
+  let pathname = fileUrl;
   try {
-    const pdfParse = (await import('pdf-parse')).default;
-    const data = await pdfParse(buffer);
+    pathname = new URL(fileUrl).pathname;
+  } catch {
+    pathname = fileUrl;
+  }
+  if (pathname.startsWith("/objects/")) {
+    const file = await new ObjectStorageService().getObjectEntityFile(pathname);
+    return readFile(file.name);
+  }
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.statusText}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function extractTextFromPDF(buffer: Buffer): Promise<ProcessedDocument> {
+  let parser: { getText: () => Promise<{ text?: string; total?: number }>; destroy: () => Promise<void> } | null = null;
+  try {
+    const { PDFParse } = await import("pdf-parse");
+    parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
     return {
-      extractedText: data.text,
-      pageCount: data.numpages,
+      extractedText: result.text || "",
+      pageCount: result.total,
     };
   } catch (error: any) {
-    console.error('[PDF Parser] Error:', error);
+    console.error("[PDF Parser] Error:", error);
     return {
-      extractedText: '',
-      error: error.message || 'Failed to parse PDF',
+      extractedText: "",
+      error: error.message || "Failed to parse PDF",
     };
+  } finally {
+    await parser?.destroy().catch(() => undefined);
   }
 }
 
@@ -95,20 +113,40 @@ export function chunkText(text: string, chunkSize: number = 2000): string[] {
   return chunks;
 }
 
+const SEARCH_STOP_WORDS = new Set([
+  "the", "and", "for", "with", "what", "does", "about", "this", "that", "from",
+  "your", "have", "how", "can", "are", "was", "you", "please", "say", "says",
+]);
+
+export function knowledgeBaseSearchTerms(query: string): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const raw of query.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 3 || SEARCH_STOP_WORDS.has(raw) || seen.has(raw)) continue;
+    seen.add(raw);
+    terms.push(raw);
+  }
+  return terms.slice(0, 8);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function findRelevantChunks(
   text: string,
   query: string,
   maxChunks: number = 3
 ): string[] {
   const chunks = chunkText(text);
-  const queryTerms = query.toLowerCase().split(/\s+/);
+  const queryTerms = knowledgeBaseSearchTerms(query);
 
   const scoredChunks = chunks.map((chunk) => {
     const chunkLower = chunk.toLowerCase();
     let score = 0;
 
     for (const term of queryTerms) {
-      const matches = (chunkLower.match(new RegExp(term, 'g')) || []).length;
+      const matches = (chunkLower.match(new RegExp(escapeRegExp(term), "g")) || []).length;
       score += matches;
     }
 
@@ -120,4 +158,27 @@ export function findRelevantChunks(
     .sort((a, b) => b.score - a.score)
     .slice(0, maxChunks)
     .map((item) => item.chunk);
+}
+
+export function buildKnowledgeBaseContext(
+  documents: { id: string; title: string; extractedText?: string | null }[],
+  query: string,
+): { contextText: string; usedDocIds: string[] } {
+  const passages: string[] = [];
+  const usedDocIds: string[] = [];
+
+  for (const doc of documents.slice(0, 3)) {
+    const text = (doc.extractedText || "").trim();
+    if (!text) continue;
+    const relevant = findRelevantChunks(text, query, 2);
+    const passage = relevant.length > 0 ? relevant.join("\n\n") : text.slice(0, 1500);
+    passages.push(`${doc.title}\n${passage}`);
+    usedDocIds.push(doc.id);
+  }
+
+  const contextText = passages.length > 0
+    ? `Based on the Inspect360 knowledge base:\n\n${passages.join("\n\n---\n\n")}\n\n`
+    : "";
+
+  return { contextText, usedDocIds };
 }

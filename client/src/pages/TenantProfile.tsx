@@ -4,34 +4,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { User as UserIcon, Loader2, Upload, Lock } from "lucide-react";
+import { User as UserIcon, Loader2, Upload, Lock, Eye, EyeOff } from "lucide-react";
 import { updateSelfProfileSchema, type User } from "@shared/schema";
+import { changePasswordFormSchema, type ChangePasswordFormValues, MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
 import { z } from "zod";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { cn } from "@/lib/utils";
+import { pagePad, formGrid2 } from "@/lib/responsive";
 import { useAuth } from "@/hooks/useAuth";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
-const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string().min(6, "Password confirmation is required"),
-}).refine((data) => data.newPassword === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
-});
-
-type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>;
-
 export default function TenantProfile() {
   const { toast } = useToast();
   const { user: authUser } = useAuth();
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Fetch current user profile
   const { data: user, isLoading } = useQuery<User>({
@@ -59,7 +54,7 @@ export default function TenantProfile() {
   });
 
   const passwordForm = useForm<ChangePasswordFormValues>({
-    resolver: zodResolver(changePasswordSchema),
+    resolver: zodResolver(changePasswordFormSchema),
     defaultValues: {
       currentPassword: "",
       newPassword: "",
@@ -96,15 +91,18 @@ export default function TenantProfile() {
     },
     onSuccess: () => {
       passwordForm.reset();
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
       toast({
-        title: "Success",
-        description: "Password changed successfully",
+        title: "Password updated",
+        description: "Your password has been changed successfully.",
       });
     },
     onError: (error: Error) => {
       toast({
         variant: "destructive",
-        title: "Error",
+        title: "Unable to change password",
         description: error.message || "Failed to change password",
       });
     },
@@ -115,6 +113,7 @@ export default function TenantProfile() {
   };
 
   const onPasswordSubmit = (data: ChangePasswordFormValues) => {
+    if (changePasswordMutation.isPending) return;
     changePasswordMutation.mutate({
       currentPassword: data.currentPassword,
       newPassword: data.newPassword,
@@ -191,10 +190,10 @@ export default function TenantProfile() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
-          <UserIcon className="w-8 h-8" />
+    <div className={cn("container mx-auto max-w-4xl min-w-0", pagePad)}>
+      <div className="mb-6 min-w-0">
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
+          <UserIcon className="w-7 h-7 md:w-8 md:h-8 shrink-0" />
           Profile
         </h1>
         <p className="text-muted-foreground mt-2">
@@ -202,7 +201,7 @@ export default function TenantProfile() {
         </p>
       </div>
 
-      <Card data-testid="card-profile-form">
+      <Card data-testid="card-profile-form" className="min-w-0">
         <CardHeader>
           <CardTitle>Personal Information</CardTitle>
           <CardDescription>
@@ -212,8 +211,8 @@ export default function TenantProfile() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="flex items-start gap-6">
-                <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 min-w-0">
+                <div className="flex flex-col items-center gap-3 shrink-0">
                   <Avatar className="w-24 h-24">
                     <AvatarImage src={form.watch("profileImageUrl") || user?.profileImageUrl || ""} alt="Profile" />
                     <AvatarFallback className="text-2xl">{getUserInitials()}</AvatarFallback>
@@ -230,8 +229,8 @@ export default function TenantProfile() {
                   </ObjectUploader>
                 </div>
 
-                <div className="flex-1 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex-1 space-y-4 w-full min-w-0">
+                  <div className={formGrid2}>
                     <FormField
                       control={form.control}
                       name="firstName"
@@ -338,14 +337,31 @@ export default function TenantProfile() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Current Password</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="Enter your current password"
-                        data-testid="input-current-password"
-                        {...field}
-                      />
-                    </FormControl>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showCurrentPassword ? "text" : "password"}
+                          placeholder="Enter your current password"
+                          autoComplete="current-password"
+                          className="pr-10"
+                          data-testid="input-current-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowCurrentPassword((v) => !v)}
+                        aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                        data-testid="button-toggle-current-password"
+                      >
+                        {showCurrentPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -357,14 +373,34 @@ export default function TenantProfile() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>New Password</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="Enter your new password"
-                        data-testid="input-new-password"
-                        {...field}
-                      />
-                    </FormControl>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showNewPassword ? "text" : "password"}
+                          placeholder="Enter your new password"
+                          autoComplete="new-password"
+                          className="pr-10"
+                          data-testid="input-new-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowNewPassword((v) => !v)}
+                        aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                        data-testid="button-toggle-new-password"
+                      >
+                        {showNewPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <FormDescription>
+                      Must be at least {MIN_PASSWORD_LENGTH} characters
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -376,14 +412,31 @@ export default function TenantProfile() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Confirm New Password</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="Confirm your new password"
-                        data-testid="input-confirm-password"
-                        {...field}
-                      />
-                    </FormControl>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Confirm your new password"
+                          autoComplete="new-password"
+                          className="pr-10"
+                          data-testid="input-confirm-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowConfirmPassword((v) => !v)}
+                        aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                        data-testid="button-toggle-confirm-password"
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}

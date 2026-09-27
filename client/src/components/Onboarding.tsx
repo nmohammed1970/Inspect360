@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import useEmblaCarousel from "embla-carousel-react";
@@ -20,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { formGrid2 } from "@/lib/responsive";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import type { User, Organization } from "@shared/schema";
@@ -276,7 +278,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         key={slide.id}
         className="flex-[0_0_100%] min-w-0"
       >
-        <div className="p-8 sm:p-12 flex flex-col items-center text-center">
+        <div className="p-4 sm:p-8 md:p-12 flex flex-col items-center text-center max-h-[min(70dvh,640px)] overflow-y-auto">
           <div className={cn(
             "w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center mb-6",
             slide.iconBg
@@ -298,9 +300,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               {logoUrl ? (
                 <div className="relative">
                   <div className="w-32 h-32 rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
-                    <img 
-                      src={logoUrl} 
-                      alt="Company logo" 
+                    <PreviewableImage
+                      src={logoUrl}
+                      alt="Company logo"
+                      title="Company logo"
+                      showHint={false}
                       className="w-full h-full object-contain"
                     />
                   </div>
@@ -348,7 +352,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
+              <div className={formGrid2}>
                 <div>
                   <Label htmlFor="brandingEmail" className="text-sm">Email</Label>
                   <Input
@@ -403,7 +407,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         key={slide.id}
         className="flex-[0_0_100%] min-w-0"
       >
-        <div className="p-8 sm:p-12 flex flex-col items-center text-center">
+        <div className="p-4 sm:p-8 md:p-12 flex flex-col items-center text-center max-h-[min(70dvh,640px)] overflow-y-auto">
           <div className={cn(
             "w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center mb-8",
             slide.iconBg
@@ -437,8 +441,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
-      <div className="w-full max-w-2xl mx-auto px-4 sm:px-6">
+    <div className="fixed inset-0 z-50 bg-background flex items-start sm:items-center justify-center overflow-y-auto p-4 py-6 sm:py-8">
+      <div className="w-full max-w-2xl mx-auto">
         <div className="bg-card rounded-2xl shadow-2xl overflow-hidden border border-border">
           <div className="relative overflow-hidden" ref={emblaRef}>
             <div className="flex">
@@ -450,8 +454,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             </div>
           </div>
           
-          <div className="px-8 sm:px-12 pb-8 sm:pb-10">
-            <div className="flex items-center justify-center gap-2 mb-8">
+          <div className="px-4 sm:px-8 md:px-12 pb-6 sm:pb-8 md:pb-10">
+            <div className="flex items-center justify-center gap-2 mb-6 sm:mb-8">
               {slides.map((_, index) => (
                 <button
                   key={index}
@@ -467,13 +471,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               ))}
             </div>
             
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center justify-between gap-2 sm:gap-4">
               <Button
                 variant="ghost"
                 onClick={scrollPrev}
                 disabled={!canScrollPrev}
                 className={cn(
-                  "transition-opacity",
+                  "transition-opacity shrink-0",
                   !canScrollPrev && "opacity-0 pointer-events-none"
                 )}
                 data-testid="button-onboarding-prev"
@@ -485,7 +489,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <Button
                 onClick={handleCTA}
                 disabled={completeOnboardingMutation.isPending}
-                className="min-w-[180px]"
+                className="min-w-0 flex-1 sm:flex-none sm:min-w-[180px]"
                 data-testid="button-onboarding-next"
               >
                 {completeOnboardingMutation.isPending ? (

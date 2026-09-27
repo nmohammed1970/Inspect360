@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { daysRemainingUntil, EXPIRY_WARNING_DAYS, toUtcDate } from "@shared/entitlements";
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
   RefreshCw,
   History,
   Sparkles,
+  Banknote,
 } from "lucide-react";
 import {
   Table,
@@ -36,6 +38,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate, formGrid2, tabsListScroll, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -49,6 +54,17 @@ type CreditBalance = {
   expiresOn?: string | null;
 };
 
+type InstanceUnitPricing = {
+  source: "instance" | "default";
+  pricePerUnitMonthly: string;
+  pricePerUnitAnnual: string;
+  currencyCode: string;
+  featuresIncluded?: string;
+  updatedAt?: string | null;
+  id?: string | null;
+  organizationId?: string;
+};
+
 type InstanceRow = {
   id: string;
   name: string;
@@ -60,7 +76,53 @@ type InstanceRow = {
   owner?: { id?: string; email?: string; firstName?: string; lastName?: string };
   creditBalance?: CreditBalance;
   enabledModuleCount?: number;
+  unitPricing?: InstanceUnitPricing;
+  entitlement?: {
+    code: string;
+    label: string;
+    locked: boolean;
+    daysRemaining: number | null;
+    trialStartAt: string | null;
+    trialEndAt: string | null;
+    creditExpiryAt: string | null;
+    paidCredits: number;
+  };
 };
+
+function formatUtcDateTime(iso?: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${date.toLocaleString("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })} UTC`;
+}
+
+function formatInclusiveExpiry(iso?: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(new Date(iso).getTime() - 1);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function trialPanel(entitlement?: { trialEndAt?: string | null } | null): { status: string; days: string } {
+  const end = toUtcDate(entitlement?.trialEndAt);
+  if (!end) return { status: "Not started", days: "—" };
+  const days = daysRemainingUntil(end, new Date());
+  if (days === 0) return { status: "Ended", days: "0" };
+  if (days <= EXPIRY_WARNING_DAYS) return { status: "Expiring soon", days: String(days) };
+  return { status: "Active", days: String(days) };
+}
 
 function looksLikeEmail(value?: string | null): boolean {
   if (!value) return false;
@@ -89,8 +151,20 @@ export default function AdminDashboard() {
   const [creditsTarget, setCreditsTarget] = useState("");
   const [creditsDelta, setCreditsDelta] = useState("");
   const [creditReason, setCreditReason] = useState("");
+  const [creditExpiresAt, setCreditExpiresAt] = useState("");
+  const [trialDays, setTrialDays] = useState("7");
+  const [defaultTrialDays, setDefaultTrialDays] = useState("7");
+  const [confirmExtend, setConfirmExtend] = useState(false);
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [confirmDisableModuleId, setConfirmDisableModuleId] = useState<string | null>(null);
+  const [unitPricingForm, setUnitPricingForm] = useState({
+    pricePerUnitMonthly: "0",
+    pricePerUnitAnnual: "0",
+    currencyCode: "GBP",
+    featuresIncluded: "",
+  });
+  const [unitPricingSource, setUnitPricingSource] = useState<"instance" | "default">("default");
+  const [unitPricingUpdatedAt, setUnitPricingUpdatedAt] = useState<string | null>(null);
 
   const {
     data: instances = [],
@@ -103,6 +177,34 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/instances"],
     retry: false,
     refetchInterval: manageOpen ? 30000 : false,
+  });
+
+  const { data: trialSetting } = useQuery<{ days: number }>({
+    queryKey: ["/api/admin/settings/trial"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/settings/trial");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (trialSetting?.days) setDefaultTrialDays(String(trialSetting.days));
+  }, [trialSetting?.days]);
+
+  const saveDefaultTrialMutation = useMutation({
+    mutationFn: async (days: number) => {
+      const res = await apiRequest("PATCH", "/api/admin/settings/trial", { days });
+      return res.json();
+    },
+    onSuccess: (body: { days: number }) => {
+      setDefaultTrialDays(String(body.days));
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/trial"] });
+      toast({ title: "Trial length saved", description: `New organizations receive a ${body.days}-day trial.` });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Could not save trial length", description: err.message });
+    },
   });
 
   const {
@@ -154,12 +256,19 @@ export default function AdminDashboard() {
   const liveBalance = selectedInstance
     ? instances.find((i) => i.id === selectedInstance.id)?.creditBalance ?? selectedInstance.creditBalance
     : undefined;
+  const liveEntitlement = selectedInstance
+    ? instances.find((i) => i.id === selectedInstance.id)?.entitlement ?? selectedInstance.entitlement
+    : undefined;
+  const trial = trialPanel(liveEntitlement);
 
   const openManage = async (instance: InstanceRow) => {
     setSelectedInstance(instance);
     setCreditsTarget(String(instance.creditBalance?.total ?? 0));
     setCreditsDelta("");
     setCreditReason("");
+    setCreditExpiresAt("");
+    setTrialDays("7");
+    setConfirmExtend(false);
     setActiveTab("credits");
     setConfirmDisableModuleId(null);
 
@@ -182,6 +291,36 @@ export default function AdminDashboard() {
       });
     }
     setEnabledModules(enabledIds);
+
+    const pricingSeed = instance.unitPricing;
+    setUnitPricingForm({
+      pricePerUnitMonthly: String(pricingSeed?.pricePerUnitMonthly ?? "0"),
+      pricePerUnitAnnual: String(pricingSeed?.pricePerUnitAnnual ?? "0"),
+      currencyCode: pricingSeed?.currencyCode || "GBP",
+      featuresIncluded: "",
+    });
+    setUnitPricingSource(pricingSeed?.source || "default");
+    setUnitPricingUpdatedAt(null);
+
+    try {
+      const pricingResponse = await fetch(`/api/admin/instances/${instance.id}/unit-pricing`, {
+        credentials: "include",
+      });
+      if (pricingResponse.ok) {
+        const pricing = await pricingResponse.json();
+        setUnitPricingForm({
+          pricePerUnitMonthly: String(pricing.pricePerUnitMonthly ?? "0"),
+          pricePerUnitAnnual: String(pricing.pricePerUnitAnnual ?? "0"),
+          currencyCode: pricing.currencyCode || "GBP",
+          featuresIncluded: pricing.featuresIncluded ?? "",
+        });
+        setUnitPricingSource(pricing.source === "instance" ? "instance" : "default");
+        setUnitPricingUpdatedAt(pricing.updatedAt ?? null);
+      }
+    } catch {
+      // List already seeded prices; detail fetch failure is non-blocking.
+    }
+
     setManageOpen(true);
   };
 
@@ -198,7 +337,7 @@ export default function AdminDashboard() {
   }, [instances, manageOpen, selectedInstance?.id]);
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/admin/instances"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/instances"] });
     queryClient.invalidateQueries({ queryKey: ["/api/billing/subscription"] });
     queryClient.invalidateQueries({ queryKey: ["/api/billing/inspection-balance"] });
     queryClient.invalidateQueries({ queryKey: ["/api/marketplace/my-modules"] });
@@ -249,12 +388,13 @@ export default function AdminDashboard() {
   });
 
   const grantMutation = useMutation({
-    mutationFn: async ({ quantity, reason }: { quantity: number; reason: string }) => {
+    mutationFn: async ({ quantity, reason, expiresAt }: { quantity: number; reason: string; expiresAt: string }) => {
       if (!selectedInstance) throw new Error("No instance selected");
       const res = await apiRequest("POST", "/api/admin/credits/grant", {
         organizationId: selectedInstance.id,
         quantity,
         reason,
+        expiresAt,
       });
       return res.json();
     },
@@ -294,6 +434,24 @@ export default function AdminDashboard() {
     },
   });
 
+  const extendTrialMutation = useMutation({
+    mutationFn: async (additionalDays: number) => {
+      if (!selectedInstance) throw new Error("No instance selected");
+      const res = await apiRequest("POST", `/api/admin/instances/${selectedInstance.id}/extend-trial`, {
+        additionalDays,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateAll();
+      setConfirmExtend(false);
+      toast({ title: "Trial extended" });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Could not extend trial", description: err.message });
+    },
+  });
+
   const saveCreditsAbsolute = () => {
     const target = Number(creditsTarget);
     if (!Number.isFinite(target) || target < 0) {
@@ -304,9 +462,15 @@ export default function AdminDashboard() {
       toast({ variant: "destructive", title: "Reason required", description: "Add a short note for the credit change." });
       return;
     }
+    const current = liveBalance?.total ?? 0;
+    if (target > current && !creditExpiresAt) {
+      toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these credits expire." });
+      return;
+    }
     updateMutation.mutate({
       credits: target,
       creditReason: creditReason.trim(),
+      ...(creditExpiresAt ? { creditExpiresAt } : {}),
       isActive: selectedInstance?.isActive !== false,
       enabledModules,
     });
@@ -324,13 +488,18 @@ export default function AdminDashboard() {
     }
     const current = liveBalance?.total ?? 0;
     if (delta > 0) {
-      grantMutation.mutate({ quantity: delta, reason: creditReason.trim() });
+      if (!creditExpiresAt) {
+        toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these credits expire." });
+        return;
+      }
+      grantMutation.mutate({ quantity: delta, reason: creditReason.trim(), expiresAt: creditExpiresAt });
       return;
     }
     const target = Math.max(0, current + delta);
     updateMutation.mutate({
       credits: target,
       creditReason: creditReason.trim(),
+      ...(creditExpiresAt ? { creditExpiresAt } : {}),
       isActive: selectedInstance?.isActive !== false,
       enabledModules,
     });
@@ -342,6 +511,45 @@ export default function AdminDashboard() {
       isActive: selectedInstance?.isActive !== false,
     });
   };
+
+  const saveUnitPricingMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedInstance) throw new Error("No instance selected");
+      const response = await fetch(`/api/admin/instances/${selectedInstance.id}/unit-pricing`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(unitPricingForm),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to save unit pricing");
+      }
+      return response.json() as Promise<InstanceUnitPricing>;
+    },
+    onSuccess: (pricing) => {
+      setUnitPricingForm({
+        pricePerUnitMonthly: String(pricing.pricePerUnitMonthly ?? "0"),
+        pricePerUnitAnnual: String(pricing.pricePerUnitAnnual ?? "0"),
+        currencyCode: pricing.currencyCode || "GBP",
+        featuresIncluded: pricing.featuresIncluded ?? "",
+      });
+      setUnitPricingSource("instance");
+      setUnitPricingUpdatedAt(pricing.updatedAt ?? null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/instances"] });
+      toast({
+        title: "Unit pricing saved",
+        description: `Saved for ${getOrganizationLabel(selectedInstance!)}.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error.message,
+      });
+    },
+  });
 
   const toggleModule = (moduleId: string, enable: boolean) => {
     if (!enable) {
@@ -369,13 +577,13 @@ export default function AdminDashboard() {
   }
 
   if (isError) {
-    return (
-      <div className="container mx-auto px-4 py-8">
+  return (
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Could not load instances</AlertTitle>
           <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
-            <span>{(error as Error)?.message || "Something went wrong."}</span>
+            <span className={textBreak}>{(error as Error)?.message || "Something went wrong."}</span>
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Retry
@@ -387,12 +595,12 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-primary" />
-            Instances
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <Building2 className="h-6 w-6 text-primary shrink-0" />
+            <span className={textTruncate}>Instances</span>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Assign credits and modules per organization. Operators can view status but cannot purchase or self-enable.
@@ -406,39 +614,83 @@ export default function AdminDashboard() {
 
       <Card className="border-border/60 shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Find an organization</CardTitle>
-          <CardDescription>Search by company name, owner name, or email</CardDescription>
+          <CardTitle className="text-base">Default trial length</CardTitle>
+          <CardDescription>
+            New organizations start with this many days. To change one organization, open Manage and add the number of days you want.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="relative max-w-xl">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="space-y-1">
+            <Label htmlFor="default-trial-days">Trial days</Label>
             <Input
-              placeholder="Search instances…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-instances"
+              id="default-trial-days"
+              type="number"
+              min={1}
+              max={365}
+              value={defaultTrialDays}
+              onChange={(e) => setDefaultTrialDays(e.target.value)}
+              className="w-32"
+              data-testid="input-default-trial-days"
             />
           </div>
+          <Button
+            type="button"
+            disabled={saveDefaultTrialMutation.isPending}
+            onClick={() => {
+              const days = Number(defaultTrialDays);
+              if (!Number.isInteger(days) || days < 1 || days > 365) {
+                toast({ variant: "destructive", title: "Invalid trial length", description: "Enter a whole number from 1 to 365." });
+                return;
+              }
+              saveDefaultTrialMutation.mutate(days);
+            }}
+            data-testid="button-save-default-trial-days"
+          >
+            {saveDefaultTrialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            Save trial length
+          </Button>
         </CardContent>
       </Card>
 
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Find an organization</CardTitle>
+          <CardDescription>Search by company name, owner name, or email</CardDescription>
+          </CardHeader>
+          <CardContent>
+          <div className="relative max-w-xl">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+              placeholder="Search instances…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-instances"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
       <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
+          <CardContent className="p-0">
           {filteredInstances.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground space-y-2">
               <Sparkles className="h-8 w-8 mx-auto opacity-40" />
               <p>No instances match your search.</p>
-            </div>
-          ) : (
-            <Table>
+              </div>
+            ) : (
+            <Table className="min-w-[960px]">
               <TableHeader>
                 <TableRow className="bg-muted/40">
                   <TableHead>Organization</TableHead>
                   <TableHead>Owner</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Credits</TableHead>
-                  <TableHead className="text-right">Modules on</TableHead>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Entitlement</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Trial end</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Credits</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Credit expiry</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Modules on</TableHead>
+                  <TableHead className="whitespace-nowrap text-left">Unit pricing</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -468,11 +720,39 @@ export default function AdminDashboard() {
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums">
-                        {instance.creditBalance?.total ?? 0}
+                      <TableCell>
+                        <div className="text-sm font-medium">{instance.entitlement?.label || "—"}</div>
+                        {instance.entitlement?.daysRemaining != null && instance.entitlement.daysRemaining > 0 && (
+                          <div className="text-xs text-muted-foreground">{instance.entitlement.daysRemaining} days left</div>
+                        )}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {instance.enabledModuleCount ?? 0}
+                      <TableCell className="whitespace-nowrap text-left text-sm">
+                        <span className="block text-left">{formatUtcDateTime(instance.entitlement?.trialEndAt)}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left font-semibold tabular-nums">
+                        <span className="block text-left">{instance.creditBalance?.total ?? 0}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left text-sm">
+                        <span className="block text-left">{formatInclusiveExpiry(instance.entitlement?.creditExpiryAt || instance.creditBalance?.expiresOn)}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left tabular-nums">
+                        <span className="block text-left">{instance.enabledModuleCount ?? 0}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-left text-sm">
+                        {instance.unitPricing ? (
+                          <div>
+                            <div className="font-medium tabular-nums">
+                              {instance.unitPricing.currencyCode} {instance.unitPricing.pricePerUnitMonthly}
+                              <span className="text-muted-foreground font-normal"> /mo</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {instance.unitPricing.pricePerUnitAnnual} /yr
+                              {instance.unitPricing.source === "default" ? " · not set" : ""}
+                            </div>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button size="sm" onClick={() => openManage(instance)} data-testid={`manage-instance-${instance.id}`}>
@@ -492,59 +772,126 @@ export default function AdminDashboard() {
                 })}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
 
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={cn(dialogContentBase, "max-w-3xl")}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
-              {selectedInstance?.name || "Instance"}
+            <DialogTitle className="flex items-center gap-2 min-w-0">
+              <Building2 className="h-5 w-5 shrink-0" />
+              <span className={textTruncate}>{selectedInstance?.name || "Instance"}</span>
             </DialogTitle>
             <DialogDescription>
-              Manage credits and modules for this organization. Changes apply immediately for operators.
+              Manage credits, modules, and unit pricing for this organization.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Live credits</div>
               <div className="text-2xl font-semibold tabular-nums">{liveBalance?.total ?? 0}</div>
-            </div>
+                </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Current batch</div>
               <div className="text-2xl font-semibold tabular-nums">{liveBalance?.current ?? 0}</div>
-            </div>
+              </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Modules on</div>
               <div className="text-2xl font-semibold tabular-nums">{enabledModules.length}</div>
-            </div>
+                </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Expires</div>
               <div className="text-sm font-medium mt-1">
                 {liveBalance?.expiresOn
                   ? format(new Date(liveBalance.expiresOn), "dd MMM yyyy")
                   : "No expiry"}
+                  </div>
+                </div>
+                </div>
+
+          <div className="rounded-xl border p-4 space-y-3">
+            <div className="font-medium text-sm">Trial</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Status</div>
+                <div>{trial.status}</div>
               </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Days remaining</div>
+                <div>{trial.days}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Trial start</div>
+                <div>{formatUtcDateTime(liveEntitlement?.trialStartAt)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Trial end</div>
+                <div>{formatUtcDateTime(liveEntitlement?.trialEndAt)}</div>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+              <div className="space-y-1 flex-1 min-w-0">
+                <Label htmlFor="trial-days">Days to add</Label>
+                <Input
+                  id="trial-days"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={trialDays}
+                  onChange={(e) => {
+                    setTrialDays(e.target.value);
+                    setConfirmExtend(false);
+                  }}
+                  data-testid="input-trial-days"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Choose how many days to add. If this organization has no trial yet, it starts today and lasts this long.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant={confirmExtend ? "default" : "secondary"}
+                disabled={extendTrialMutation.isPending}
+                onClick={() => {
+                  const days = Number(trialDays);
+                  if (!Number.isInteger(days) || days <= 0 || days > 365) {
+                    toast({ variant: "destructive", title: "Invalid days", description: "Enter a whole number from 1 to 365." });
+                    return;
+                  }
+                  if (!confirmExtend) {
+                    setConfirmExtend(true);
+                    return;
+                  }
+                  extendTrialMutation.mutate(days);
+                }}
+                data-testid="button-extend-trial"
+              >
+                {extendTrialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                {confirmExtend ? `Confirm +${trialDays} days` : "Extend trial"}
+              </Button>
             </div>
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="credits" className="gap-1">
+            <TabsList className={tabsListScroll}>
+              <TabsTrigger value="credits" className="gap-1 shrink-0">
                 <CreditCard className="h-3.5 w-3.5" />
                 Credits
               </TabsTrigger>
-              <TabsTrigger value="modules" className="gap-1">
+              <TabsTrigger value="modules" className="gap-1 shrink-0">
                 <Package className="h-3.5 w-3.5" />
                 Modules
+              </TabsTrigger>
+              <TabsTrigger value="unit-pricing" className="gap-1 shrink-0">
+                <Banknote className="h-3.5 w-3.5" />
+                Unit pricing
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="credits" className="space-y-4 pt-2">
-              <div className="space-y-2">
+                  <div className="space-y-2">
                 <Label htmlFor="credit-reason">Reason (required for changes)</Label>
                 <Textarea
                   id="credit-reason"
@@ -553,13 +900,26 @@ export default function AdminDashboard() {
                   onChange={(e) => setCreditReason(e.target.value)}
                   rows={2}
                 />
+                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="credit-expiry">Credit expiration date</Label>
+                <LocaleDateInput
+                  id="credit-expiry"
+                  value={creditExpiresAt || null}
+                  onChange={(ymd) => setCreditExpiresAt(ymd || "")}
+                  disablePast
+                  data-testid="input-credit-expiry"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required when adding credits. If you set a date, it is saved onto the current balance, even when the total stays the same or goes down. The selected day is usable in full. Access ends at 00:00 UTC the next day.
+                </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={formGrid2}>
                 <div className="rounded-xl border p-4 space-y-3">
                   <div className="font-medium text-sm">Set absolute total</div>
-                  <Input
-                    type="number"
+                    <Input
+                      type="number"
                     min={0}
                     value={creditsTarget}
                     onChange={(e) => setCreditsTarget(e.target.value)}
@@ -594,7 +954,7 @@ export default function AdminDashboard() {
                     ) : null}
                     Apply delta
                   </Button>
-                </div>
+              </div>
               </div>
 
               <div className="rounded-xl border overflow-hidden">
@@ -602,21 +962,21 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-2 font-medium text-sm">
                     <History className="h-4 w-4" />
                     Recent ledger
-                  </div>
+                            </div>
                   <Button size="sm" variant="ghost" onClick={() => refetchLedger()}>
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
-                </div>
+                            </div>
                 {ledgerLoading ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">
                     <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
                     Loading ledger…
-                  </div>
+                          </div>
                 ) : ledger.length === 0 ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">No ledger entries yet.</div>
                 ) : (
-                  <div className="max-h-56 overflow-y-auto">
-                    <Table>
+                  <div className="max-h-56 overflow-x-auto overflow-y-auto min-w-0">
+                    <Table className="min-w-[480px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>When</TableHead>
@@ -668,7 +1028,7 @@ export default function AdminDashboard() {
               ) : allModules.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">
                   No modules in catalogue. Add modules under Eco Admin → Modules first.
-                </div>
+              </div>
               ) : (
                 <div className="space-y-2">
                   {allModules.map((mod: any) => {
@@ -683,8 +1043,8 @@ export default function AdminDashboard() {
                           <div className="text-xs text-muted-foreground truncate">
                             {mod.moduleKey}
                             {mod.description ? ` · ${mod.description}` : ""}
-                          </div>
-                        </div>
+            </div>
+                    </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <Badge variant={on ? "default" : "secondary"}>{on ? "On" : "Off"}</Badge>
                           <Switch
@@ -692,11 +1052,11 @@ export default function AdminDashboard() {
                             onCheckedChange={(checked) => toggleModule(mod.id, checked)}
                             data-testid={`switch-module-${mod.moduleKey || mod.id}`}
                           />
-                        </div>
-                      </div>
+                  </div>
+                </div>
                     );
                   })}
-                </div>
+              </div>
               )}
 
               {confirmDisableModuleId && (
@@ -712,29 +1072,125 @@ export default function AdminDashboard() {
                       <Button size="sm" variant="destructive" onClick={confirmDisable}>
                         Disable
                       </Button>
-                    </div>
+              </div>
                   </AlertDescription>
                 </Alert>
               )}
 
-              <Button
+                <Button
                 className="w-full"
                 onClick={saveModules}
                 disabled={updateMutation.isPending || !!confirmDisableModuleId}
               >
                 {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 Save module access
-              </Button>
+                </Button>
+            </TabsContent>
+
+            <TabsContent value="unit-pricing" className="space-y-4 pt-2">
+              <Alert>
+                <Banknote className="h-4 w-4" />
+                <AlertTitle>
+                  {unitPricingSource === "instance" ? "Saved for this instance" : "Not saved yet"}
+                </AlertTitle>
+                <AlertDescription>
+                  {unitPricingSource === "instance"
+                    ? "These rates apply only to this organization."
+                    : "Enter rates and save to store unit pricing for this organization."}
+                </AlertDescription>
+              </Alert>
+
+              <div className={formGrid2}>
+                <div className="space-y-2">
+                  <Label htmlFor="instance-unit-monthly">Per unit / month</Label>
+                  <Input
+                    id="instance-unit-monthly"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={unitPricingForm.pricePerUnitMonthly}
+                    onChange={(e) =>
+                      setUnitPricingForm((prev) => ({ ...prev, pricePerUnitMonthly: e.target.value }))
+                    }
+                    data-testid="input-instance-unit-price-monthly"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="instance-unit-annual">Per unit / annum</Label>
+                  <Input
+                    id="instance-unit-annual"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={unitPricingForm.pricePerUnitAnnual}
+                    onChange={(e) =>
+                      setUnitPricingForm((prev) => ({ ...prev, pricePerUnitAnnual: e.target.value }))
+                    }
+                    data-testid="input-instance-unit-price-annual"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="instance-unit-currency">Currency</Label>
+                <Input
+                  id="instance-unit-currency"
+                  value={unitPricingForm.currencyCode}
+                  maxLength={3}
+                  onChange={(e) =>
+                    setUnitPricingForm((prev) => ({
+                      ...prev,
+                      currencyCode: e.target.value.toUpperCase().slice(0, 3),
+                    }))
+                  }
+                  data-testid="input-instance-unit-currency"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="instance-unit-features">Features included</Label>
+                <Textarea
+                  id="instance-unit-features"
+                  rows={6}
+                  placeholder="List included features for this instance…"
+                  value={unitPricingForm.featuresIncluded}
+                  onChange={(e) =>
+                    setUnitPricingForm((prev) => ({ ...prev, featuresIncluded: e.target.value }))
+                  }
+                  data-testid="textarea-instance-unit-features"
+                />
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground min-w-0">
+                  {unitPricingUpdatedAt
+                    ? `Last updated ${new Date(unitPricingUpdatedAt).toLocaleString()}`
+                    : unitPricingSource === "default"
+                      ? "Not customized yet"
+                      : "Saved for this instance"}
+                </p>
+                <Button
+                  className="w-full sm:w-auto shrink-0"
+                  onClick={() => saveUnitPricingMutation.mutate()}
+                  disabled={saveUnitPricingMutation.isPending}
+                  data-testid="button-save-instance-unit-pricing"
+                >
+                  {saveUnitPricingMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  Save for this instance
+                </Button>
+              </div>
             </TabsContent>
           </Tabs>
 
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setManageOpen(false)}>
               Close
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+              </div>
   );
 }

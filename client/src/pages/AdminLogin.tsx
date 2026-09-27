@@ -61,13 +61,13 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(190,27%,96%)] via-background to-[hsl(207,40%,92%)] dark:from-gray-900 dark:to-gray-800 p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-dvh flex items-start sm:items-center justify-center overflow-y-auto bg-gradient-to-br from-[hsl(190,27%,96%)] via-background to-[hsl(207,40%,92%)] dark:from-gray-900 dark:to-gray-800 p-4 py-8">
+      <Card className="w-full max-w-md min-w-0">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-16 w-auto object-contain" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-14 sm:h-16 w-auto object-contain" />
           </div>
-          <CardTitle className="font-heading text-3xl font-bold" data-testid="heading-admin-login">Admin Portal</CardTitle>
+          <CardTitle className="font-heading text-2xl sm:text-3xl font-bold" data-testid="heading-admin-login">Admin Portal</CardTitle>
           <CardDescription>
             Sign in to access the Inspect360 Admin Dashboard
           </CardDescription>
@@ -107,6 +107,7 @@ export default function AdminLogin() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   disabled={isLoading}
                   data-testid="button-toggle-password"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -115,6 +116,17 @@ export default function AdminLogin() {
                   )}
                 </button>
               </div>
+            </div>
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                className="text-sm text-primary hover:underline transition-all"
+                onClick={() => navigate("/admin/forgot-password")}
+                disabled={isLoading}
+                data-testid="button-admin-forgot-password"
+              >
+                Forgot password?
+              </button>
             </div>
             <Button
               type="submit"

@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
@@ -30,6 +31,8 @@ import { AddressInput } from "@/components/AddressInput";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, formGrid2 } from "@/lib/responsive";
 
 const categoryFormSchema = insertInspectionCategorySchema.extend({
   name: z.string().min(1, "Category name is required"),
@@ -38,7 +41,7 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal';
+type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
@@ -48,6 +51,7 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
   { id: 'teams', label: 'Maintenance Team', icon: UsersIcon },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tenant-portal', label: 'Tenant Portal Configuration', icon: DoorOpen },
+  { id: 'late-rent', label: 'Late Rent Notification', icon: Bell },
 ];
 
 export default function Settings() {
@@ -383,7 +387,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 bg-background min-h-screen">
+    <div className={cn("container mx-auto min-w-0 bg-background min-h-screen", pagePad)}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 md:mb-6">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
@@ -455,13 +459,14 @@ export default function Settings() {
                     <>
                       <div className="space-y-4">
                         <Label className="text-base font-medium">Company Logo</Label>
-                        <div className="flex items-start gap-6">
+                        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6 min-w-0">
                           {logoUrl ? (
                             <div className="relative">
                               <div className="w-40 h-40 rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
-                                <img
+                                <PreviewableImage
                                   src={logoUrl}
                                   alt="Company logo"
+                                  title="Company logo"
                                   className="w-full h-full object-contain"
                                 />
                               </div>
@@ -505,7 +510,7 @@ export default function Settings() {
                               </ObjectUploader>
                             )
                           )}
-                          <div className="flex-1 text-sm text-muted-foreground">
+                          <div className="flex-1 min-w-0 text-sm text-muted-foreground">
                             <p>Your company logo will appear on:</p>
                             <ul className="list-disc list-inside mt-2 space-y-1">
                               <li>All inspection reports and PDF exports</li>
@@ -536,7 +541,7 @@ export default function Settings() {
                           <div className="text-center py-8 text-muted-foreground">Loading trademarks...</div>
                         ) : (
                           <div className="space-y-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                               {[...trademarks]
                                 .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
                                 .map((trademark, index) => (
@@ -546,9 +551,10 @@ export default function Settings() {
                                     data-testid={`trademark-card-${trademark.id}`}
                                   >
                                     <div className="w-full aspect-square rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
-                                      <img
+                                      <PreviewableImage
                                         src={trademark.imageUrl}
                                         alt={trademark.altText || "Certification badge"}
+                                        title={trademark.altText || "Certification badge"}
                                         className="w-full h-full object-contain p-2"
                                       />
                                     </div>
@@ -660,7 +666,7 @@ export default function Settings() {
                             </p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className={formGrid2}>
                             <div>
                               <Label htmlFor="brandingEmail" className="text-sm">Contact Email</Label>
                               <Input
@@ -795,7 +801,7 @@ export default function Settings() {
                           Add Category
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
                         <DialogHeader>
                           <DialogTitle>Create Inspection Category</DialogTitle>
                           <DialogDescription>
@@ -887,7 +893,7 @@ export default function Settings() {
                                         <Edit2 className="w-4 h-4" />
                                       </Button>
                                     </DialogTrigger>
-                                    <DialogContent>
+                                    <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
                                       <DialogHeader>
                                         <DialogTitle>Edit Inspection Category</DialogTitle>
                                         <DialogDescription>
@@ -996,6 +1002,8 @@ export default function Settings() {
               onApprovalPeriodChange={setCheckInApprovalPeriodDays}
             />
           )}
+
+          {activeSection === 'late-rent' && <LateRentNotificationSettings />}
         </div>
       </div>
 
@@ -1101,7 +1109,7 @@ function TenantPortalConfiguration({
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">Community</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1117,7 +1125,7 @@ function TenantPortalConfiguration({
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">Comparison Reports</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1133,7 +1141,7 @@ function TenantPortalConfiguration({
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">AI Chatbot</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1149,7 +1157,7 @@ function TenantPortalConfiguration({
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">Maintenance Requests</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1440,7 +1448,7 @@ function ComplianceDocumentsPanel() {
                 Upload Document
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
               <DialogHeader>
                 <DialogTitle>Upload Compliance Document</DialogTitle>
                 <DialogDescription>
@@ -1486,6 +1494,7 @@ function ComplianceDocumentsPanel() {
                             onBlur={field.onBlur}
                             name={field.name}
                             ref={field.ref}
+                            disablePast
                           />
                         </FormControl>
                         <FormMessage />
@@ -1586,7 +1595,7 @@ function ComplianceDocumentsPanel() {
                             <Pencil className="w-4 h-4" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
                           <DialogHeader>
                             <DialogTitle>Edit Document</DialogTitle>
                             <DialogDescription>
@@ -1632,6 +1641,7 @@ function ComplianceDocumentsPanel() {
                                         onBlur={field.onBlur}
                                         name={field.name}
                                         ref={field.ref}
+                                        disablePast
                                       />
                                     </FormControl>
                                     <FormMessage />
@@ -1688,5 +1698,148 @@ function ComplianceDocumentsPanel() {
       }}
     />
     </>
+  );
+}
+
+function LateRentNotificationSettings() {
+  const { toast } = useToast();
+  const { data: settings, isLoading } = useQuery<any>({
+    queryKey: ["/api/organization/rent-settings"],
+  });
+
+  const [form, setForm] = useState({
+    enabled: false,
+    daysBeforeDue1: 10,
+    daysBeforeDue2: 5,
+    daysBeforeDue3: 2,
+    reminder1Subject: "",
+    reminder1Body: "",
+    reminder2Subject: "",
+    reminder2Body: "",
+    reminder3Subject: "",
+    reminder3Body: "",
+    overdueSubject: "",
+    overdueBody: "",
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setForm({
+        enabled: !!settings.enabled,
+        daysBeforeDue1: settings.daysBeforeDue1 ?? 10,
+        daysBeforeDue2: settings.daysBeforeDue2 ?? 5,
+        daysBeforeDue3: settings.daysBeforeDue3 ?? 2,
+        reminder1Subject: settings.reminder1Subject || "",
+        reminder1Body: settings.reminder1Body || "",
+        reminder2Subject: settings.reminder2Subject || "",
+        reminder2Body: settings.reminder2Body || "",
+        reminder3Subject: settings.reminder3Subject || "",
+        reminder3Body: settings.reminder3Body || "",
+        overdueSubject: settings.overdueSubject || "",
+        overdueBody: settings.overdueBody || "",
+      });
+    }
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => apiRequest("PATCH", "/api/organization/rent-settings", form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organization/rent-settings"] });
+      toast({ title: "Late rent settings saved" });
+    },
+    onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading...</p>;
+  }
+
+  return (
+    <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+      <CardHeader>
+        <CardTitle className="text-2xl">Late Rent Notification</CardTitle>
+        <CardDescription className="mt-2">
+          Configure up to three reminders before rent is due, plus an overdue template used for automated
+          every-other-day notices and manual Send Reminder. Variables: {"{tenant_name}"}, {"{property_name}"},
+          {"{amount}"}, {"{amount_outstanding}"}, {"{due_date}"}, {"{period}"}, {"{days_overdue}"},
+          {"{days_until_due}"}, {"{organization_name}"}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+          <div>
+            <Label className="text-base font-medium">Enable automated rent reminders</Label>
+            <p className="text-sm text-muted-foreground mt-1">
+              When enabled, the system emails tenants on the configured pre-due days and every other day after due until collected.
+            </p>
+          </div>
+          <Switch
+            checked={form.enabled}
+            onCheckedChange={(v) => setForm((f) => ({ ...f, enabled: v }))}
+            data-testid="toggle-rent-reminders"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label>Reminder 1 � days before due</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.daysBeforeDue1}
+              onChange={(e) => setForm((f) => ({ ...f, daysBeforeDue1: Number(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <Label>Reminder 2 � days before due</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.daysBeforeDue2}
+              onChange={(e) => setForm((f) => ({ ...f, daysBeforeDue2: Number(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <Label>Reminder 3 � days before due</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.daysBeforeDue3}
+              onChange={(e) => setForm((f) => ({ ...f, daysBeforeDue3: Number(e.target.value) }))}
+            />
+          </div>
+        </div>
+
+        {(
+          [
+            ["reminder1Subject", "reminder1Body", "Reminder 1 template"],
+            ["reminder2Subject", "reminder2Body", "Reminder 2 template"],
+            ["reminder3Subject", "reminder3Body", "Reminder 3 template"],
+            ["overdueSubject", "overdueBody", "Overdue template"],
+          ] as const
+        ).map(([subKey, bodyKey, label]) => (
+          <div key={subKey} className="space-y-2 border rounded-lg p-4">
+            <Label className="font-medium">{label}</Label>
+            <Input
+              placeholder="Subject"
+              value={(form as any)[subKey]}
+              onChange={(e) => setForm((f) => ({ ...f, [subKey]: e.target.value }))}
+            />
+            <Textarea
+              placeholder="Body"
+              rows={4}
+              value={(form as any)[bodyKey]}
+              onChange={(e) => setForm((f) => ({ ...f, [bodyKey]: e.target.value }))}
+            />
+          </div>
+        ))}
+
+        <div className="flex justify-end">
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
+            {saveMutation.isPending ? "Saving..." : "Save settings"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

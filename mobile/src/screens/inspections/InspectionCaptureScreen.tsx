@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  KeyboardAvoidingView,
   TextInput,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
@@ -39,7 +38,8 @@ import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
+import { useResponsive } from '../../hooks/useResponsive';
+import FormScreen from '../../components/ui/FormScreen';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
@@ -76,6 +76,18 @@ export default function InspectionCaptureScreen() {
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const {
+    stackDirection,
+    getResponsivePadding,
+    moderateScale: ms,
+    getFontSize,
+    getButtonHeight,
+  } = useResponsive();
+  const actionStack = stackDirection();
+  const contentPad = getResponsivePadding(spacing[4]);
+  const smBtnHeight = getButtonHeight('sm');
+  const mdBtnHeight = getButtonHeight('md');
+  const tabFontSize = getFontSize(typography.fontSize.xs);
 
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
@@ -215,7 +227,6 @@ export default function InspectionCaptureScreen() {
             const { saveInspectionEntry } = await import('../../services/offline/database');
             for (const entry of cached) {
               await saveInspectionEntry({
-                id: entry.id,
                 entryId: entry.id || `${entry.inspectionId}-${entry.sectionRef}-${entry.fieldKey}`,
                 inspectionId: entry.inspectionId,
                 sectionRef: entry.sectionRef,
@@ -226,8 +237,6 @@ export default function InspectionCaptureScreen() {
                 serverUpdatedAt: (entry as any).updatedAt || new Date().toISOString(),
                 localUpdatedAt: new Date().toISOString(),
                 isDeleted: 0,
-                createdAt: (entry as any).createdAt || new Date().toISOString(),
-                updatedAt: (entry as any).updatedAt || new Date().toISOString(),
               });
             }
             return cached;
@@ -282,6 +291,67 @@ export default function InspectionCaptureScreen() {
       // Alert removed - user can see AI Complete button status instead
     }
   }, [aiAnalysisStatus?.status, inspectionId]); // Removed queryClient from dependencies - it's stable from useQueryClient()
+
+  // Parse template structure (memoized to prevent re-parsing on every render)
+  const sections = useMemo(() => {
+    const inspectionToUse = effectiveInspection;
+    if (!inspectionToUse?.templateSnapshotJson) {
+      if (inspectionToUse?.templateId) {
+        console.warn('No templateSnapshotJson found, but templateId exists:', inspectionToUse.templateId);
+      }
+      return [];
+    }
+
+    let rawTemplateStructure: { sections: TemplateSection[] } | null = null;
+
+    if (typeof inspectionToUse.templateSnapshotJson === 'string') {
+      try {
+        rawTemplateStructure = JSON.parse(inspectionToUse.templateSnapshotJson);
+      } catch (e) {
+        console.error('Failed to parse templateSnapshotJson:', e);
+        return [];
+      }
+    } else {
+      rawTemplateStructure = inspectionToUse.templateSnapshotJson as { sections: TemplateSection[] };
+    }
+
+    if (!rawTemplateStructure?.sections) {
+      return [];
+    }
+
+    return rawTemplateStructure.sections.map(section => ({
+      ...section,
+      fields: (section.fields || []).map((field: any) => {
+        // Ensure boolean properties are actual booleans, not strings
+        const parsedField = {
+          ...field,
+          id: field.id || field.key,
+          key: field.key || field.id,
+        };
+
+        // Convert string booleans to actual booleans
+        if (typeof parsedField.required === 'string') {
+          parsedField.required = parsedField.required.toLowerCase() === 'true';
+        } else {
+          parsedField.required = !!parsedField.required;
+        }
+
+        if (typeof parsedField.includeCondition === 'string') {
+          parsedField.includeCondition = parsedField.includeCondition.toLowerCase() === 'true';
+        } else {
+          parsedField.includeCondition = !!parsedField.includeCondition;
+        }
+
+        if (typeof parsedField.includeCleanliness === 'string') {
+          parsedField.includeCleanliness = parsedField.includeCleanliness.toLowerCase() === 'true';
+        } else {
+          parsedField.includeCleanliness = !!parsedField.includeCleanliness;
+        }
+
+        return parsedField;
+      }),
+    }));
+  }, [effectiveInspection?.templateSnapshotJson, effectiveInspection?.templateId]);
 
   // Load existing entries into state
   // Always update entries when existingEntries changes (to support copy from check-in)
@@ -392,68 +462,6 @@ export default function InspectionCaptureScreen() {
       return merged;
     });
   }, [effectiveEntries, sections]);
-
-  // Parse template structure (memoized to prevent re-parsing on every render)
-  const sections = useMemo(() => {
-    const inspectionToUse = effectiveInspection;
-    if (!inspectionToUse?.templateSnapshotJson) {
-      if (inspectionToUse?.templateId) {
-        console.warn('No templateSnapshotJson found, but templateId exists:', inspectionToUse.templateId);
-      }
-      return [];
-    }
-
-    let rawTemplateStructure: { sections: TemplateSection[] } | null = null;
-
-    if (typeof inspectionToUse.templateSnapshotJson === 'string') {
-      try {
-        rawTemplateStructure = JSON.parse(inspectionToUse.templateSnapshotJson);
-      } catch (e) {
-        console.error('Failed to parse templateSnapshotJson:', e);
-        return [];
-      }
-    } else {
-      rawTemplateStructure = inspectionToUse.templateSnapshotJson as { sections: TemplateSection[] };
-    }
-
-    if (!rawTemplateStructure?.sections) {
-      return [];
-    }
-
-    return rawTemplateStructure.sections.map(section => ({
-      ...section,
-      fields: (section.fields || []).map((field: any) => {
-        // Ensure boolean properties are actual booleans, not strings
-        const parsedField = {
-          ...field,
-          id: field.id || field.key,
-          key: field.key || field.id,
-        };
-
-        // Convert string booleans to actual booleans
-        if (typeof parsedField.required === 'string') {
-          parsedField.required = parsedField.required.toLowerCase() === 'true';
-        } else {
-          parsedField.required = !!parsedField.required;
-        }
-
-        if (typeof parsedField.includeCondition === 'string') {
-          parsedField.includeCondition = parsedField.includeCondition.toLowerCase() === 'true';
-        } else {
-          parsedField.includeCondition = !!parsedField.includeCondition;
-        }
-
-        if (typeof parsedField.includeCleanliness === 'string') {
-          parsedField.includeCleanliness = parsedField.includeCleanliness.toLowerCase() === 'true';
-        } else {
-          parsedField.includeCleanliness = !!parsedField.includeCleanliness;
-        }
-
-        return parsedField;
-      }),
-    }));
-  }, [effectiveInspection?.templateSnapshotJson, effectiveInspection?.templateId]);
-
 
   // Debug logging
   useEffect(() => {
@@ -1186,94 +1194,60 @@ export default function InspectionCaptureScreen() {
           </Card>
         )}
 
-        {/* Content - Wrapped to ensure footer stays visible */}
-        <View style={{ flex: 1 }}>
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-          >
-            <ScrollView
-              style={styles.content}
-              contentContainerStyle={[
-                styles.contentContainer,
-                {
-                  paddingTop: spacing[4],
-                  paddingBottom: Math.max(insets.bottom + 120, spacing[8]) // Increased padding to account for footer
-                }
-              ]}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="none" // Prevent keyboard from dismissing when scrolling
-            >
-        {/* Copy from Previous Check-In (only for check-out inspections) */}
-        {effectiveInspection?.type === 'check_out' && (
-          <Card style={[
-            styles.copyCard,
+        {/* Content — keyboard-safe FormScreen with sticky Prev/Next footer */}
+        <FormScreen
+          style={{ flex: 1 }}
+          edges={{ bottom: true }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? Math.max(insets.top, 8) + 56 : 0}
+          contentContainerStyle={[
+            styles.contentContainer,
             {
-              backgroundColor: themeColors.primary.light || `${themeColors.primary.DEFAULT}15`,
-              borderColor: themeColors.primary.DEFAULT,
-                  marginBottom: spacing[4], // Add spacing below the card
-            }
-          ]}>
-            <Text style={[styles.copyCardTitle, { color: themeColors.text.primary }]}>Copy from Previous Check-In</Text>
-            {checkInData ? (
-              <>
-                <Text style={[styles.copyCardSubtext, { color: themeColors.text.secondary }]}>
-                  Copy data from the most recent check-in inspection ({checkInData.inspection.scheduledDate ? new Date(checkInData.inspection.scheduledDate).toLocaleDateString() : 'N/A'})
-                </Text>
-                <View style={styles.copyOptions}>
-                  <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setCopyImages(!copyImages)}
-                    disabled={!!copyFromCheckIn.isPending}
-                  >
-                    <View style={[
-                      styles.checkbox,
-                      { borderColor: themeColors.primary.DEFAULT },
-                      copyImages && { backgroundColor: themeColors.primary.DEFAULT }
-                    ]}>
-                      {copyImages && <Check size={16} color={themeColors.primary.foreground || '#fff'} />}
-                    </View>
-                    <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>Copy Images</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => setCopyNotes(!copyNotes)}
-                    disabled={!!copyFromCheckIn.isPending}
-                  >
-                    <View style={[
-                      styles.checkbox,
-                      { borderColor: themeColors.primary.DEFAULT },
-                      copyNotes && { backgroundColor: themeColors.primary.DEFAULT }
-                    ]}>
-                      {copyNotes && <Check size={16} color={themeColors.primary.foreground || '#fff'} />}
-                    </View>
-                    <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>Copy Notes</Text>
-                  </TouchableOpacity>
-                </View>
-                {(copyImages || copyNotes) && (
-                  <View style={styles.copySuccess}>
-                    <CheckCircle2 size={16} color={themeColors.success || '#34C759'} />
-                    <Text style={[styles.copySuccessText, { color: themeColors.success || themeColors.primary.DEFAULT }]}>
-                      {copyImages && copyNotes
-                        ? 'Images and notes copied from check-in inspection'
-                        : copyImages
-                          ? 'Images copied from check-in inspection'
-                          : 'Notes copied from check-in inspection'}
-                    </Text>
-                  </View>
-                )}
-              </>
-            ) : (
-              <Text style={[styles.copyCardSubtext, { color: themeColors.text.secondary }]}>
-                No previous check-in inspection found for this property.
-              </Text>
-            )}
-          </Card>
-        )}
-
+              paddingHorizontal: contentPad,
+              paddingTop: contentPad,
+              paddingBottom: spacing[4],
+            },
+          ]}
+          scrollProps={{
+            keyboardDismissMode: 'none',
+            style: styles.content,
+          }}
+          footer={
+            <View style={[styles.footerActions, { flexDirection: 'row' }]}>
+              <Button
+                title="Previous"
+                onPress={() => {
+                  const newIndex = Math.max(0, currentSectionIndex - 1);
+                  setCurrentSectionIndex(newIndex);
+                }}
+                disabled={!!(currentSectionIndex === 0 || sections.length === 0)}
+                variant="outline"
+                size="md"
+                icon={<ChevronLeft size={18} color={themeColors.text.primary} />}
+                style={[
+                  styles.footerButton,
+                  { minHeight: mdBtnHeight },
+                ]}
+              />
+              <Button
+                title="Next"
+                onPress={() => {
+                  const newIndex = Math.min(sections.length - 1, currentSectionIndex + 1);
+                  setCurrentSectionIndex(newIndex);
+                }}
+                disabled={!!(currentSectionIndex >= sections.length - 1 || sections.length === 0)}
+                variant="outline"
+                size="md"
+                icon={<ChevronRight size={18} color={themeColors.text.primary} />}
+                style={[
+                  styles.footerButton,
+                  { minHeight: mdBtnHeight },
+                ]}
+              />
+            </View>
+          }
+        >
             {/* Quick Actions Row */}
-            <View style={styles.quickActionsRow}>
+            <View style={[styles.quickActionsRow, { paddingHorizontal: 0 }]}>
               {/* Online/Offline Badge */}
               <View style={styles.statusBadge}>
                 <Badge variant={isOnline ? 'default' : 'secondary'} size="sm">
@@ -1320,8 +1294,8 @@ export default function InspectionCaptureScreen() {
               </View>
             </View>
 
-            {/* Main Action Buttons */}
-            <View style={styles.mainActionsRow}>
+            {/* Main Action Buttons — always one row, half / half */}
+            <View style={[styles.mainActionsRow, { paddingHorizontal: 0, flexDirection: 'row' }]}>
               {/* AI Analysis Button */}
               {aiAnalysisStatus?.status === 'processing' ? (
                 <View style={styles.actionButtonContainer}>
@@ -1352,9 +1326,11 @@ export default function InspectionCaptureScreen() {
                       {
                         backgroundColor: themeColors.success || '#22c55e',
                         borderColor: themeColors.success || '#22c55e',
+                        minHeight: smBtnHeight,
+                        paddingVertical: ms(spacing[2], 0.3),
                       }
                     ]}
-                    textStyle={{ color: '#ffffff' }}
+                    textStyle={[{ color: '#ffffff' }, { fontSize: tabFontSize }]}
                   />
                 </View>
               ) : (
@@ -1366,8 +1342,8 @@ export default function InspectionCaptureScreen() {
                     variant="default"
                     size="sm"
                     icon={<Sparkles size={14} color={themeColors.primary.foreground || '#ffffff'} />}
-                    style={styles.actionButton}
-                    textStyle={styles.actionButtonText}
+                    style={[styles.actionButton, { minHeight: smBtnHeight, paddingVertical: ms(spacing[2], 0.3) }]}
+                    textStyle={[styles.actionButtonText, { fontSize: tabFontSize }]}
                   />
                 </View>
               )}
@@ -1382,14 +1358,14 @@ export default function InspectionCaptureScreen() {
                   size="sm"
                   icon={<CheckCircle2 size={14} color={themeColors.primary.foreground} />}
                   loading={updateStatusMutation.isPending}
-                  style={styles.actionButton}
-                  textStyle={styles.actionButtonText}
+                  style={[styles.actionButton, { minHeight: smBtnHeight, paddingVertical: ms(spacing[2], 0.3) }]}
+                  textStyle={[styles.actionButtonText, { fontSize: tabFontSize }]}
                 />
               </View>
             </View>
 
             {/* Progress Bar */}
-            <View style={[styles.progressContainer, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <View style={[styles.progressContainer, { backgroundColor: themeColors.card.DEFAULT, marginHorizontal: 0 }]}>
               <View style={styles.progressHeader}>
                 <Text style={[styles.progressLabel, { color: themeColors.text.primary }]}>Progress</Text>
                 <Text style={[styles.progressPercent, { color: themeColors.primary.DEFAULT }]}>{Math.round(progress)}%</Text>
@@ -1428,6 +1404,9 @@ export default function InspectionCaptureScreen() {
                         {
                           backgroundColor: index === currentSectionIndex ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
                           borderColor: index === currentSectionIndex ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                          paddingHorizontal: ms(spacing[3], 0.3),
+                          paddingVertical: ms(spacing[2], 0.3),
+                          minHeight: ms(36, 0.2),
                         },
                       ]}
                       activeOpacity={0.7}
@@ -1438,7 +1417,8 @@ export default function InspectionCaptureScreen() {
                           {
                             color: index === currentSectionIndex
                               ? (themeColors.primary.foreground || '#ffffff')
-                              : themeColors.text.primary
+                              : themeColors.text.primary,
+                            fontSize: tabFontSize,
                           },
                           index === currentSectionIndex && styles.tabButtonTextActive
                         ]}
@@ -1483,7 +1463,7 @@ export default function InspectionCaptureScreen() {
                     <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
                       How many {currentSection.title.toLowerCase()}?
                     </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginTop: spacing[2] }}>
+                    <View style={{ flexDirection: actionStack === 'column' ? 'column' : 'row', alignItems: actionStack === 'column' ? 'stretch' : 'center', flexWrap: 'wrap', gap: spacing[3], marginTop: spacing[2] }}>
                       <TouchableOpacity
                         onPress={() => {
                           const currentCount = repeatableCounts[currentSection.id] ?? 1;
@@ -1621,21 +1601,18 @@ export default function InspectionCaptureScreen() {
                                       const rootNavigator = navigation.getParent()?.getParent();
                                       if (rootNavigator) {
                                         rootNavigator.dispatch(
-                                          CommonActions.navigate({
-                                            name: 'Main',
+                                          CommonActions.navigate('Main', {
+                                            screen: 'Maintenance',
                                             params: {
-                                              screen: 'Maintenance',
+                                              screen: 'CreateMaintenance',
                                               params: {
-                                                screen: 'CreateMaintenance',
-                                                params: {
-                                                  inspectionId,
-                                                  propertyId: effectiveInspection?.propertyId,
-                                                  blockId: effectiveInspection?.blockId,
-                                                  fieldLabel,
-                                                  photos,
-                                                  entryId: entry?.id,
-                                                  sectionTitle: instanceName,
-                                                },
+                                                inspectionId,
+                                                propertyId: effectiveInspection?.propertyId,
+                                                blockId: effectiveInspection?.blockId,
+                                                fieldLabel,
+                                                photos,
+                                                entryId: entry?.id,
+                                                sectionTitle: instanceName,
                                               },
                                             },
                                           })
@@ -1741,21 +1718,18 @@ export default function InspectionCaptureScreen() {
                                 const rootNavigator = navigation.getParent()?.getParent();
                                 if (rootNavigator) {
                                   rootNavigator.dispatch(
-                                    CommonActions.navigate({
-                                      name: 'Main',
+                                    CommonActions.navigate('Main', {
+                                      screen: 'Maintenance',
                                       params: {
-                                        screen: 'Maintenance',
+                                        screen: 'CreateMaintenance',
                                         params: {
-                                          screen: 'CreateMaintenance',
-                                          params: {
-                                            inspectionId,
-                                            propertyId: effectiveInspection?.propertyId,
-                                            blockId: effectiveInspection?.blockId,
-                                            fieldLabel,
-                                            photos,
-                                            entryId: entry?.id,
-                                            sectionTitle: currentSection?.title,
-                                          },
+                                          inspectionId,
+                                          propertyId: effectiveInspection?.propertyId,
+                                          blockId: effectiveInspection?.blockId,
+                                          fieldLabel,
+                                          photos,
+                                          entryId: entry?.id,
+                                          sectionTitle: currentSection?.title,
                                         },
                                       },
                                     })
@@ -1804,49 +1778,7 @@ export default function InspectionCaptureScreen() {
                 <Text style={[styles.errorText, { color: themeColors.text.primary }]}>No section selected</Text>
               </View>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
-        </View>
-        {/* Footer Navigation - Always visible, positioned above keyboard */}
-        <View style={[
-          styles.footer,
-          {
-            paddingBottom: Math.max(insets.bottom, spacing[3]),
-            backgroundColor: themeColors.card.DEFAULT,
-            borderTopColor: themeColors.border.light,
-            // Ensure footer is always visible above keyboard
-            position: 'relative',
-            zIndex: 1000,
-          }
-        ]}>
-          <View style={styles.footerActions}>
-            <Button
-              title="Previous"
-              onPress={() => {
-                const newIndex = Math.max(0, currentSectionIndex - 1);
-                setCurrentSectionIndex(newIndex);
-              }}
-              disabled={!!(currentSectionIndex === 0 || sections.length === 0)}
-              variant="outline"
-              size="md"
-              icon={<ChevronLeft size={18} color={themeColors.text.primary} />}
-              style={styles.footerButton}
-            />
-
-            <Button
-              title="Next"
-              onPress={() => {
-                const newIndex = Math.min(sections.length - 1, currentSectionIndex + 1);
-                setCurrentSectionIndex(newIndex);
-              }}
-              disabled={!!(currentSectionIndex >= sections.length - 1 || sections.length === 0)}
-              variant="outline"
-              size="md"
-              icon={<ChevronRight size={18} color={themeColors.text.primary} />}
-              style={styles.footerButton}
-            />
-          </View>
-        </View>
+        </FormScreen>
 
       </View>
     </ErrorBoundary>
@@ -1865,10 +1797,12 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     paddingHorizontal: spacing[4],
   },
   headerInfo: {
     flex: 1,
+    minWidth: 0,
     marginLeft: spacing[3],
   },
   headerTitle: {
@@ -1889,7 +1823,6 @@ const styles = StyleSheet.create({
   quickActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing[4],
     marginBottom: spacing[3],
     marginTop: 0,
     gap: spacing[2],
@@ -1899,10 +1832,8 @@ const styles = StyleSheet.create({
     marginRight: spacing[1],
   },
   mainActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing[4],
     marginBottom: spacing[4],
     gap: spacing[2],
   },
@@ -1912,11 +1843,9 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     width: '100%',
-    paddingVertical: moderateScale(spacing[2], 0.3),
-    minHeight: getButtonHeight('sm'),
   },
   actionButtonText: {
-    fontSize: getFontSize(typography.fontSize.xs),
+    fontSize: typography.fontSize.xs,
   },
   badgeText: {
     fontSize: typography.fontSize.xs,
@@ -1930,11 +1859,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[2],
   },
   progressContainer: {
-    paddingHorizontal: spacing[4],
     marginBottom: spacing[4],
     paddingVertical: spacing[3],
     borderRadius: borderRadius.lg,
-    marginHorizontal: spacing[4],
   },
   progressHeader: {
     flexDirection: 'row',
@@ -1975,18 +1902,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabButton: {
-    paddingHorizontal: moderateScale(spacing[3], 0.3),
-    paddingVertical: moderateScale(spacing[2], 0.3),
-    borderRadius: moderateScale(borderRadius.full, 0.2),
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.full,
     borderWidth: 1,
-    marginRight: moderateScale(spacing[2], 0.3),
-    minHeight: moderateScale(36, 0.2),
+    marginRight: spacing[2],
+    minHeight: 36,
     justifyContent: 'center',
     alignItems: 'center',
     // Colors applied dynamically via themeColors
   },
   tabButtonText: {
-    fontSize: getFontSize(typography.fontSize.xs),
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium,
     // Color applied dynamically via themeColors
   },
@@ -2013,7 +1940,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingTop: spacing[2],
-    paddingHorizontal: spacing[4],
     paddingBottom: spacing[4],
   },
   sectionDescriptionCard: {
@@ -2080,15 +2006,13 @@ const styles = StyleSheet.create({
     // Colors applied dynamically via themeColors
   },
   footerActions: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'stretch',
     gap: spacing[3],
-    marginBottom: spacing[2],
   },
   footerButton: {
     flex: 1,
-    minHeight: moderateScale(44, 0.2),
+    minHeight: 44,
   },
   aiProgressCard: {
     padding: spacing[4],
@@ -2146,12 +2070,12 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   syncText: {
-    fontSize: getFontSize(16),
+    fontSize: 16,
     fontWeight: typography.fontWeight.normal,
     textAlign: 'center',
   },
   syncSubtext: {
-    fontSize: getFontSize(14),
+    fontSize: 14,
     fontWeight: typography.fontWeight.normal,
     textAlign: 'center',
   },

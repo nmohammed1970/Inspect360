@@ -109,27 +109,27 @@ export const biometricService = {
 
       if (result.success) {
         return { success: true };
-      } else {
-        // Handle different error cases
-        let errorMessage = 'Biometric authentication failed';
-        
-        if (result.error === 'user_cancel') {
-          errorMessage = 'Authentication cancelled';
-        } else if (result.error === 'user_fallback') {
-          errorMessage = 'User chose to use password';
-        } else if (result.error === 'system_cancel') {
-          errorMessage = 'Authentication was cancelled by system';
-        } else if (result.error === 'not_available') {
-          errorMessage = 'Biometric authentication is not available';
-        } else if (result.error === 'not_enrolled') {
-          errorMessage = 'No biometric authentication is enrolled';
-        }
-
-        return {
-          success: false,
-          error: errorMessage,
-        };
       }
+
+      const authError = 'error' in result ? result.error : undefined;
+      let errorMessage = 'Biometric authentication failed';
+
+      if (authError === 'user_cancel') {
+        errorMessage = 'Authentication cancelled';
+      } else if (authError === 'user_fallback') {
+        errorMessage = 'User chose to use password';
+      } else if (authError === 'system_cancel') {
+        errorMessage = 'Authentication was cancelled by system';
+      } else if (authError === 'not_available') {
+        errorMessage = 'Biometric authentication is not available';
+      } else if (authError === 'not_enrolled') {
+        errorMessage = 'No biometric authentication is enrolled';
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
     } catch (error: any) {
       console.error('[BiometricService] Error during biometric authentication:', error);
       return {

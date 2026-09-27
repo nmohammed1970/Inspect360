@@ -10,14 +10,20 @@ import { Badge } from "@/components/ui/badge";
 import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles, Trash2, Save, Eye, Wrench, ZoomIn, Mic, Square, Loader2, Play } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
+import { PreviewableImage } from "@/components/ImagePreview";
+import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
+import {
+  formatInspectionNote,
+  isLabeledInspectionNote,
+  parseInspectionNote,
+} from "@shared/inspectionNoteSections";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import SignatureCanvas from "react-signature-canvas";
-import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { createSignatureValue, parseSignatureValue, formatSignerDisplayName } from "@shared/signature";
 import { useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
@@ -146,7 +152,6 @@ export function FieldWidget({
     confidence?: string;
     notes?: string;
   } | null>(null);
-  const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
 
   // Voice recording state (multiple recordings)
   const [isRecording, setIsRecording] = useState(false);
@@ -1356,13 +1361,13 @@ export function FieldWidget({
 
       case "rating":
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-2">
             {[1, 2, 3, 4, 5].map((rating) => (
               <button
                 key={rating}
                 type="button"
                 onClick={() => handleValueChange(rating)}
-                className="focus:outline-none"
+                className="focus:outline-none min-h-11 min-w-11 inline-flex items-center justify-center"
                 data-testid={`button-rating-${rating}-${field.id}`}
               >
                 <Star
@@ -1374,7 +1379,7 @@ export function FieldWidget({
               </button>
             ))}
             {localValue > 0 && (
-              <span className="ml-2 text-sm text-muted-foreground">
+              <span className="ml-1 sm:ml-2 text-sm text-muted-foreground">
                 {localValue} / 5
               </span>
             )}
@@ -1384,7 +1389,7 @@ export function FieldWidget({
       case "select":
         return (
           <Select value={localValue || ""} onValueChange={handleValueChange}>
-            <SelectTrigger data-testid={`select-${field.id}`}>
+            <SelectTrigger data-testid={`select-${field.id}`} className="min-h-11">
               <SelectValue placeholder={field.placeholder || "Select an option"} />
             </SelectTrigger>
             <SelectContent>
@@ -1425,7 +1430,7 @@ export function FieldWidget({
                 }
               }}
             >
-              <SelectTrigger data-testid={`select-multiselect-${field.id}`}>
+              <SelectTrigger data-testid={`select-multiselect-${field.id}`} className="min-h-11">
                 <SelectValue placeholder="Add option..." />
               </SelectTrigger>
               <SelectContent>
@@ -1443,13 +1448,14 @@ export function FieldWidget({
 
       case "boolean":
         return (
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 min-h-11">
             <Checkbox
               checked={localValue || false}
               onCheckedChange={handleValueChange}
               data-testid={`checkbox-${field.id}`}
+              className="h-5 w-5"
             />
-            <label className="text-sm cursor-pointer">
+            <label className="text-sm cursor-pointer break-words min-w-0">
               {field.placeholder || "Yes"}
             </label>
           </div>
@@ -1503,16 +1509,25 @@ export function FieldWidget({
                     <p className="text-xs text-muted-foreground">
                       Match these angles when taking your Check-Out photos for accurate comparison
                     </p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                       {checkInPhotos.map((photoUrl: string, index: number) => (
                         <div key={index} className="relative group">
-                          <img
+                          <PreviewableImage
                             src={photoUrl}
                             alt={`Check-In Reference ${index + 1}`}
+                            title={`${field.label} - Check-in reference`}
+                            caption={`Reference ${index + 1}`}
+                            gallery={checkInPhotos.map((src: string, photoIndex: number) => ({
+                              src,
+                              alt: `Check-In Reference ${photoIndex + 1}`,
+                              title: `${field.label} - Check-in reference`,
+                              caption: `Reference ${photoIndex + 1}`,
+                            }))}
+                            index={index}
                             className="w-full h-32 object-cover rounded-md border-2 border-primary/30"
                             data-testid={`img-check-in-reference-${index}`}
                           />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-md flex items-center justify-center">
+                          <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-md flex items-center justify-center">
                             <Badge variant="secondary" className="opacity-0 group-hover:opacity-100 transition-opacity">
                               Reference {index + 1}
                             </Badge>
@@ -1531,11 +1546,20 @@ export function FieldWidget({
                   <Card key={index} className="overflow-hidden">
                     <CardContent className="p-0">
                       <div className="relative bg-muted group">
-                        <img
+                        <PreviewableImage
                           src={photoUrl}
                           alt={`${field.label} ${index + 1}`}
+                          title={field.label}
+                          caption={`Photo ${index + 1}`}
+                          showHint={false}
+                          gallery={localPhotos.map((src, photoIndex) => ({
+                            src,
+                            alt: `${field.label} ${photoIndex + 1}`,
+                            title: field.label,
+                            caption: `Photo ${photoIndex + 1}`,
+                          }))}
+                          index={index}
                           className="w-full h-auto max-h-64 object-contain cursor-pointer"
-                          onClick={() => setEnlargedPhoto(photoUrl)}
                           data-testid={`img-photo-${index}`}
                         />
                         <div
@@ -1548,7 +1572,7 @@ export function FieldWidget({
                         <Button
                           size="icon"
                           variant="destructive"
-                          className="absolute top-2 right-2 z-10"
+                          className="absolute top-2 right-2 z-10 min-h-11 min-w-11"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -1582,10 +1606,11 @@ export function FieldWidget({
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto min-h-11"
               onClick={() => setShowPhotoUpload(true)}
               data-testid={`button-upload-photo-${field.id}`}
             >
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-2 shrink-0" />
               {localPhotos.length > 0 ? "Add More Photos" : "Upload Photo"}
             </Button>
             {showPhotoUpload && (
@@ -1617,10 +1642,11 @@ export function FieldWidget({
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto min-h-11"
               onClick={() => setShowPhotoUpload(true)}
               data-testid={`button-upload-video-${field.id}`}
             >
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-2 shrink-0" />
               {localValue ? "Replace Video" : "Upload Video"}
             </Button>
             {showPhotoUpload && (
@@ -1807,10 +1833,10 @@ export function FieldWidget({
   };
 
   return (
-    <div className="space-y-3 border rounded-lg p-4" data-testid={`field-widget-${field.id}`}>
-      <Label className="text-base font-bold flex items-center gap-2">
-        {field.label}
-        {field.required && <span className="text-destructive">*</span>}
+    <div className="space-y-3 border rounded-lg p-3 sm:p-4 min-w-0" data-testid={`field-widget-${field.id}`}>
+      <Label className="text-base font-bold flex flex-wrap items-center gap-2 break-words min-w-0">
+        <span className="break-words min-w-0">{field.label}</span>
+        {field.required && <span className="text-destructive shrink-0">*</span>}
       </Label>
 
       {renderField()}
@@ -1827,11 +1853,11 @@ export function FieldWidget({
 
       {/* AI Suggestion Badge */}
       {aiConditionSuggestion && !analyzingCondition && (field.includeCondition || field.includeCleanliness) && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Sparkles className="h-3 w-3 text-primary" />
-          <span>AI suggested: {aiConditionSuggestion.condition && `Condition: ${aiConditionSuggestion.condition}`}{aiConditionSuggestion.condition && aiConditionSuggestion.cleanliness && ", "}{aiConditionSuggestion.cleanliness && `Cleanliness: ${aiConditionSuggestion.cleanliness}`}</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground min-w-0">
+          <Sparkles className="h-3 w-3 text-primary shrink-0" />
+          <span className="break-words min-w-0">AI suggested: {aiConditionSuggestion.condition && `Condition: ${aiConditionSuggestion.condition}`}{aiConditionSuggestion.condition && aiConditionSuggestion.cleanliness && ", "}{aiConditionSuggestion.cleanliness && `Cleanliness: ${aiConditionSuggestion.cleanliness}`}</span>
           {aiConditionSuggestion.confidence && (
-            <Badge variant={aiConditionSuggestion.confidence === "high" ? "default" : aiConditionSuggestion.confidence === "medium" ? "secondary" : "outline"} className="text-xs">
+            <Badge variant={aiConditionSuggestion.confidence === "high" ? "default" : aiConditionSuggestion.confidence === "medium" ? "secondary" : "outline"} className="text-xs shrink-0">
               {aiConditionSuggestion.confidence} confidence
             </Badge>
           )}
@@ -1846,7 +1872,7 @@ export function FieldWidget({
             {analyzingCondition && <Sparkles className="h-3 w-3 text-primary animate-pulse" />}
           </Label>
           <Select value={localCondition || ""} onValueChange={handleConditionChange} disabled={analyzingCondition}>
-            <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1">
+            <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1 min-h-11">
               <SelectValue placeholder={analyzingCondition ? "Analyzing..." : "Select condition"} />
             </SelectTrigger>
             <SelectContent>
@@ -1869,7 +1895,7 @@ export function FieldWidget({
             {analyzingCondition && <Sparkles className="h-3 w-3 text-primary animate-pulse" />}
           </Label>
           <Select value={localCleanliness || ""} onValueChange={handleCleanlinessChange} disabled={analyzingCondition}>
-            <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1">
+            <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1 min-h-11">
               <SelectValue placeholder={analyzingCondition ? "Analyzing..." : "Select cleanliness"} />
             </SelectTrigger>
             <SelectContent>
@@ -2188,21 +2214,53 @@ export function FieldWidget({
           <Label htmlFor={`note-${field.id}`} className="text-sm font-bold text-muted-foreground">
             Notes (optional)
           </Label>
-          <Textarea
-            id={`note-${field.id}`}
-            value={localNote}
-            onChange={(e) => handleNoteChange(e.target.value)}
-            placeholder="Add any observations or notes..."
-            rows={2}
-            className="mt-1"
-            data-testid={`textarea-note-${field.id}`}
-          />
+          {isLabeledInspectionNote(localNote) ? (
+            <>
+              <Label
+                htmlFor={`note-description-${field.id}`}
+                className="mt-2 block text-sm font-bold"
+              >
+                Description
+              </Label>
+              <Textarea
+                id={`note-description-${field.id}`}
+                value={parseInspectionNote(localNote).description}
+                onChange={(e) => {
+                  const current = parseInspectionNote(localNote);
+                  handleNoteChange(
+                    formatInspectionNote({
+                      ...current,
+                      description: e.target.value,
+                    }),
+                  );
+                }}
+                placeholder="Add any observations or notes..."
+                rows={3}
+                className="mt-1"
+                data-testid={`textarea-note-${field.id}`}
+              />
+              <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
+            </>
+          ) : (
+            <>
+              <Textarea
+                id={`note-${field.id}`}
+                value={localNote}
+                onChange={(e) => handleNoteChange(e.target.value)}
+                placeholder="Add any observations or notes..."
+                rows={2}
+                className="mt-1"
+                data-testid={`textarea-note-${field.id}`}
+              />
+              <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
+            </>
+          )}
         </div>
       )}
 
       {/* Mark for Review - Only for Check Out inspections WITH photos */}
       {isCheckOut && localPhotos.length > 0 && (
-        <div className="pt-3 flex items-center space-x-2">
+        <div className="pt-3 flex items-center space-x-2 min-h-11">
           <Checkbox
             id={`mark-review-${field.id}`}
             checked={localMarkedForReview}
@@ -2212,41 +2270,16 @@ export function FieldWidget({
               onMarkedForReviewChange?.(isChecked);
             }}
             data-testid={`checkbox-mark-review-${field.id}`}
+            className="h-5 w-5"
           />
           <Label
             htmlFor={`mark-review-${field.id}`}
-            className="text-sm font-medium cursor-pointer"
+            className="text-sm font-medium cursor-pointer break-words min-w-0"
           >
             Mark for Comparison Report
           </Label>
         </div>
       )}
-
-      {/* Enlarged Photo Modal */}
-      <Dialog open={!!enlargedPhoto} onOpenChange={(open) => !open && setEnlargedPhoto(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] p-0 overflow-hidden">
-          <DialogTitle className="sr-only">Enlarged Photo View</DialogTitle>
-          {enlargedPhoto && (
-            <div className="relative">
-              <img
-                src={enlargedPhoto}
-                alt="Enlarged view"
-                className="w-full h-auto max-h-[85vh] object-contain"
-                data-testid="img-enlarged-photo"
-              />
-              <Button
-                size="icon"
-                variant="secondary"
-                className="absolute top-2 right-2"
-                onClick={() => setEnlargedPhoto(null)}
-                data-testid="button-close-enlarged"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

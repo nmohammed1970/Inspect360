@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +17,8 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { TenantLogRequestDialog } from "@/components/TenantLogRequestDialog";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak } from "@/lib/responsive";
 
 const statusColors: Record<string, string> = {
   open: "bg-yellow-100 text-yellow-800",
@@ -66,7 +69,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-12 w-64" />
         <Skeleton className="h-32" />
         <Skeleton className="h-32" />
@@ -75,7 +78,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
       <Breadcrumb className="mb-4">
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -89,18 +92,19 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0">
           <Button
             variant="ghost"
             onClick={() => navigate("/tenant/home")}
             data-testid="button-back-home"
+            className="shrink-0"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold">My Maintenance Requests</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold">My Maintenance Requests</h1>
             <p className="text-muted-foreground text-sm">
               Track your submitted maintenance requests
             </p>
@@ -109,6 +113,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
         <Button
           onClick={() => setIsCreateOpen(true)}
           data-testid="button-log-new-request"
+          className="w-full sm:w-auto shrink-0"
         >
           <Plus className="h-4 w-4 mr-2" />
           Log a Maintenance Request
@@ -141,8 +146,8 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
           {requests.map((request) => (
             <Card key={request.id} data-testid={`request-${request.id}`}>
               <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className={cn("flex-1 min-w-0", textBreak)}>
                     <CardTitle className="text-lg">{request.title}</CardTitle>
                     {request.description && (
                       <p className="text-sm text-muted-foreground mt-2">
@@ -150,7 +155,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 shrink-0">
                     <Badge className={statusColors[request.status] || ""}>
                       {request.status}
                     </Badge>
@@ -160,28 +165,37 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 min-w-0">
                 {request.photoUrls && request.photoUrls.length > 0 && (
-                  <div className="flex gap-2 overflow-x-auto">
+                  <div className="flex gap-2 overflow-x-auto max-w-full">
                     {request.photoUrls.map((url: string, index: number) => (
-                      <img
+                      <PreviewableImage
                         key={index}
                         src={url}
-                        alt={`Photo ${index + 1}`}
-                        className="h-24 w-24 object-cover rounded-lg"
+                        alt={`Maintenance photo ${index + 1}`}
+                        title={request.title || "Maintenance request"}
+                        caption={`Photo ${index + 1}`}
+                        gallery={request.photoUrls.map((src: string, photoIndex: number) => ({
+                          src,
+                          alt: `Maintenance photo ${photoIndex + 1}`,
+                          title: request.title || "Maintenance request",
+                          caption: `Photo ${photoIndex + 1}`,
+                        }))}
+                        index={index}
+                        className="h-24 w-24 object-cover rounded-lg shrink-0"
                       />
                     ))}
                   </div>
                 )}
                 {request.aiSuggestedFixes && (
-                  <div className="p-3 bg-muted rounded-lg">
+                  <div className={cn("p-3 bg-muted rounded-lg", textBreak)}>
                     <div className="text-sm font-semibold mb-1">AI Suggested Fixes:</div>
                     <div className="text-sm text-muted-foreground whitespace-pre-wrap">
                       {request.aiSuggestedFixes}
                     </div>
                   </div>
                 )}
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-muted-foreground">
                   <span>
                     Submitted: {format(new Date(request.createdAt), "MMM dd, yyyy HH:mm")}
                   </span>

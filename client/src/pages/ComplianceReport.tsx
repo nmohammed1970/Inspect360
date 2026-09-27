@@ -37,7 +37,10 @@ import { Link } from "wouter";
 import { format, differenceInDays, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 
 export default function ComplianceReport() {
   const { toast } = useToast();
@@ -201,7 +204,7 @@ export default function ComplianceReport() {
   };
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className={cn("container mx-auto min-w-0", pagePad, "space-y-4 md:space-y-6")}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-2 sm:gap-4">
@@ -271,16 +274,9 @@ export default function ComplianceReport() {
         </Card>
       </div>
 
-      {/* Filters - Desktop */}
-      <Card className="hidden md:block">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-5">
+      <FiltersSection headingId="compliance-report-filters-heading">
+        <div className="hidden md:block">
+<div className="grid gap-4 md:grid-cols-5">
             <div className="space-y-2">
               <Label>Search</Label>
               <Input
@@ -357,11 +353,9 @@ export default function ComplianceReport() {
               </Select>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Filters - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
+        <div className="flex md:hidden gap-2 items-center">
         <div className="relative flex-1">
           <Input
             placeholder="Search..."
@@ -469,6 +463,7 @@ export default function ComplianceReport() {
           </SheetContent>
         </Sheet>
       </div>
+      </FiltersSection>
 
       {/* Documents Table */}
       <Card>

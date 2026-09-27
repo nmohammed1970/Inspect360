@@ -1,23 +1,55 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+type LockCode = "TRIAL_EXPIRED" | "CREDITS_EXPIRED";
+type LockListener = (code: LockCode) => void;
+const lockListeners = new Set<LockListener>();
+
+export function subscribeEntitlementLock(listener: LockListener): () => void {
+  lockListeners.add(listener);
+  return () => {
+    lockListeners.delete(listener);
+  };
+}
+
+export function notifyEntitlementLock(code: LockCode) {
+  lockListeners.forEach((listener) => listener(code));
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     let errorMessage = res.statusText;
-    
+    let code: string | undefined;
+
     try {
       const contentType = res.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
         const errorData = await res.json();
         errorMessage = errorData.message || errorData.error || JSON.stringify(errorData);
+        code = typeof errorData.code === "string" ? errorData.code : undefined;
       } else {
         errorMessage = await res.text() || res.statusText;
       }
     } catch (e) {
-      // If parsing fails, use status text
       errorMessage = res.statusText;
     }
-    
-    throw new Error(errorMessage);
+
+    if (code === "TRIAL_EXPIRED" || code === "CREDITS_EXPIRED") {
+      notifyEntitlementLock(code);
+    }
+
+    throw new ApiError(errorMessage, res.status, code);
   }
 }
 

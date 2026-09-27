@@ -18,6 +18,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { formGrid2, tabsListScroll, dialogContentBase, dialogFooterSticky, textBreak } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
+
+const adminFormGrid2 = formGrid2;
+const adminFormGrid3 = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4";
+const adminFormGrid4 = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4";
 
 // Currency Management Component
 export function CurrencyManagement() {
@@ -67,7 +73,7 @@ export function CurrencyManagement() {
           <CardTitle>{editingCode ? "Edit Currency" : "Create Currency"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className={adminFormGrid2}>
             <div className="space-y-2">
               <Label>Currency Code (ISO 4217)</Label>
               <Input
@@ -86,7 +92,7 @@ export function CurrencyManagement() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className={adminFormGrid2}>
             <div className="space-y-2">
               <Label>Default for Region (optional)</Label>
               <Input
@@ -302,9 +308,9 @@ export function SubscriptionTierManagement() {
           <CardTitle>{editingId ? "Edit Tier" : "Create Tier"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className={adminFormGrid2}>
             <div className="space-y-2">
-              <Label>Tier Name <span className="text-destructive">*</span></Label>
+              <Label required>Tier Name</Label>
               <Input
                 required
                 value={formData.name || ""}
@@ -313,7 +319,7 @@ export function SubscriptionTierManagement() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Tier Code <span className="text-destructive">*</span></Label>
+              <Label required>Tier Code</Label>
               <Input
                 required
                 value={formData.code || ""}
@@ -325,7 +331,7 @@ export function SubscriptionTierManagement() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className={adminFormGrid3}>
             <div className="space-y-2">
               <Label>Tier Order</Label>
               <Input
@@ -340,7 +346,7 @@ export function SubscriptionTierManagement() {
               )}
             </div>
             <div className="space-y-2">
-              <Label>Included Inspections <span className="text-destructive">*</span></Label>
+              <Label required>Included Inspections</Label>
               <Input
                 type="number"
                 required
@@ -381,7 +387,7 @@ export function SubscriptionTierManagement() {
               })()}
             </div>
             <div className="space-y-2">
-              <Label>Annual Discount % <span className="text-destructive">*</span></Label>
+              <Label required>Annual Discount %</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -395,9 +401,9 @@ export function SubscriptionTierManagement() {
               <p className="text-xs text-muted-foreground">Applied to annual price calculation</p>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className={adminFormGrid3}>
             <div className="space-y-2">
-              <Label>Base Monthly Price (GBP) <span className="text-destructive">*</span></Label>
+              <Label required>Base Monthly Price (GBP)</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -443,7 +449,7 @@ export function SubscriptionTierManagement() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Per-Inspection Price (GBP) <span className="text-destructive">*</span></Label>
+              <Label required>Per-Inspection Price (GBP)</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -461,7 +467,7 @@ export function SubscriptionTierManagement() {
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Description <span className="text-destructive">*</span></Label>
+            <Label required>Description</Label>
             <Textarea
               required
               value={formData.description || ""}
@@ -570,7 +576,7 @@ export function SubscriptionTierManagement() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-4 gap-4">
+            <div className={adminFormGrid4}>
               <div className="space-y-2">
                 <Label>Currency</Label>
                 <Select value={pricingFormData.currencyCode || ""} onValueChange={(v) => setPricingFormData({ ...pricingFormData, currencyCode: v })}>
@@ -806,7 +812,7 @@ export function AddonPackManagement() {
           <CardTitle>{editingId ? "Edit Pack" : "Create Pack"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className={adminFormGrid3}>
             <div className="space-y-2">
               <Label>Pack Name</Label>
               <Input
@@ -877,7 +883,8 @@ export function AddonPackManagement() {
         </CardHeader>
         <CardContent>
           {packs && packs.length > 0 ? (
-            <Table>
+            <div className="overflow-x-auto min-w-0">
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Pack Name</TableHead>
@@ -926,6 +933,7 @@ export function AddonPackManagement() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
             <p className="text-center text-muted-foreground py-8">No packs configured</p>
           )}
@@ -955,7 +963,7 @@ export function AddonPackManagement() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-4 gap-4">
+            <div className={adminFormGrid4}>
               <div className="space-y-2">
                 <Label>Tier</Label>
                 <Select value={pricingFormData.tierId || ""} onValueChange={(v) => setPricingFormData({ ...pricingFormData, tierId: v })}>
@@ -1027,7 +1035,8 @@ export function AddonPackManagement() {
               <div className="space-y-2 mt-4">
                 <h4 className="font-semibold">Existing Pricing</h4>
                 {packPricing && packPricing.length > 0 ? (
-                  <Table>
+                  <div className="overflow-x-auto min-w-0">
+                  <Table className="min-w-[640px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Tier</TableHead>
@@ -1081,6 +1090,7 @@ export function AddonPackManagement() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No pricing configured</p>
                 )}
@@ -1175,7 +1185,7 @@ export function ExtensiveInspectionManagement() {
           <CardTitle>{editingId ? "Edit Type" : "Create Extensive Inspection Type"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className={adminFormGrid2}>
             <div className="space-y-2">
               <Label>Type Name</Label>
               <Input
@@ -1286,7 +1296,7 @@ export function ExtensiveInspectionManagement() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className={adminFormGrid3}>
               <div className="space-y-2">
                 <Label>Tier</Label>
                 <Select value={pricingFormData.tierId || ""} onValueChange={(v) => setPricingFormData({ ...pricingFormData, tierId: v })}>
@@ -1409,7 +1419,7 @@ export function ModuleManagement() {
             <CardTitle>Edit Module</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className={adminFormGrid2}>
               <div className="space-y-2">
                 <Label>Module Name</Label>
                 <Input
@@ -1428,7 +1438,7 @@ export function ModuleManagement() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className={adminFormGrid2}>
               <div className="space-y-2">
                 <Label>Icon Name</Label>
                 <Input
@@ -1501,17 +1511,17 @@ export function ModuleManagement() {
             {modules && modules.length > 0 ? (
               modules.map((module: any) => (
                 <div key={module.id} className="border rounded-lg p-4">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold">{module.name}</h3>
+                        <h3 className="font-semibold break-words min-w-0">{module.name}</h3>
                         <Badge variant="outline">{module.moduleKey}</Badge>
                         {module.isAvailableGlobally && <Badge variant="default">Available</Badge>}
                         {module.defaultEnabled && <Badge variant="secondary">Default Enabled</Badge>}
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">{module.description}</p>
+                      <p className="text-sm text-muted-foreground mt-1 break-words">{module.description}</p>
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => {
+                    <Button size="sm" variant="outline" className="w-full sm:w-auto shrink-0" onClick={() => {
                       setEditingId(module.id);
                       setFormData(module);
                     }}>
@@ -1639,7 +1649,7 @@ export function ModuleBundleManagement() {
           <CardTitle>{editingId ? "Edit Bundle" : "Create Bundle"}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className={adminFormGrid2}>
             <div className="space-y-2">
               <Label>Bundle Name</Label>
               <Input
@@ -1807,7 +1817,7 @@ export function ModuleBundleManagement() {
               <CardTitle>Multi-Currency Pricing</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-4 gap-4">
+              <div className={adminFormGrid4}>
                 <div className="space-y-2">
                   <Label>Currency</Label>
                   <Select value={pricingFormData.currencyCode || ""} onValueChange={(v) => setPricingFormData({ ...pricingFormData, currencyCode: v })}>
@@ -2010,7 +2020,7 @@ export function PricingPreview() {
               {preview.modules && preview.modules.length > 0 && (
                 <div>
                   <h3 className="font-semibold mb-4 text-lg">Premium Modules</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={adminFormGrid2}>
                     {preview.modules.filter((m: any) => m.isAvailableGlobally).map((module: any) => (
                       <div key={module.id} className="border rounded-lg p-4">
                         <div className="flex items-center justify-between">
@@ -2213,7 +2223,7 @@ export function QuotationsManagement() {
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="text-2xl font-bold">{(stats as any)?.total || 0}</div>
@@ -2248,11 +2258,11 @@ export function QuotationsManagement() {
 
       {/* Filters and Actions */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
           <CardTitle>Quotation Requests</CardTitle>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-full sm:w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2264,7 +2274,7 @@ export function QuotationsManagement() {
                 <SelectItem value="rejected">Rejected</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => {
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => {
               fetch("/api/admin/quotations/export", { credentials: "include" })
                 .then(res => res.blob())
                 .then(blob => {
@@ -2285,7 +2295,8 @@ export function QuotationsManagement() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="overflow-x-auto min-w-0">
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
@@ -2350,12 +2361,13 @@ export function QuotationsManagement() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
       {/* Quote Dialog */}
       <Dialog open={quoteDialogOpen} onOpenChange={setQuoteDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl w-[calc(100%-2rem)]">
           <DialogHeader>
             <DialogTitle>Create/Update Quote</DialogTitle>
             <DialogDescription>
@@ -2363,7 +2375,7 @@ export function QuotationsManagement() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className={adminFormGrid2}>
               <div className="space-y-2">
                 <Label>Quoted Price ({selectedRequest?.currency || "GBP"})</Label>
                 <Input
@@ -2417,7 +2429,7 @@ export function QuotationsManagement() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setQuoteDialogOpen(false)}>
               Cancel
             </Button>
@@ -2430,7 +2442,7 @@ export function QuotationsManagement() {
 
       {/* Details Dialog */}
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={cn(dialogContentBase, "max-w-4xl")}>
           <DialogHeader>
             <DialogTitle>Quotation Request Details</DialogTitle>
             <DialogDescription>
@@ -2438,18 +2450,18 @@ export function QuotationsManagement() {
             </DialogDescription>
           </DialogHeader>
           {requestDetails && (
-            <div className="space-y-6 py-4">
+            <div className="space-y-6 py-4 min-w-0">
               <Tabs defaultValue="overview">
-                <TabsList>
-                  <TabsTrigger value="overview">Overview</TabsTrigger>
-                  <TabsTrigger value="organization">Organization</TabsTrigger>
-                  <TabsTrigger value="activity">Activity Log</TabsTrigger>
+                <TabsList className={tabsListScroll}>
+                  <TabsTrigger value="overview" className="shrink-0">Overview</TabsTrigger>
+                  <TabsTrigger value="organization" className="shrink-0">Organization</TabsTrigger>
+                  <TabsTrigger value="activity" className="shrink-0">Activity Log</TabsTrigger>
                 </TabsList>
                 <TabsContent value="overview" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={adminFormGrid2}>
                     <div>
                       <Label className="text-muted-foreground">Request ID</Label>
-                      <p className="font-medium">{requestDetails.request.id}</p>
+                      <p className={cn("font-medium", textBreak)}>{requestDetails.request.id}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Status</Label>
@@ -2475,7 +2487,7 @@ export function QuotationsManagement() {
                   {requestDetails.quotation && (
                     <div className="border-t pt-4">
                       <h3 className="font-semibold mb-2">Current Quote</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={adminFormGrid2}>
                         <div>
                           <Label className="text-muted-foreground">Quoted Price</Label>
                           <p className="font-medium text-lg">
@@ -2515,7 +2527,7 @@ export function QuotationsManagement() {
                 <TabsContent value="organization" className="space-y-4">
                   {requestDetails.organization && (
                     <>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={adminFormGrid2}>
                         <div>
                           <Label className="text-muted-foreground">Organization Name</Label>
                           <p className="font-medium">{requestDetails.organization.name}</p>
@@ -2534,7 +2546,7 @@ export function QuotationsManagement() {
                       {requestDetails.organization.owner && (
                         <div className="border-t pt-4">
                           <h3 className="font-semibold mb-2">Contact Person</h3>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className={adminFormGrid2}>
                             <div>
                               <Label className="text-muted-foreground">Name</Label>
                               <p className="font-medium">
@@ -2551,7 +2563,7 @@ export function QuotationsManagement() {
                       {requestDetails.organization.instanceSubscription && (
                         <div className="border-t pt-4">
                           <h3 className="font-semibold mb-2">Current Subscription</h3>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className={adminFormGrid2}>
                             <div>
                               <Label className="text-muted-foreground">Billing Cycle</Label>
                               <p className="font-medium">{requestDetails.organization.instanceSubscription.billingCycle}</p>
@@ -2643,7 +2655,7 @@ export function QuotationsManagement() {
               </Tabs>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
               Close
             </Button>

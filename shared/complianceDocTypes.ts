@@ -31,7 +31,6 @@ export function computeDocumentComplianceRate(
   docs: ComplianceDocForRate[],
   now: Date = new Date(),
 ): number {
-  if (DEFAULT_COMPLIANCE_DOC_TYPES.length === 0) return 0;
   const covered = DEFAULT_COMPLIANCE_DOC_TYPES.filter((docType) =>
     docs.some((d) => d.documentType === docType && isComplianceDocCurrent(d, now)),
   );

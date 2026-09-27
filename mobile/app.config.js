@@ -54,7 +54,16 @@ export default {
         "INTERNET"
       ],
       edgeToEdgeEnabled: true,
-      predictiveBackGestureEnabled: false
+      predictiveBackGestureEnabled: false,
+    },
+    androidStatusBar: {
+      barStyle: "dark-content",
+      backgroundColor: "#ffffff",
+      translucent: false,
+    },
+    androidNavigationBar: {
+      barStyle: "dark-content",
+      backgroundColor: "#ffffff",
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -69,6 +78,14 @@ export default {
       }
     },
     plugins: [
+      [
+        "expo-navigation-bar",
+        {
+          // Translucent contrast scrim so gesture/nav icons stay visible on light UIs
+          enforceContrast: true,
+          style: "dark",
+        }
+      ],
       [
         "expo-camera",
         {
@@ -87,6 +104,10 @@ export default {
           microphonePermission: "Allow Inspect360 to access your microphone to record voice notes for inspections."
         }
       ],
+      "expo-secure-store",
+      "expo-sharing",
+      "expo-sqlite",
+      "expo-asset",
       // Network security plugin for SSL certificate handling
       "./plugins/with-network-security.js"
     ]

@@ -9,6 +9,20 @@ import connectPg from "connect-pg-simple";
 import * as cookieSignature from "cookie-signature";
 import { storage } from "./storage";
 import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/schema";
+import { billingNowUtc } from "@shared/billingClock";
+import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
+import { getOrganizationAccessStatus, recordEntitlementEvent } from "./entitlementService";
+import { validateNewPassword } from "@shared/passwordPolicy";
+import {
+  FORGOT_PASSWORD_GENERIC_SUCCESS,
+  generateResetCode,
+  hashResetToken,
+  isResetTokenExpired,
+  normalizeResetCode,
+  normalizeResetEmail,
+  resetTokenExpiryDate,
+  resetTokenMatches,
+} from "./passwordResetService";
 
 declare global {
   namespace Express {
@@ -17,6 +31,22 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
+
+type RateBucket = { count: number; windowStart: number };
+const authRateLimits = new Map<string, RateBucket>();
+
+/** Simple in-memory rate limit. Returns false when the key is over the limit. */
+export function consumeAuthRateLimit(key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const bucket = authRateLimits.get(key);
+  if (!bucket || now - bucket.windowStart >= windowMs) {
+    authRateLimits.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (bucket.count >= max) return false;
+  bucket.count += 1;
+  return true;
+}
 
 // Password hashing utilities
 export async function hashPassword(password: string): Promise<string> {
@@ -333,16 +363,10 @@ export async function setupAuth(app: Express) {
           // getCurrencyForCountry will always return GBP, USD, or AED (valid enum values)
           // Countries not in the mapping default to GBP, which is safe for the database
           const preferredCurrency = getCurrencyForCountry(countryCode);
-          
-          // Log for debugging if currency doesn't match country's actual currency
-          if (!COUNTRY_TO_CURRENCY[countryCode]) {
-            console.log(`[Registration] Country ${countryCode} not in currency mapping, using default: ${preferredCurrency}`);
-          }
-          
-          // Log for debugging if currency doesn't match country's actual currency
-          if (!COUNTRY_TO_CURRENCY[countryCode]) {
-            console.log(`[Registration] Country ${countryCode} not in currency mapping, using default: ${preferredCurrency}`);
-          }
+          const trialStartAt = billingNowUtc();
+          const { getDefaultTrialDays } = await import("./entitlementService");
+          const trialDays = await getDefaultTrialDays();
+          const trialEndAt = addDaysUtc(trialStartAt, trialDays);
 
           // Create organization using username as company name
           const organization = await storage.createOrganization({
@@ -350,7 +374,9 @@ export async function setupAuth(app: Express) {
             ownerId: user.id,
             countryCode: countryCode,
             preferredCurrency: preferredCurrency, // Set currency based on country
-            // Credits are now granted via credit batch system (see below)
+            trialEnforced: true,
+            trialStartAt,
+            trialEndAt,
           });
 
           // Update user with organization ID
@@ -360,15 +386,29 @@ export async function setupAuth(app: Express) {
             role: user.role === "owner" ? "owner" : user.role, // Keep original role
           });
 
-          // Grant 5 free inspection credits as signup reward using the new credit system
-          // Check if organization already has signup credits to avoid duplicates
+          try {
+            await recordEntitlementEvent({
+              organizationId: organization.id,
+              eventType: "trial_created",
+              actorUserId: user.id,
+              previousTrialEnd: null,
+              newTrialEnd: trialEndAt,
+              additionalDays: trialDays,
+              notes: "Trial started on registration",
+            });
+          } catch (auditError) {
+            console.error("Warning: Failed to record trial creation:", auditError);
+          }
+
+          // Grant welcome credits that expire with the trial. They are not paid entitlement.
           try {
             const batches = await storage.getCreditBatchesByOrganization(organization.id);
-            const hasSignupCredits = batches.some(batch => 
-              batch.grantSource === 'admin_grant' && 
-              batch.metadataJson && 
+            const hasSignupCredits = batches.some(batch =>
+              batch.grantSource === 'admin_grant' &&
+              batch.metadataJson &&
               typeof batch.metadataJson === 'object' &&
-              (batch.metadataJson as any)?.adminNotes?.toLowerCase().includes('signup reward')
+              ((batch.metadataJson as any)?.kind === 'signup_bonus' ||
+                (batch.metadataJson as any)?.adminNotes?.toLowerCase().includes('signup reward'))
             );
 
             if (!hasSignupCredits) {
@@ -377,10 +417,11 @@ export async function setupAuth(app: Express) {
                 organization.id,
                 5,
                 "admin_grant",
-                undefined, // No expiration date for signup credits
+                trialEndAt,
                 {
                   adminNotes: "Signup reward - Welcome bonus for new user registration",
                   createdBy: user.id,
+                  kind: "signup_bonus",
                 }
               );
               console.log(`✓ Granted 5 signup reward credits to new organization ${organization.id}`);
@@ -389,7 +430,15 @@ export async function setupAuth(app: Express) {
             }
           } catch (creditError: any) {
             console.error("Warning: Failed to grant signup credits:", creditError);
-            // No fallback - credit batch system is required
+          }
+
+          // Enable all marketplace modules for the trial so the org can use the full product.
+          // When trial/credits expire, entitlement locking blocks access (modules stay enabled in DB).
+          try {
+            const { ensureTrialModulesEnabled } = await import("./entitlementService");
+            await ensureTrialModulesEnabled(organization.id);
+          } catch (moduleError) {
+            console.error("Warning: Failed to enable trial modules:", moduleError);
           }
 
           // Create default inspection templates
@@ -622,32 +671,30 @@ export async function setupAuth(app: Express) {
   // Forgot password - request reset token
   app.post("/api/forgot-password", async (req, res) => {
     try {
-      const { email } = req.body;
-
-      if (!email) {
+      const normalizedEmail = normalizeResetEmail(req.body?.email);
+      if (!normalizedEmail) {
         return res.status(400).json({ message: "Email is required" });
       }
 
-      // Normalize email to lowercase for case-insensitive matching
-      const normalizedEmail = email.toLowerCase().trim();
+      const clientKey = `forgot:${String(req.ip || "unknown")}:${normalizedEmail}`;
+      if (!consumeAuthRateLimit(clientKey, 5, 15 * 60 * 1000)) {
+        return res.status(429).json({
+          message: "Too many password reset requests. Please try again later.",
+        });
+      }
+
       const user = await storage.getUserByEmail(normalizedEmail);
 
       // Always return the same success response whether or not the email exists
       // (prevents account enumeration). Only send a code when the user is found.
-      const genericSuccess = {
-        message: "If an account exists for that email, a password reset code has been sent.",
-        emailSent: true,
-      };
-
-      if (!user) {
-        return res.json(genericSuccess);
+      if (!user || user.isActive === false) {
+        return res.json(FORGOT_PASSWORD_GENERIC_SUCCESS);
       }
 
-      // Generate reset token (6-digit code for simplicity)
-      const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-      await storage.setResetToken(user.id, resetToken, expiry);
+      // Cryptographically secure 6-digit code; store only the hash
+      const resetToken = generateResetCode();
+      const expiry = resetTokenExpiryDate();
+      await storage.setResetToken(user.id, hashResetToken(resetToken), expiry);
 
       // Send password reset email
       try {
@@ -674,7 +721,7 @@ export async function setupAuth(app: Express) {
         });
       }
 
-      res.json(genericSuccess);
+      res.json(FORGOT_PASSWORD_GENERIC_SUCCESS);
     } catch (error) {
       console.error("Forgot password error:", error);
       res.status(500).json({ message: "Failed to process request" });
@@ -686,33 +733,39 @@ export async function setupAuth(app: Express) {
     try {
       const { email, token, newPassword } = req.body;
 
-      if (!email || !token || !newPassword) {
+      const normalizedEmail = normalizeResetEmail(email);
+      if (!normalizedEmail || token === undefined || token === null || newPassword === undefined) {
         return res.status(400).json({ message: "Email, token, and new password are required" });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      const passwordCheck = validateNewPassword(newPassword);
+      if (!passwordCheck.ok) {
+        return res.status(400).json({ message: passwordCheck.message });
       }
 
-      // Normalize email and token (digits only, 6 chars)
-      const normalizedEmail = email.toLowerCase().trim();
-      const normalizedToken = String(token).replace(/\D/g, "").trim();
-      if (normalizedToken.length !== 6) {
+      const clientKey = `reset:${String(req.ip || "unknown")}:${normalizedEmail}`;
+      if (!consumeAuthRateLimit(clientKey, 10, 15 * 60 * 1000)) {
+        return res.status(429).json({
+          message: "Too many reset attempts. Please try again later.",
+        });
+      }
+
+      const normalizedToken = normalizeResetCode(token);
+      if (!normalizedToken) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
       const user = await storage.getUserByEmail(normalizedEmail);
-      if (!user || !user.resetToken || !user.resetTokenExpiry) {
+      if (!user || !user.resetToken || !user.resetTokenExpiry || user.isActive === false) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
-      // Check if token matches and hasn't expired
-      if (user.resetToken !== normalizedToken || new Date() > user.resetTokenExpiry) {
+      if (!resetTokenMatches(user.resetToken, normalizedToken) || isResetTokenExpired(user.resetTokenExpiry)) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
-      // Update password and clear reset token
-      const hashedPassword = await hashPassword(newPassword);
+      // Update password and clear reset token (single-use)
+      const hashedPassword = await hashPassword(passwordCheck.password);
       await storage.updatePassword(user.id, hashedPassword);
       await storage.clearResetToken(user.id);
 
@@ -746,6 +799,22 @@ export async function isAuthenticated(req: any, res: any, next: any) {
             if (err) console.error('[isAuthenticated] Error logging out user from disabled org:', err);
           });
           return res.status(403).json({ message: "Your account has been blocked. Please contact admin." });
+        }
+
+        const requestPath = String(req.originalUrl || req.path || "").split("?")[0];
+        if (organization && isLockedApiPath(requestPath)) {
+          try {
+            const access = await getOrganizationAccessStatus(organization.id);
+            if (access?.locked && (access.code === "TRIAL_EXPIRED" || access.code === "CREDITS_EXPIRED")) {
+              return res.status(403).json(lockPayload(access.code));
+            }
+          } catch (error) {
+            console.error("[isAuthenticated] Entitlement check failed:", error);
+            return res.status(503).json({
+              code: "ENTITLEMENT_UNAVAILABLE",
+              message: "Unable to verify access. Please try again.",
+            });
+          }
         }
       } catch (error) {
         console.error('[isAuthenticated] Error checking organization status:', error);

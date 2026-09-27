@@ -275,7 +275,7 @@ export default function ComparisonReports() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6" data-testid="page-comparison-reports">
+    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6" data-testid="page-comparison-reports">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-comparison-reports">
@@ -292,7 +292,7 @@ export default function ComparisonReports() {
               Generate Report
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-md max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Generate Comparison Report</DialogTitle>
               <DialogDescription>

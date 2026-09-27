@@ -79,14 +79,14 @@ export default function TenantLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(190,27%,96%)] via-background to-[hsl(207,40%,92%)] p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-dvh flex items-start sm:items-center justify-center overflow-y-auto bg-gradient-to-br from-[hsl(190,27%,96%)] via-background to-[hsl(207,40%,92%)] p-4 py-8">
+      <Card className="w-full max-w-md min-w-0">
         <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
-            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-16 w-auto object-contain" />
+            <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-14 sm:h-16 w-auto object-contain" />
           </div>
           <div>
-            <CardTitle className="font-heading text-2xl font-bold">Tenant Portal</CardTitle>
+            <CardTitle className="font-heading text-xl sm:text-2xl font-bold">Tenant Portal</CardTitle>
             <CardDescription>Access your property information and maintenance</CardDescription>
           </div>
         </CardHeader>

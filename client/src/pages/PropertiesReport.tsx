@@ -34,7 +34,10 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 
 export default function PropertiesReport() {
   const { toast } = useToast();
@@ -175,7 +178,7 @@ export default function PropertiesReport() {
   };
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className={cn("container mx-auto min-w-0", pagePad, "space-y-4 md:space-y-6")}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-2 sm:gap-4">
@@ -245,30 +248,23 @@ export default function PropertiesReport() {
         </Card>
       </div>
 
-      {/* Filters - Desktop */}
-      <Card className="hidden md:block">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label>Search</Label>
+      <FiltersSection headingId="properties-report-filters-heading">
+        <div className="hidden md:grid gap-3 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Search</Label>
               <Input
                 placeholder="Search address or unit..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-8"
                 data-testid="input-search"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Block</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Block</Label>
               <Select value={filterBlock} onValueChange={setFilterBlock}>
-                <SelectTrigger data-testid="select-block">
+                <SelectTrigger className="h-8" data-testid="select-block">
                   <SelectValue placeholder="All blocks" />
                 </SelectTrigger>
                 <SelectContent>
@@ -282,10 +278,10 @@ export default function PropertiesReport() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Occupancy Status</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Occupancy Status</Label>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger data-testid="select-status">
+                <SelectTrigger className="h-8" data-testid="select-status">
                   <SelectValue placeholder="All" />
                 </SelectTrigger>
                 <SelectContent>
@@ -295,30 +291,28 @@ export default function PropertiesReport() {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Filters - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
-        <div className="relative flex-1">
-          <Input
-            placeholder="Search..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full"
-            data-testid="input-search-mobile"
-          />
         </div>
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0">
-              <Filter className="w-4 h-4" />
-              {(filterBlock !== "all" || filterStatus !== "all") && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-              )}
-            </Button>
-          </SheetTrigger>
+
+        <div className="flex md:hidden gap-2 items-center">
+          <div className="relative flex-1">
+            <Input
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full h-8"
+              data-testid="input-search-mobile"
+            />
+          </div>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
+                {(filterBlock !== "all" || filterStatus !== "all") && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                )}
+              </Button>
+            </SheetTrigger>
           <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Filters</SheetTitle>
@@ -370,7 +364,8 @@ export default function PropertiesReport() {
             </div>
           </SheetContent>
         </Sheet>
-      </div>
+        </div>
+      </FiltersSection>
 
       {/* Properties Table */}
       <Card>

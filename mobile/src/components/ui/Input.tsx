@@ -2,6 +2,7 @@ import React from 'react';
 import { TextInput, Text, View, StyleSheet, TextInputProps } from 'react-native';
 import { colors, spacing, typography, borderRadius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../hooks/useResponsive';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -23,9 +24,8 @@ export default function Input({
   ...props
 }: InputProps) {
   const theme = useTheme();
-  // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
-  // Ensure boolean props are actually booleans, and handle string 'true'/'false' values
+  const { getButtonHeight, getFontSize } = useResponsive();
   const isTrue = (val: any) => val === true || val === 'true';
   const isNotFalse = (val: any) => val !== false && val !== 'false';
 
@@ -33,13 +33,21 @@ export default function Input({
   const safeSecureTextEntry = isTrue(secureTextEntry);
   const safeEditable = isNotFalse(editable);
   const safeAutoCorrect = isNotFalse(autoCorrect);
-  // required is just for display, not passed to TextInput
   const safeRequired = isTrue(required);
 
-  // Convert any boolean props in the spread props to actual booleans
   const safeProps: any = { ...props };
-  const booleanProps = ['autoFocus', 'blurOnSubmit', 'caretHidden', 'contextMenuHidden', 'enablesReturnKeyAutomatically', 'selectTextOnFocus', 'showSoftInputOnFocus', 'spellCheck', 'scrollEnabled'];
-  booleanProps.forEach(prop => {
+  const booleanProps = [
+    'autoFocus',
+    'blurOnSubmit',
+    'caretHidden',
+    'contextMenuHidden',
+    'enablesReturnKeyAutomatically',
+    'selectTextOnFocus',
+    'showSoftInputOnFocus',
+    'spellCheck',
+    'scrollEnabled',
+  ];
+  booleanProps.forEach((prop) => {
     if (prop in safeProps) {
       if (typeof safeProps[prop] === 'string') {
         safeProps[prop] = safeProps[prop].toLowerCase() === 'true';
@@ -49,7 +57,6 @@ export default function Input({
     }
   });
 
-  // Specifically handle autoCapitalize and other string props to ensure they are NOT booleans
   if ('autoCapitalize' in safeProps && typeof safeProps.autoCapitalize === 'boolean') {
     safeProps.autoCapitalize = safeProps.autoCapitalize ? 'sentences' : 'none';
   }
@@ -57,9 +64,16 @@ export default function Input({
   return (
     <View style={styles.container}>
       {label && (
-        <Text style={[styles.label, { color: themeColors.text.primary }]}>
+        <Text
+          style={[
+            styles.label,
+            { color: themeColors.text.primary, fontSize: getFontSize(typography.fontSize.sm) },
+          ]}
+        >
           {label}
-          {safeRequired && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
+          {safeRequired && (
+            <Text style={{ color: themeColors.destructive.DEFAULT }}> *</Text>
+          )}
         </Text>
       )}
       <TextInput
@@ -69,9 +83,11 @@ export default function Input({
             borderColor: themeColors.border.DEFAULT,
             backgroundColor: themeColors.input,
             color: themeColors.text.primary,
+            fontSize: getFontSize(typography.fontSize.base),
+            minHeight: safeMultiline ? getButtonHeight('lg') * 2 : getButtonHeight('md'),
           },
           !!error && { borderColor: themeColors.destructive.DEFAULT },
-          style
+          style,
         ]}
         placeholderTextColor={themeColors.text.muted}
         multiline={safeMultiline}
@@ -80,7 +96,16 @@ export default function Input({
         autoCorrect={safeAutoCorrect}
         {...safeProps}
       />
-      {error && <Text style={[styles.errorText, { color: themeColors.destructive.DEFAULT }]}>{error}</Text>}
+      {error && (
+        <Text
+          style={[
+            styles.errorText,
+            { color: themeColors.destructive.DEFAULT, fontSize: getFontSize(typography.fontSize.xs) },
+          ]}
+        >
+          {error}
+        </Text>
+      )}
     </View>
   );
 }
@@ -90,29 +115,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing[4],
   },
   label: {
-    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
     marginBottom: spacing[2],
     fontFamily: typography.fontFamily.sans,
     letterSpacing: 0.2,
   },
-  required: {
-    // Color set dynamically
-  },
   input: {
-    borderWidth: 1.5, // Slightly thicker border for modern look
-    borderRadius: borderRadius.lg, // More rounded
+    borderWidth: 1.5,
+    borderRadius: borderRadius.lg,
     padding: spacing[3],
-    fontSize: typography.fontSize.base,
-    minHeight: 48, // Slightly taller for better touch targets
     fontFamily: typography.fontFamily.sans,
   },
-  inputError: {
-    // Border color set dynamically
-  },
   errorText: {
-    fontSize: typography.fontSize.xs,
     marginTop: spacing[1],
   },
 });
-

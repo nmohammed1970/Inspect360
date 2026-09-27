@@ -10,12 +10,28 @@ import {
   ScrollView,
   Alert,
   TextInput,
+  Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Wrench, Plus, Filter, X, Pencil, Clipboard, Calendar, User, Clock, CheckCircle2, AlertCircle, Search } from 'lucide-react-native';
+import {
+  Wrench,
+  Plus,
+  X,
+  Pencil,
+  Clipboard,
+  Calendar,
+  User,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  Search,
+  MapPin,
+  AlertTriangle,
+  ChevronRight,
+} from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { maintenanceService, type MaintenanceRequestWithDetails, type WorkOrder } from '../../services/maintenance';
 import { propertiesService } from '../../services/properties';
@@ -24,61 +40,94 @@ import type { MaintenanceStackParamList } from '../../navigation/types';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import EmptyState from '../../components/ui/EmptyState';
+import ScreenHeader from '../../components/ScreenHeader';
+import FilterBar from '../../components/FilterBar';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Input from '../../components/ui/Input';
+import Select from '../../components/ui/Select';
+import DatePicker from '../../components/ui/DatePicker';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize } from '../../utils/responsive';
+import { useResponsive } from '../../hooks/useResponsive';
 import { format, formatDistanceToNow } from 'date-fns';
 import { getTeamRoleDisplayLabel } from '../../constants/roleLabels';
+import { WorkOrderCertificateSheet } from '../../components/WorkOrderCertificateSheet';
 
 type NavigationProp = StackNavigationProp<MaintenanceStackParamList, 'MaintenanceList'>;
 
+const STATUS_META: Record<string, { label: string; color: string; softBg: string }> = {
+  open: { label: 'Open', color: '#CA8A04', softBg: '#FEF9C3' },
+  in_progress: { label: 'In Progress', color: '#2563EB', softBg: '#DBEAFE' },
+  completed: { label: 'Completed', color: '#16A34A', softBg: '#DCFCE7' },
+  closed: { label: 'Closed', color: '#6B7280', softBg: '#F3F4F6' },
+};
+
+const PRIORITY_META: Record<string, { label: string; color: string; softBg: string }> = {
+  low: { label: 'Low', color: '#4B5563', softBg: '#F3F4F6' },
+  medium: { label: 'Medium', color: '#2563EB', softBg: '#DBEAFE' },
+  high: { label: 'High', color: '#EA580C', softBg: '#FFEDD5' },
+  urgent: { label: 'Urgent', color: '#DC2626', softBg: '#FEE2E2' },
+};
+
 const statusColors: Record<string, string> = {
-  open: '#fbbf24', // Lighter amber-400
-  in_progress: '#007AFF',
-  completed: '#34C759',
-  closed: '#8E8E93',
+  open: STATUS_META.open.color,
+  in_progress: STATUS_META.in_progress.color,
+  completed: STATUS_META.completed.color,
+  closed: STATUS_META.closed.color,
 };
 
 const priorityColors: Record<string, string> = {
-  low: '#34C759',
-  medium: '#fbbf24', // Lighter amber-400
-  high: '#FF3B30',
-  urgent: '#FF3B30',
+  low: PRIORITY_META.low.color,
+  medium: PRIORITY_META.medium.color,
+  high: PRIORITY_META.high.color,
+  urgent: PRIORITY_META.urgent.color,
 };
 
 const workOrderStatusColors: Record<string, string> = {
   assigned: '#007AFF',
-  in_progress: '#fbbf24', // Lighter amber-400
-  waiting_parts: '#fbbf24', // Lighter amber-400
+  in_progress: '#fbbf24',
+  waiting_parts: '#fbbf24',
   completed: '#34C759',
   rejected: '#FF3B30',
 };
+
+function isRequestOverdue(dueDate?: string | null, status?: string): boolean {
+  if (!dueDate || status === 'completed' || status === 'closed') return false;
+  const due = new Date(dueDate);
+  if (Number.isNaN(due.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return due < today;
+}
 
 export default function MaintenanceListScreen() {
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const isDark = !!theme?.isDark;
   const navigation = useNavigation<NavigationProp>();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
+  const { stackDirection, modalMaxHeight } = useResponsive();
+  const headerDir = stackDirection(375);
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [filterProperty, setFilterProperty] = useState<string>('all');
   const [filterBlock, setFilterBlock] = useState<string>('all');
   const [filterPriority, setFilterPriority] = useState<string>('all');
-  const [showStatusFilter, setShowStatusFilter] = useState(false);
   const [showBlockFilter, setShowBlockFilter] = useState(false);
   const [showPropertyFilter, setShowPropertyFilter] = useState(false);
   const [showPriorityFilter, setShowPriorityFilter] = useState(false);
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderTeamId, setWorkOrderTeamId] = useState<string>('');
-  const [workOrderContractorId, setWorkOrderContractorId] = useState<string>('');
+  const [workOrderAssignedToId, setWorkOrderAssignedToId] = useState<string>('');
+  const [workOrderSlaDue, setWorkOrderSlaDue] = useState<Date | null>(null);
+  const [workOrderCostEstimate, setWorkOrderCostEstimate] = useState<string>('');
+  const [certificateWorkOrder, setCertificateWorkOrder] = useState<WorkOrder | null>(null);
 
   const { data: requests = [], isLoading, refetch } = useQuery({
     queryKey: ['/api/maintenance'],
@@ -107,21 +156,23 @@ export default function MaintenanceListScreen() {
 
   const { data: teams = [] } = useQuery({
     queryKey: ['/api/teams'],
-    queryFn: async () => {
-      // Placeholder for teams endpoint
-      return [];
-    },
-    enabled: (user?.role === 'owner' || user?.role === 'contractor'),
+    queryFn: () => maintenanceService.getTeams(),
+    enabled: user?.role === 'owner',
   });
 
-  const { data: contractors = [] } = useQuery({
-    queryKey: ['/api/contacts'],
-    queryFn: async () => {
-      // Placeholder for contractors/contacts endpoint
-      return [];
-    },
-    enabled: (user?.role === 'owner' || user?.role === 'contractor'),
+  const { data: teamMembers = [], isFetching: isLoadingMembers } = useQuery({
+    queryKey: ['/api/teams', workOrderTeamId, 'members'],
+    queryFn: () => maintenanceService.getTeamMembers(workOrderTeamId),
+    enabled: user?.role === 'owner' && !!workOrderTeamId,
   });
+
+  const resetWorkOrderForm = () => {
+    setWorkOrderTeamId('');
+    setWorkOrderAssignedToId('');
+    setWorkOrderSlaDue(null);
+    setWorkOrderCostEstimate('');
+    setSelectedRequestForWorkOrder(null);
+  };
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status, assignedTo }: { id: string; status: string; assignedTo?: string }) => {
@@ -137,20 +188,18 @@ export default function MaintenanceListScreen() {
   });
 
   const createWorkOrderMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: Parameters<typeof maintenanceService.createWorkOrder>[0]) => {
       return maintenanceService.createWorkOrder(data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/work-orders'] });
       queryClient.invalidateQueries({ queryKey: ['/api/maintenance'] });
       setShowWorkOrderModal(false);
-      setSelectedRequestForWorkOrder(null);
-      setWorkOrderTeamId('');
-      setWorkOrderContractorId('');
+      resetWorkOrderForm();
       Alert.alert('Success', 'Work order created successfully');
     },
-    onError: () => {
-      Alert.alert('Error', 'Failed to create work order');
+    onError: (error: any) => {
+      Alert.alert('Error', error?.message || 'Failed to create work order');
     },
   });
 
@@ -197,11 +246,6 @@ export default function MaintenanceListScreen() {
       });
     }
 
-    // Filter by status
-    if (selectedStatus !== 'all') {
-      filtered = filtered.filter(r => r.status === selectedStatus);
-    }
-
     // Filter by property
     if (filterProperty !== 'all') {
       filtered = filtered.filter(r => r.propertyId === filterProperty);
@@ -224,13 +268,14 @@ export default function MaintenanceListScreen() {
     }
 
     return filtered;
-  }, [requests, searchTerm, selectedStatus, filterProperty, filterBlock, filterPriority, properties, user]);
+  }, [requests, searchTerm, filterProperty, filterBlock, filterPriority, properties, user]);
 
   const handleEdit = (request: MaintenanceRequestWithDetails) => {
     navigation.navigate('CreateMaintenance', { requestId: request.id });
   };
 
   const handleCreateWorkOrder = (request: MaintenanceRequestWithDetails) => {
+    resetWorkOrderForm();
     setSelectedRequestForWorkOrder(request);
     setShowWorkOrderModal(true);
   };
@@ -238,35 +283,42 @@ export default function MaintenanceListScreen() {
   const handleSubmitWorkOrder = () => {
     if (!selectedRequestForWorkOrder) return;
 
-    if (!workOrderTeamId && !workOrderContractorId) {
-      Alert.alert('Error', 'Please select either a team or maintenance contractor');
+    if (!workOrderTeamId) {
+      Alert.alert('Select a maintenance team', 'Work orders can only be assigned to people on a Maintenance Team.');
       return;
     }
 
+    if (!workOrderAssignedToId) {
+      Alert.alert('Select a team member', 'Choose an inspector or maintenance contractor from the selected team.');
+      return;
+    }
+
+    const member = teamMembers.find(
+      (m) => m.userId === workOrderAssignedToId || m.contactId === workOrderAssignedToId,
+    );
+    const contractorId = member?.contactId || undefined;
+    const resolvedAssignedToId =
+      member?.userId || member?.contact?.linkedUserId || workOrderAssignedToId;
+    const costParsed = workOrderCostEstimate.trim() ? parseFloat(workOrderCostEstimate) : NaN;
+
     createWorkOrderMutation.mutate({
       maintenanceRequestId: selectedRequestForWorkOrder.id,
-      teamId: workOrderTeamId || null,
-      contractorId: workOrderContractorId || null,
+      teamId: workOrderTeamId,
+      contractorId,
+      assignedToId: resolvedAssignedToId,
+      slaDue: workOrderSlaDue
+        ? new Date(
+            workOrderSlaDue.getFullYear(),
+            workOrderSlaDue.getMonth(),
+            workOrderSlaDue.getDate(),
+            12,
+            0,
+            0,
+          ).toISOString()
+        : undefined,
+      costEstimate: Number.isFinite(costParsed) ? Math.round(costParsed * 100) : undefined,
+      status: 'assigned',
     });
-  };
-
-  const getPriorityBadge = (priority: string) => {
-    const color = priorityColors[priority] || priorityColors.medium;
-    return (
-      <View style={[styles.priorityBadge, { backgroundColor: color }]}>
-        <Text style={styles.priorityBadgeText}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</Text>
-      </View>
-    );
-  };
-
-  const getStatusBadge = (status: string) => {
-    const color = statusColors[status] || statusColors.open;
-    const label = status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1);
-    return (
-      <View style={[styles.statusBadge, { backgroundColor: color }]}>
-        <Text style={[styles.statusBadgeText, { color: '#fff' }]}>{label}</Text>
-      </View>
-    );
   };
 
   const getWorkOrderStatusIcon = (status: string) => {
@@ -289,112 +341,265 @@ export default function MaintenanceListScreen() {
   };
 
   const renderMaintenanceItem = ({ item }: { item: MaintenanceRequestWithDetails }) => {
-    const statusColor = statusColors[item.status] || '#666';
-    const priorityColor = priorityColors[item.priority] || '#666';
+    const status = STATUS_META[item.status] || STATUS_META.open;
+    const priority = PRIORITY_META[item.priority] || PRIORITY_META.medium;
+    const softStatusBg = isDark ? status.color + '33' : status.softBg;
+    const softPriorityBg = isDark ? priority.color + '33' : priority.softBg;
+    const overdue = isRequestOverdue(item.dueDate, item.status);
+    const accentColor = overdue ? '#DC2626' : status.color;
+    const location = [
+      item.property?.name || item.block?.name,
+      item.property?.address,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const reporter = item.reportedByUser
+      ? `${item.reportedByUser.firstName} ${item.reportedByUser.lastName}${
+          item.reportedByUser.role ? ` (${getTeamRoleDisplayLabel(item.reportedByUser.role)})` : ''
+        }`
+      : 'Unknown';
+    const canEdit =
+      user?.role === 'owner' || user?.role === 'clerk' || user?.role === 'contractor';
+    const showOwnerActions = user?.role === 'owner' && item.status !== 'completed';
 
     return (
-      <Card style={styles.requestCard}>
-        <View style={styles.requestHeader}>
-          <View style={styles.requestTitleRow}>
-            <Text style={[styles.requestTitle, { color: themeColors.text.primary }]} numberOfLines={2}>{item.title}</Text>
-            {(user?.role === 'owner' || user?.role === 'clerk' || user?.role === 'contractor') && (
-              <TouchableOpacity
-                onPress={() => handleEdit(item)}
-                style={styles.editButton}
+      <Card
+        style={[
+          styles.requestCard,
+          Platform.select({
+            ios: shadows.sm,
+            android: { elevation: 2 },
+          }),
+        ]}
+        variant="elevated"
+        padding="none"
+      >
+        <View style={styles.cardInner}>
+          <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+
+          <View style={styles.cardBody}>
+            <View style={styles.cardTop}>
+              <View style={styles.refRow}>
+                <View
+                  style={[
+                    styles.iconBubble,
+                    { backgroundColor: isDark ? themeColors.primary.light : '#E0F7FA' },
+                  ]}
+                >
+                  <Wrench size={moderateScale(14)} color={themeColors.primary.DEFAULT} />
+                </View>
+                <View style={[styles.chip, { backgroundColor: softPriorityBg }]}>
+                  <Text style={[styles.chipText, { color: priority.color }]}>
+                    {priority.label} priority
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.cardTopRight}>
+                <View style={[styles.chip, { backgroundColor: softStatusBg }]}>
+                  <View style={[styles.chipDot, { backgroundColor: status.color }]} />
+                  <Text style={[styles.chipText, { color: status.color }]}>{status.label}</Text>
+                </View>
+                {canEdit ? (
+                  <TouchableOpacity
+                    onPress={() => handleEdit(item)}
+                    style={[
+                      styles.editButton,
+                      {
+                        borderColor: themeColors.border.DEFAULT,
+                        backgroundColor: themeColors.background,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit request"
+                    hitSlop={8}
+                  >
+                    <Pencil size={moderateScale(14)} color={themeColors.text.secondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+
+            <Text style={[styles.requestTitle, { color: themeColors.text.primary }]} numberOfLines={2}>
+              {item.title}
+            </Text>
+
+            {!!item.description && (
+              <Text
+                style={[styles.description, { color: themeColors.text.secondary }]}
+                numberOfLines={2}
               >
-                <Pencil size={16} color={themeColors.text.secondary} />
-              </TouchableOpacity>
-            )}
-          </View>
-          <View style={styles.badgeRow}>
-            {getPriorityBadge(item.priority)}
-            {getStatusBadge(item.status)}
-          </View>
-        </View>
-
-        <View style={styles.requestMeta}>
-          <Text style={[styles.metaText, { color: themeColors.text.secondary }]}>
-            {item.property?.name || 'Unknown'}
-            {item.property?.address && ` • ${item.property.address}`}
-          </Text>
-          {item.dueDate ? (
-            <Text style={[styles.metaText, { color: themeColors.text.secondary }]}>
-              Due {format(new Date(item.dueDate), 'PPP')}
-            </Text>
-          ) : (
-            <Text style={[styles.metaText, { color: themeColors.text.secondary }]}>
-              Created {format(new Date(item.createdAt), 'PPP')}
-            </Text>
-          )}
-        </View>
-
-        {item.description && (
-          <Text style={[styles.description, { color: themeColors.text.secondary }]} numberOfLines={3}>
-            {item.description}
-          </Text>
-        )}
-
-        <View style={[styles.requestFooter, { borderTopColor: themeColors.border.DEFAULT }]}>
-          <View style={styles.reporterInfo}>
-            <Text style={[styles.footerText, { color: themeColors.text.secondary }]}>
-              Reported by: {item.reportedByUser
-                ? `${item.reportedByUser.firstName} ${item.reportedByUser.lastName}${item.reportedByUser.role ? ` (${getTeamRoleDisplayLabel(item.reportedByUser.role)})` : ''}`
-                : 'Unknown'}
-            </Text>
-            {item.assignedToUser && (
-              <Text style={[styles.footerText, { color: themeColors.text.secondary }]}>
-                Assigned to: {item.assignedToUser.firstName} {item.assignedToUser.lastName}
+                {item.description}
               </Text>
             )}
-          </View>
 
-          {user?.role === 'owner' && item.status !== 'completed' && (
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={[styles.statusSelect, { borderColor: statusColor }]}
-                onPress={() => {
-                  Alert.alert(
-                    'Update Status',
-                    'Select new status',
-                    [
-                      { text: 'Open', onPress: () => updateStatusMutation.mutate({ id: item.id, status: 'open' }) },
-                      { text: 'In Progress', onPress: () => updateStatusMutation.mutate({ id: item.id, status: 'in_progress' }) },
-                      { text: 'Completed', onPress: () => updateStatusMutation.mutate({ id: item.id, status: 'completed' }) },
-                      { text: 'Closed', onPress: () => updateStatusMutation.mutate({ id: item.id, status: 'closed' }) },
-                      { text: 'Cancel', style: 'cancel' },
-                    ]
-                  );
-                }}
-              >
-                <Text style={[styles.statusSelectText, { color: statusColor }]}>
-                  {item.status === 'in_progress' ? 'In Progress' : item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                </Text>
-              </TouchableOpacity>
-
-              {!item.assignedTo && clerks.length > 0 && (
-                <TouchableOpacity
-                  style={styles.assignButton}
-                  onPress={() => {
-                    Alert.alert(
-                      'Assign to Clerk',
-                      'Select a clerk',
-                      clerks.map(clerk => ({
-                        text: `${clerk.firstName} ${clerk.lastName}`,
-                        onPress: () => updateStatusMutation.mutate({
-                          id: item.id,
-                          status: 'in_progress',
-                          assignedTo: clerk.id,
-                        }),
-                      })).concat([{ text: 'Cancel', style: 'cancel' }])
-                    );
-                  }}
-                >
-                  <Text style={styles.assignButtonText}>Assign</Text>
-                </TouchableOpacity>
+            <View style={styles.metaBlock}>
+              {!!location && (
+                <View style={styles.metaRow}>
+                  <MapPin size={moderateScale(14)} color={themeColors.text.secondary} />
+                  <Text
+                    style={[styles.metaLine, { color: themeColors.text.secondary }]}
+                    numberOfLines={1}
+                  >
+                    {location}
+                  </Text>
+                </View>
               )}
-
+              <View style={styles.metaRow}>
+                {overdue ? (
+                  <AlertTriangle size={moderateScale(14)} color="#DC2626" />
+                ) : (
+                  <Calendar size={moderateScale(14)} color={themeColors.text.secondary} />
+                )}
+                <Text
+                  style={[
+                    styles.metaLine,
+                    { color: overdue ? '#DC2626' : themeColors.text.secondary },
+                    overdue && styles.metaStrong,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.dueDate
+                    ? overdue
+                      ? `Overdue · ${format(new Date(item.dueDate), 'MMM d, yyyy')}`
+                      : `Due ${format(new Date(item.dueDate), 'MMM d, yyyy')}`
+                    : `Created ${format(new Date(item.createdAt), 'MMM d, yyyy')}`}
+                </Text>
+              </View>
+              <View style={styles.metaRow}>
+                <User size={moderateScale(14)} color={themeColors.text.secondary} />
+                <Text
+                  style={[styles.metaLine, { color: themeColors.text.secondary }]}
+                  numberOfLines={1}
+                >
+                  Reported by {reporter}
+                  {item.assignedToUser
+                    ? ` · Assigned to ${item.assignedToUser.firstName} ${item.assignedToUser.lastName}`
+                    : ''}
+                </Text>
+              </View>
             </View>
-          )}
+
+            <View
+              style={[
+                styles.cardFooter,
+                { borderTopColor: themeColors.border?.light || themeColors.border.DEFAULT },
+              ]}
+            >
+              {showOwnerActions ? (
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusSelect,
+                      {
+                        borderColor: status.color,
+                        backgroundColor: softStatusBg,
+                      },
+                    ]}
+                    onPress={() => {
+                      Alert.alert('Update Status', 'Select new status', [
+                        {
+                          text: 'Open',
+                          onPress: () => updateStatusMutation.mutate({ id: item.id, status: 'open' }),
+                        },
+                        {
+                          text: 'In Progress',
+                          onPress: () =>
+                            updateStatusMutation.mutate({ id: item.id, status: 'in_progress' }),
+                        },
+                        {
+                          text: 'Completed',
+                          onPress: () =>
+                            updateStatusMutation.mutate({ id: item.id, status: 'completed' }),
+                        },
+                        {
+                          text: 'Closed',
+                          onPress: () =>
+                            updateStatusMutation.mutate({ id: item.id, status: 'closed' }),
+                        },
+                        { text: 'Cancel', style: 'cancel' },
+                      ]);
+                    }}
+                  >
+                    <Text style={[styles.statusSelectText, { color: status.color }]}>
+                      {status.label}
+                    </Text>
+                    <ChevronRight size={14} color={status.color} />
+                  </TouchableOpacity>
+
+                  {!item.assignedTo && clerks.length > 0 && (
+                    <TouchableOpacity
+                      style={[
+                        styles.assignButton,
+                        {
+                          borderColor: themeColors.border.DEFAULT,
+                          backgroundColor: themeColors.background,
+                        },
+                      ]}
+                      onPress={() => {
+                        Alert.alert('Assign to Clerk', 'Select a clerk', [
+                          ...clerks.map((clerk: any) => ({
+                            text: `${clerk.firstName} ${clerk.lastName}`,
+                            onPress: () =>
+                              updateStatusMutation.mutate({
+                                id: item.id,
+                                status: 'in_progress',
+                                assignedTo: clerk.id,
+                              }),
+                          })),
+                          { text: 'Cancel', style: 'cancel' },
+                        ]);
+                      }}
+                    >
+                      <Text
+                        style={[styles.assignButtonText, { color: themeColors.text.primary }]}
+                      >
+                        Assign
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.workOrderButton,
+                      {
+                        backgroundColor: themeColors.primary.DEFAULT,
+                        borderColor: themeColors.primary.DEFAULT,
+                      },
+                    ]}
+                    onPress={() => handleCreateWorkOrder(item)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Create work order"
+                  >
+                    <Clipboard size={14} color="#fff" />
+                    <Text style={[styles.workOrderButtonText, { color: '#fff' }]}>
+                      Create Work Order
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.openCta}>
+                  <Text style={[styles.openLabel, { color: themeColors.primary.DEFAULT }]}>
+                    {canEdit ? 'Manage' : 'Details'}
+                  </Text>
+                  <View
+                    style={[
+                      styles.openArrow,
+                      {
+                        backgroundColor:
+                          themeColors.primary.DEFAULT + (isDark ? '33' : '14'),
+                      },
+                    ]}
+                  >
+                    <ChevronRight
+                      size={moderateScale(16)}
+                      color={themeColors.primary.DEFAULT}
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
       </Card>
     );
@@ -494,6 +699,15 @@ export default function MaintenanceListScreen() {
             </Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          style={[styles.statusSelect, { borderColor: themeColors.primary.DEFAULT, marginTop: 12 }]}
+          onPress={() => setCertificateWorkOrder(item)}
+        >
+          <Text style={[styles.statusSelectText, { color: themeColors.primary.DEFAULT }]}>
+            Upload Certificate
+          </Text>
+        </TouchableOpacity>
       </Card>
     );
   };
@@ -505,41 +719,50 @@ export default function MaintenanceListScreen() {
   return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]}>
       {/* Fixed Header */}
-      <View style={[styles.fixedHeader, {
-        paddingTop: insets.top + spacing[2],
-        backgroundColor: themeColors.card.DEFAULT,
-      }]}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerText}>
-            <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>Maintenance</Text>
-            <Text style={[styles.headerSubtitle, { color: themeColors.text.secondary }]}>Track and manage maintenance requests</Text>
-          </View>
-          <View style={styles.headerButton}>
+      <View style={[styles.fixedHeader, { backgroundColor: themeColors.card.DEFAULT }]}>
+        <ScreenHeader
+          title="Maintenance"
+          subtitle="Track and manage maintenance requests"
+          includeSafeArea
+          style={{ borderBottomWidth: 0, paddingBottom: spacing[2] }}
+          rightSlot={
             <Button
               title="New Request"
               onPress={() => navigation.navigate('CreateMaintenance')}
               variant="primary"
               size="sm"
             />
-          </View>
-        </View>
+          }
+        />
 
         {/* Fixed Search Bar */}
         {user?.role !== 'tenant' && (
-          <View style={[
-            styles.searchContainer,
-            {
-              borderColor: themeColors.border.DEFAULT,
-            }
-          ]}>
+          <View
+            style={[
+              styles.searchContainer,
+              {
+                borderColor: themeColors.border.light || themeColors.border.DEFAULT,
+                backgroundColor: isDark ? themeColors.background : '#F8FAFC',
+              },
+            ]}
+          >
             <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
             <TextInput
               style={[styles.searchInput, { color: themeColors.text.primary }]}
-              placeholder="Search maintenance requests by title, description, property, or status..."
+              placeholder="Search requests..."
               placeholderTextColor={themeColors.text.secondary}
               value={searchTerm}
               onChangeText={setSearchTerm}
             />
+            {!!searchTerm && (
+              <TouchableOpacity
+                onPress={() => setSearchTerm('')}
+                hitSlop={10}
+                accessibilityLabel="Clear search"
+              >
+                <X size={16} color={themeColors.text.secondary} />
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -557,96 +780,49 @@ export default function MaintenanceListScreen() {
           }
         >
           {/* Filters */}
-          <View style={[styles.filtersContainer, { backgroundColor: themeColors.background }]}>
-            <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Filter by:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-              <TouchableOpacity
-                style={[
-                  styles.filterChip,
-                  {
-                    borderColor: themeColors.border.DEFAULT,
-                    backgroundColor: selectedStatus !== 'all' ? themeColors.primary.light : themeColors.background,
-                  },
-                  selectedStatus !== 'all' && { borderColor: themeColors.primary.DEFAULT }
-                ]}
-                onPress={() => setShowStatusFilter(true)}
-              >
-                <Text style={[
-                  styles.filterChipText,
-                  { color: selectedStatus !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
-                ]}>
-                  Status: {selectedStatus === 'all' ? 'All' : selectedStatus === 'in_progress' ? 'In Progress' : selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.filterChip,
-                  {
-                    borderColor: themeColors.border.DEFAULT,
-                    backgroundColor: filterBlock !== 'all' ? themeColors.primary.light : themeColors.background,
-                  },
-                  filterBlock !== 'all' && { borderColor: themeColors.primary.DEFAULT }
-                ]}
-                onPress={() => setShowBlockFilter(true)}
-              >
-                <Text style={[
-                  styles.filterChipText,
-                  { color: filterBlock !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
-                ]}>
-                  Block: {filterBlock !== 'all' ? blocks.find(b => b.id === filterBlock)?.name || 'All' : 'All'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.filterChip,
-                  {
-                    borderColor: themeColors.border.DEFAULT,
-                    backgroundColor: filterProperty !== 'all' ? themeColors.primary.light : themeColors.background,
-                  },
-                  filterProperty !== 'all' && { borderColor: themeColors.primary.DEFAULT }
-                ]}
-                onPress={() => setShowPropertyFilter(true)}
-              >
-                <Text style={[
-                  styles.filterChipText,
-                  { color: filterProperty !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
-                ]}>
-                  Property: {filterProperty !== 'all' ? properties.find(p => p.id === filterProperty)?.name || 'All' : 'All'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.filterChip,
-                  {
-                    borderColor: themeColors.border.DEFAULT,
-                    backgroundColor: filterPriority !== 'all' ? themeColors.primary.light : themeColors.background,
-                  },
-                  filterPriority !== 'all' && { borderColor: themeColors.primary.DEFAULT }
-                ]}
-                onPress={() => setShowPriorityFilter(true)}
-              >
-                <Text style={[
-                  styles.filterChipText,
-                  { color: filterPriority !== 'all' ? themeColors.primary.DEFAULT : themeColors.text.secondary }
-                ]}>
-                  Priority: {filterPriority === 'all' ? 'All' : filterPriority.charAt(0).toUpperCase() + filterPriority.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
+          <FilterBar
+            style={{ marginBottom: spacing[4] }}
+            chips={[
+              {
+                label: 'Block',
+                value:
+                  filterBlock !== 'all'
+                    ? blocks.find((b) => b.id === filterBlock)?.name || 'All'
+                    : 'All',
+                active: filterBlock !== 'all',
+                onPress: () => setShowBlockFilter(true),
+              },
+              {
+                label: 'Property',
+                value:
+                  filterProperty !== 'all'
+                    ? properties.find((p) => p.id === filterProperty)?.name || 'All'
+                    : 'All',
+                active: filterProperty !== 'all',
+                onPress: () => setShowPropertyFilter(true),
+              },
+              {
+                label: 'Priority',
+                value:
+                  filterPriority === 'all'
+                    ? 'All'
+                    : filterPriority.charAt(0).toUpperCase() + filterPriority.slice(1),
+                active: filterPriority !== 'all',
+                onPress: () => setShowPriorityFilter(true),
+              },
+            ]}
+            onClear={() => {
+              setFilterBlock('all');
+              setFilterProperty('all');
+              setFilterPriority('all');
+            }}
+          />
 
           {/* Content List */}
           {filteredRequests.length === 0 ? (
             <EmptyState
               title="No Maintenance Requests"
-              message={
-                selectedStatus === 'all'
-                  ? 'Create your first maintenance request to get started'
-                  : `No ${selectedStatus.replace('-', ' ')} requests found`
-              }
+              message="Create your first maintenance request to get started"
             />
           ) : (
             <View style={styles.listContent}>
@@ -660,67 +836,6 @@ export default function MaintenanceListScreen() {
         </ScrollView>
       )}
 
-      {/* Status Filter Modal */}
-      <Modal
-        visible={showStatusFilter}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowStatusFilter(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[
-            styles.modalContent,
-            {
-              backgroundColor: themeColors.background,
-              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
-            }
-          ]}>
-            <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
-              <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Filter by Status</Text>
-              <TouchableOpacity
-                onPress={() => setShowStatusFilter(false)}
-                style={[styles.modalCloseButton, { backgroundColor: themeColors.card.DEFAULT }]}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.modalClose, { color: themeColors.text.secondary }]}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={['all', 'open', 'in_progress', 'completed', 'closed']}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    {
-                      backgroundColor: selectedStatus === item ? themeColors.primary.light : themeColors.card.DEFAULT,
-                      borderColor: selectedStatus === item ? themeColors.primary.DEFAULT : 'transparent',
-                      borderWidth: selectedStatus === item ? 1 : 0,
-                    },
-                  ]}
-                  onPress={() => {
-                    setSelectedStatus(item);
-                    setShowStatusFilter(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.modalItemText,
-                      { color: selectedStatus === item ? themeColors.primary.DEFAULT : themeColors.text.primary }
-                    ]}
-                  >
-                    {item === 'all' ? 'All' : item === 'in_progress' ? 'In Progress' : item.charAt(0).toUpperCase() + item.slice(1)}
-                  </Text>
-                  {selectedStatus === item && (
-                    <CheckCircle2 size={20} color={themeColors.primary.DEFAULT} />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
-
       {/* Block Filter Modal */}
       <Modal
         visible={showBlockFilter}
@@ -733,7 +848,8 @@ export default function MaintenanceListScreen() {
             styles.modalContent,
             {
               backgroundColor: themeColors.background,
-              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4],
+              maxHeight: modalMaxHeight(0.9),
             }
           ]}>
             <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -794,7 +910,8 @@ export default function MaintenanceListScreen() {
             styles.modalContent,
             {
               backgroundColor: themeColors.background,
-              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4],
+              maxHeight: modalMaxHeight(0.9),
             }
           ]}>
             <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -855,7 +972,8 @@ export default function MaintenanceListScreen() {
             styles.modalContent,
             {
               backgroundColor: themeColors.background,
-              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
+              paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4],
+              maxHeight: modalMaxHeight(0.9),
             }
           ]}>
             <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -909,18 +1027,26 @@ export default function MaintenanceListScreen() {
         visible={showWorkOrderModal}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setShowWorkOrderModal(false)}
+        onRequestClose={() => {
+          setShowWorkOrderModal(false);
+          resetWorkOrderForm();
+        }}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: themeColors.card.DEFAULT }]}>
+          <View style={[styles.modalContent, { backgroundColor: themeColors.card.DEFAULT, maxHeight: modalMaxHeight(0.9) }]}>
             <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.DEFAULT }]}>
               <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Create Work Order</Text>
-              <TouchableOpacity onPress={() => setShowWorkOrderModal(false)}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowWorkOrderModal(false);
+                  resetWorkOrderForm();
+                }}
+              >
                 <X size={24} color={themeColors.text.primary} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={true}>
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
               {selectedRequestForWorkOrder && (
                 <Text style={[styles.workOrderRequestTitle, { color: themeColors.text.primary }]}>
                   {selectedRequestForWorkOrder.title}
@@ -928,115 +1054,101 @@ export default function MaintenanceListScreen() {
               )}
 
               <View style={styles.workOrderForm}>
-                <Text style={[styles.workOrderFormLabel, { color: themeColors.text.primary }]}>Assign to Team (Optional)</Text>
-                <ScrollView style={styles.filterSelectContainer} showsVerticalScrollIndicator={true}>
-                  <TouchableOpacity
-                    style={[
-                      styles.filterSelectOption,
-                      !workOrderTeamId && styles.filterSelectOptionActive,
-                    ]}
-                    onPress={() => {
-                      setWorkOrderTeamId('');
-                      setWorkOrderContractorId('');
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.filterSelectText,
-                        !workOrderTeamId && styles.filterSelectTextActive,
-                      ]}
-                    >
-                      None
+                {teams.length === 0 ? (
+                  <Text style={[styles.workOrderHint, { color: themeColors.text.secondary }]}>
+                    No maintenance teams yet. Create a team under Settings → Maintenance Team and add inspectors or maintenance contractors, then assign work orders here.
+                  </Text>
+                ) : (
+                  <>
+                    <Text style={[styles.workOrderFormLabel, { color: themeColors.text.primary }]}>
+                      Maintenance Team *
                     </Text>
-                  </TouchableOpacity>
-                  {teams.map((team) => (
-                    <TouchableOpacity
-                      key={team.id}
-                      style={[
-                        styles.filterSelectOption,
-                        workOrderTeamId === team.id && styles.filterSelectOptionActive,
-                      ]}
-                      onPress={() => {
-                        setWorkOrderTeamId(team.id);
-                        setWorkOrderContractorId('');
+                    <Select
+                      value={workOrderTeamId || undefined}
+                      placeholder="Select a maintenance team"
+                      options={teams.map((team) => ({
+                        value: team.id,
+                        label: team.email ? `${team.name} (${team.email})` : team.name,
+                      }))}
+                      onValueChange={(value) => {
+                        setWorkOrderTeamId(value);
+                        setWorkOrderAssignedToId('');
                       }}
-                    >
-                      <Text
-                        style={[
-                          styles.filterSelectText,
-                          workOrderTeamId === team.id && styles.filterSelectTextActive,
-                        ]}
-                      >
-                        {team.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                    />
 
-                <Text style={[styles.workOrderFormLabel, { marginTop: 16, color: themeColors.text.primary }]}>Or Assign to Maintenance Contractor (Optional)</Text>
-                <ScrollView style={styles.filterSelectContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.filterSelectOption,
-                      {
-                        backgroundColor: !workOrderContractorId ? themeColors.primary.light : themeColors.card.DEFAULT,
-                        borderColor: !workOrderContractorId ? themeColors.primary.DEFAULT : themeColors.border.light,
-                      },
-                    ]}
-                    onPress={() => {
-                      setWorkOrderTeamId('');
-                      setWorkOrderContractorId('');
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.filterSelectText,
-                        {
-                          color: !workOrderContractorId ? themeColors.primary.DEFAULT : themeColors.text.primary,
-                          fontWeight: !workOrderContractorId ? '600' : '400',
-                        },
-                      ]}
-                    >
-                      None
-                    </Text>
-                  </TouchableOpacity>
-                  {contractors.map((contractor) => (
-                    <TouchableOpacity
-                      key={contractor.id}
-                      style={[
-                        styles.filterSelectOption,
-                        workOrderContractorId === contractor.id && styles.filterSelectOptionActive,
-                      ]}
-                      onPress={() => {
-                        setWorkOrderContractorId(contractor.id);
-                        setWorkOrderTeamId('');
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.filterSelectText,
-                          workOrderContractorId === contractor.id && styles.filterSelectTextActive,
-                        ]}
-                      >
-                        {contractor.firstName} {contractor.lastName}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                    {!!workOrderTeamId && (
+                      <>
+                        <Text style={[styles.workOrderFormLabel, { marginTop: 16, color: themeColors.text.primary }]}>
+                          Assign to Team Member *
+                        </Text>
+                        <Select
+                          value={workOrderAssignedToId || undefined}
+                          placeholder={
+                            isLoadingMembers
+                              ? 'Loading members...'
+                              : teamMembers.length === 0
+                                ? 'No members on this team'
+                                : 'Select inspector or contractor'
+                          }
+                          disabled={isLoadingMembers || teamMembers.length === 0}
+                          options={teamMembers
+                            .map((member) => {
+                              const person = member.user || member.contact;
+                              const value = member.userId || member.contactId;
+                              if (!person || !value) return null;
+                              const kind = member.userId ? 'Inspector / Staff' : 'Maintenance Contractor';
+                              const name = `${person.firstName || ''} ${person.lastName || ''}`.trim();
+                              const email = person.email ? ` (${person.email})` : '';
+                              return {
+                                value,
+                                label: `${name}${email} — ${kind}`,
+                              };
+                            })
+                            .filter((opt): opt is { value: string; label: string } => !!opt)}
+                          onValueChange={setWorkOrderAssignedToId}
+                        />
+                        <Text style={[styles.workOrderHint, { color: themeColors.text.secondary }]}>
+                          Only people added to this Maintenance Team can be assigned.
+                        </Text>
+                      </>
+                    )}
+                  </>
+                )}
+
+                <View style={{ marginTop: 16 }}>
+                  <DatePicker
+                    label="SLA Due Date"
+                    value={workOrderSlaDue}
+                    onChange={setWorkOrderSlaDue}
+                    placeholder="Select due date"
+                  />
+                </View>
+
+                <Input
+                  label="Cost Estimate"
+                  value={workOrderCostEstimate}
+                  onChangeText={setWorkOrderCostEstimate}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                  style={{ marginTop: 8 }}
+                />
 
                 <View style={styles.modalActions}>
                   <Button
                     title="Cancel"
-                    onPress={() => setShowWorkOrderModal(false)}
+                    onPress={() => {
+                      setShowWorkOrderModal(false);
+                      resetWorkOrderForm();
+                    }}
                     variant="outline"
                     style={styles.modalButton}
                   />
                   <Button
-                    title="Create Work Order"
+                    title={createWorkOrderMutation.isPending ? 'Creating…' : 'Create Work Order'}
                     onPress={handleSubmitWorkOrder}
                     variant="primary"
                     style={styles.modalButton}
-                    disabled={createWorkOrderMutation.isPending}
+                    disabled={createWorkOrderMutation.isPending || teams.length === 0}
                   />
                 </View>
               </View>
@@ -1044,6 +1156,13 @@ export default function MaintenanceListScreen() {
           </View>
         </View>
       </Modal>
+
+      <WorkOrderCertificateSheet
+        visible={!!certificateWorkOrder}
+        workOrderId={certificateWorkOrder?.id || null}
+        workOrderTitle={certificateWorkOrder?.maintenanceRequest.title}
+        onClose={() => setCertificateWorkOrder(null)}
+      />
     </View>
   );
 }
@@ -1066,6 +1185,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing[3],
     gap: spacing[2],
     width: '100%',
+    flexWrap: 'wrap',
   },
   headerText: {
     flex: 1,
@@ -1090,14 +1210,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[4],
-    paddingTop: spacing[2],
-  },
-  filtersContainer: {
-    paddingHorizontal: 0,
-    paddingVertical: spacing[2],
-    borderBottomWidth: 0,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3],
+    paddingTop: spacing[3],
+    gap: spacing[3],
   },
   searchContainer: {
     flexDirection: 'row',
@@ -1114,56 +1230,175 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.fontSize.base,
   },
-  filterLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: spacing[2],
-  },
-  filterRow: {
-    flexDirection: 'row',
-  },
-  filterChip: {
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2],
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    marginRight: spacing[2],
-  },
-  filterChipText: {
-    fontSize: typography.fontSize.sm,
-  },
   listContent: {
-    paddingHorizontal: spacing[2],
+    paddingHorizontal: 0,
     paddingVertical: 0,
   },
   requestCardWrapper: {
-    marginBottom: 16,
+    marginBottom: spacing[3],
   },
   requestCard: {
-    marginBottom: 16,
-    padding: 16,
+    overflow: 'hidden',
+    borderRadius: borderRadius.xl,
+    marginBottom: 0,
   },
-  requestHeader: {
-    marginBottom: 12,
-  },
-  requestTitleRow: {
+  cardInner: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    minHeight: moderateScale(140),
+  },
+  accentBar: {
+    width: 4,
+  },
+  cardBody: {
+    flex: 1,
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[3],
+    paddingBottom: spacing[3],
+    gap: spacing[2],
+  },
+  cardTop: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  cardTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  refRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  iconBubble: {
+    width: moderateScale(28),
+    height: moderateScale(28),
+    borderRadius: moderateScale(8),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: borderRadius.full,
+  },
+  chipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  chipText: {
+    fontSize: getFontSize(11),
+    fontWeight: '700',
+    textTransform: 'capitalize',
   },
   requestTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-    marginRight: 8,
+    fontSize: getFontSize(17),
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    lineHeight: getFontSize(22),
   },
   editButton: {
-    padding: 4,
+    width: moderateScale(30),
+    height: moderateScale(30),
+    borderRadius: moderateScale(15),
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  badgeRow: {
+  metaBlock: {
+    gap: spacing[1] + 2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  metaLine: {
+    fontSize: getFontSize(13),
+    flex: 1,
+    minWidth: 0,
+  },
+  metaStrong: {
+    fontWeight: '600',
+  },
+  metaText: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  description: {
+    fontSize: getFontSize(13),
+    lineHeight: getFontSize(18),
+  },
+  cardFooter: {
+    marginTop: spacing[1],
+    paddingTop: spacing[3],
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  openCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing[1],
+  },
+  openLabel: {
+    fontSize: getFontSize(13),
+    fontWeight: '700',
+  },
+  openArrow: {
+    width: moderateScale(26),
+    height: moderateScale(26),
+    borderRadius: moderateScale(13),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionRow: {
     flexDirection: 'row',
     gap: 8,
+    flexWrap: 'wrap',
+  },
+  statusSelect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+  },
+  statusSelectText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  assignButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+  },
+  assignButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  workOrderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    borderWidth: 1.5,
+    gap: 4,
+  },
+  workOrderButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   priorityBadge: {
     paddingHorizontal: 8,
@@ -1185,18 +1420,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  requestMeta: {
-    marginBottom: 8,
-  },
-  metaText: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  description: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
-  },
   requestFooter: {
     paddingTop: 12,
     borderTopWidth: 1,
@@ -1207,45 +1430,6 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     marginBottom: 2,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  statusSelect: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    backgroundColor: '#fff',
-  },
-  statusSelectText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  assignButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1.5,
-  },
-  assignButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  workOrderButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    gap: 4,
-  },
-  workOrderButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
   },
   workOrderCard: {
     marginBottom: 16,
@@ -1312,66 +1496,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
   },
-  filterSection: {
-    marginBottom: 28,
-  },
-  filterLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: spacing[2],
-  },
-  filterOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: moderateScale(spacing[2], 0.3),
-  },
-  filterOptionButton: {
-    paddingHorizontal: moderateScale(spacing[3], 0.3),
-    paddingVertical: moderateScale(spacing[2], 0.3),
-    borderRadius: moderateScale(borderRadius.full, 0.2),
-    borderWidth: 1,
-    marginRight: moderateScale(spacing[2], 0.3),
-    minHeight: moderateScale(36, 0.2),
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: moderateScale(90, 0.3),
-  },
-  filterOptionButtonActive: {
-    ...shadows.xs,
-  },
-  filterOptionText: {
-    fontSize: getFontSize(typography.fontSize.xs),
-    fontWeight: typography.fontWeight.medium,
-    textAlign: 'center',
-  },
-  filterOptionTextActive: {
-    fontWeight: typography.fontWeight.semibold,
-  },
-  filterSelectContainer: {
-    maxHeight: 200,
-  },
-  filterSelectOption: {
-    paddingHorizontal: moderateScale(spacing[3], 0.3),
-    paddingVertical: moderateScale(spacing[3], 0.3),
-    borderRadius: moderateScale(borderRadius.full, 0.2),
-    borderWidth: 1,
-    marginBottom: moderateScale(spacing[2], 0.3),
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: moderateScale(44, 0.2),
-  },
-  filterSelectOptionActive: {
-    // Colors set dynamically
-  },
-  filterSelectText: {
-    fontSize: getFontSize(typography.fontSize.sm),
-  },
-  filterSelectTextActive: {
-    // Color set dynamically
-  },
-  clearFiltersButton: {
-    marginTop: 8,
-  },
   workOrderRequestTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -1385,6 +1509,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 8,
   },
+  workOrderHint: {
+    fontSize: 12,
+    marginTop: 8,
+    lineHeight: 18,
+  },
   modalActions: {
     flexDirection: 'row',
     gap: 12,
@@ -1392,30 +1521,6 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: borderRadius.xl || 24,
-    borderTopRightRadius: borderRadius.xl || 24,
-    maxHeight: '85%',
-    paddingTop: spacing[4],
-    paddingHorizontal: spacing[4],
-    ...shadows.lg,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: spacing[3],
-    marginBottom: spacing[2],
-  },
-  modalTitle: {
-    fontSize: typography.fontSize.xl,
-    fontWeight: typography.fontWeight.bold,
   },
   modalCloseButton: {
     width: 32,

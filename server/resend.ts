@@ -718,6 +718,12 @@ export async function sendEmail({
     
     const response = await client.emails.send(emailOptions);
 
+    if (response.error) {
+      const message = response.error.message || "Resend rejected the email";
+      console.error("Failed to send email:", response.error);
+      throw new Error(message);
+    }
+
     return { success: true, data: response.data };
   } catch (error) {
     console.error('Failed to send email:', error);

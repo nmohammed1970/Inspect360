@@ -15,6 +15,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Loader2, Save } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { pagePad, formGrid2 } from "@/lib/responsive";
 
 type UnitPricing = {
   id?: string;
@@ -118,11 +120,11 @@ export default function AdminUnitPricing() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-2xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Unit Pricing</h1>
+    <div className={cn("container mx-auto max-w-2xl min-w-0", pagePad)}>
+      <div className="mb-6 min-w-0">
+        <h1 className="text-2xl md:text-3xl font-bold mb-2">Unit Pricing</h1>
         <p className="text-muted-foreground">
-          Record per-unit monthly and annual pricing for the product catalog
+          Platform default per-unit monthly and annual pricing. Instances start from this sheet until you customize them under Manage → Unit pricing.
         </p>
       </div>
 
@@ -130,11 +132,11 @@ export default function AdminUnitPricing() {
         <CardHeader>
           <CardTitle>Price sheet</CardTitle>
           <CardDescription>
-            Eco-admin reference pricing. This does not charge customers automatically.
+            Platform default price sheet. Customize rates per organization from Dashboard → Manage → Unit pricing.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className={formGrid2}>
             <div className="space-y-2">
               <Label htmlFor="price-monthly">Per unit price / month</Label>
               <Input
@@ -200,13 +202,14 @@ export default function AdminUnitPricing() {
             />
           </div>
 
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
               {form.updatedAt
                 ? `Last updated ${new Date(form.updatedAt).toLocaleString()}`
                 : "Not saved yet"}
             </p>
             <Button
+              className="w-full sm:w-auto shrink-0"
               onClick={() => saveMutation.mutate(form)}
               disabled={saveMutation.isPending}
               data-testid="button-save-unit-pricing"

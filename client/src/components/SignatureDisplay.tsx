@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { parseSignatureValue } from "@shared/signature";
+import { PreviewableImage } from "@/components/ImagePreview";
 
 interface SignatureDisplayProps {
   signature?: string | Record<string, unknown> | null;
@@ -64,9 +65,10 @@ export function SignatureDisplay({
   if (trimmedSignature.startsWith("data:image/")) {
     return (
       <div className={cn("w-full max-w-md", className)}>
-        <img
+        <PreviewableImage
           src={trimmedSignature}
           alt="Signature"
+          title="Signature"
           className={cn(
             "w-full h-32 min-h-32 sm:h-40 sm:min-h-40 object-contain border-2 rounded-md bg-background p-2",
             imageClassName,

@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, formGrid2, dialogFooterSticky, dialogContentBase } from "@/lib/responsive";
 
 export default function AdminTeam() {
   const [, navigate] = useLocation();
@@ -187,27 +189,28 @@ export default function AdminTeam() {
 
   return (
     <>
-    <div className="container mx-auto px-4 py-6 space-y-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-            <div>
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4">
+            <div className="min-w-0">
               <CardTitle>Admin Users</CardTitle>
               <CardDescription>
                 Manage admin accounts with access to this dashboard
               </CardDescription>
             </div>
-            <Button onClick={handleCreateClick} data-testid="button-create-admin">
+            <Button onClick={handleCreateClick} data-testid="button-create-admin" className="shrink-0 w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />
               Add Admin
             </Button>
           </CardHeader>
-          <CardContent className="p-0">
-            <Table>
+          <CardContent className="p-0 min-w-0">
+            <div className="overflow-x-auto min-w-0">
+            <Table className="min-w-[320px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead className="hidden sm:table-cell">Email</TableHead>
+                  <TableHead className="hidden md:table-cell">Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -227,17 +230,18 @@ export default function AdminTeam() {
                 ) : (
                   admins.map((admin) => (
                     <TableRow key={admin.id} data-testid={`row-admin-${admin.id}`}>
-                      <TableCell className="font-medium">
+                      <TableCell className={cn("font-medium", textBreak)}>
                         {admin.firstName} {admin.lastName}
                         {currentAdmin?.id === admin.id && (
                           <span className="ml-2 text-xs text-muted-foreground">(You)</span>
                         )}
+                        <div className={cn("sm:hidden text-xs text-muted-foreground mt-0.5", textBreak)}>{admin.email}</div>
                       </TableCell>
-                      <TableCell>{admin.email}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className={cn("hidden sm:table-cell", textBreak)}>{admin.email}</TableCell>
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground whitespace-nowrap">
                         {new Date(admin.createdAt).toLocaleDateString()}
                       </TableCell>
-                      <TableCell className="text-right space-x-2">
+                      <TableCell className="text-right space-x-2 whitespace-nowrap">
                         <Button
                           variant="outline"
                           size="sm"
@@ -261,13 +265,14 @@ export default function AdminTeam() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Create Dialog */}
       <Dialog open={createDialog} onOpenChange={setCreateDialog}>
-        <DialogContent data-testid="dialog-create-admin">
+        <DialogContent className={dialogContentBase} data-testid="dialog-create-admin">
           <DialogHeader>
             <DialogTitle>Create Admin User</DialogTitle>
             <DialogDescription>
@@ -275,6 +280,7 @@ export default function AdminTeam() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className={formGrid2}>
             <div className="space-y-2">
               <Label>First Name</Label>
               <Input
@@ -292,6 +298,7 @@ export default function AdminTeam() {
                 placeholder="Doe"
                 data-testid="input-last-name"
               />
+            </div>
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -329,7 +336,7 @@ export default function AdminTeam() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setCreateDialog(false)}>
               Cancel
             </Button>
@@ -346,7 +353,7 @@ export default function AdminTeam() {
 
       {/* Edit Dialog */}
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
-        <DialogContent data-testid="dialog-edit-admin">
+        <DialogContent className={dialogContentBase} data-testid="dialog-edit-admin">
           <DialogHeader>
             <DialogTitle>Edit Admin User</DialogTitle>
             <DialogDescription>
@@ -354,6 +361,7 @@ export default function AdminTeam() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className={formGrid2}>
             <div className="space-y-2">
               <Label>First Name</Label>
               <Input
@@ -369,6 +377,7 @@ export default function AdminTeam() {
                 onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                 data-testid="input-edit-last-name"
               />
+            </div>
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -405,7 +414,7 @@ export default function AdminTeam() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setEditDialog(false)}>
               Cancel
             </Button>

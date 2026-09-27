@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -295,7 +296,10 @@ export function QuickAddMaintenanceSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[85vh] overflow-y-auto max-w-3xl mx-auto">
+      <SheetContent
+        side="bottom"
+        className="mx-auto flex h-[85vh] max-h-[min(85vh,calc(100dvh-2rem))] max-w-3xl flex-col overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>Log Maintenance Issue</SheetTitle>
           <SheetDescription>
@@ -312,7 +316,7 @@ export function QuickAddMaintenanceSheet({
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Issue Title *</FormLabel>
+                  <FormLabel required>Issue Title</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -386,12 +390,20 @@ export function QuickAddMaintenanceSheet({
               
               {photoUrls.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {photoUrls.map((url, index) => (
                       <div key={index} className="relative aspect-square">
-                        <img
+                        <PreviewableImage
                           src={url}
                           alt={`Photo ${index + 1}`}
+                          title="Maintenance photo"
+                          showHint={false}
+                          gallery={photoUrls.map((src, photoIndex) => ({
+                            src,
+                            alt: `Photo ${photoIndex + 1}`,
+                            title: "Maintenance photo",
+                          }))}
+                          index={index}
                           className="w-full h-full object-cover rounded-md border"
                         />
                         <button

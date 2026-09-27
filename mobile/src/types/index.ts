@@ -36,6 +36,7 @@ export interface Inspection {
   tenantApprovalStatus?: string;
   tenantApprovedAt?: string;
   tenantApprovalDeadline?: string;
+  tenantComments?: string | null;
   notes?: string;
   createdAt: string;
   updatedAt: string;

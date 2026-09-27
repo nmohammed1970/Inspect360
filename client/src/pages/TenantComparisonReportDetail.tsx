@@ -1,3 +1,4 @@
+import { PreviewableImage } from "@/components/ImagePreview";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation, Link } from "wouter";
@@ -46,6 +47,8 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
 
 interface ComparisonReport {
   id: string;
@@ -293,7 +296,7 @@ export default function TenantComparisonReportDetail() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-12 w-2/3" />
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-96 w-full" />
@@ -303,7 +306,7 @@ export default function TenantComparisonReportDetail() {
 
   if (!report) {
     return (
-      <div className="p-6">
+      <div className={cn(pagePad, "min-w-0")}>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <AlertCircle className="w-16 h-16 text-muted-foreground/50 mb-4" />
@@ -324,9 +327,9 @@ export default function TenantComparisonReportDetail() {
   const canSign = (report.status === "awaiting_signatures" || report.status === "under_review") && !report.tenantSignature;
 
   return (
-    <div className="p-6 space-y-6" data-testid="page-tenant-comparison-detail">
+    <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")} data-testid="page-tenant-comparison-detail">
       <Breadcrumb className="mb-4">
-        <BreadcrumbList>
+        <BreadcrumbList className="flex-wrap">
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
               <Link href="/tenant/home">Home</Link>
@@ -344,34 +347,35 @@ export default function TenantComparisonReportDetail() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between min-w-0">
+        <div className="space-y-1 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => navigate("/tenant/comparison-reports")} data-testid="button-back">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Reports
           </Button>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <FileText className="w-8 h-8 text-primary" />
-            Comparison Report
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
+            <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-primary shrink-0" />
+            <span className={textTruncate}>Comparison Report</span>
           </h1>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Building2 className="h-4 w-4" />
-            {report.property?.name || "Property"} - {report.property?.address}
+          <div className="flex items-start gap-2 text-muted-foreground min-w-0">
+            <Building2 className="h-4 w-4 shrink-0 mt-0.5" />
+            <span className={textBreak}>{report.property?.name || "Property"} - {report.property?.address}</span>
           </div>
           <p className="text-sm text-muted-foreground">
             Generated on {format(new Date(report.createdAt), "MMMM d, yyyy 'at' h:mm a")}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
           <Button
             variant="outline"
             onClick={handleDownloadPdf}
             data-testid="button-download-pdf"
+            className="w-full sm:w-auto"
           >
             <Download className="w-4 h-4 mr-2" />
             Download PDF
           </Button>
-          <Badge variant={statusInfo.variant} className="text-lg px-4 py-2">
+          <Badge variant={statusInfo.variant} className="text-sm sm:text-lg px-3 sm:px-4 py-1.5 sm:py-2">
             {statusInfo.label}
           </Badge>
         </div>
@@ -423,57 +427,91 @@ export default function TenantComparisonReportDetail() {
             const liability = liabilityConfig[item.liabilityDecision] || liabilityConfig.tenant;
 
             return (
-              <div key={item.id} className="space-y-4 pb-6 border-b last:border-b-0" data-testid={`item-${item.id}`}>
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div>
-                    <h3 className="text-lg font-semibold">
+              <div key={item.id} className="space-y-4 pb-6 border-b last:border-b-0 min-w-0" data-testid={`item-${item.id}`}>
+                <div className="flex items-start justify-between gap-4 flex-wrap min-w-0">
+                  <div className={cn("min-w-0", textBreak)}>
+                    <h3 className={cn("text-lg font-semibold", textBreak)}>
                       {index + 1}. {formatIdentifierLabel(item.sectionRef)} - {formatIdentifierLabel(item.fieldKey)}
                     </h3>
                     {item.itemRef && (
-                      <p className="text-sm text-muted-foreground">{item.itemRef}</p>
+                      <p className={cn("text-sm text-muted-foreground", textBreak)}>{item.itemRef}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <Badge variant={itemStatus.variant}>{itemStatus.label}</Badge>
                     <Badge variant="outline" className={liability.color}>{liability.label}</Badge>
                   </div>
                 </div>
 
                 {((item.checkInPhotos && item.checkInPhotos.length > 0) || (item.checkOutPhotos && item.checkOutPhotos.length > 0)) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-w-0">
+                    <div className="space-y-2 min-w-0">
                       <h4 className="text-sm font-medium text-muted-foreground">Check-In (Move In)</h4>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {item.checkInPhotos && item.checkInPhotos.length > 0 ? (
                           item.checkInPhotos.map((photo, idx) => (
-                            <img
+                            <PreviewableImage
                               key={idx}
                               src={photo}
                               alt={`Check-in ${idx + 1}`}
-                              className="w-full h-32 object-cover rounded-lg border"
+                              title={`${formatIdentifierLabel(item.sectionRef)} - Before`}
+                              caption={formatIdentifierLabel(item.fieldKey)}
+                              gallery={[
+                                ...(item.checkInPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-in ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - Before`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                                ...(item.checkOutPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-out ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - After`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                              ]}
+                              index={idx}
+                              className="max-w-full w-full h-32 object-cover rounded-lg border"
                             />
                           ))
                         ) : (
-                          <div className="col-span-2 flex items-center justify-center h-32 bg-muted rounded-lg border border-dashed">
+                          <div className="col-span-1 sm:col-span-2 flex items-center justify-center h-32 bg-muted rounded-lg border border-dashed">
                             <p className="text-sm text-muted-foreground">No check-in photos</p>
                           </div>
                         )}
                       </div>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <h4 className="text-sm font-medium text-muted-foreground">Check-Out (Move Out)</h4>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {item.checkOutPhotos && item.checkOutPhotos.length > 0 ? (
                           item.checkOutPhotos.map((photo, idx) => (
-                            <img
+                            <PreviewableImage
                               key={idx}
                               src={photo}
                               alt={`Check-out ${idx + 1}`}
-                              className="w-full h-32 object-cover rounded-lg border"
+                              title={`${formatIdentifierLabel(item.sectionRef)} - After`}
+                              caption={formatIdentifierLabel(item.fieldKey)}
+                              gallery={[
+                                ...(item.checkInPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-in ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - Before`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                                ...(item.checkOutPhotos || []).map((src, photoIndex) => ({
+                                  src,
+                                  alt: `Check-out ${photoIndex + 1}`,
+                                  title: `${formatIdentifierLabel(item.sectionRef)} - After`,
+                                  caption: formatIdentifierLabel(item.fieldKey),
+                                })),
+                              ]}
+                              index={(item.checkInPhotos?.length || 0) + idx}
+                              className="max-w-full w-full h-32 object-cover rounded-lg border"
                             />
                           ))
                         ) : (
-                          <div className="col-span-2 flex items-center justify-center h-32 bg-muted rounded-lg border border-dashed">
+                          <div className="col-span-1 sm:col-span-2 flex items-center justify-center h-32 bg-muted rounded-lg border border-dashed">
                             <p className="text-sm text-muted-foreground">No check-out photos</p>
                           </div>
                         )}
@@ -503,7 +541,7 @@ export default function TenantComparisonReportDetail() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="w-4 h-4 flex items-center justify-center font-semibold">£</span>
@@ -661,10 +699,10 @@ export default function TenantComparisonReportDetail() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="space-y-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg">
+            <div className="space-y-1 min-w-0">
               <div className="font-medium flex items-center gap-2">
-                <User className="w-4 h-4" />
+                <User className="w-4 h-4 flex-shrink-0" />
                 Property Manager Signature
               </div>
               {report.operatorSignature ? (
@@ -675,10 +713,11 @@ export default function TenantComparisonReportDetail() {
                   </div>
                   {report.operatorSignature.startsWith('data:image/') ? (
                     <div className="mt-2">
-                      <img 
-                        src={report.operatorSignature} 
-                        alt="Property Manager signature" 
-                        className="h-16 object-contain border rounded bg-background"
+                      <PreviewableImage
+                        src={report.operatorSignature}
+                        alt="Property Manager signature"
+                        title="Property Manager signature"
+                        className="max-w-full h-16 object-contain border rounded bg-background"
                       />
                     </div>
                   ) : (
@@ -696,10 +735,10 @@ export default function TenantComparisonReportDetail() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="space-y-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border rounded-lg">
+            <div className="space-y-1 min-w-0">
               <div className="font-medium flex items-center gap-2">
-                <User className="w-4 h-4" />
+                <User className="w-4 h-4 flex-shrink-0" />
                 Your Signature
               </div>
               {report.tenantSignature ? (
@@ -710,10 +749,11 @@ export default function TenantComparisonReportDetail() {
                   </div>
                   {report.tenantSignature.startsWith('data:image/') ? (
                     <div className="mt-2">
-                      <img 
-                        src={report.tenantSignature} 
-                        alt="Your signature" 
-                        className="h-16 object-contain border rounded bg-background"
+                      <PreviewableImage
+                        src={report.tenantSignature}
+                        alt="Your signature"
+                        title="Your signature"
+                        className="max-w-full h-16 object-contain border rounded bg-background"
                       />
                     </div>
                   ) : (
@@ -732,7 +772,7 @@ export default function TenantComparisonReportDetail() {
               )}
             </div>
             {!report.tenantSignature && (
-              <Badge variant={canSign ? "destructive" : "outline"}>
+              <Badge variant={canSign ? "destructive" : "outline"} className="w-fit">
                 {canSign ? "Action Required" : "Pending"}
               </Badge>
             )}
@@ -745,10 +785,11 @@ export default function TenantComparisonReportDetail() {
                 <Card>
                   <CardContent className="p-4">
                     <div className="space-y-3">
-                      <img 
-                        src={signatureData} 
-                        alt="Your signature" 
-                        className="w-full h-40 object-contain border rounded bg-background"
+                      <PreviewableImage
+                        src={signatureData}
+                        alt="Your signature"
+                        title="Your signature"
+                        className="max-w-full w-full h-40 object-contain border rounded bg-background"
                         data-testid="img-signature"
                       />
                       <Button

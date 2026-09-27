@@ -9,6 +9,7 @@ import { MessageCircle, Send, Bot, User, Loader2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ChatMarkdown } from "@/components/ChatMarkdown";
 import type { ChatMessage } from "@shared/schema";
 
 export function AIChatbot() {
@@ -224,7 +225,11 @@ export function AIChatbot() {
                           : 'bg-muted'
                       }`}
                     >
-                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      {msg.role === "assistant" ? (
+                        <ChatMarkdown content={msg.content} />
+                      ) : (
+                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      )}
                       <p className="text-xs mt-1 opacity-70">
                         {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString() : ''}
                       </p>

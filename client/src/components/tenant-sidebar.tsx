@@ -15,16 +15,21 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
 import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
+import { isLockedAppPath } from "@shared/entitlements";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { notifyEntitlementLock } from "@/lib/queryClient";
 
 export function TenantSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -83,6 +88,8 @@ export function TenantSidebar() {
     },
   ].filter(item => item.enabled);
 
+  const { data: entitlement } = useEntitlement();
+
   // Dynamic active state styling based on organization's brand color
   const getActiveStyle = (isActive: boolean) => {
     if (!isActive) return undefined;
@@ -98,12 +105,12 @@ export function TenantSidebar() {
   return (
     <Sidebar data-testid="sidebar-tenant">
       <SidebarHeader className="p-4 border-b">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <img 
             key={organization?.logoUrl || 'default'}
             src={logoSrc}
             alt={companyName} 
-            className="h-8 max-w-[180px] object-contain" 
+            className="h-8 w-auto max-w-full object-contain" 
             data-testid="img-sidebar-logo"
             onError={(e) => {
               // Fallback to default logo if image fails to load
@@ -119,8 +126,9 @@ export function TenantSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => {
-                const isActive = location === item.url || 
+                const isActive = location === item.url ||
                   (item.url === "/dashboard" && (location === "/" || location === "/tenant/home"));
+                const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -130,9 +138,22 @@ export function TenantSidebar() {
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
+                      <Link
+                        href={item.url}
+                        className={itemLocked ? "opacity-50" : undefined}
+                        onClick={(event) => {
+                          if (itemLocked && (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")) {
+                            event.preventDefault();
+                            notifyEntitlementLock(entitlement.code);
+                            return;
+                          }
+                          if (isMobile) {
+                            setOpenMobile(false);
+                          }
+                        }}
+                      >
+                        <item.icon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

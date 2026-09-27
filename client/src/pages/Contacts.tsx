@@ -18,8 +18,11 @@ import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 import { parsePhoneNumber, combinePhoneNumber, getPhoneCodeForCountry } from "@shared/phoneCountryCodes";
 import { useLocale } from "@/contexts/LocaleContext";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
 
 type ContactWithTags = Omit<Contact, 'tags'> & { tags?: TagType[] };
 
@@ -363,7 +366,7 @@ export default function Contacts() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Contacts</h1>
@@ -375,7 +378,7 @@ export default function Contacts() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Contacts</h1>
@@ -397,7 +400,7 @@ export default function Contacts() {
                 Add Contact
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
               <DialogHeader>
                 <DialogTitle>
                   {editingContact ? "Edit Contact" : "Add New Contact"}
@@ -410,9 +413,9 @@ export default function Contacts() {
               </DialogHeader>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
-                    <Label htmlFor="type">Contact Type *</Label>
+                    <Label htmlFor="type" required>Contact Type</Label>
                     <Select
                       name="type"
                       defaultValue={editingContact?.type || "other"}
@@ -446,9 +449,9 @@ export default function Contacts() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
-                    <Label htmlFor="firstName">First Name *</Label>
+                    <Label htmlFor="firstName" required>First Name</Label>
                     <Input
                       id="firstName"
                       name="firstName"
@@ -461,7 +464,7 @@ export default function Contacts() {
                   </div>
 
                   <div>
-                    <Label htmlFor="lastName">Last Name *</Label>
+                    <Label htmlFor="lastName" required>Last Name</Label>
                     <Input
                       id="lastName"
                       name="lastName"
@@ -474,7 +477,7 @@ export default function Contacts() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="email">Email</Label>
                     <Input
@@ -523,7 +526,7 @@ export default function Contacts() {
                   />
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="city">City</Label>
                     <Input
@@ -561,7 +564,7 @@ export default function Contacts() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="country">Country</Label>
                     <Input
@@ -675,7 +678,7 @@ export default function Contacts() {
                   </div>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className={cn(dialogFooterSticky)}>
                   <Button
                     type="button"
                     variant="outline"
@@ -700,21 +703,21 @@ export default function Contacts() {
           </Dialog>
         </div>
 
-        {/* Desktop Filters */}
-        <div className="hidden md:flex gap-4 items-center">
-          <div className="relative flex-1">
+        <FiltersSection headingId="contacts-filters-heading">
+        <div className="hidden md:flex gap-3 items-center flex-wrap">
+          <div className="relative flex-1 min-w-0 max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search contacts by name, email, or company..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-8"
               data-testid="input-search-contacts"
             />
           </div>
 
           <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="w-48" data-testid="select-filter-type">
+            <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-type">
               <SelectValue placeholder="Filter by type" />
             </SelectTrigger>
             <SelectContent>
@@ -730,7 +733,7 @@ export default function Contacts() {
           </Select>
 
           <Select value={filterTag} onValueChange={setFilterTag}>
-            <SelectTrigger className="w-48" data-testid="select-filter-tag">
+            <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-tag">
               <SelectValue placeholder="Filter by tag" />
             </SelectTrigger>
             <SelectContent>
@@ -742,9 +745,7 @@ export default function Contacts() {
               ))}
             </SelectContent>
           </Select>
-        </div>
 
-        <div className="hidden md:flex gap-4 items-center flex-wrap">
           <Select 
             value={filterBlock} 
             onValueChange={(value) => {
@@ -755,7 +756,7 @@ export default function Contacts() {
               }
             }}
           >
-            <SelectTrigger className="w-48" data-testid="select-filter-block">
+            <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-block">
               <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
               <SelectValue placeholder="All Blocks" />
             </SelectTrigger>
@@ -770,7 +771,7 @@ export default function Contacts() {
           </Select>
 
           <Select value={filterProperty} onValueChange={setFilterProperty}>
-            <SelectTrigger className="w-48" data-testid="select-filter-property">
+            <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-property">
               <Home className="w-4 h-4 mr-2 text-muted-foreground" />
               <SelectValue placeholder="All Properties" />
             </SelectTrigger>
@@ -784,9 +785,11 @@ export default function Contacts() {
             </SelectContent>
           </Select>
 
-          {(filterBlock !== "all" || filterProperty !== "all") && (
+          {(filterBlock !== "all" || filterProperty !== "all" || filterType !== "all" || filterTag !== "all") && (
             <ClearFiltersButton
               onClick={() => {
+                setFilterType("all");
+                setFilterTag("all");
                 setFilterBlock("all");
                 setFilterProperty("all");
               }}
@@ -795,7 +798,6 @@ export default function Contacts() {
           )}
         </div>
 
-        {/* Mobile Filters - Search and Filter Button */}
         <div className="flex md:hidden gap-2 items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -803,14 +805,15 @@ export default function Contacts() {
               placeholder="Search contacts..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-8"
               data-testid="input-search-contacts-mobile"
             />
           </div>
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="shrink-0 relative">
-                <Filter className="w-4 h-4" />
+              <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
                 {(filterType !== "all" || filterTag !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
                 )}
@@ -917,6 +920,7 @@ export default function Contacts() {
             </SheetContent>
           </Sheet>
         </div>
+        </FiltersSection>
 
         {!filteredContacts || filteredContacts.length === 0 ? (
           <Card>

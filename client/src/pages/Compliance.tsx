@@ -11,12 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon, Pencil, Filter, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { FileText, Upload, AlertTriangle, ExternalLink, Calendar, ShieldAlert, Tag as TagIcon, X, Plus, Building2, Home, Check, CalendarIcon, Pencil, Filter, ArrowUpDown, ArrowUp, ArrowDown, Wrench } from "lucide-react";
 import { SheetTrigger } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { format as formatDate, differenceInDays, isPast } from "date-fns";
@@ -29,6 +28,8 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
+import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 // Default document types (fallback if no custom types exist)
 const DEFAULT_DOCUMENT_TYPES = [
@@ -634,7 +635,7 @@ export default function Compliance() {
 
   if (authLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className="container mx-auto min-w-0 p-4 md:p-6">
         <p className="text-muted-foreground">Loading...</p>
       </div>
     );
@@ -642,7 +643,7 @@ export default function Compliance() {
 
   if (!user || (user.role !== "owner" && user.role !== "compliance")) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className="container mx-auto min-w-0 p-4 md:p-6">
         <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
           <ShieldAlert className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-800 dark:text-yellow-200">
@@ -654,7 +655,7 @@ export default function Compliance() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-compliance">
@@ -677,7 +678,7 @@ export default function Compliance() {
               <span className="sm:hidden">Upload</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Upload Compliance Document</DialogTitle>
               <DialogDescription>
@@ -909,7 +910,7 @@ export default function Compliance() {
                 </div>
 
                 <FormItem>
-                  <FormLabel>Document Files *</FormLabel>
+                  <FormLabel required>Document Files</FormLabel>
                   <div className="space-y-2">
                     <ObjectUploader
                       buttonClassName="w-full"
@@ -1059,32 +1060,14 @@ export default function Compliance() {
                         <CalendarIcon className="h-4 w-4" />
                         Expiry Date
                       </FormLabel>
-                      <Popover modal={false}>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-full justify-start text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                              data-testid="button-expiry-date"
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {field.value ? formatDate(new Date(field.value), "PPP") : <span>Pick a date</span>}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0 z-[70]" align="start">
-                          <CalendarComponent
-                            mode="single"
-                            selected={field.value ? new Date(field.value) : undefined}
-                            onSelect={(date) => field.onChange(date ? date.toISOString() : undefined)}
-                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+                      <FormControl>
+                        <LocaleDateInput
+                          value={field.value || null}
+                          onChange={(ymd) => field.onChange(ymd || undefined)}
+                          disablePast
+                          data-testid="button-expiry-date"
+                        />
+                      </FormControl>
                       <FormDescription>
                         Set an expiry date to receive alerts when this document needs renewal
                       </FormDescription>
@@ -1129,15 +1112,16 @@ export default function Compliance() {
         </Dialog>
       </div>
 
+      <FiltersSection headingId="compliance-filters-heading">
       {/* Filter and Sort Controls - Desktop */}
       <div className="hidden md:flex flex-wrap gap-3 items-center">
         {/* Search Bar */}
-        <div className="flex-1 w-full sm:max-w-md min-w-[200px]">
+        <div className="w-full flex-1 sm:max-w-md sm:min-w-0">
           <Input
             placeholder="Search by type, property, or block..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full"
+            className="w-full h-8"
           />
         </div>
         
@@ -1320,22 +1304,23 @@ export default function Compliance() {
       </div>
 
       {/* Filter and Sort Controls - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
+      <div className="flex md:hidden gap-2 items-center">
         {/* Search Bar */}
         <div className="relative flex-1">
           <Input
             placeholder="Search..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full"
+            className="w-full h-8"
           />
         </div>
         
         {/* Filter Button */}
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0">
-              <Filter className="w-4 h-4" />
+            <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+              <Filter className="w-4 h-4 mr-2" />
+              Filters
               {hasActiveFilters && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
               )}
@@ -1504,6 +1489,7 @@ export default function Compliance() {
         )}
         </div>
       )}
+      </FiltersSection>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
@@ -1711,37 +1697,14 @@ export default function Compliance() {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Expiry Date (Optional)</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            className={cn(
-                              "w-full pl-3 text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                            data-testid="button-edit-expiry-date"
-                          >
-                            {field.value ? (
-                              formatDate(new Date(field.value), "PPP")
-                            ) : (
-                              <span>Pick a date</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={field.value ? new Date(field.value) : undefined}
-                          onSelect={(date) => {
-                            field.onChange(date ? date.toISOString().split('T')[0] : undefined);
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <FormControl>
+                      <LocaleDateInput
+                        value={field.value || null}
+                        onChange={(ymd) => field.onChange(ymd || undefined)}
+                        disablePast
+                        data-testid="button-edit-expiry-date"
+                      />
+                    </FormControl>
                     <FormDescription>
                       Leave blank if the document does not expire
                     </FormDescription>
@@ -1928,6 +1891,16 @@ function DocumentCard({
                 <div className="flex items-center gap-1.5">
                   <Building2 className="w-3 h-3 md:w-4 md:h-4" />
                   <span className="truncate max-w-[150px] md:max-w-none">{blockName}</span>
+                </div>
+              )}
+
+              {doc.sourceWorkOrderId && (
+                <div
+                  className="flex items-center gap-1.5"
+                  data-testid={`text-source-work-order-${doc.id}`}
+                >
+                  <Wrench className="w-3 h-3 md:w-4 md:h-4" />
+                  <span>Source: Work Order</span>
                 </div>
               )}
             </div>

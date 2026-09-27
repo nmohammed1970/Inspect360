@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useEntitlement } from "@/hooks/useEntitlement";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -33,12 +34,26 @@ import {
   RefreshCw,
   Filter,
   Download,
-  Loader2
+  Loader2,
+  Banknote
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
+
+function formatInclusiveUtcDate(iso: string | null | undefined): string {
+  if (!iso) return "the expiration date";
+  const inclusive = new Date(new Date(iso).getTime() - 1);
+  if (Number.isNaN(inclusive.getTime())) return "the expiration date";
+  return inclusive.toLocaleDateString("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 import { TagSearch } from "@/components/TagSearch";
+import { BuyCreditsButton, RequestCreditsDialog } from "@/components/RequestCreditsDialog";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
 import { 
@@ -79,6 +94,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 import type { Property, Block } from "@shared/schema";
 
 interface DashboardStats {
@@ -117,6 +133,17 @@ interface DashboardStats {
       dueDate?: string | null;
       daysOverdue?: number;
       createdAt: string;
+    }>;
+    overdueRent: number;
+    overdueRentList: Array<{
+      id: string;
+      propertyId: string;
+      tenantName: string;
+      periodLabel: string;
+      amountOutstanding: string;
+      currency: string;
+      dueDate: string;
+      daysOverdue: number;
     }>;
   };
   upcoming: {
@@ -173,6 +200,8 @@ const widgetLabels: Record<WidgetKey, string> = {
 export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
+  const { data: entitlement } = useEntitlement();
+  const featuresLocked = !!entitlement?.locked;
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   
@@ -190,6 +219,7 @@ export default function Dashboard() {
     }
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [creditRequestOpen, setCreditRequestOpen] = useState(false);
   
   // Inspection Schedule widget filter state
   const [inspectionScheduleBlockId, setInspectionScheduleBlockId] = useState<string>("");
@@ -246,12 +276,12 @@ export default function Dashboard() {
 
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !featuresLocked,
   });
 
   const { data: blocks = [] } = useQuery<Block[]>({
     queryKey: ["/api/blocks"],
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !featuresLocked,
   });
 
   // Get credit balance from billing API
@@ -290,7 +320,7 @@ export default function Dashboard() {
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: isAuthenticated && visibleWidgets.inspectionSchedule && !!inspectionScheduleEntityId,
+    enabled: isAuthenticated && !featuresLocked && visibleWidgets.inspectionSchedule && !!inspectionScheduleEntityId,
   });
 
   // Compliance Schedule documents query
@@ -308,7 +338,7 @@ export default function Dashboard() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: isAuthenticated && visibleWidgets.complianceSchedule && !!complianceScheduleEntityId,
+    enabled: isAuthenticated && !featuresLocked && visibleWidgets.complianceSchedule && !!complianceScheduleEntityId,
   });
 
   // Filter properties for schedule widgets based on selected block
@@ -421,11 +451,12 @@ export default function Dashboard() {
   }
 
   const creditsRemaining = creditBalance?.total ?? 0;
-  const creditsLow = creditsRemaining < 5;
+  const creditsLow = creditsRemaining < 5 && !featuresLocked && !entitlement?.warning;
 
-  const totalAlerts = (stats?.alerts.overdueInspections || 0) + 
-                      (stats?.alerts.overdueCompliance || 0) + 
-                      (stats?.alerts.urgentMaintenance || 0);
+  const totalAlerts = (stats?.alerts.overdueInspections || 0) +
+                      (stats?.alerts.overdueCompliance || 0) +
+                      (stats?.alerts.urgentMaintenance || 0) +
+                      (stats?.alerts.overdueRent || 0);
 
   const getKpiColor = (value: number, thresholds: { good: number; warning: number }) => {
     if (value >= thresholds.good) return "text-green-600 dark:text-green-400";
@@ -440,7 +471,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header Section */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -512,6 +543,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <FiltersSection headingId="dashboard-filters-heading">
         {/* Filter Row - Desktop */}
         <div className="hidden md:flex flex-wrap items-center gap-3">
           <UiTooltip>
@@ -519,7 +551,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 <Select value={filterBlockId} onValueChange={(val) => setFilterBlockId(val === "__all__" ? "" : val)}>
-                  <SelectTrigger className="w-[180px]" data-testid="filter-block">
+                  <SelectTrigger className="w-full sm:w-[180px] sm:min-w-0 h-8" data-testid="filter-block">
                     <SelectValue placeholder="All Blocks" />
                   </SelectTrigger>
                   <SelectContent>
@@ -542,7 +574,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <Home className="h-4 w-4 text-muted-foreground" />
                 <Select value={filterPropertyId} onValueChange={(val) => setFilterPropertyId(val === "__all__" ? "" : val)}>
-                  <SelectTrigger className="w-[180px]" data-testid="filter-property">
+                  <SelectTrigger className="w-full sm:w-[180px] sm:min-w-0" data-testid="filter-property">
                     <SelectValue placeholder="All Properties" />
                   </SelectTrigger>
                   <SelectContent>
@@ -626,13 +658,14 @@ export default function Dashboard() {
         </div>
 
         {/* Filter Row - Mobile */}
-        <div className="flex md:hidden gap-2 items-center mb-4">
+        <div className="flex md:hidden gap-2 items-center">
           <Sheet>
             <UiTooltip>
               <TooltipTrigger asChild>
                 <SheetTrigger asChild>
-                  <Button variant="outline" size="icon" className="shrink-0 relative">
-                    <Filter className="w-4 h-4" />
+                  <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+                    <Filter className="w-4 h-4 mr-2" />
+                    Filters
                     {hasActiveFilters && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
                     )}
@@ -739,6 +772,7 @@ export default function Dashboard() {
             </TooltipContent>
           </UiTooltip>
         </div>
+        </FiltersSection>
       </div>
 
       {/* Critical Alerts Banner */}
@@ -756,7 +790,7 @@ export default function Dashboard() {
                       {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {stats?.alerts.overdueInspections || 0} overdue inspections, {stats?.alerts.overdueCompliance || 0} expired compliance, {stats?.alerts.urgentMaintenance || 0} urgent maintenance
+                      {stats?.alerts.overdueInspections || 0} overdue inspections, {stats?.alerts.overdueCompliance || 0} expired compliance, {stats?.alerts.urgentMaintenance || 0} urgent maintenance, {stats?.alerts.overdueRent || 0} overdue rent
                     </p>
                   </div>
                 </div>
@@ -764,9 +798,67 @@ export default function Dashboard() {
             </Card>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Overdue inspections, expired compliance docs, and urgent maintenance</p>
+            <p>Overdue inspections, expired compliance docs, urgent maintenance, and overdue rent</p>
           </TooltipContent>
         </UiTooltip>
+      )}
+
+      {/* Trial / credit entitlement warning */}
+      {(entitlement?.code === "TRIAL_ACTIVE" || entitlement?.code === "TRIAL_EXPIRING") && entitlement.daysRemaining != null && (
+        <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-trial-expiring">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+                Your free trial expires in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Please contact your administrator to purchase credits to continue using the system.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-trial" />
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.code === "TRIAL_EXPIRED" && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-trial-expired">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-destructive">Trial Period Ended</p>
+              <p className="text-sm text-muted-foreground">
+                Your free trial has ended and some features are currently locked. Please contact your administrator to purchase credits and continue using the system.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-trial-expired" />
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.warning === "credits" && entitlement.daysRemaining != null && (
+        <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-credits-expiring">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+                Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Your current credits will expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Please contact your administrator to purchase more credits before they expire.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-expiry" />
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.code === "CREDITS_EXPIRED" && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-credits-expired">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-destructive">Credits Expired</p>
+              <p className="text-sm text-muted-foreground">
+                Your credits have expired. Some features are currently locked. Please contact your administrator to continue.
+              </p>
+            </div>
+            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-expired" />
+          </CardContent>
+        </Card>
       )}
 
       {/* Credits Low Alert */}
@@ -774,7 +866,7 @@ export default function Dashboard() {
         <UiTooltip>
           <TooltipTrigger asChild>
             <Card className="border-yellow-500/50 bg-yellow-500/5">
-              <CardContent className="flex items-center justify-between gap-4 p-4">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
                     <CreditCard className="w-5 h-5 text-yellow-600" />
@@ -784,9 +876,12 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">{creditsRemaining} credits remaining</p>
                   </div>
                 </div>
-                <Link href="/billing">
-                  <Button size="sm" data-testid="button-view-plan">View Modules</Button>
-                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link href="/billing">
+                    <Button size="sm" variant="outline" data-testid="button-view-plan">View Modules</Button>
+                  </Link>
+                  <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-low" />
+                </div>
               </CardContent>
             </Card>
           </TooltipTrigger>
@@ -795,6 +890,8 @@ export default function Dashboard() {
           </TooltipContent>
         </UiTooltip>
       )}
+
+      <RequestCreditsDialog open={creditRequestOpen} onOpenChange={setCreditRequestOpen} user={user} />
 
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (
@@ -946,7 +1043,7 @@ export default function Dashboard() {
                     </CardTitle>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Overdue inspections, expired compliance, and urgent maintenance</p>
+                    <p>Overdue inspections, expired compliance, urgent maintenance, and overdue rent</p>
                   </TooltipContent>
                 </UiTooltip>
                 <Badge variant="destructive" className="text-xs">
@@ -955,16 +1052,19 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="inspections" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="inspections" className="text-xs md:text-sm" data-testid="tab-overdue-inspections">
+              <Tabs defaultValue="inspections" className="w-full min-w-0">
+                <TabsList className="w-full">
+                  <TabsTrigger value="inspections" className="flex-1 text-xs md:text-sm" data-testid="tab-overdue-inspections">
                     Inspections ({stats?.alerts?.overdueInspections ?? 0})
                   </TabsTrigger>
-                  <TabsTrigger value="compliance" className="text-xs md:text-sm" data-testid="tab-overdue-compliance">
+                  <TabsTrigger value="compliance" className="flex-1 text-xs md:text-sm" data-testid="tab-overdue-compliance">
                     Compliance ({stats?.alerts?.overdueCompliance ?? 0})
                   </TabsTrigger>
-                  <TabsTrigger value="maintenance" className="text-xs md:text-sm" data-testid="tab-urgent-maintenance">
+                  <TabsTrigger value="maintenance" className="flex-1 text-xs md:text-sm" data-testid="tab-urgent-maintenance">
                     Maintenance ({stats?.alerts?.urgentMaintenance ?? 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="rent" className="flex-1 text-xs md:text-sm" data-testid="tab-overdue-rent">
+                    Rent ({stats?.alerts?.overdueRent ?? 0})
                   </TabsTrigger>
                 </TabsList>
                 
@@ -977,7 +1077,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.overdueInspectionsList ?? []).map((item) => (
-                        <Link key={item.id} href={`/inspections/${item.id}`}>
+                        <Link key={item.id} href={`/inspections/${item.id}/capture`}>
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-inspection-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
@@ -1070,21 +1170,24 @@ export default function Dashboard() {
                                 <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                               </div>
                               <div>
-                                <p className="font-medium text-sm truncate max-w-[200px]">{item.title}</p>
+                                <p className="font-medium text-sm truncate min-w-0">{item.title}</p>
                                 <p className="text-xs text-muted-foreground">
                                   {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 'Unknown'}
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge
+                                variant="outline"
+                                className="text-xs border-orange-500 text-orange-600 min-w-[4.5rem] shrink-0 justify-center capitalize"
+                              >
+                                {item.priority}
+                              </Badge>
                               {item.daysOverdue && item.daysOverdue > 0 && (
                                 <Badge variant="destructive" className="text-xs">
                                   {item.daysOverdue}d overdue
                                 </Badge>
                               )}
-                              <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">
-                                {item.priority}
-                              </Badge>
                             </div>
                           </div>
                         </Link>
@@ -1096,6 +1199,47 @@ export default function Dashboard() {
                             <ChevronRight className="h-4 w-4 ml-1" />
                           </Button>
                         </Link>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="rent" className="mt-4">
+                  {(stats?.alerts?.overdueRentList?.length ?? 0) === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                      <p>No overdue rent</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(stats?.alerts?.overdueRentList ?? []).map((item) => (
+                        <Link key={item.id} href={`/properties/${item.propertyId}?tab=rent-collection`}>
+                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-rent-${item.id}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                                <Banknote className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {propertyMap.get(item.propertyId) || "Property"}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {item.tenantName} · {item.periodLabel}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="destructive" className="text-xs">
+                                {item.daysOverdue}d overdue
+                              </Badge>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                      {(stats?.alerts?.overdueRent ?? 0) > 10 && (
+                        <p className="text-center text-xs text-muted-foreground pt-2">
+                          Showing 10 of {stats?.alerts?.overdueRent} overdue rent periods
+                        </p>
                       )}
                     </div>
                   )}
@@ -1429,7 +1573,7 @@ export default function Dashboard() {
                     setInspectionSchedulePropertyId("");
                   }}
                 >
-                  <SelectTrigger className="w-[160px]" data-testid="select-inspection-block">
+                  <SelectTrigger className="w-full sm:w-[160px] sm:min-w-0" data-testid="select-inspection-block">
                     <SelectValue placeholder="Select Block" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1443,7 +1587,7 @@ export default function Dashboard() {
                   value={inspectionSchedulePropertyId}
                   onValueChange={(value) => setInspectionSchedulePropertyId(value === "all" ? "" : value)}
                 >
-                  <SelectTrigger className="w-[180px]" data-testid="select-inspection-property">
+                  <SelectTrigger className="w-full sm:w-[180px] sm:min-w-0" data-testid="select-inspection-property">
                     <SelectValue placeholder="Select Property" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1482,7 +1626,7 @@ export default function Dashboard() {
                     setComplianceSchedulePropertyId("");
                   }}
                 >
-                  <SelectTrigger className="w-[160px]" data-testid="select-compliance-block">
+                  <SelectTrigger className="w-full sm:w-[160px] sm:min-w-0" data-testid="select-compliance-block">
                     <SelectValue placeholder="Select Block" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1496,7 +1640,7 @@ export default function Dashboard() {
                   value={complianceSchedulePropertyId}
                   onValueChange={(value) => setComplianceSchedulePropertyId(value === "all" ? "" : value)}
                 >
-                  <SelectTrigger className="w-[180px]" data-testid="select-compliance-property">
+                  <SelectTrigger className="w-full sm:w-[180px] sm:min-w-0" data-testid="select-compliance-property">
                     <SelectValue placeholder="Select Property" />
                   </SelectTrigger>
                   <SelectContent>
