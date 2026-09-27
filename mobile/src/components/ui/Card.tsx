@@ -2,6 +2,7 @@ import React, { ReactNode } from 'react';
 import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
 import { colors, spacing, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../hooks/useResponsive';
 
 interface CardProps {
   children: ReactNode;
@@ -17,51 +18,37 @@ export default function Card({
   padding = 'md',
 }: CardProps) {
   const theme = useTheme();
-  // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const { getResponsivePadding } = useResponsive();
 
-  const baseStyle = {
-    backgroundColor: themeColors.card.DEFAULT,
-    borderRadius: borderRadius.xl, // More rounded for modern look
-    borderWidth: variant === 'outlined' ? 1 : 0.5, // Thicker border for outlined variant
-    borderColor: variant === 'outlined' ? themeColors.card.border : themeColors.border.light,
+  const paddingMap = {
+    none: 0,
+    sm: getResponsivePadding(spacing[2]),
+    md: getResponsivePadding(spacing[4]),
+    lg: getResponsivePadding(spacing[6]),
   };
 
-  const cardStyle = [
-    baseStyle,
-    styles[variant],
-    styles[`padding_${padding}`],
-    style,
-  ];
+  const baseStyle: ViewStyle = {
+    backgroundColor: themeColors.card.DEFAULT,
+    borderRadius: borderRadius.xl,
+    borderWidth: variant === 'outlined' ? 1 : 0.5,
+    borderColor: variant === 'outlined' ? themeColors.card.border : themeColors.border.light,
+    padding: paddingMap[padding],
+    minWidth: 0,
+    alignSelf: 'stretch',
+  };
 
-  return <View style={cardStyle}>{children}</View>;
+  return <View style={[baseStyle, styles[variant], style]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
-  card: {
-    // Colors are now set dynamically via theme
-  },
   default: {
     ...(shadows?.sm ?? {}),
   },
   outlined: {
     borderWidth: 1,
-    // borderColor will be set dynamically via theme
   },
   elevated: {
     ...(shadows?.md ?? {}),
   },
-  padding_none: {
-    padding: 0,
-  },
-  padding_sm: {
-    padding: spacing[2],
-  },
-  padding_md: {
-    padding: spacing[4],
-  },
-  padding_lg: {
-    padding: spacing[6],
-  },
 });
-

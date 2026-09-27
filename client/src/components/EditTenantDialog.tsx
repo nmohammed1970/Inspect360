@@ -42,6 +42,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useLocale } from "@/contexts/LocaleContext";
 import { PhoneInput } from "@/components/PhoneInput";
+import { cn } from "@/lib/utils";
+import { dialogFooterSticky, formGrid2 } from "@/lib/responsive";
 
 const formSchema = z.object({
   firstName: z.string().optional().refine((val) => !val || val.trim().length > 0, {
@@ -520,7 +522,7 @@ export default function EditTenantDialog({
     <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
           <DialogTitle>Edit Tenant Assignment</DialogTitle>
           <DialogDescription>Update lease details for {fullName}</DialogDescription>
@@ -531,7 +533,7 @@ export default function EditTenantDialog({
             {/* Tenant Information Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold">Tenant Information</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="firstName"
@@ -594,7 +596,7 @@ export default function EditTenantDialog({
             {/* Lease Details Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold">Lease Details</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="leaseStartDate"
@@ -638,7 +640,7 @@ export default function EditTenantDialog({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="monthlyRent"
@@ -710,7 +712,7 @@ export default function EditTenantDialog({
             {/* Next of Kin Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold">Next of Kin Information</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="nextOfKinName"
@@ -760,7 +762,7 @@ export default function EditTenantDialog({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className={formGrid2}>
                 <FormField
                   control={form.control}
                   name="nextOfKinPhone"
@@ -830,8 +832,8 @@ export default function EditTenantDialog({
 
                 {form.watch("hasPortalAccess") && (
                   <div className="rounded-lg border p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-0.5 min-w-0">
                         <p className="text-sm font-medium">Send Portal Credentials</p>
                         <p className="text-sm text-muted-foreground">
                           Email login credentials to {tenant.email}
@@ -990,7 +992,7 @@ export default function EditTenantDialog({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4">
+            <div className={cn(dialogFooterSticky)}>
               <Button
                 type="button"
                 variant="outline"

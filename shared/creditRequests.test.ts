@@ -26,39 +26,54 @@ function assert(condition: boolean, message: string) {
   }
 }
 
-function credits(value: unknown) {
-  return parseCreditRequestCreate({ creditsRequested: value, message: "Need credits for inspections." });
+function units(value: unknown, phone = "+44 7700 900123") {
+  return parseCreditRequestCreate({
+    creditsRequested: value,
+    contactPhone: phone,
+    message: "Need credits for inspections.",
+  });
 }
 
-assert(!credits(5).ok, "5 rejected");
-assert(!credits(4).ok, "4 rejected");
-assert(!credits(0).ok, "0 rejected");
-assert(!credits(-1).ok, "negative rejected");
-assert(!credits(5.5).ok, "decimal rejected");
-assert(!credits("abc").ok, "letters rejected");
-assert(!credits("").ok, "empty credits rejected");
-assert(!credits("6.0").ok, "decimal string rejected");
-assert(credits(6).ok && credits(6).ok && (credits(6) as { creditsRequested: number }).creditsRequested === 6, "6 accepted");
-assert(credits(100).ok, "100 accepted");
-assert(credits("50").ok, "numeric string accepted");
-assert(!credits(MAX_CREDIT_REQUEST + 1).ok, "above maximum rejected");
+assert(!units(0).ok, "0 rejected");
+assert(!units(-1).ok, "negative rejected");
+assert(!units(5.5).ok, "decimal rejected");
+assert(!units("abc").ok, "letters rejected");
+assert(!units("").ok, "empty units rejected");
+assert(!units("6.0").ok, "decimal string rejected");
+assert(units(1).ok && (units(1) as { creditsRequested: number }).creditsRequested === 1, "1 unit accepted");
+assert(units(6).ok && (units(6) as { creditsRequested: number }).creditsRequested === 6, "6 accepted");
+assert(units(100).ok, "100 accepted");
+assert(units("50").ok, "numeric string accepted");
+assert(!units(MAX_CREDIT_REQUEST + 1).ok, "above maximum rejected");
 
-const emptyMessage = parseCreditRequestCreate({ creditsRequested: 10, message: "   " });
+assert(!parseCreditRequestCreate({ creditsRequested: 10, contactPhone: "", message: "Need credits." }).ok, "blank phone rejected");
+assert(!parseCreditRequestCreate({ creditsRequested: 10, message: "Need credits." }).ok, "missing phone rejected");
+
+const emptyMessage = parseCreditRequestCreate({ creditsRequested: 10, contactPhone: "+1 555", message: "   " });
 assert(!emptyMessage.ok && emptyMessage.ok === false && emptyMessage.message === "Please enter a message.", "blank message");
-const longMessage = parseCreditRequestCreate({ creditsRequested: 10, message: "a".repeat(MAX_CREDIT_REQUEST_MESSAGE + 1) });
+const longMessage = parseCreditRequestCreate({
+  creditsRequested: 10,
+  contactPhone: "+1 555",
+  message: "a".repeat(MAX_CREDIT_REQUEST_MESSAGE + 1),
+});
 assert(!longMessage.ok, "oversized message");
-const trimmed = parseCreditRequestCreate({ creditsRequested: 10, message: "  Need credits.  " });
-assert(trimmed.ok && trimmed.ok && trimmed.message === "Need credits.", "message trimmed");
+const trimmed = parseCreditRequestCreate({
+  creditsRequested: 10,
+  contactPhone: "  +1 555  ",
+  message: "  Need credits.  ",
+});
+assert(trimmed.ok && trimmed.message === "Need credits." && trimmed.contactPhone === "+1 555", "message and phone trimmed");
 
 const spoofed = parseCreditRequestCreate({
   creditsRequested: 10,
+  contactPhone: "+1 555",
   message: "Need credits.",
   status: "GRANTED",
   organizationId: "other-org",
   requestedByUserId: "other-user",
   requesterEmail: "other@example.com",
 });
-assert(spoofed.ok, "body with spoofed fields still parses credits");
+assert(spoofed.ok, "body with spoofed fields still parses units");
 assert(spoofed.ok && !("status" in spoofed), "status is not taken from the body");
 
 const identity = resolveRequestIdentity({
@@ -78,18 +93,21 @@ const now = new Date("2026-09-21T12:00:00.000Z");
 assert(isDuplicateSubmission({
   creditsRequested: 10,
   message: "Need credits.",
+  contactPhone: "+1 555",
   createdAt: new Date(now.getTime() - 30_000),
-}, { creditsRequested: 10, message: "Need credits." }, now), "identical request inside 60 seconds is a duplicate");
+}, { creditsRequested: 10, message: "Need credits.", contactPhone: "+1 555" }, now), "identical request inside 60 seconds is a duplicate");
 assert(!isDuplicateSubmission({
   creditsRequested: 10,
   message: "Need credits.",
+  contactPhone: "+1 555",
   createdAt: new Date(now.getTime() - 61_000),
-}, { creditsRequested: 10, message: "Need credits." }, now), "same request after the window is allowed");
+}, { creditsRequested: 10, message: "Need credits.", contactPhone: "+1 555" }, now), "same request after the window is allowed");
 assert(!isDuplicateSubmission({
   creditsRequested: 20,
   message: "Need credits.",
+  contactPhone: "+1 555",
   createdAt: new Date(now.getTime() - 10_000),
-}, { creditsRequested: 10, message: "Need credits." }, now), "different amount is not a duplicate");
+}, { creditsRequested: 10, message: "Need credits.", contactPhone: "+1 555" }, now), "different amount is not a duplicate");
 assert(exceedsHourlyLimit(10), "hour cap");
 assert(!exceedsHourlyLimit(9), "under hour cap");
 
@@ -113,14 +131,16 @@ const mail = buildCreditRequestEmail({
   organizationName: "ABC Ltd",
   requesterName: "John Smith",
   requesterEmail: "john@example.com",
+  contactPhone: "+44 7700 900123",
   creditsRequested: 100,
   message: "I need credits <script>alert(1)</script>",
   requestedAt: now,
   adminUrl: "https://portal.inspect360.ai/admin/credit-requests",
 });
-assert(mail.subject === "New Credit Request - ABC Ltd", "subject includes organization");
+assert(mail.subject === "New Credit Purchase Request - ABC Ltd", "subject includes organization");
 assert(mail.text.includes("John Smith") && mail.text.includes("john@example.com"), "email names the requester");
-assert(mail.text.includes("100") && mail.text.includes("REQUESTED"), "email includes credits and status");
+assert(mail.text.includes("+44 7700 900123"), "email includes phone");
+assert(mail.text.includes("Properties / Units: 100") && mail.text.includes("REQUESTED"), "email includes units and status");
 assert(mail.html.includes("&lt;script&gt;"), "message is escaped");
 assert(!mail.html.includes("<script>alert"), "raw script is not rendered");
 

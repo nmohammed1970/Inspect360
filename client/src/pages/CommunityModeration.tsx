@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/breadcrumb";
 import { format } from "date-fns";
 import { Link } from "wouter";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
 
 interface Block {
   id: string;
@@ -398,7 +400,7 @@ export default function CommunityModeration() {
   // Thread view - loading state
   if (viewMode === 'thread' && threadLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -441,7 +443,7 @@ export default function CommunityModeration() {
   // Thread view - error state (no data after loading)
   if (viewMode === 'thread' && !threadLoading && !threadData) {
     return (
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -476,7 +478,7 @@ export default function CommunityModeration() {
   // Thread view
   if (viewMode === 'thread' && threadData) {
     return (
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -590,7 +592,7 @@ export default function CommunityModeration() {
   // Group view - loading state
   if (viewMode === 'group' && groupsLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -630,7 +632,7 @@ export default function CommunityModeration() {
   // Group view - error state (no group found)
   if (viewMode === 'group' && !groupsLoading && !currentGroup) {
     return (
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -665,7 +667,7 @@ export default function CommunityModeration() {
   // Group view (threads list)
   if (viewMode === 'group' && currentGroup) {
     return (
-      <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -722,18 +724,18 @@ export default function CommunityModeration() {
                 data-testid={`card-thread-${thread.id}`}
               >
                 <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <CardTitle className="text-base flex items-center gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4 min-w-0">
+                    <div className="min-w-0">
+                      <CardTitle className="text-base flex flex-wrap items-center gap-2 break-words">
                         {thread.isPinned && <Badge variant="secondary">Pinned</Badge>}
-                        {thread.title}
+                        <span className="break-words min-w-0">{thread.title}</span>
                         {thread.isLocked && <Badge variant="outline">Locked</Badge>}
                       </CardTitle>
-                      <CardDescription>
+                      <CardDescription className="break-words">
                         by {thread.authorName} {thread.isOperator && <Badge variant="outline" className="ml-1">Staff</Badge>} | {format(new Date(thread.createdAt), "PP")}
                       </CardDescription>
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
                       <span className="flex items-center gap-1">
                         <Eye className="h-3 w-3" /> {thread.viewCount}
                       </span>
@@ -744,7 +746,7 @@ export default function CommunityModeration() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <p className="text-sm text-muted-foreground line-clamp-2">{thread.content}</p>
+                  <p className="text-sm text-muted-foreground line-clamp-2 break-words">{thread.content}</p>
                 </CardContent>
               </Card>
             ))}
@@ -783,7 +785,7 @@ export default function CommunityModeration() {
                 />
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className={cn(dialogFooterSticky)}>
               <Button variant="outline" onClick={() => setShowCreateThread(false)} data-testid="button-cancel-thread">
                 Cancel
               </Button>
@@ -803,7 +805,7 @@ export default function CommunityModeration() {
 
   // Main list view
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -841,7 +843,7 @@ export default function CommunityModeration() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="text-xs md:text-sm">Pending Groups</CardDescription>
@@ -1343,7 +1345,7 @@ export default function CommunityModeration() {
 
       {/* Flag Review Dialog */}
       <Dialog open={!!selectedFlag} onOpenChange={(open) => !open && setSelectedFlag(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Flag className="h-5 w-5 text-destructive" />
@@ -1490,7 +1492,7 @@ export default function CommunityModeration() {
 
       {/* Rules Editor Dialog */}
       <Dialog open={showRulesEditor} onOpenChange={setShowRulesEditor}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
           <DialogHeader>
             <DialogTitle>Community Guidelines</DialogTitle>
             <DialogDescription>
@@ -1508,7 +1510,7 @@ export default function CommunityModeration() {
               data-testid="input-rules-text"
             />
           </div>
-          <DialogFooter>
+          <DialogFooter className={cn(dialogFooterSticky)}>
             <Button variant="outline" onClick={() => setShowRulesEditor(false)} data-testid="button-cancel-rules">
               Cancel
             </Button>

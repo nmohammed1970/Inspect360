@@ -6,6 +6,7 @@ import Button from './Button';
 import Progress from './Progress';
 import { colors, spacing, typography, borderRadius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../hooks/useResponsive';
 import type { SyncProgress } from '../../services/offline/syncService';
 
 interface SyncProgressModalProps {
@@ -17,6 +18,7 @@ interface SyncProgressModalProps {
 export default function SyncProgressModal({ visible, progress, onClose }: SyncProgressModalProps) {
   const theme = useTheme();
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const { formMaxWidth, modalMaxHeight } = useResponsive();
 
   if (!progress) {
     return null;
@@ -36,7 +38,16 @@ export default function SyncProgressModal({ visible, progress, onClose }: SyncPr
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <Card style={[styles.modal, { backgroundColor: themeColors.card.DEFAULT }]}>
+        <Card
+          style={[
+            styles.modal,
+            {
+              backgroundColor: themeColors.card.DEFAULT,
+              maxWidth: formMaxWidth,
+              maxHeight: modalMaxHeight(0.85),
+            },
+          ]}
+        >
           <View style={styles.header}>
             {isComplete ? (
               hasErrors ? (
@@ -103,7 +114,6 @@ const styles = StyleSheet.create({
   },
   modal: {
     width: '100%',
-    maxWidth: 400,
     padding: spacing[4],
     borderRadius: borderRadius.lg,
   },

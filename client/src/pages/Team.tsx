@@ -22,6 +22,7 @@ import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useLocale } from "@/contexts/LocaleContext";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 
 /** Username input removed from UI; API still requires username — derive a safe value from email. */
 function defaultUsernameFromEmail(email: string): string {
@@ -427,7 +428,7 @@ export default function Team() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className="container mx-auto min-w-0 p-4 md:p-6">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Team Management</h1>
           <p className="text-sm md:text-base text-muted-foreground">Loading team members...</p>
@@ -437,7 +438,7 @@ export default function Team() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -450,115 +451,112 @@ export default function Team() {
         </Button>
       </div>
 
-      {/* Filters - Desktop */}
-      <Card className="p-6 hidden md:block">
-        <div className="flex items-center gap-2 mb-4">
-          <Filter className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold">Filter Team Members</h2>
-          {hasActiveFilters && (
+      <FiltersSection
+        headingId="team-filters-heading"
+        headingEnd={
+          hasActiveFilters ? (
             <ClearFiltersButton
               onClick={clearFilters}
-              className="ml-auto"
+              className="hidden md:inline-flex"
               data-testid="button-clear-filters"
             />
-          )}
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Search */}
-          <div className="space-y-2">
-            <Label htmlFor="search">Search</Label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                id="search"
-                placeholder="Name, email, username..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-team"
-              />
+          ) : (
+            <span className="text-xs text-muted-foreground tabular-nums hidden md:inline">
+              {filteredTeamMembers.length} of {teamMembers?.length || 0}
+            </span>
+          )
+        }
+      >
+        <div className="hidden md:block space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="search" className="text-xs">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="search"
+                  placeholder="Name, email, username..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 h-8"
+                  data-testid="input-search-team"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="role-filter" className="text-xs">Role</Label>
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger id="role-filter" className="h-8" data-testid="select-role-filter">
+                  <SelectValue placeholder="All Roles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
+                  <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
+                  <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
+                  <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="skills-filter" className="text-xs">Skills</Label>
+              <div className="relative">
+                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="skills-filter"
+                  placeholder="e.g., Property Inspector"
+                  value={skillsFilter}
+                  onChange={(e) => setSkillsFilter(e.target.value)}
+                  className="pl-9 h-8"
+                  data-testid="input-skills-filter"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="education-filter" className="text-xs">Education</Label>
+              <div className="relative">
+                <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="education-filter"
+                  placeholder="e.g., MBA, Bachelor"
+                  value={educationFilter}
+                  onChange={(e) => setEducationFilter(e.target.value)}
+                  className="pl-9 h-8"
+                  data-testid="input-education-filter"
+                />
+              </div>
             </div>
           </div>
-
-          {/* Role Filter */}
-          <div className="space-y-2">
-            <Label htmlFor="role-filter">Role</Label>
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger id="role-filter" data-testid="select-role-filter">
-                <SelectValue placeholder="All Roles" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
-                <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
-                <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
-                <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Skills Filter */}
-          <div className="space-y-2">
-            <Label htmlFor="skills-filter">Skills</Label>
-            <div className="relative">
-              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                id="skills-filter"
-                placeholder="e.g., Property Inspector"
-                value={skillsFilter}
-                onChange={(e) => setSkillsFilter(e.target.value)}
-                className="pl-9"
-                data-testid="input-skills-filter"
-              />
-            </div>
-          </div>
-
-          {/* Education Filter */}
-          <div className="space-y-2">
-            <Label htmlFor="education-filter">Education</Label>
-            <div className="relative">
-              <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                id="education-filter"
-                placeholder="e.g., MBA, Bachelor"
-                value={educationFilter}
-                onChange={(e) => setEducationFilter(e.target.value)}
-                className="pl-9"
-                data-testid="input-education-filter"
-              />
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Showing {filteredTeamMembers.length} of {teamMembers?.length || 0} team members
+            {hasActiveFilters && " (filtered)"}
+          </p>
         </div>
 
-        {/* Results count */}
-        <div className="mt-4 text-sm text-muted-foreground">
-          Showing {filteredTeamMembers.length} of {teamMembers?.length || 0} team members
-          {hasActiveFilters && " (filtered)"}
-        </div>
-      </Card>
-
-      {/* Filters - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search team members..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-            data-testid="input-search-team-mobile"
-          />
-        </div>
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0">
-              <Filter className="w-4 h-4" />
-              {hasActiveFilters && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-              )}
-            </Button>
-          </SheetTrigger>
+        <div className="flex md:hidden gap-2 items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search team members..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-8"
+              data-testid="input-search-team-mobile"
+            />
+          </div>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
+                {hasActiveFilters && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                )}
+              </Button>
+            </SheetTrigger>
           <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Filters</SheetTitle>
@@ -618,7 +616,8 @@ export default function Team() {
             </div>
           </SheetContent>
         </Sheet>
-      </div>
+        </div>
+      </FiltersSection>
 
       {/* Team Members List */}
       <div className="grid gap-6">
@@ -758,7 +757,7 @@ export default function Team() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingUser ? "Edit Team Member" : "Add Team Member"}
@@ -770,16 +769,16 @@ export default function Team() {
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="basic">Basic Info</TabsTrigger>
-              <TabsTrigger value="professional">Professional</TabsTrigger>
-              <TabsTrigger value="documents">Documents</TabsTrigger>
+          <Tabs defaultValue="basic" className="w-full min-w-0">
+            <TabsList className="w-full">
+              <TabsTrigger value="basic" className="flex-1">Basic Info</TabsTrigger>
+              <TabsTrigger value="professional" className="flex-1">Professional</TabsTrigger>
+              <TabsTrigger value="documents" className="flex-1">Documents</TabsTrigger>
             </TabsList>
 
             {/* Basic Info Tab */}
             <TabsContent value="basic" className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="firstName" required>First Name</Label>
                   <Input
@@ -895,7 +894,7 @@ export default function Team() {
                      data-testid="input-street"
                    />
                  </div>
-                 <div className="grid grid-cols-2 gap-4">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    <div className="space-y-2">
                      <Label htmlFor="city">City</Label>
                      <Input
@@ -917,7 +916,7 @@ export default function Team() {
                      />
                    </div>
                  </div>
-                 <div className="grid grid-cols-2 gap-4">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    <div className="space-y-2">
                      <Label htmlFor="postalCode">Postal Code / ZIP Code</Label>
                      <Input

@@ -15,6 +15,8 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
 
 interface ComparisonReport {
   id: string;
@@ -51,7 +53,7 @@ export default function TenantComparisonReports() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-12 w-64" />
         <div className="space-y-4">
           <Skeleton className="h-24" />
@@ -63,7 +65,7 @@ export default function TenantComparisonReports() {
   }
 
   return (
-    <div className="p-6 space-y-6" data-testid="page-tenant-comparison-reports">
+    <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")} data-testid="page-tenant-comparison-reports">
       <Breadcrumb className="mb-4">
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -77,13 +79,13 @@ export default function TenantComparisonReports() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3" data-testid="text-page-title">
-            <FileText className="h-8 w-8 text-primary" />
-            Comparison Reports
+      <div className="flex flex-col gap-2 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2 md:gap-3" data-testid="text-page-title">
+            <FileText className="h-6 w-6 md:h-8 md:w-8 text-primary shrink-0" />
+            <span className={textTruncate}>Comparison Reports</span>
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">
             Review and sign end-of-tenancy comparison reports
           </p>
         </div>
@@ -113,12 +115,12 @@ export default function TenantComparisonReports() {
                 onClick={() => navigate(`/tenant/comparison-reports/${report.id}`)}
                 data-testid={`card-report-${report.id}`}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-2 flex-1">
-                      <div className="flex items-center gap-3">
-                        <Building2 className="h-5 w-5 text-muted-foreground" />
-                        <span className="font-semibold text-lg" data-testid={`text-property-${report.id}`}>
+                <CardContent className="p-4 md:p-6">
+                  <div className="flex items-start justify-between gap-3 md:gap-4 min-w-0">
+                    <div className="space-y-2 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                        <Building2 className="h-5 w-5 text-muted-foreground shrink-0" />
+                        <span className={cn("font-semibold text-base md:text-lg", textBreak)} data-testid={`text-property-${report.id}`}>
                           {report.property?.name || "Property"}
                         </span>
                         <Badge variant={status.variant}>
@@ -133,19 +135,21 @@ export default function TenantComparisonReports() {
                       </div>
                       
                       {report.property?.address && (
-                        <p className="text-sm text-muted-foreground">
+                        <p className={cn("text-sm text-muted-foreground", textBreak)}>
                           {report.property.address}
                         </p>
                       )}
 
-                      <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 text-sm text-muted-foreground">
                         <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4" />
+                          <Calendar className="h-4 w-4 shrink-0" />
                           {format(new Date(report.createdAt), "MMMM d, yyyy")}
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="h-4 w-4 flex items-center justify-center font-semibold">£</span>
-                          Total Liability: <span className="font-semibold text-foreground">{locale.formatCurrency(totalCost, false)}</span>
+                          <span className="h-4 w-4 flex items-center justify-center font-semibold shrink-0">£</span>
+                          <span className={textBreak}>
+                            Total Liability: <span className="font-semibold text-foreground">{locale.formatCurrency(totalCost, false)}</span>
+                          </span>
                         </div>
                       </div>
                     </div>

@@ -59,6 +59,8 @@ import {
   parseSignatureValue,
 } from "@shared/signature";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
+import { pagePad, textBreak } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 interface TemplateField {
   id: string;
@@ -1091,6 +1093,19 @@ export default function InspectionReport() {
   const descriptionColClass = (cols: number) => {
     switch (cols) {
       case 8:
+        return "md:col-span-8";
+      case 6:
+        return "md:col-span-6";
+      case 4:
+        return "md:col-span-4";
+      default:
+        return "md:col-span-8";
+    }
+  };
+
+  const descriptionHeaderColClass = (cols: number) => {
+    switch (cols) {
+      case 8:
         return "col-span-8";
       case 6:
         return "col-span-6";
@@ -1106,7 +1121,7 @@ export default function InspectionReport() {
   // Show loading while checking authentication
   if (authLoading) {
     return (
-      <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <div className={cn("max-w-6xl mx-auto min-w-0", pagePad, "space-y-6")}>
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-40 w-full" />
       </div>
@@ -1121,7 +1136,7 @@ export default function InspectionReport() {
 
   if (inspectionLoading || entriesLoading) {
     return (
-      <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <div className={cn("max-w-6xl mx-auto min-w-0", pagePad, "space-y-6")}>
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-60 w-full" />
@@ -1131,7 +1146,7 @@ export default function InspectionReport() {
 
   if (!inspection) {
     return (
-      <div className="p-6 max-w-6xl mx-auto">
+      <div className={cn("max-w-6xl mx-auto min-w-0", pagePad)}>
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">Inspection not found</p>
@@ -1366,18 +1381,19 @@ export default function InspectionReport() {
 
       {/* Header Actions - Hidden in print */}
       <div className="no-print sticky top-0 z-10 bg-background border-b">
-        <div className="max-w-6xl mx-auto p-4 flex items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate("/inspections")}
             data-testid="button-back"
+            className="self-start"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Inspections
           </Button>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {canEdit && !editMode && (
               <Button
                 variant="outline"
@@ -1425,19 +1441,19 @@ export default function InspectionReport() {
       </div>
 
       {/* Report Content */}
-      <div className="max-w-6xl mx-auto p-6 space-y-8">
+      <div className={cn("max-w-6xl mx-auto min-w-0", pagePad, "space-y-6 sm:space-y-8")}>
         {/* Report Header */}
         <Card className="print-break-inside-avoid">
           <CardHeader className="space-y-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2">
-                <CardTitle className="text-3xl">Inspection Report</CardTitle>
-                <CardDescription className="text-lg">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-2 min-w-0">
+                <CardTitle className="text-2xl sm:text-3xl break-words">Inspection Report</CardTitle>
+                <CardDescription className="text-base sm:text-lg break-words">
                   {propertyName}
                 </CardDescription>
               </div>
               {canEdit && inspection.status !== "completed" ? (
-                <div className="flex flex-col gap-1 min-w-[180px]">
+                <div className="flex flex-col gap-1 w-full sm:w-auto sm:min-w-[180px]">
                   <Label className="text-xs text-muted-foreground">Status</Label>
                   <Select
                     value={inspection.status}
@@ -1456,9 +1472,9 @@ export default function InspectionReport() {
                 </div>
               ) : (
                 inspection.status && (
-                  <div className="flex flex-col gap-1 items-end">
+                  <div className="flex flex-col gap-1 sm:items-end">
                     <Label className="text-xs text-muted-foreground">Status</Label>
-                    <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm">
+                    <Badge variant={inspection.status === 'completed' ? 'default' : 'secondary'} className="text-sm w-fit">
                       {inspection.status.replace(/_/g, ' ').toUpperCase()}
                     </Badge>
                   </div>
@@ -1670,7 +1686,7 @@ export default function InspectionReport() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[320px] text-sm">
                   <thead>
                     <tr className="border-b">
                       <th className="text-left py-2 px-3 font-medium text-muted-foreground">Name</th>
@@ -1788,10 +1804,10 @@ export default function InspectionReport() {
                         )}
                       </div>
 
-                      {/* Table Header */}
-                      <div className="grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground border-b pb-2 px-2">
+                      {/* Table Header — desktop only */}
+                      <div className="hidden md:grid grid-cols-12 gap-2 text-xs font-medium text-muted-foreground border-b pb-2 px-2">
                         <div className="col-span-3">Room/Space</div>
-                        <div className={descriptionColClass(descriptionCols)}>Description</div>
+                        <div className={descriptionHeaderColClass(descriptionCols)}>Description</div>
                         {sectionHasCondition && <div className="col-span-2 text-center">Condition</div>}
                         {sectionHasCleanliness && <div className="col-span-2 text-center">Cleanliness</div>}
                         <div className="col-span-1 text-center">Photos</div>
@@ -1862,50 +1878,59 @@ export default function InspectionReport() {
                                       {/* Main Row */}
                                       {field.type === "signature" ? (
                                         <div
-                                          className="grid grid-cols-12 gap-3 py-3 border-b items-start text-sm px-2 hover:bg-muted/30"
+                                          className="flex flex-col gap-2 rounded-lg border bg-card p-3 mb-2 md:mb-0 md:rounded-none md:border-0 md:border-b md:bg-transparent md:p-0 md:grid md:grid-cols-12 md:gap-3 md:py-3 md:items-start text-sm md:px-2 hover:bg-muted/30"
                                           data-testid={`field-${field.id || field.key}`}
                                         >
-                                          <div className="col-span-3 font-medium text-primary pt-2">
+                                          <div className={cn("font-medium text-primary md:col-span-3 md:pt-2", textBreak)}>
                                             {field.label}
                                           </div>
-                                          <div className="col-span-9">
+                                          <div className={cn("md:col-span-9", textBreak)}>
+                                            <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground block mb-1">Signature</span>
                                             {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                           </div>
                                         </div>
                                       ) : (
                                       <div
-                                        className="grid grid-cols-12 gap-2 py-2.5 border-b items-center text-sm px-2 hover:bg-muted/30"
+                                        className="flex flex-col gap-2 rounded-lg border bg-card p-3 mb-2 md:mb-0 md:rounded-none md:border-0 md:border-b md:bg-transparent md:p-0 md:grid md:grid-cols-12 md:gap-2 md:py-2.5 md:items-center text-sm md:px-2 hover:bg-muted/30"
                                         data-testid={`field-${field.id || field.key}`}
                                       >
-                                        <div className="col-span-3 font-medium text-primary">
+                                        <div className={cn("font-medium text-primary md:col-span-3", textBreak)}>
                                           {field.label}
                                         </div>
-                                        <div className={`${descriptionColClass(descriptionCols)} text-muted-foreground text-xs truncate`}>
+                                        <div className={cn(descriptionColClass(descriptionCols), "text-muted-foreground text-xs", textBreak, "md:truncate")}>
+                                          <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground block mb-0.5">Description</span>
                                           {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                         </div>
                                         {sectionHasCondition && (
-                                          <div className="col-span-2 flex items-center justify-center gap-1">
-                                            {field.includeCondition && condition !== null && condition !== undefined ? (
-                                              <>
-                                                <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
-                                                <span className="text-xs">{formatCondition(condition)}</span>
-                                                <span className="text-xs text-muted-foreground">({getConditionScore(condition)})</span>
-                                              </>
-                                            ) : <span className="text-muted-foreground text-xs">-</span>}
+                                          <div className="md:col-span-2 flex flex-col gap-0.5 md:flex-row md:items-center md:justify-center md:gap-1">
+                                            <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground">Condition</span>
+                                            <div className="flex items-center gap-1">
+                                              {field.includeCondition && condition !== null && condition !== undefined ? (
+                                                <>
+                                                  <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
+                                                  <span className="text-xs">{formatCondition(condition)}</span>
+                                                  <span className="text-xs text-muted-foreground">({getConditionScore(condition)})</span>
+                                                </>
+                                              ) : <span className="text-muted-foreground text-xs">-</span>}
+                                            </div>
                                           </div>
                                         )}
                                         {sectionHasCleanliness && (
-                                          <div className="col-span-2 flex items-center justify-center gap-1">
-                                            {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
-                                              <>
-                                                <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
-                                                <span className="text-xs">{formatCleanliness(cleanliness)}</span>
-                                                <span className="text-xs text-muted-foreground">({getCleanlinessScore(cleanliness)})</span>
-                                              </>
-                                            ) : <span className="text-muted-foreground text-xs">-</span>}
+                                          <div className="md:col-span-2 flex flex-col gap-0.5 md:flex-row md:items-center md:justify-center md:gap-1">
+                                            <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground">Cleanliness</span>
+                                            <div className="flex items-center gap-1">
+                                              {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
+                                                <>
+                                                  <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
+                                                  <span className="text-xs">{formatCleanliness(cleanliness)}</span>
+                                                  <span className="text-xs text-muted-foreground">({getCleanlinessScore(cleanliness)})</span>
+                                                </>
+                                              ) : <span className="text-muted-foreground text-xs">-</span>}
+                                            </div>
                                           </div>
                                         )}
-                                        <div className="col-span-1 text-center">
+                                        <div className="md:col-span-1 flex flex-col gap-0.5 md:block md:text-center">
+                                          <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground">Photos</span>
                                           {photoCount > 0 ? (
                                             <span className="inline-flex items-center gap-0.5 text-primary text-xs">
                                               <Camera className="w-3 h-3" />
@@ -1967,7 +1992,7 @@ export default function InspectionReport() {
                                                 caption={capturedDate}
                                                 gallery={gallery}
                                                 index={idx}
-                                                className="w-full h-40 object-contain bg-muted"
+                                                className="max-w-full w-full h-40 object-cover bg-muted"
                                                 data-testid={`photo-${field.id || field.key}-${photoIdx}`}
                                               />
                                             </div>
@@ -2064,50 +2089,59 @@ export default function InspectionReport() {
                               {/* Main Row */}
                               {field.type === "signature" ? (
                                 <div
-                                  className="grid grid-cols-12 gap-3 py-3 border-b items-start text-sm px-2 hover:bg-muted/30"
+                                  className="flex flex-col gap-2 rounded-lg border bg-card p-3 mb-2 md:mb-0 md:rounded-none md:border-0 md:border-b md:bg-transparent md:p-0 md:grid md:grid-cols-12 md:gap-3 md:py-3 md:items-start text-sm md:px-2 hover:bg-muted/30"
                                   data-testid={`field-${field.id || field.key}`}
                                 >
-                                  <div className="col-span-3 font-medium text-primary pt-2">
+                                  <div className={cn("font-medium text-primary md:col-span-3 md:pt-2", textBreak)}>
                                     {field.label}
                                   </div>
-                                  <div className="col-span-9">
+                                  <div className={cn("md:col-span-9", textBreak)}>
+                                    <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground block mb-1">Signature</span>
                                     {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                   </div>
                                 </div>
                               ) : (
                               <div
-                                className="grid grid-cols-12 gap-2 py-2.5 border-b items-center text-sm px-2 hover:bg-muted/30"
+                                className="flex flex-col gap-2 rounded-lg border bg-card p-3 mb-2 md:mb-0 md:rounded-none md:border-0 md:border-b md:bg-transparent md:p-0 md:grid md:grid-cols-12 md:gap-2 md:py-2.5 md:items-center text-sm md:px-2 hover:bg-muted/30"
                                 data-testid={`field-${field.id || field.key}`}
                               >
-                                <div className="col-span-3 font-medium text-primary hover:underline cursor-pointer" onClick={() => photoCount > 0 && togglePhotoExpansion(photoKey)}>
+                                <div className={cn("font-medium text-primary md:col-span-3 hover:underline cursor-pointer", textBreak)} onClick={() => photoCount > 0 && togglePhotoExpansion(photoKey)}>
                                   {field.label}
                                 </div>
-                                <div className={`${descriptionColClass(descriptionCols)} text-muted-foreground text-xs truncate`}>
+                                <div className={cn(descriptionColClass(descriptionCols), "text-muted-foreground text-xs", textBreak, "md:truncate")}>
+                                  <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground block mb-0.5">Description</span>
                                   {renderSignatureAwareDescription(field, description, entry?.note, entry)}
                                 </div>
                                 {sectionHasCondition && (
-                                  <div className="col-span-2 flex items-center justify-center gap-1">
-                                    {field.includeCondition && condition !== null && condition !== undefined ? (
-                                      <>
-                                        <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
-                                        <span className="text-xs">{formatCondition(condition)}</span>
-                                        <span className="text-xs text-muted-foreground">({getConditionScore(condition)})</span>
-                                      </>
-                                    ) : <span className="text-muted-foreground text-xs">-</span>}
+                                  <div className="md:col-span-2 flex flex-col gap-0.5 md:flex-row md:items-center md:justify-center md:gap-1">
+                                    <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground">Condition</span>
+                                    <div className="flex items-center gap-1">
+                                      {field.includeCondition && condition !== null && condition !== undefined ? (
+                                        <>
+                                          <span className={`w-2 h-2 rounded-full ${getConditionColor(condition)}`} />
+                                          <span className="text-xs">{formatCondition(condition)}</span>
+                                          <span className="text-xs text-muted-foreground">({getConditionScore(condition)})</span>
+                                        </>
+                                      ) : <span className="text-muted-foreground text-xs">-</span>}
+                                    </div>
                                   </div>
                                 )}
                                 {sectionHasCleanliness && (
-                                  <div className="col-span-2 flex items-center justify-center gap-1">
-                                    {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
-                                      <>
-                                        <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
-                                        <span className="text-xs">{formatCleanliness(cleanliness)}</span>
-                                        <span className="text-xs text-muted-foreground">({getCleanlinessScore(cleanliness)})</span>
-                                      </>
-                                    ) : <span className="text-muted-foreground text-xs">-</span>}
+                                  <div className="md:col-span-2 flex flex-col gap-0.5 md:flex-row md:items-center md:justify-center md:gap-1">
+                                    <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground">Cleanliness</span>
+                                    <div className="flex items-center gap-1">
+                                      {field.includeCleanliness && cleanliness !== null && cleanliness !== undefined ? (
+                                        <>
+                                          <span className={`w-2 h-2 rounded-full ${getCleanlinessColor(cleanliness)}`} />
+                                          <span className="text-xs">{formatCleanliness(cleanliness)}</span>
+                                          <span className="text-xs text-muted-foreground">({getCleanlinessScore(cleanliness)})</span>
+                                        </>
+                                      ) : <span className="text-muted-foreground text-xs">-</span>}
+                                    </div>
                                   </div>
                                 )}
-                                <div className="col-span-1 text-center">
+                                <div className="md:col-span-1 flex flex-col gap-0.5 md:block md:text-center">
+                                  <span className="md:hidden text-[10px] uppercase tracking-wide text-muted-foreground">Photos</span>
                                   {photoCount > 0 ? (
                                     <button
                                       onClick={() => togglePhotoExpansion(photoKey)}
@@ -2159,7 +2193,7 @@ export default function InspectionReport() {
                                               caption={capturedDate}
                                               gallery={gallery}
                                               index={idx}
-                                              className="w-full h-40 object-contain bg-muted"
+                                              className="max-w-full w-full h-40 object-cover bg-muted"
                                               data-testid={`photo-${field.id || field.key}-${idx}`}
                                             />
                                           </div>
@@ -2354,7 +2388,7 @@ export default function InspectionReport() {
 
                             {/* Comparison Table */}
                             <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
+                              <table className="w-full min-w-[560px] text-sm">
                                 <thead>
                                   <tr className="border-b bg-muted/10">
                                     <th className="text-left py-2 px-3 font-medium text-muted-foreground w-20">Item</th>
@@ -2514,7 +2548,7 @@ export default function InspectionReport() {
                                             caption={capturedDate}
                                             gallery={gallery}
                                             index={idx}
-                                            className="w-full h-32 object-cover"
+                                            className="max-w-full w-full h-32 object-cover"
                                           />
                                         </div>
                                         <div className="text-xs space-y-0.5 text-muted-foreground">

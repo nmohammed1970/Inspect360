@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, formGrid2, textBreak } from "@/lib/responsive";
 
 interface PropertyStats {
   totalUnits: number;
@@ -264,7 +266,7 @@ export default function BlockDetail() {
 
   if (blockLoading || propertiesLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">Loading...</div>
       </div>
     );
@@ -272,7 +274,7 @@ export default function BlockDetail() {
 
   if (!block) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Block not found</p>
           <Link href="/blocks">
@@ -287,7 +289,7 @@ export default function BlockDetail() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex items-center gap-2 md:gap-4">
         <Link href="/blocks">
@@ -301,7 +303,7 @@ export default function BlockDetail() {
 
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-2 flex-1 min-w-0">
+          <div className={cn("space-y-2 flex-1", textBreak)}>
             <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2 md:gap-3" data-testid="heading-block-name">
               <Building2 className="h-5 w-5 md:h-6 md:w-6 lg:h-8 lg:w-8 text-primary shrink-0" />
               <span className="truncate">{block.name}</span>
@@ -314,7 +316,7 @@ export default function BlockDetail() {
         </div>
 
         {/* Block Image and Map Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={formGrid2}>
           <Card className="overflow-hidden">
             {block.imageUrl ? (
               <div className="relative aspect-video">
@@ -362,7 +364,7 @@ export default function BlockDetail() {
         </div>
 
         <Dialog open={blockImageDialogOpen} onOpenChange={setBlockImageDialogOpen}>
-          <DialogContent>
+          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
             <DialogHeader>
               <DialogTitle>Upload Block Photo</DialogTitle>
             </DialogHeader>
@@ -608,7 +610,7 @@ export default function BlockDetail() {
                   Upload Document
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
                 <DialogHeader>
                   <DialogTitle>Upload Compliance Document</DialogTitle>
                 </DialogHeader>

@@ -13,6 +13,7 @@ import { format, parse, isValid } from 'date-fns';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import Button from './Button';
+import { useResponsive } from '../../hooks/useResponsive';
 
 interface DatePickerProps {
   label?: string;
@@ -41,6 +42,7 @@ export default function DatePicker({
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const { modalMaxHeight } = useResponsive();
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date | null>(null);
   
@@ -321,7 +323,16 @@ export default function DatePicker({
         onRequestClose={handleCancel}
       >
         <SafeAreaView style={styles.modalOverlay} edges={['bottom']}>
-          <View style={[styles.modalContent, { backgroundColor: safeActiveColors.card.DEFAULT }]}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: safeActiveColors.card.DEFAULT,
+                maxHeight: modalMaxHeight(0.85),
+                paddingBottom: Math.max(insets.bottom, spacing[2]),
+              },
+            ]}
+          >
             {Platform.OS === 'ios' ? renderIOSDatePicker() : renderAndroidDatePicker()}
           </View>
         </SafeAreaView>
@@ -370,7 +381,7 @@ const styles = StyleSheet.create({
   modalContent: {
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    maxHeight: Platform.OS === 'ios' ? '85%' : '80%',
+    width: '100%',
     ...shadows.lg,
   },
   iosPickerContainer: {

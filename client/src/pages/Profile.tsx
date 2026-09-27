@@ -23,6 +23,8 @@ import { format } from "date-fns";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useImagePreview } from "@/components/ImagePreview";
+import { cn } from "@/lib/utils";
+import { pagePad, formGrid2 } from "@/lib/responsive";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
@@ -336,10 +338,10 @@ export default function Profile() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
+    <div className={cn("container mx-auto min-w-0 max-w-4xl", pagePad)}>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
-          <UserIcon className="w-8 h-8" />
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
+          <UserIcon className="w-7 h-7 md:w-8 md:h-8 shrink-0" />
           Profile
         </h1>
         <p className="text-muted-foreground mt-2">
@@ -357,8 +359,8 @@ export default function Profile() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="flex items-start gap-6">
-                <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
+                <div className="flex flex-col items-center gap-3 shrink-0 mx-auto sm:mx-0">
                   <Avatar
                     className={`w-24 h-24 ${(form.watch("profileImageUrl") || user?.profileImageUrl) ? "cursor-pointer" : ""}`}
                     role={(form.watch("profileImageUrl") || user?.profileImageUrl) ? "button" : undefined}
@@ -391,8 +393,8 @@ export default function Profile() {
                   </ObjectUploader>
                 </div>
 
-                <div className="flex-1 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex-1 min-w-0 space-y-4 w-full">
+                  <div className={formGrid2}>
                     <FormField
                       control={form.control}
                       name="firstName"
@@ -544,7 +546,7 @@ export default function Profile() {
       </Card>
 
       <Card className="mt-6" data-testid="card-documents">
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <CardTitle>Documents</CardTitle>
             <CardDescription>

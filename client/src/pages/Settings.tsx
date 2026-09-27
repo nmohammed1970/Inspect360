@@ -31,6 +31,8 @@ import { AddressInput } from "@/components/AddressInput";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, formGrid2 } from "@/lib/responsive";
 
 const categoryFormSchema = insertInspectionCategorySchema.extend({
   name: z.string().min(1, "Category name is required"),
@@ -385,7 +387,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 bg-background min-h-screen">
+    <div className={cn("container mx-auto min-w-0 bg-background min-h-screen", pagePad)}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 md:mb-6">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
@@ -457,7 +459,7 @@ export default function Settings() {
                     <>
                       <div className="space-y-4">
                         <Label className="text-base font-medium">Company Logo</Label>
-                        <div className="flex items-start gap-6">
+                        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6 min-w-0">
                           {logoUrl ? (
                             <div className="relative">
                               <div className="w-40 h-40 rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center">
@@ -508,7 +510,7 @@ export default function Settings() {
                               </ObjectUploader>
                             )
                           )}
-                          <div className="flex-1 text-sm text-muted-foreground">
+                          <div className="flex-1 min-w-0 text-sm text-muted-foreground">
                             <p>Your company logo will appear on:</p>
                             <ul className="list-disc list-inside mt-2 space-y-1">
                               <li>All inspection reports and PDF exports</li>
@@ -539,7 +541,7 @@ export default function Settings() {
                           <div className="text-center py-8 text-muted-foreground">Loading trademarks...</div>
                         ) : (
                           <div className="space-y-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                               {[...trademarks]
                                 .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
                                 .map((trademark, index) => (
@@ -664,7 +666,7 @@ export default function Settings() {
                             </p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className={formGrid2}>
                             <div>
                               <Label htmlFor="brandingEmail" className="text-sm">Contact Email</Label>
                               <Input
@@ -799,7 +801,7 @@ export default function Settings() {
                           Add Category
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
                         <DialogHeader>
                           <DialogTitle>Create Inspection Category</DialogTitle>
                           <DialogDescription>
@@ -891,7 +893,7 @@ export default function Settings() {
                                         <Edit2 className="w-4 h-4" />
                                       </Button>
                                     </DialogTrigger>
-                                    <DialogContent>
+                                    <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
                                       <DialogHeader>
                                         <DialogTitle>Edit Inspection Category</DialogTitle>
                                         <DialogDescription>
@@ -1107,7 +1109,7 @@ function TenantPortalConfiguration({
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">Community</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1123,7 +1125,7 @@ function TenantPortalConfiguration({
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">Comparison Reports</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1139,7 +1141,7 @@ function TenantPortalConfiguration({
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">AI Chatbot</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1155,7 +1157,7 @@ function TenantPortalConfiguration({
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
               <div className="flex-1">
                 <Label className="text-base font-medium">Maintenance Requests</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -1446,7 +1448,7 @@ function ComplianceDocumentsPanel() {
                 Upload Document
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
               <DialogHeader>
                 <DialogTitle>Upload Compliance Document</DialogTitle>
                 <DialogDescription>
@@ -1593,7 +1595,7 @@ function ComplianceDocumentsPanel() {
                             <Pencil className="w-4 h-4" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
                           <DialogHeader>
                             <DialogTitle>Edit Document</DialogTitle>
                             <DialogDescription>
@@ -1764,7 +1766,7 @@ function LateRentNotificationSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
           <div>
             <Label className="text-base font-medium">Enable automated rent reminders</Label>
             <p className="text-sm text-muted-foreground mt-1">

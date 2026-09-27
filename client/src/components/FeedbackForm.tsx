@@ -119,11 +119,11 @@ export function FeedbackForm({ trigger }: FeedbackFormProps) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
               <Select value={category} onValueChange={(v: any) => setCategory(v)}>
-                <SelectTrigger id="category" data-testid="select-feedback-category">
+                <SelectTrigger id="category" data-testid="select-feedback-category" className="min-h-11">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -152,7 +152,7 @@ export function FeedbackForm({ trigger }: FeedbackFormProps) {
             <div className="space-y-2">
               <Label htmlFor="priority">Priority</Label>
               <Select value={priority} onValueChange={(v: any) => setPriority(v)}>
-                <SelectTrigger id="priority" data-testid="select-feedback-priority">
+                <SelectTrigger id="priority" data-testid="select-feedback-priority" className="min-h-11">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -176,10 +176,11 @@ export function FeedbackForm({ trigger }: FeedbackFormProps) {
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
+              className="min-h-11 w-full sm:w-auto"
               onClick={() => setOpen(false)}
               data-testid="button-feedback-cancel"
             >
@@ -187,6 +188,7 @@ export function FeedbackForm({ trigger }: FeedbackFormProps) {
             </Button>
             <Button
               type="submit"
+              className="min-h-11 w-full sm:w-auto"
               disabled={submitMutation.isPending}
               data-testid="button-feedback-submit"
             >

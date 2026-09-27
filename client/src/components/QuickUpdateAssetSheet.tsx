@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, Package, Camera, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { formGrid2 } from "@/lib/responsive";
 
 interface QuickUpdateAssetSheetProps {
   open: boolean;
@@ -249,7 +250,10 @@ export function QuickUpdateAssetSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent side="bottom" className="h-[85vh] overflow-y-auto max-w-3xl mx-auto">
+      <SheetContent
+        side="bottom"
+        className="mx-auto flex h-[85vh] max-h-[min(85vh,calc(100dvh-2rem))] max-w-3xl flex-col overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>Quick Update Asset</SheetTitle>
           <SheetDescription>
@@ -305,7 +309,7 @@ export function QuickUpdateAssetSheet({
                 <CardDescription>Review before updating</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Asset Name</p>
                     <p className="font-medium">{selectedAsset.name}</p>
@@ -344,7 +348,7 @@ export function QuickUpdateAssetSheet({
                 {selectedAsset.photos && selectedAsset.photos.length > 0 && (
                   <div>
                     <p className="text-xs text-muted-foreground mb-2">Current Photos</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {selectedAsset.photos.map((photoUrl, index) => (
                         <div key={index} className="relative group">
                           <PreviewableImage
@@ -469,7 +473,7 @@ export function QuickUpdateAssetSheet({
                   <FormLabel>Update Photos</FormLabel>
                   
                   {photos.length > 0 && (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {photos.map((photoUrl, index) => (
                         <Card key={index} className="overflow-hidden">
                           <CardContent className="p-0">

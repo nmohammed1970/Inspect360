@@ -463,6 +463,10 @@ export interface IStorage {
   createWorkOrder(workOrder: InsertWorkOrder): Promise<WorkOrder>;
   getWorkOrdersByOrganization(organizationId: string): Promise<any[]>; // Returns with related data
   getWorkOrdersByContractor(contractorId: string): Promise<any[]>; // Returns with related data
+  getWorkOrdersForAssignee(
+    organizationId: string,
+    opts: { userId: string; contactIds: string[]; role: "clerk" | "contractor" },
+  ): Promise<any[]>;
   getWorkOrder(id: string): Promise<WorkOrder | undefined>;
   updateWorkOrderStatus(id: string, status: string, completedAt?: Date): Promise<WorkOrder>;
   updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder>;
@@ -604,6 +608,9 @@ export interface IStorage {
   createAdmin(admin: InsertAdminUser): Promise<AdminUser>;
   updateAdmin(id: string, updates: Partial<AdminUser>): Promise<AdminUser>;
   deleteAdmin(id: string): Promise<void>;
+  setAdminResetToken(id: string, token: string, expiry: Date): Promise<AdminUser>;
+  clearAdminResetToken(id: string): Promise<AdminUser>;
+  updateAdminPassword(id: string, hashedPassword: string): Promise<AdminUser>;
   getAllOrganizationsWithOwners(): Promise<any[]>;
   getOrganizationWithOwner(id: string): Promise<any | undefined>;
 
@@ -2469,77 +2476,112 @@ export class DatabaseStorage implements IStorage {
     return workOrder;
   }
 
+  private workOrderListSelect() {
+    return {
+      id: workOrders.id,
+      organizationId: workOrders.organizationId,
+      maintenanceRequestId: workOrders.maintenanceRequestId,
+      teamId: workOrders.teamId,
+      contractorId: workOrders.contractorId,
+      assignedToId: workOrders.assignedToId,
+      status: workOrders.status,
+      slaDue: workOrders.slaDue,
+      costEstimate: workOrders.costEstimate,
+      costActual: workOrders.costActual,
+      variationNotes: workOrders.variationNotes,
+      completedAt: workOrders.completedAt,
+      createdAt: workOrders.createdAt,
+      updatedAt: workOrders.updatedAt,
+      maintenanceRequest: {
+        id: maintenanceRequests.id,
+        title: maintenanceRequests.title,
+        description: maintenanceRequests.description,
+        priority: maintenanceRequests.priority,
+        propertyId: maintenanceRequests.propertyId,
+        blockId: maintenanceRequests.blockId,
+      },
+      property: {
+        id: properties.id,
+        name: properties.name,
+      },
+      block: {
+        id: blocks.id,
+        name: blocks.name,
+      },
+      contractor: {
+        id: contacts.id,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        email: contacts.email,
+        companyName: contacts.companyName,
+      },
+      team: {
+        id: teams.id,
+        name: teams.name,
+        email: teams.email,
+      },
+    } as const;
+  }
+
   async getWorkOrdersByOrganization(organizationId: string): Promise<any[]> {
     return await db
-      .select({
-        id: workOrders.id,
-        organizationId: workOrders.organizationId,
-        maintenanceRequestId: workOrders.maintenanceRequestId,
-        teamId: workOrders.teamId,
-        contractorId: workOrders.contractorId,
-        status: workOrders.status,
-        slaDue: workOrders.slaDue,
-        costEstimate: workOrders.costEstimate,
-        costActual: workOrders.costActual,
-        variationNotes: workOrders.variationNotes,
-        completedAt: workOrders.completedAt,
-        createdAt: workOrders.createdAt,
-        updatedAt: workOrders.updatedAt,
-        maintenanceRequest: {
-          id: maintenanceRequests.id,
-          title: maintenanceRequests.title,
-          description: maintenanceRequests.description,
-          priority: maintenanceRequests.priority,
-          propertyId: maintenanceRequests.propertyId,
-          blockId: maintenanceRequests.blockId,
-        },
-        contractor: {
-          id: users.id,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          email: users.email,
-        },
-        team: {
-          id: teams.id,
-          name: teams.name,
-          email: teams.email,
-        },
-      })
+      .select(this.workOrderListSelect())
       .from(workOrders)
       .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
-      .leftJoin(users, eq(workOrders.contractorId, users.id))
+      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
       .leftJoin(teams, eq(workOrders.teamId, teams.id))
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
       .where(eq(workOrders.organizationId, organizationId))
       .orderBy(desc(workOrders.createdAt));
   }
 
   async getWorkOrdersByContractor(contractorId: string): Promise<any[]> {
     return await db
-      .select({
-        id: workOrders.id,
-        organizationId: workOrders.organizationId,
-        maintenanceRequestId: workOrders.maintenanceRequestId,
-        contractorId: workOrders.contractorId,
-        status: workOrders.status,
-        slaDue: workOrders.slaDue,
-        costEstimate: workOrders.costEstimate,
-        costActual: workOrders.costActual,
-        variationNotes: workOrders.variationNotes,
-        completedAt: workOrders.completedAt,
-        createdAt: workOrders.createdAt,
-        updatedAt: workOrders.updatedAt,
-        maintenanceRequest: {
-          id: maintenanceRequests.id,
-          title: maintenanceRequests.title,
-          description: maintenanceRequests.description,
-          priority: maintenanceRequests.priority,
-          propertyId: maintenanceRequests.propertyId,
-          blockId: maintenanceRequests.blockId,
-        },
-      })
+      .select(this.workOrderListSelect())
       .from(workOrders)
       .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
+      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
+      .leftJoin(teams, eq(workOrders.teamId, teams.id))
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
       .where(eq(workOrders.contractorId, contractorId))
+      .orderBy(desc(workOrders.createdAt));
+  }
+
+  async getWorkOrdersForAssignee(
+    organizationId: string,
+    opts: { userId: string; contactIds: string[]; role: "clerk" | "contractor" },
+  ): Promise<any[]> {
+    if (!organizationId) return [];
+
+    // Clerks and contractors share the same matching rules:
+    // assignedToId in [userId, ...contactIds] OR contractorId in contactIds
+    const personalIds = [opts.userId, ...opts.contactIds].filter(Boolean);
+    if (personalIds.length === 0 && opts.contactIds.length === 0) return [];
+
+    const assigneeMatch =
+      personalIds.length > 0 ? inArray(workOrders.assignedToId, personalIds) : undefined;
+    const contractorMatch =
+      opts.contactIds.length > 0 ? inArray(workOrders.contractorId, opts.contactIds) : undefined;
+
+    let assignmentFilter;
+    if (assigneeMatch && contractorMatch) {
+      assignmentFilter = or(assigneeMatch, contractorMatch);
+    } else {
+      assignmentFilter = assigneeMatch || contractorMatch;
+    }
+    if (!assignmentFilter) return [];
+
+    return await db
+      .select(this.workOrderListSelect())
+      .from(workOrders)
+      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
+      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
+      .leftJoin(teams, eq(workOrders.teamId, teams.id))
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+      .where(and(eq(workOrders.organizationId, organizationId), assignmentFilter))
       .orderBy(desc(workOrders.createdAt));
   }
 
@@ -2667,6 +2709,7 @@ export class DatabaseStorage implements IStorage {
           lastName: contacts.lastName,
           email: contacts.email,
           type: contacts.type,
+          linkedUserId: contacts.linkedUserId,
         },
       })
       .from(teamMembers)
@@ -3462,6 +3505,33 @@ export class DatabaseStorage implements IStorage {
 
   async deleteAdmin(id: string): Promise<void> {
     await db.delete(adminUsers).where(eq(adminUsers.id, id));
+  }
+
+  async setAdminResetToken(id: string, token: string, expiry: Date): Promise<AdminUser> {
+    const [admin] = await db
+      .update(adminUsers)
+      .set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id))
+      .returning();
+    return admin;
+  }
+
+  async clearAdminResetToken(id: string): Promise<AdminUser> {
+    const [admin] = await db
+      .update(adminUsers)
+      .set({ resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id))
+      .returning();
+    return admin;
+  }
+
+  async updateAdminPassword(id: string, hashedPassword: string): Promise<AdminUser> {
+    const [admin] = await db
+      .update(adminUsers)
+      .set({ password: hashedPassword, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id))
+      .returning();
+    return admin;
   }
 
   async getAllOrganizationsWithOwners(): Promise<any[]> {

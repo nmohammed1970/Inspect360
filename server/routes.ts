@@ -9,7 +9,15 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 import { storage } from "./storage";
+import {
+  buildWorkOrderIdentity,
+  canAccessWorkOrder,
+  isAllowedWorkOrderStatus,
+  listScopeForUser,
+  type WorkOrderIdentity,
+} from "./workOrderAccess";
 import { getUncachableStripeClient, getStripeSecretKey } from "./stripeClient";
+import { isHeicOrHeifBuffer, toOpenAIImageDataUrl } from "./imageForAi";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -352,6 +360,11 @@ function detectImageMimeType(buffer: Buffer): string {
     return 'image/bmp';
   }
 
+  // HEIC/HEIF (iPhone): ....ftypheic / heif / mif1
+  if (isHeicOrHeifBuffer(buffer)) {
+    return 'image/heic';
+  }
+
   // Default to JPEG if we can't detect (most common image format)
   // This ensures we always return a valid image MIME type
   console.warn('[detectImageMimeType] Could not detect image type from magic bytes, defaulting to image/jpeg. First bytes:',
@@ -360,7 +373,7 @@ function detectImageMimeType(buffer: Buffer): string {
 }
 import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
 import { validateNewPassword } from "@shared/passwordPolicy";
-import { INSPECTION_NOTE_STRUCTURE_PROMPT } from "@shared/inspectionNoteSections";
+import { INSPECTION_NOTE_STRUCTURE_PROMPT, formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 
 // Middleware that allows both regular users and admins
 const isUserOrAdmin = (req: any, res: any, next: any) => {
@@ -1285,26 +1298,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/config/google-maps-key", async (req: any, res) => {
     try {
-      // Check all possible ways the key might be set
       const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim() ||
         process.env['GOOGLE_MAPS_API_KEY']?.trim();
 
-      console.log('[Google Maps API] Checking API key:', {
-        exists: !!apiKey,
-        length: apiKey?.length || 0,
-        rawEnvValue: process.env.GOOGLE_MAPS_API_KEY ? 'present' : 'missing',
-        allEnvKeys: Object.keys(process.env).filter(k => k.includes('GOOGLE')).join(', ')
-      });
-
       if (!apiKey || apiKey.length === 0) {
-        console.warn('[Google Maps API] API key not configured in environment variables');
-        console.warn('[Google Maps API] Available env vars with GOOGLE:',
-          Object.keys(process.env).filter(k => k.toUpperCase().includes('GOOGLE')));
-        // Return 200 with null to indicate API key is not configured
-        // This allows the client to gracefully handle missing API key
+        // Return 200 with null so the client can handle a missing key gracefully
         return res.json({ apiKey: null, configured: false });
       }
-      console.log('[Google Maps API] API key found, returning to client (length:', apiKey.length, ')');
       res.json({ apiKey, configured: true });
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : (error?.message || error?.toString() || "Unknown error");
@@ -5521,7 +5521,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Property not found" });
       }
       const updates: any = { updatedAt: new Date() };
-      for (const key of ["status", "paymentMethod", "notes", "receiptUrl", "deductionReason", "currency"] as const) {
+      for (const key of [
+        "status",
+        "paymentMethod",
+        "notes",
+        "receiptUrl",
+        "deductionReason",
+        "currency",
+        "tenantAssignmentId",
+      ] as const) {
         if (req.body[key] !== undefined) updates[key] = req.body[key];
       }
       for (const key of ["amount", "returnedAmount", "deductedAmount"] as const) {
@@ -5580,23 +5588,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Description, category, date, and amount are required" });
       }
       const org = await storage.getOrganization(user.organizationId);
-      const { createPropertyExpense } = await import("./propertyFinanceService");
-      const expense = await createPropertyExpense(user.organizationId, {
-        propertyId: req.params.id,
-        description: String(req.body.description).trim(),
-        category: req.body.category,
-        expenseDate: new Date(req.body.expenseDate),
-        supplier: req.body.supplier || null,
-        supplierContact: req.body.supplierContact || null,
-        amount: String(req.body.amount),
-        currency: req.body.currency || org?.preferredCurrency || "GBP",
-        warrantyExpiry: req.body.warrantyExpiry ? new Date(req.body.warrantyExpiry) : null,
-        warrantyNotes: req.body.warrantyNotes || null,
-        receiptUrl: req.body.receiptUrl || null,
-        assetInventoryId: req.body.assetInventoryId || null,
-        notes: req.body.notes || null,
-        createdBy: user.id,
-      });
+      const category = String(req.body.category);
+      const description = String(req.body.description).trim();
+      const amountStr = String(req.body.amount);
+      const expenseDate = new Date(req.body.expenseDate);
+      const photoUrl = req.body.photoUrl || null;
+      const receiptUrl = req.body.receiptUrl || null;
+      const supplier = req.body.supplier || null;
+      const supplierContact = req.body.supplierContact || null;
+      const warrantyExpiry = req.body.warrantyExpiry ? new Date(req.body.warrantyExpiry) : null;
+      const warrantyNotes = req.body.warrantyNotes || null;
+      const notes = req.body.notes || null;
+
+      // Asset-like spend (not repair/insurance) → also create inventory item (same transaction)
+      const skipInventory = category === "repair" || category === "insurance";
+      const existingAssetId = req.body.assetInventoryId || null;
+      let inventoryPayload: any = null;
+      if (!existingAssetId && !skipInventory) {
+        const property = await storage.getProperty(req.params.id);
+        const inventoryCategoryMap: Record<string, string> = {
+          appliance: "Appliances",
+          furnishing: "Furniture",
+          utilities: "Other",
+          other: "Other",
+        };
+        const photos = photoUrl ? [String(photoUrl)] : [];
+        const documents = receiptUrl ? [String(receiptUrl)] : [];
+        inventoryPayload = {
+          propertyId: req.params.id,
+          name: description,
+          category: inventoryCategoryMap[category] || "Other",
+          description: notes || description,
+          location: property?.address || property?.name || null,
+          supplier,
+          supplierContact,
+          datePurchased: Number.isNaN(expenseDate.getTime()) ? new Date() : expenseDate,
+          purchasePrice: amountStr,
+          currentValue: amountStr,
+          warrantyExpiryDate: warrantyExpiry,
+          condition: "excellent",
+          cleanliness: "clean",
+          photos: photos.length ? photos : undefined,
+          documents: documents.length ? documents : undefined,
+          maintenanceNotes: warrantyNotes,
+        };
+      }
+
+      const { createPropertyExpenseWithOptionalInventory, createPropertyExpense } =
+        await import("./propertyFinanceService");
+
+      const expense = inventoryPayload
+        ? await createPropertyExpenseWithOptionalInventory({
+            organizationId: user.organizationId,
+            inventory: inventoryPayload,
+            expense: {
+              propertyId: req.params.id,
+              description,
+              category: category as any,
+              expenseDate,
+              supplier,
+              supplierContact,
+              amount: amountStr,
+              currency: req.body.currency || org?.preferredCurrency || "GBP",
+              warrantyExpiry,
+              warrantyNotes,
+              photoUrl,
+              receiptUrl,
+              notes,
+              createdBy: user.id,
+            },
+          })
+        : await createPropertyExpense(user.organizationId, {
+            propertyId: req.params.id,
+            description,
+            category: category as any,
+            expenseDate,
+            supplier,
+            supplierContact,
+            amount: amountStr,
+            currency: req.body.currency || org?.preferredCurrency || "GBP",
+            warrantyExpiry,
+            warrantyNotes,
+            photoUrl,
+            receiptUrl,
+            assetInventoryId: existingAssetId,
+            notes,
+            createdBy: user.id,
+          });
       res.status(201).json(expense);
     } catch (error: any) {
       console.error("Error creating expense:", error);
@@ -5612,7 +5690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Property not found" });
       }
       const updates: any = {};
-      for (const key of ["description", "category", "supplier", "supplierContact", "currency", "warrantyNotes", "receiptUrl", "assetInventoryId", "notes"] as const) {
+      for (const key of ["description", "category", "supplier", "supplierContact", "currency", "warrantyNotes", "photoUrl", "receiptUrl", "assetInventoryId", "notes"] as const) {
         if (req.body[key] !== undefined) updates[key] = req.body[key];
       }
       if (req.body.amount !== undefined) updates.amount = String(req.body.amount);
@@ -5800,7 +5878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== INSPECTION ROUTES ====================
 
-  app.post("/api/inspections", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/inspections", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
@@ -5951,7 +6029,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk schedule multiple inspections at once from calendar
-  app.post("/api/inspections/bulk-schedule", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/inspections/bulk-schedule", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
@@ -6048,7 +6126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Copy an inspection as a new type (check_in or check_out)
-  app.post("/api/inspections/:id/copy", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/inspections/:id/copy", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { type, scheduledDate, copyImages, copyText } = req.body;
@@ -6190,8 +6268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
 
-      // Owners see all inspections in their organization
-      // Clerks see only inspections assigned to them
+      // Owners/compliance see all org inspections; clerks/contractors see only assigned to them
       let inspections;
       if (user.role === "owner" || user.role === "compliance") {
         inspections = await storage.getInspectionsByOrganization(user.organizationId);
@@ -12896,19 +12973,27 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       let imageUrlForAI: string | null = null;
       let suggestedFixes = "";
 
-      // Process image URL - convert localhost/internal URLs to base64
+      // Process image URL - convert localhost/internal/LAN URLs to OpenAI-safe JPEG data URL
       if (imageUrl) {
         const isLocalhost = imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1');
-        const isInternalPath = imageUrl.startsWith('/objects/') || (!imageUrl.startsWith('http') && imageUrl.includes('/objects/'));
-        const isLocalhostHttp = imageUrl.startsWith('http://localhost') || imageUrl.startsWith('https://localhost');
+        const isInternalPath =
+          imageUrl.startsWith('/objects/') ||
+          imageUrl.includes('/objects/') ||
+          (!imageUrl.startsWith('http') && imageUrl.includes('/objects/'));
+        const isLocalhostHttp =
+          imageUrl.startsWith('http://localhost') || imageUrl.startsWith('https://localhost');
+        // Private LAN hosts (Expo / local API) — OpenAI cannot fetch these; convert to data URL
+        const isPrivateLan =
+          /https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/i.test(imageUrl);
 
-        const needsConversion = isLocalhost || isInternalPath || isLocalhostHttp;
+        const needsConversion = isLocalhost || isInternalPath || isLocalhostHttp || isPrivateLan;
 
         console.log("[Maintenance Analyze Image] URL check:", {
           imageUrl,
           isLocalhost,
           isInternalPath,
           isLocalhostHttp,
+          isPrivateLan,
           needsConversion
         });
 
@@ -12945,16 +13030,14 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
             console.log("[Maintenance Analyze Image] File loaded, size:", photoBuffer.length, "bytes");
 
-            let mimeType = detectImageMimeType(photoBuffer);
-            if (!mimeType || !mimeType.startsWith('image/')) {
-              console.warn(`[Maintenance Analyze Image] Invalid MIME type detected: ${mimeType}, defaulting to image/jpeg`);
-              mimeType = 'image/jpeg';
-            }
+            // iPhone HEIC (and other formats) → JPEG data URL OpenAI accepts
+            imageUrlForAI = await toOpenAIImageDataUrl(photoBuffer);
 
-            const base64Image = photoBuffer.toString('base64');
-            imageUrlForAI = `data:${mimeType};base64,${base64Image}`;
-
-            console.log("[Maintenance Analyze Image] Successfully converted to base64 data URL, MIME type:", mimeType, "Size:", base64Image.length, "chars");
+            console.log(
+              "[Maintenance Analyze Image] Successfully prepared OpenAI image data URL, size:",
+              imageUrlForAI.length,
+              "chars",
+            );
           } catch (error: any) {
             console.error("[Maintenance Analyze Image] Error converting image to base64, will proceed with text-only:", {
               imageUrl,
@@ -12982,18 +13065,22 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const optionalNotes = (issueDescription && issueDescription.trim()) || "";
       const visionPrompt = `Carefully examine the attached property maintenance photo.
 
-You MUST base your analysis on what is visible in the photo (not assumptions from a short title).
+You MUST base your analysis on what is visible in the photo (not assumptions from a short title alone).
 
-Respond in this structure:
-1. What you see in the photo (specific visual details)
-2. Likely cause based on the photo evidence
-3. 3-5 practical next steps (DIY first, then when to call a professional)
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
+
+Map the photo into those sections as follows:
+- DESCRIPTION: what you see visually (materials, condition, cleanliness, location of the problem)
+- MAINTENANCE ISSUES: defects, damage, hazards, or problems that need attention (or None)
+- RECOMMENDED ACTIONS: brief practical next steps — DIY first, then when to call a professional (or None)
 
 ${optionalNotes
   ? `Optional user notes (secondary hints only — if they conflict with the photo, trust the photo):\n${optionalNotes}`
   : "The user did not provide extra notes. Infer the issue only from the photo."}`;
 
-      const textOnlyPrompt = `Analyze this property maintenance issue and provide 3-5 brief, practical suggestions (DIY first, then when to call a professional).
+      const textOnlyPrompt = `Analyze this property maintenance issue.
+
+${INSPECTION_NOTE_STRUCTURE_PROMPT}
 
 Issue details:
 ${optionalNotes || "No details provided."}`;
@@ -13048,7 +13135,10 @@ ${optionalNotes || "No details provided."}`;
           /unable to (help|assist)/i.test(trimmed);
 
         if (trimmed && !looksLikeRefusal) {
-          suggestedFixes = cleanMarkdownText(trimmed);
+          // Normalize into DESCRIPTION / MAINTENANCE ISSUES / RECOMMENDED ACTIONS
+          const cleaned = cleanMarkdownText(trimmed);
+          const sections = parseInspectionNote(cleaned);
+          suggestedFixes = formatInspectionNote(sections);
           aiCallSucceeded = true;
           console.log("[Maintenance Analyze Image] Successfully got AI response, length:", suggestedFixes.length);
         } else {
@@ -15407,6 +15497,33 @@ ${optionalNotes || "No details provided."}`;
 
   // ==================== WORK ORDER ROUTES ====================
 
+  async function loadWorkOrderIdentity(user: {
+    id: string;
+    organizationId: string;
+    role?: string | null;
+    email?: string | null;
+  }): Promise<WorkOrderIdentity> {
+    const orgContacts = await storage.getContactsByOrganization(user.organizationId);
+    return buildWorkOrderIdentity({
+      userId: user.id,
+      organizationId: user.organizationId,
+      role: user.role || "",
+      email: user.email,
+      orgContacts,
+    });
+  }
+
+  async function assertWorkOrderAccess(
+    user: { id: string; organizationId: string; role?: string | null; email?: string | null },
+    workOrder: { organizationId: string; contractorId?: string | null; assignedToId?: string | null },
+  ): Promise<WorkOrderIdentity | null> {
+    const identity = await loadWorkOrderIdentity(user);
+    if (!canAccessWorkOrder(identity, workOrder)) {
+      return null;
+    }
+    return identity;
+  }
+
   app.post("/api/work-orders", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -15417,17 +15534,42 @@ ${optionalNotes || "No details provided."}`;
 
       const validatedData = insertWorkOrderSchema.parse(req.body);
 
-      // Security: Validate teamId belongs to organization if provided
-      if (validatedData.teamId) {
-        const team = await storage.getTeam(validatedData.teamId);
-        if (!team || team.organizationId !== user.organizationId) {
-          return res.status(403).json({ error: "Team not found or access denied" });
-        }
+      // Work orders must be assigned via a Maintenance Team (Settings → Maintenance Team)
+      if (!validatedData.teamId) {
+        return res.status(400).json({
+          error: "A maintenance team is required. Assign work orders only to people on a Maintenance Team.",
+        });
+      }
+      if (!validatedData.assignedToId) {
+        return res.status(400).json({
+          error: "An assigned team member is required.",
+        });
       }
 
-      // Security: Validate contractorId belongs to organization if provided
-      // Contractors are stored in the contacts table, not users table
+      const team = await storage.getTeam(validatedData.teamId);
+      if (!team || team.organizationId !== user.organizationId) {
+        return res.status(403).json({ error: "Team not found or access denied" });
+      }
+
+      const members = await storage.getTeamMembers(validatedData.teamId);
+      const assigneeIsMember = members.some(
+        (m: any) =>
+          m.userId === validatedData.assignedToId || m.contactId === validatedData.assignedToId,
+      );
+      if (!assigneeIsMember) {
+        return res.status(403).json({
+          error: "Assignee must be a member of the selected Maintenance Team.",
+        });
+      }
+
+      // If contractorId is set, it must be a contact that is on this team
       if (validatedData.contractorId) {
+        const contractorOnTeam = members.some((m: any) => m.contactId === validatedData.contractorId);
+        if (!contractorOnTeam) {
+          return res.status(403).json({
+            error: "Maintenance contractor must be a member of the selected Maintenance Team.",
+          });
+        }
         const contractor = await storage.getContact(validatedData.contractorId);
         if (!contractor || contractor.organizationId !== user.organizationId) {
           return res.status(403).json({ error: "Maintenance contractor not found or access denied" });
@@ -15445,7 +15587,6 @@ ${optionalNotes || "No details provided."}`;
       // Send email notification to team if teamId is provided (best-effort, non-blocking)
       if (validatedData.teamId) {
         try {
-          const team = await storage.getTeam(validatedData.teamId);
           const maintenanceRequest = await db
             .select()
             .from(maintenanceRequests)
@@ -15555,10 +15696,23 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      // If user is a contractor, show only their work orders
-      const workOrders = user.role === "contractor"
-        ? await storage.getWorkOrdersByContractor(userId)
-        : await storage.getWorkOrdersByOrganization(user.organizationId);
+      const identity = await loadWorkOrderIdentity({
+        id: user.id,
+        organizationId: user.organizationId,
+        role: user.role,
+        email: user.email,
+      });
+
+      let workOrders;
+      if (listScopeForUser(user.role) === "assignee") {
+        workOrders = await storage.getWorkOrdersForAssignee(user.organizationId, {
+          userId: identity.userId,
+          contactIds: identity.contactIds,
+          role: user.role === "clerk" ? "clerk" : "contractor",
+        });
+      } else {
+        workOrders = await storage.getWorkOrdersByOrganization(user.organizationId);
+      }
 
       res.json(workOrders);
     } catch (error) {
@@ -15580,12 +15734,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access: owner/org members can see all, contractors can only see their assigned orders
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -15609,16 +15758,20 @@ ${optionalNotes || "No details provided."}`;
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
       const { status } = req.body;
+      if (!status || !isAllowedWorkOrderStatus(user.role, status)) {
+        return res.status(400).json({ error: "Invalid or unauthorized status" });
+      }
+
+      // Field staff and org members with access may update status; compliance uses org scope but status already gated
+      if (user.role === "compliance") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const completedAt = status === "completed" ? new Date() : undefined;
       const updated = await storage.updateWorkOrderStatus(req.params.id, status, completedAt);
       res.json(updated);
@@ -15641,12 +15794,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -15663,6 +15811,14 @@ ${optionalNotes || "No details provided."}`;
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (req.body.status !== undefined && !isAllowedWorkOrderStatus(user.role, req.body.status)) {
+        return res.status(400).json({ error: "Invalid or unauthorized status" });
+      }
       const { updateWorkOrderFields } = await import("./workOrderCertificateService");
       const updated = await updateWorkOrderFields({
         organizationId: user.organizationId,
@@ -15671,6 +15827,7 @@ ${optionalNotes || "No details provided."}`;
         userRole: user.role || "",
         teamId: req.body.teamId,
         assignedToId: req.body.assignedToId,
+        contractorId: req.body.contractorId,
         status: req.body.status,
         slaDue: req.body.slaDue,
         costEstimate:
@@ -15680,7 +15837,6 @@ ${optionalNotes || "No details provided."}`;
               ? null
               : undefined,
       });
-      // If client sends pounds as decimal string (Analytics), prefer cents when value looks like pounds
       res.json(updated);
     } catch (error: any) {
       console.error("Error updating work order:", error);
@@ -15693,8 +15849,8 @@ ${optionalNotes || "No details provided."}`;
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
       const wo = await storage.getWorkOrder(req.params.id);
-      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
-      if (user.role === "contractor" && wo.contractorId !== user.id) {
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
         return res.status(403).json({ error: "Access denied" });
       }
       const { listWorkOrderCertificates } = await import("./workOrderCertificateService");
@@ -15710,8 +15866,8 @@ ${optionalNotes || "No details provided."}`;
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
       const wo = await storage.getWorkOrder(req.params.id);
-      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
-      if (user.role === "contractor" && wo.contractorId !== user.id) {
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
         return res.status(403).json({ error: "Access denied" });
       }
       const { createWorkOrderCertificate } = await import("./workOrderCertificateService");
@@ -15735,8 +15891,8 @@ ${optionalNotes || "No details provided."}`;
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
       const wo = await storage.getWorkOrder(req.params.id);
-      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
-      if (user.role === "contractor" && wo.contractorId !== user.id) {
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
         return res.status(403).json({ error: "Access denied" });
       }
       const { analyseWorkOrderCertificate } = await import("./workOrderCertificateService");
@@ -15757,8 +15913,8 @@ ${optionalNotes || "No details provided."}`;
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
       const wo = await storage.getWorkOrder(req.params.id);
-      if (!wo || wo.organizationId !== user.organizationId) return res.status(404).json({ error: "Work order not found" });
-      if (user.role === "contractor" && wo.contractorId !== user.id) {
+      if (!wo) return res.status(404).json({ error: "Work order not found" });
+      if (!(await assertWorkOrderAccess(user as any, wo))) {
         return res.status(403).json({ error: "Access denied" });
       }
       const { confirmWorkOrderCertificate } = await import("./workOrderCertificateService");
@@ -15779,7 +15935,7 @@ ${optionalNotes || "No details provided."}`;
 
   // ==================== WORK LOG ROUTES ====================
 
-  app.post("/api/work-logs", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
+  app.post("/api/work-logs", isAuthenticated, requireRole("owner", "contractor", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15789,18 +15945,12 @@ ${optionalNotes || "No details provided."}`;
 
       const validatedData = insertWorkLogSchema.parse(req.body);
 
-      // Verify parent work order belongs to user's organization or contractor
       const workOrder = await storage.getWorkOrder(validatedData.workOrderId);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -15823,18 +15973,12 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      // Verify work order belongs to user's organization or contractor
       const workOrder = await storage.getWorkOrder(req.params.workOrderId);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
 
-      // Verify access
-      if (user.role === "contractor") {
-        if (workOrder.contractorId !== userId) {
-          return res.status(403).json({ error: "Access denied" });
-        }
-      } else if (workOrder.organizationId !== user.organizationId) {
+      if (!(await assertWorkOrderAccess(user as any, workOrder))) {
         return res.status(403).json({ error: "Access denied" });
       }
 
@@ -16700,6 +16844,15 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
+      // Overdue rent periods (respect property/block filters)
+      const { listOverdueRentPeriodsForOrganization } = await import("./propertyFinanceService");
+      const overdueRentPropertyIds =
+        filterPropertyId || filterBlockId ? properties.map((p: any) => p.id) : undefined;
+      const overdueRentPeriods = await listOverdueRentPeriodsForOrganization(
+        orgId,
+        overdueRentPropertyIds,
+      );
+
       res.json({
         // Summary counts
         totals: {
@@ -16755,6 +16908,17 @@ ${optionalNotes || "No details provided."}`;
               createdAt: m.createdAt
             };
           }),
+          overdueRent: overdueRentPeriods.length,
+          overdueRentList: overdueRentPeriods.slice(0, 10).map((r) => ({
+            id: r.id,
+            propertyId: r.propertyId,
+            tenantName: r.tenantName,
+            periodLabel: r.periodLabel,
+            amountOutstanding: r.amountOutstanding,
+            currency: r.currency,
+            dueDate: r.dueDate,
+            daysOverdue: r.daysOverdue,
+          })),
         },
 
         // Due soon
@@ -18617,13 +18781,9 @@ ${optionalNotes || "No details provided."}`;
         });
       });
 
-      res.json({
-        id: adminUser.id,
-        email: adminUser.email,
-        firstName: adminUser.firstName,
-        lastName: adminUser.lastName,
-      });
-    } catch (error) {
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = adminUser as any;
+      res.json(sanitizedAdmin);
+    } catch (error: any) {
       console.error("Admin login error:", error);
       res.status(500).json({ message: "Login failed" });
     }
@@ -19129,7 +19289,7 @@ ${optionalNotes || "No details provided."}`;
     try {
       const admins = await storage.getAllAdmins();
       // Remove password from response
-      const sanitizedAdmins = admins.map(({ password, ...admin }) => admin);
+      const sanitizedAdmins = admins.map(({ password, resetToken, resetTokenExpiry, ...admin }) => admin);
       res.json(sanitizedAdmins);
     } catch (error) {
       console.error("Error fetching admin team:", error);
@@ -19168,7 +19328,7 @@ ${optionalNotes || "No details provided."}`;
       }
 
       // Remove password from response
-      const { password: _, ...sanitizedAdmin } = admin;
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = admin;
       res.json(sanitizedAdmin);
     } catch (error: any) {
       console.error("Error creating admin:", error);
@@ -19190,7 +19350,7 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const admin = await storage.updateAdmin(req.params.id, updateData);
-      const { password: _, ...sanitizedAdmin } = admin;
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = admin;
       res.json(sanitizedAdmin);
     } catch (error) {
       console.error("Error updating admin:", error);
@@ -19238,7 +19398,7 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
-      const { password: _, ...sanitizedAdmin } = updatedAdmin;
+      const { password: _, resetToken: _rt, resetTokenExpiry: _rte, ...sanitizedAdmin } = updatedAdmin;
       res.json({ message: "Password reset successfully", admin: sanitizedAdmin });
     } catch (error: any) {
       console.error("Error resetting admin password:", error);

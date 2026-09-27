@@ -26,6 +26,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, dialogFooterSticky } from "@/lib/responsive";
 
 interface CommunityGroup {
   id: string;
@@ -190,7 +192,7 @@ export default function TenantCommunity() {
 
   if (rulesLoading || groupsLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-12 w-64" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Skeleton className="h-48" />
@@ -202,7 +204,7 @@ export default function TenantCommunity() {
 
   if (selectedThread && threadDetail) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -223,14 +225,14 @@ export default function TenantCommunity() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setSelectedThread(null)} data-testid="button-back-threads">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 min-w-0">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedThread(null)} data-testid="button-back-threads" className="shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-thread-title">
-              {threadDetail.isPinned && <Pin className="h-5 w-5 text-primary" />}
-              {threadDetail.isLocked && <Lock className="h-5 w-5 text-muted-foreground" />}
+          <div className="flex-1 min-w-0">
+            <h1 className={cn("text-xl md:text-2xl font-bold flex items-center gap-2", textBreak)} data-testid="text-thread-title">
+              {threadDetail.isPinned && <Pin className="h-5 w-5 text-primary shrink-0" />}
+              {threadDetail.isLocked && <Lock className="h-5 w-5 text-muted-foreground shrink-0" />}
               {threadDetail.title}
             </h1>
             <p className="text-muted-foreground text-sm">
@@ -242,6 +244,7 @@ export default function TenantCommunity() {
             size="sm"
             onClick={() => setShowFlagDialog({ type: 'thread', id: threadDetail.id })}
             data-testid="button-flag-thread"
+            className="shrink-0 self-start"
           >
             <Flag className="h-4 w-4 mr-1" />
             Report
@@ -250,13 +253,13 @@ export default function TenantCommunity() {
 
         <Card>
           <CardContent className="pt-6">
-            <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap" data-testid="text-thread-content">
+            <div className={cn("prose dark:prose-invert max-w-none whitespace-pre-wrap", textBreak)} data-testid="text-thread-content">
               {threadDetail.content}
             </div>
             {threadDetail.attachments?.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
                 {threadDetail.attachments.map((att: any) => (
-                  <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline text-sm">
+                  <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className={cn("text-primary underline text-sm", textBreak)}>
                     {att.fileName}
                   </a>
                 ))}
@@ -292,11 +295,11 @@ export default function TenantCommunity() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="whitespace-pre-wrap" data-testid={`text-post-content-${post.id}`}>{post.content}</div>
+                <div className={cn("whitespace-pre-wrap", textBreak)} data-testid={`text-post-content-${post.id}`}>{post.content}</div>
                 {post.attachments?.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
                     {post.attachments.map((att) => (
-                      <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline text-sm">
+                      <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className={cn("text-primary underline text-sm", textBreak)}>
                         {att.fileName}
                       </a>
                     ))}
@@ -375,7 +378,7 @@ export default function TenantCommunity() {
                 />
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className={dialogFooterSticky}>
               <Button variant="outline" onClick={() => setShowFlagDialog(null)} data-testid="button-cancel-flag">
                 Cancel
               </Button>
@@ -405,7 +408,7 @@ export default function TenantCommunity() {
 
   if (selectedGroup) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -422,16 +425,16 @@ export default function TenantCommunity() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setSelectedGroup(null)} data-testid="button-back-groups">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start min-w-0">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedGroup(null)} data-testid="button-back-groups" className="shrink-0 self-start">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold" data-testid="text-group-name">{selectedGroup.name}</h1>
-            <p className="text-muted-foreground">{selectedGroup.description}</p>
+          <div className="flex-1 min-w-0">
+            <h1 className={cn("text-xl md:text-2xl font-bold", textBreak)} data-testid="text-group-name">{selectedGroup.name}</h1>
+            <p className={cn("text-muted-foreground", textBreak)}>{selectedGroup.description}</p>
           </div>
           {selectedGroup.isMember && !requiresRulesAcceptance && (
-            <Button onClick={() => setShowCreateThread(true)} data-testid="button-new-thread">
+            <Button onClick={() => setShowCreateThread(true)} data-testid="button-new-thread" className="w-full sm:w-auto shrink-0">
               <Plus className="h-4 w-4 mr-2" />
               New Thread
             </Button>
@@ -447,6 +450,7 @@ export default function TenantCommunity() {
               }}
               disabled={joinGroupMutation.isPending}
               data-testid="button-join-group"
+              className="w-full sm:w-auto shrink-0"
             >
               {joinGroupMutation.isPending ? "Joining..." : "Join Group"}
             </Button>
@@ -545,7 +549,7 @@ export default function TenantCommunity() {
                 />
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className={dialogFooterSticky}>
               <Button variant="outline" onClick={() => setShowCreateThread(false)} data-testid="button-cancel-thread">
                 Cancel
               </Button>
@@ -564,7 +568,7 @@ export default function TenantCommunity() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -577,9 +581,9 @@ export default function TenantCommunity() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-community-title">Community</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold" data-testid="text-community-title">Community</h1>
           <p className="text-muted-foreground">Connect with your neighbors</p>
         </div>
         <Button
@@ -591,6 +595,7 @@ export default function TenantCommunity() {
             }
           }}
           data-testid="button-create-group"
+          className="w-full sm:w-auto shrink-0"
         >
           <Plus className="h-4 w-4 mr-2" />
           Create Group
@@ -740,7 +745,7 @@ Violations may result in content removal or loss of community privileges.`}
               I have read and agree to follow these community guidelines
             </label>
           </div>
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setShowRulesDialog(false)} data-testid="button-cancel-rules">
               Cancel
             </Button>
@@ -785,7 +790,7 @@ Violations may result in content removal or loss of community privileges.`}
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setShowCreateGroup(false)} data-testid="button-cancel-group">
               Cancel
             </Button>

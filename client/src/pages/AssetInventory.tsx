@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { extractFileUrlFromUploadResponse } from "@/lib/utils";
+import { extractFileUrlFromUploadResponse, cn } from "@/lib/utils";
 import { useLocale } from "@/contexts/LocaleContext";
 import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, FileText, MapPin, Tag as TagIcon, ArrowLeft, Filter, X, ExternalLink, Download } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -23,6 +23,8 @@ import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
+import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
 
 const conditionLabels = {
   excellent: "Excellent",
@@ -653,11 +655,11 @@ export default function AssetInventory() {
   }, [assets]);
 
   if (isLoading) {
-    return <div className="container mx-auto p-4 md:p-6">Loading...</div>;
+    return <div className={cn("container mx-auto min-w-0", pagePad)}>Loading...</div>;
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header with optional block or property breadcrumb */}
       {currentBlock && (
         <Link href={`/blocks/${currentBlock.id}`}>
@@ -676,9 +678,9 @@ export default function AssetInventory() {
         </Link>
       )}
       
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold break-words">
             {currentBlock 
               ? `${currentBlock.name} - Asset Inventory` 
               : currentProperty 
@@ -703,7 +705,7 @@ export default function AssetInventory() {
               Add Asset
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className={cn(dialogContentBase, "max-w-4xl")}>
             <DialogHeader>
               <DialogTitle>{editingAsset ? "Edit Asset" : "Add New Asset"}</DialogTitle>
               <DialogDescription>
@@ -715,7 +717,7 @@ export default function AssetInventory() {
               {/* Basic Information */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Basic Information</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="name" required>Asset Name</Label>
                     <Input
@@ -796,7 +798,7 @@ export default function AssetInventory() {
               {/* Location & Assignment */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Location & Assignment</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="property">Property</Label>
                     <Select
@@ -851,7 +853,7 @@ export default function AssetInventory() {
               {/* Purchase & Financial Information */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Purchase & Financial Information</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="datePurchased">Date Purchased</Label>
                     <LocaleDateInput
@@ -923,7 +925,7 @@ export default function AssetInventory() {
               {/* Supplier & Product Information */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Supplier & Product Information</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="supplier">Supplier</Label>
                     <Input
@@ -989,7 +991,7 @@ export default function AssetInventory() {
               {/* Maintenance Information */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Maintenance Information</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className={formGrid2}>
                   <div>
                     <Label htmlFor="lastMaintenanceDate">Last Maintenance Date</Label>
                     <LocaleDateInput
@@ -1038,7 +1040,7 @@ export default function AssetInventory() {
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Photos & Documents</h3>
                 {uploadedPhotos.length > 0 && (
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0">
                     {uploadedPhotos.map((url, index) => (
                       <div key={index} className="relative">
                         {(() => {
@@ -1088,7 +1090,7 @@ export default function AssetInventory() {
                 />
               </div>
 
-              <DialogFooter>
+              <DialogFooter className={cn(dialogFooterSticky)}>
                 <Button type="button" variant="outline" onClick={handleCloseDialog}>
                   Cancel
                 </Button>
@@ -1101,21 +1103,21 @@ export default function AssetInventory() {
         </Dialog>
       </div>
 
-      {/* Filters - Desktop */}
-      <div className="hidden md:flex gap-4 items-center flex-wrap">
-        <div className="relative flex-1 min-w-[300px]">
+      <FiltersSection headingId="asset-inventory-filters-heading">
+      <div className="hidden md:flex flex-col lg:flex-row gap-3 items-stretch lg:items-center flex-wrap">
+        <div className="relative w-full lg:flex-1 lg:min-w-0">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search by asset, description, location, property name, or block name..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
+            className="pl-9 h-8"
             data-testid="input-search-assets"
           />
         </div>
 
         <Select value={filterCategory} onValueChange={setFilterCategory}>
-          <SelectTrigger className="w-48" data-testid="select-filter-category">
+          <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-category">
             <SelectValue placeholder="All Categories" />
           </SelectTrigger>
           <SelectContent>
@@ -1127,7 +1129,7 @@ export default function AssetInventory() {
         </Select>
 
         <Select value={filterCondition} onValueChange={setFilterCondition}>
-          <SelectTrigger className="w-48" data-testid="select-filter-condition">
+          <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-condition">
             <SelectValue placeholder="All Conditions" />
           </SelectTrigger>
           <SelectContent>
@@ -1139,7 +1141,7 @@ export default function AssetInventory() {
         </Select>
 
         <Select value={filterPropertyBlock} onValueChange={setFilterPropertyBlock}>
-          <SelectTrigger className="w-[min(100%,220px)] min-w-[180px]" data-testid="select-filter-property-block">
+          <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[14rem] h-8" data-testid="select-filter-property-block">
             <SelectValue placeholder="All properties & blocks" />
           </SelectTrigger>
           <SelectContent>
@@ -1154,7 +1156,7 @@ export default function AssetInventory() {
         </Select>
 
         <Select value={filterSpecificLocation} onValueChange={setFilterSpecificLocation}>
-          <SelectTrigger className="w-[min(100%,200px)] min-w-[160px]" data-testid="select-filter-specific-location">
+          <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid="select-filter-specific-location">
             <SelectValue placeholder="All specific locations" />
           </SelectTrigger>
           <SelectContent>
@@ -1180,22 +1182,22 @@ export default function AssetInventory() {
         )}
       </div>
 
-      {/* Filters - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
+      <div className="flex md:hidden gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search assets, property, or block..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
+            className="pl-9 h-8"
             data-testid="input-search-assets-mobile"
           />
         </div>
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0">
-              <Filter className="w-4 h-4" />
+            <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+              <Filter className="w-4 h-4 mr-2" />
+              Filters
               {(filterCategory !== "all" || filterCondition !== "all" || filterPropertyBlock !== "all" || filterSpecificLocation !== "all") && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
               )}
@@ -1291,6 +1293,7 @@ export default function AssetInventory() {
           </SheetContent>
         </Sheet>
       </div>
+      </FiltersSection>
 
       {/* Assets Grid */}
       {!filteredAssets || filteredAssets.length === 0 ? (

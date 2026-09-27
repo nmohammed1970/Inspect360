@@ -96,6 +96,7 @@ async function runMigration() {
         currency VARCHAR(3) NOT NULL DEFAULT 'GBP',
         warranty_expiry TIMESTAMP,
         warranty_notes TEXT,
+        photo_url TEXT,
         receipt_url TEXT,
         asset_inventory_id VARCHAR,
         notes TEXT,

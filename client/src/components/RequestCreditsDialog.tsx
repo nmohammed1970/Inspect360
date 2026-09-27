@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { parseCreditRequestCreate } from "@shared/creditRequests";
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PhoneInput } from "@/components/PhoneInput";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -14,6 +15,7 @@ type AccountUser = {
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;
+  phone?: string | null;
   organizationId?: string | null;
 };
 
@@ -33,9 +35,11 @@ export function BuyCreditsButton({ onClick, testId }: { onClick: () => void; tes
 
 export function RequestCreditsDialog({ open, onOpenChange, user }: RequestCreditsDialogProps) {
   const { toast } = useToast();
-  const [credits, setCredits] = useState("");
+  const [units, setUnits] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [message, setMessage] = useState("");
-  const [creditsError, setCreditsError] = useState("");
+  const [unitsError, setUnitsError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [messageError, setMessageError] = useState("");
 
   const { data: organization } = useQuery<{ name?: string }>({
@@ -50,24 +54,32 @@ export function RequestCreditsDialog({ open, onOpenChange, user }: RequestCredit
 
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || user?.email || "";
 
+  useEffect(() => {
+    if (open) {
+      setContactPhone((user?.phone || "").trim());
+    }
+  }, [open, user?.phone]);
+
   const reset = () => {
-    setCredits("");
+    setUnits("");
+    setContactPhone((user?.phone || "").trim());
     setMessage("");
-    setCreditsError("");
+    setUnitsError("");
+    setPhoneError("");
     setMessageError("");
   };
 
   const submit = useMutation({
-    mutationFn: async (payload: { creditsRequested: number; message: string }) => {
+    mutationFn: async (payload: { creditsRequested: number; contactPhone: string; message: string }) => {
       const res = await apiRequest("POST", "/api/credit-requests", payload);
       return res.json() as Promise<{ emailNotified: boolean }>;
     },
     onSuccess: (body) => {
       toast({
-        title: "Credit request submitted successfully.",
+        title: "Purchase request submitted successfully.",
         description: body.emailNotified
-          ? "Your credit request has been submitted successfully. The administration team has been notified."
-          : "Your credit request has been submitted successfully.",
+          ? "Your request has been submitted. The administration team has been notified and will allocate credits based on your units."
+          : "Your request has been submitted. An admin will allocate credits based on your units.",
       });
       reset();
       onOpenChange(false);
@@ -75,7 +87,7 @@ export function RequestCreditsDialog({ open, onOpenChange, user }: RequestCredit
     onError: (error: Error) => {
       toast({
         variant: "destructive",
-        title: "Unable to submit your credit request. Please try again.",
+        title: "Unable to submit your purchase request. Please try again.",
         description: error.message || undefined,
       });
     },
@@ -85,19 +97,29 @@ export function RequestCreditsDialog({ open, onOpenChange, user }: RequestCredit
     <Dialog open={open} onOpenChange={(next) => { if (!submit.isPending) { if (!next) reset(); onOpenChange(next); } }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Request Credits</DialogTitle>
-          <DialogDescription>Tell the Inspect360 team how many credits you need. This sends a request. It does not add credits immediately.</DialogDescription>
+          <DialogTitle>Purchase Credits</DialogTitle>
+          <DialogDescription>
+            Tell us how many properties / units you manage. This sends a request — an admin will allocate credits based on your units. Credits are not added immediately.
+          </DialogDescription>
         </DialogHeader>
         <form
           className="space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            const parsed = parseCreditRequestCreate({ creditsRequested: credits.trim(), message });
-            const messageCheck = parseCreditRequestCreate({ creditsRequested: 6, message });
-            setCreditsError(!parsed.ok && parsed.field === "credits" ? parsed.message : "");
-            setMessageError(!messageCheck.ok && messageCheck.field === "message" ? messageCheck.message : "");
-            if (!parsed.ok || !messageCheck.ok) return;
-            submit.mutate({ creditsRequested: parsed.creditsRequested, message: parsed.message });
+            const parsed = parseCreditRequestCreate({
+              creditsRequested: units.trim(),
+              contactPhone,
+              message,
+            });
+            setUnitsError(!parsed.ok && parsed.field === "credits" ? parsed.message : "");
+            setPhoneError(!parsed.ok && parsed.field === "contactPhone" ? parsed.message : "");
+            setMessageError(!parsed.ok && parsed.field === "message" ? parsed.message : "");
+            if (!parsed.ok) return;
+            submit.mutate({
+              creditsRequested: parsed.creditsRequested,
+              contactPhone: parsed.contactPhone,
+              message: parsed.message,
+            });
           }}
         >
           <div className="space-y-1">
@@ -113,20 +135,34 @@ export function RequestCreditsDialog({ open, onOpenChange, user }: RequestCredit
             <Input id="credit-request-email" type="email" value={user?.email || ""} readOnly />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="credit-request-credits">Credits Required</Label>
-            <Input
-              id="credit-request-credits"
-              inputMode="numeric"
-              value={credits}
-              onChange={(event) => {
-                setCredits(event.target.value);
-                setCreditsError("");
+            <Label htmlFor="credit-request-phone">Contact Number</Label>
+            <PhoneInput
+              id="credit-request-phone"
+              value={contactPhone}
+              onChange={(value) => {
+                setContactPhone(value);
+                setPhoneError("");
               }}
-              aria-invalid={!!creditsError}
-              aria-describedby={creditsError ? "credit-request-credits-error" : undefined}
+              data-testid="input-credit-request-phone"
+            />
+            {phoneError ? <p className="text-sm text-destructive">{phoneError}</p> : null}
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="credit-request-units">Number of Properties / Units</Label>
+            <Input
+              id="credit-request-units"
+              inputMode="numeric"
+              value={units}
+              onChange={(event) => {
+                setUnits(event.target.value);
+                setUnitsError("");
+              }}
+              placeholder="e.g. 12"
+              aria-invalid={!!unitsError}
+              aria-describedby={unitsError ? "credit-request-units-error" : undefined}
               data-testid="input-credit-request-credits"
             />
-            {creditsError ? <p id="credit-request-credits-error" className="text-sm text-destructive">{creditsError}</p> : null}
+            {unitsError ? <p id="credit-request-units-error" className="text-sm text-destructive">{unitsError}</p> : null}
           </div>
           <div className="space-y-1">
             <Label htmlFor="credit-request-message">Message</Label>

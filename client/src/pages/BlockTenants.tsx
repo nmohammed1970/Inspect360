@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { BroadcastDialog } from "@/components/BroadcastDialog";
 import { useLocale } from "@/contexts/LocaleContext";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 
 interface TenantAssignment {
   user: {
@@ -276,25 +277,26 @@ export default function BlockTenants() {
           <h2 className="text-2xl font-semibold">Tenants</h2>
         </div>
 
-        {/* Search and Tag Filter */}
         {tenants.length > 0 && (
-          <div className="flex items-center gap-4 mb-6">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-              <Input
-                placeholder="Search by name, email, or property..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                data-testid="input-search-tenants"
+          <FiltersSection headingId="block-tenants-filters-heading" className="mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-0 max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search by name, email, or property..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 h-8"
+                  data-testid="input-search-tenants"
+                />
+              </div>
+              <TagFilter
+                selectedTags={filterTags}
+                onTagsChange={setFilterTags}
+                placeholder="Filter by tags..."
               />
             </div>
-            <TagFilter
-              selectedTags={filterTags}
-              onTagsChange={setFilterTags}
-              placeholder="Filter by tags..."
-            />
-          </div>
+          </FiltersSection>
         )}
         
         {tenants.length === 0 ? (

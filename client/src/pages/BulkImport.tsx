@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
 import { 
   Download, 
   Upload, 
@@ -180,37 +181,38 @@ function ImportTab({ entity }: { entity: EntityType }) {
   const Icon = config.icon;
 
   return (
-    <div className="space-y-6">
-      <Card>
+    <div className="space-y-6 min-w-0">
+      <Card className="min-w-0">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
+          <div className="flex items-start sm:items-center gap-3 min-w-0">
+            <div className="p-2 bg-primary/10 rounded-lg shrink-0">
               <Icon className="h-5 w-5 text-primary" />
             </div>
-            <div>
-              <CardTitle>{config.title} Import</CardTitle>
-              <CardDescription>{config.description}</CardDescription>
+            <div className="min-w-0">
+              <CardTitle className={textBreak}>{config.title} Import</CardTitle>
+              <CardDescription className={textBreak}>{config.description}</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
             <Button 
               variant="outline" 
+              className="min-h-11 w-full sm:w-auto shrink-0"
               onClick={handleDownloadTemplate}
               data-testid={`button-download-template-${entity}`}
             >
-              <Download className="h-4 w-4 mr-2" />
+              <Download className="h-4 w-4 mr-2 shrink-0" />
               Download Template
             </Button>
             
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 w-full min-w-0">
               <label 
                 htmlFor={`file-${entity}`}
-                className="flex items-center justify-center gap-2 p-4 border-2 border-dashed rounded-lg cursor-pointer hover-elevate transition-colors"
+                className="flex items-center justify-center gap-2 p-4 border-2 border-dashed rounded-lg cursor-pointer hover-elevate transition-colors min-h-11 min-w-0"
               >
-                <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
+                <FileSpreadsheet className="h-5 w-5 text-muted-foreground shrink-0" />
+                <span className={`text-sm text-muted-foreground ${textTruncate}`}>
                   {file ? file.name : "Choose Excel file (.xlsx)"}
                 </span>
               </label>
@@ -284,10 +286,10 @@ function ImportTab({ entity }: { entity: EntityType }) {
             </div>
 
             {validation.errors.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0">
                 <h4 className="font-medium text-sm">Errors:</h4>
-                <div className="max-h-48 overflow-auto border rounded-lg">
-                  <table className="w-full text-sm">
+                <div className="max-h-48 overflow-x-auto overflow-y-auto border rounded-lg">
+                  <table className="w-full min-w-[28rem] text-sm">
                     <thead className="bg-muted sticky top-0">
                       <tr>
                         <th className="text-left p-2">Row</th>
@@ -298,9 +300,9 @@ function ImportTab({ entity }: { entity: EntityType }) {
                     <tbody>
                       {validation.errors.map((error, idx) => (
                         <tr key={idx} className="border-t">
-                          <td className="p-2">{error.row}</td>
-                          <td className="p-2">{error.column}</td>
-                          <td className="p-2 text-destructive">{error.message}</td>
+                          <td className="p-2 whitespace-nowrap">{error.row}</td>
+                          <td className={`p-2 ${textBreak}`}>{error.column}</td>
+                          <td className={`p-2 text-destructive ${textBreak}`}>{error.message}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -310,10 +312,10 @@ function ImportTab({ entity }: { entity: EntityType }) {
             )}
 
             {validation.preview.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0">
                 <h4 className="font-medium text-sm">Preview (first {validation.preview.length} valid rows):</h4>
-                <div className="max-h-48 overflow-auto border rounded-lg">
-                  <table className="w-full text-sm">
+                <div className="max-h-48 overflow-x-auto overflow-y-auto border rounded-lg">
+                  <table className="w-full min-w-[28rem] text-sm">
                     <thead className="bg-muted sticky top-0">
                       <tr>
                         <th className="text-left p-2">Row</th>
@@ -323,9 +325,9 @@ function ImportTab({ entity }: { entity: EntityType }) {
                     <tbody>
                       {validation.preview.map((item, idx) => (
                         <tr key={idx} className="border-t">
-                          <td className="p-2">{item.rowNum}</td>
+                          <td className="p-2 whitespace-nowrap">{item.rowNum}</td>
                           <td className="p-2">
-                            <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                            <code className={`text-xs bg-muted px-1 py-0.5 rounded block ${textBreak}`}>
                               {JSON.stringify(item.data).slice(0, 100)}...
                             </code>
                           </td>
@@ -429,32 +431,32 @@ function ImportTab({ entity }: { entity: EntityType }) {
 
 export default function BulkImport() {
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold" data-testid="text-page-title">
+    <div className={`${pagePad} space-y-6 min-w-0`}>
+      <div className="min-w-0">
+        <h1 className="text-xl sm:text-2xl font-semibold break-words" data-testid="text-page-title">
           Bulk Import
         </h1>
-        <p className="text-muted-foreground mt-1">
+        <p className="text-muted-foreground mt-1 text-sm sm:text-base">
           Import data from Excel spreadsheets
         </p>
       </div>
 
-      <Tabs defaultValue="blocks" className="space-y-6">
-        <TabsList className="grid w-full max-w-lg grid-cols-4">
-          <TabsTrigger value="blocks" data-testid="tab-blocks">
-            <Boxes className="h-4 w-4 mr-2" />
+      <Tabs defaultValue="blocks" className="space-y-6 min-w-0">
+        <TabsList className="flex h-auto min-h-11 w-full max-w-full justify-start overflow-x-auto flex-nowrap sm:grid sm:max-w-lg sm:grid-cols-4 sm:overflow-visible">
+          <TabsTrigger value="blocks" data-testid="tab-blocks" className="min-h-11 shrink-0 gap-2">
+            <Boxes className="h-4 w-4 shrink-0" />
             Blocks
           </TabsTrigger>
-          <TabsTrigger value="properties" data-testid="tab-properties">
-            <Building2 className="h-4 w-4 mr-2" />
+          <TabsTrigger value="properties" data-testid="tab-properties" className="min-h-11 shrink-0 gap-2">
+            <Building2 className="h-4 w-4 shrink-0" />
             Properties
           </TabsTrigger>
-          <TabsTrigger value="tenants" data-testid="tab-tenants">
-            <Users className="h-4 w-4 mr-2" />
+          <TabsTrigger value="tenants" data-testid="tab-tenants" className="min-h-11 shrink-0 gap-2">
+            <Users className="h-4 w-4 shrink-0" />
             Tenants
           </TabsTrigger>
-          <TabsTrigger value="assets" data-testid="tab-assets">
-            <Package className="h-4 w-4 mr-2" />
+          <TabsTrigger value="assets" data-testid="tab-assets" className="min-h-11 shrink-0 gap-2">
+            <Package className="h-4 w-4 shrink-0" />
             Assets
           </TabsTrigger>
         </TabsList>

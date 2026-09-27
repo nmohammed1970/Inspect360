@@ -38,6 +38,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate, formGrid2, tabsListScroll, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -576,12 +578,12 @@ export default function AdminDashboard() {
 
   if (isError) {
   return (
-      <div className="container mx-auto px-4 py-8">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Could not load instances</AlertTitle>
           <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
-            <span>{(error as Error)?.message || "Something went wrong."}</span>
+            <span className={textBreak}>{(error as Error)?.message || "Something went wrong."}</span>
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Retry
@@ -593,12 +595,12 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-primary" />
-            Instances
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <Building2 className="h-6 w-6 text-primary shrink-0" />
+            <span className={textTruncate}>Instances</span>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Assign credits and modules per organization. Operators can view status but cannot purchase or self-enable.
@@ -677,7 +679,7 @@ export default function AdminDashboard() {
               <p>No instances match your search.</p>
               </div>
             ) : (
-            <Table>
+            <Table className="min-w-[960px]">
               <TableHeader>
                 <TableRow className="bg-muted/40">
                   <TableHead>Organization</TableHead>
@@ -775,18 +777,18 @@ export default function AdminDashboard() {
         </Card>
 
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={cn(dialogContentBase, "max-w-3xl")}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
-              {selectedInstance?.name || "Instance"}
+            <DialogTitle className="flex items-center gap-2 min-w-0">
+              <Building2 className="h-5 w-5 shrink-0" />
+              <span className={textTruncate}>{selectedInstance?.name || "Instance"}</span>
             </DialogTitle>
             <DialogDescription>
               Manage credits, modules, and unit pricing for this organization.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-lg border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground">Live credits</div>
               <div className="text-2xl font-semibold tabular-nums">{liveBalance?.total ?? 0}</div>
@@ -811,7 +813,7 @@ export default function AdminDashboard() {
 
           <div className="rounded-xl border p-4 space-y-3">
             <div className="font-medium text-sm">Trial</div>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <div>
                 <div className="text-xs text-muted-foreground">Status</div>
                 <div>{trial.status}</div>
@@ -829,8 +831,8 @@ export default function AdminDashboard() {
                 <div>{formatUtcDateTime(liveEntitlement?.trialEndAt)}</div>
               </div>
             </div>
-            <div className="flex gap-2 items-end">
-              <div className="space-y-1 flex-1">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+              <div className="space-y-1 flex-1 min-w-0">
                 <Label htmlFor="trial-days">Days to add</Label>
                 <Input
                   id="trial-days"
@@ -873,16 +875,16 @@ export default function AdminDashboard() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="credits" className="gap-1">
+            <TabsList className={tabsListScroll}>
+              <TabsTrigger value="credits" className="gap-1 shrink-0">
                 <CreditCard className="h-3.5 w-3.5" />
                 Credits
               </TabsTrigger>
-              <TabsTrigger value="modules" className="gap-1">
+              <TabsTrigger value="modules" className="gap-1 shrink-0">
                 <Package className="h-3.5 w-3.5" />
                 Modules
               </TabsTrigger>
-              <TabsTrigger value="unit-pricing" className="gap-1">
+              <TabsTrigger value="unit-pricing" className="gap-1 shrink-0">
                 <Banknote className="h-3.5 w-3.5" />
                 Unit pricing
               </TabsTrigger>
@@ -913,7 +915,7 @@ export default function AdminDashboard() {
                 </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={formGrid2}>
                 <div className="rounded-xl border p-4 space-y-3">
                   <div className="font-medium text-sm">Set absolute total</div>
                     <Input
@@ -973,8 +975,8 @@ export default function AdminDashboard() {
                 ) : ledger.length === 0 ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">No ledger entries yet.</div>
                 ) : (
-                  <div className="max-h-56 overflow-y-auto">
-                    <Table>
+                  <div className="max-h-56 overflow-x-auto overflow-y-auto min-w-0">
+                    <Table className="min-w-[480px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>When</TableHead>
@@ -1098,7 +1100,7 @@ export default function AdminDashboard() {
                 </AlertDescription>
               </Alert>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={formGrid2}>
                 <div className="space-y-2">
                   <Label htmlFor="instance-unit-monthly">Per unit / month</Label>
                   <Input
@@ -1159,8 +1161,8 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs text-muted-foreground">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground min-w-0">
                   {unitPricingUpdatedAt
                     ? `Last updated ${new Date(unitPricingUpdatedAt).toLocaleString()}`
                     : unitPricingSource === "default"
@@ -1168,6 +1170,7 @@ export default function AdminDashboard() {
                       : "Saved for this instance"}
                 </p>
                 <Button
+                  className="w-full sm:w-auto shrink-0"
                   onClick={() => saveUnitPricingMutation.mutate()}
                   disabled={saveUnitPricingMutation.isPending}
                   data-testid="button-save-instance-unit-pricing"
@@ -1181,10 +1184,10 @@ export default function AdminDashboard() {
             </TabsContent>
           </Tabs>
 
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setManageOpen(false)}>
               Close
-                </Button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -68,7 +68,14 @@ export function useModules() {
         // Match entitlement locking: modules stay enabled in DB, but are unusable when locked.
         if (entitlement?.locked) return false;
         if (!myModules) return false;
-        return myModules.some(m => m.moduleKey && m.moduleKey === key && m.isEnabled);
+        // Aliases: historical/UI keys that map onto a real marketplace moduleKey
+        const aliases: Record<string, string> = {
+            work_orders: "maintenance",
+        };
+        const resolvedKey = aliases[key] || key;
+        return myModules.some(
+            (m) => m.moduleKey && m.moduleKey === resolvedKey && m.isEnabled,
+        );
     };
 
     return {

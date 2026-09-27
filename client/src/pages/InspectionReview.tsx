@@ -139,7 +139,7 @@ export default function InspectionReview() {
 
   if (inspectionLoading || entriesLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6">
         <Skeleton className="h-12 w-full" />
         <Skeleton className="h-[500px] w-full" />
       </div>
@@ -148,11 +148,11 @@ export default function InspectionReview() {
 
   if (!inspection) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8">
         <Card>
-          <CardContent className="p-8 text-center">
+          <CardContent className="p-6 sm:p-8 text-center">
             <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h2 className="text-2xl font-semibold mb-2">Inspection not found</h2>
+            <h2 className="text-xl sm:text-2xl font-semibold mb-2 break-words">Inspection not found</h2>
             <Button onClick={() => navigate("/inspections")} data-testid="button-back-to-inspections">
               Back to Inspections
             </Button>
@@ -163,57 +163,62 @@ export default function InspectionReview() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-6">
+    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6 min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
+      <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <Button
               variant="ghost"
               size="icon"
+              className="shrink-0 min-h-11 min-w-11"
               onClick={() => navigate("/inspections")}
               data-testid="button-back"
             >
               <ChevronLeft className="w-5 h-5" />
             </Button>
-            <h1 className="text-3xl font-semibold" data-testid="text-page-title">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold break-words min-w-0" data-testid="text-page-title">
               Inspection Review
             </h1>
           </div>
-          <p className="text-muted-foreground ml-14">
+          <p className="text-sm sm:text-base text-muted-foreground ml-11 sm:ml-14">
             {inspection.propertyId ? "Property" : "Block"} Inspection
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <Badge
             variant={progress === 100 ? "default" : "secondary"}
             data-testid="badge-completion"
+            className="shrink-0"
           >
             {Math.round(progress)}% Complete
           </Badge>
           <Button
             variant="outline"
+            className="min-h-11"
             onClick={() => navigate(`/inspections/${id}/report`)}
             data-testid="button-view-report"
           >
-            <FileText className="w-4 h-4 mr-2" />
+            <FileText className="w-4 h-4 mr-2 shrink-0" />
             View Report
           </Button>
           {inspection.status !== "completed" && (
             <>
               <Button
                 variant="outline"
+                className="min-h-11"
                 onClick={() => navigate(`/inspections/${id}/capture`)}
                 data-testid="button-continue-capture"
               >
                 Continue Editing
               </Button>
               <Button
+                className="min-h-11"
                 onClick={() => completeInspection.mutate()}
                 disabled={completeInspection.isPending || progress < 100}
                 data-testid="button-mark-complete"
               >
-                <CheckCircle2 className="w-4 h-4 mr-2" />
+                <CheckCircle2 className="w-4 h-4 mr-2 shrink-0" />
                 Mark as Complete
               </Button>
             </>
@@ -223,14 +228,14 @@ export default function InspectionReview() {
 
       {/* Progress Summary */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <div className="space-y-3">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-2">
               <span className="text-sm font-medium">Completion Progress</span>
-              <span className="text-2xl font-bold">{completedFields} / {totalFields}</span>
+              <span className="text-xl sm:text-2xl font-bold">{completedFields} / {totalFields}</span>
             </div>
             <Progress value={progress} data-testid="progress-completion" />
-            <div className="flex justify-between text-sm text-muted-foreground">
+            <div className="flex flex-wrap justify-between gap-2 text-sm text-muted-foreground">
               <span>{completedFields} fields completed</span>
               <span>{totalFields - completedFields} remaining</span>
             </div>
@@ -239,7 +244,7 @@ export default function InspectionReview() {
       </Card>
 
       {/* Sections and Entries */}
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {sections.map((section) => {
           const sectionEntries = entries.filter(e => e.sectionRef === section.id);
           const sectionProgress = section.fields.length > 0
@@ -247,25 +252,25 @@ export default function InspectionReview() {
             : 0;
 
           return (
-            <Card key={section.id} className="border-2" data-testid={`section-${section.id}`}>
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-xl font-bold" data-testid={`text-section-title-${section.id}`}>
+            <Card key={section.id} className="border-2 min-w-0" data-testid={`section-${section.id}`}>
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex flex-wrap justify-between items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="text-lg sm:text-xl font-bold break-words" data-testid={`text-section-title-${section.id}`}>
                       {section.title}
                     </CardTitle>
                     {section.description && (
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className="text-sm text-muted-foreground mt-1 break-words">
                         {section.description}
                       </p>
                     )}
                   </div>
-                  <Badge variant={sectionProgress === 100 ? "default" : "secondary"}>
+                  <Badge variant={sectionProgress === 100 ? "default" : "secondary"} className="shrink-0">
                     {Math.round(sectionProgress)}%
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 sm:p-6 pt-0">
                 <div className="space-y-4">
                   {section.fields.map((field) => {
                     const entry = getEntryValue(section.id, field.id);
@@ -274,16 +279,16 @@ export default function InspectionReview() {
                     return (
                       <div
                         key={field.id}
-                        className="border rounded-lg p-4"
+                        className="border rounded-lg p-3 sm:p-4 min-w-0"
                         data-testid={`field-${field.id}`}
                       >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold">{field.label}</span>
-                            {field.required && <span className="text-destructive text-xs">*</span>}
-                            {hasValue && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold break-words min-w-0">{field.label}</span>
+                            {field.required && <span className="text-destructive text-xs shrink-0">*</span>}
+                            {hasValue && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
                           </div>
-                          <div className="mt-2">
+                          <div className="mt-2 break-words">
                             {renderFieldValue(entry, field)}
                           </div>
                           {entry?.note && (

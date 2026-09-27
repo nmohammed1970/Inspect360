@@ -2,6 +2,8 @@ import { useModules } from "@/hooks/use-modules";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ShieldAlert, Gavel, Scale } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
 
 export default function DisputeResolution() {
     const { isModuleEnabled, isLoading: isLoadingModules } = useModules();
@@ -9,7 +11,7 @@ export default function DisputeResolution() {
 
     if (!isLoadingModules && !isDisputeEnabled) {
         return (
-            <div className="container mx-auto p-4 md:p-6 flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4">
+            <div className={cn("container mx-auto min-w-0 flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4", pagePad)}>
                 <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
                     <Scale className="h-8 w-8 text-muted-foreground" />
                 </div>
@@ -29,44 +31,44 @@ export default function DisputeResolution() {
     }
 
     return (
-        <div className="container mx-auto p-4 md:p-6 space-y-6">
-            <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold">Dispute Resolution Portal</h1>
-                <p className="text-muted-foreground">Manage and resolve tenancy deposit disputes.</p>
+        <div className={cn("container mx-auto min-w-0 space-y-6", pagePad)}>
+            <div className="flex flex-col gap-2 min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold break-words">Dispute Resolution Portal</h1>
+                <p className="text-muted-foreground break-words">Manage and resolve tenancy deposit disputes.</p>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
-                <Card>
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-3">
+                <Card className="min-w-0">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <ShieldAlert className="w-5 h-5 text-orange-500" />
+                        <CardTitle className="flex items-center gap-2 text-base sm:text-lg break-words">
+                            <ShieldAlert className="w-5 h-5 text-orange-500 shrink-0" />
                             Open Disputes
                         </CardTitle>
-                        <CardDescription>Active cases requiring attention</CardDescription>
+                        <CardDescription className="break-words">Active cases requiring attention</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">0</div>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="min-w-0">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Gavel className="w-5 h-5 text-blue-500" />
+                        <CardTitle className="flex items-center gap-2 text-base sm:text-lg break-words">
+                            <Gavel className="w-5 h-5 text-blue-500 shrink-0" />
                             In Mediation
                         </CardTitle>
-                        <CardDescription>Cases currently in negotiation</CardDescription>
+                        <CardDescription className="break-words">Cases currently in negotiation</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">0</div>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card className="min-w-0">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Scale className="w-5 h-5 text-green-500" />
+                        <CardTitle className="flex items-center gap-2 text-base sm:text-lg break-words">
+                            <Scale className="w-5 h-5 text-green-500 shrink-0" />
                             Resolved
                         </CardTitle>
-                        <CardDescription>Successfully closed cases</CardDescription>
+                        <CardDescription className="break-words">Successfully closed cases</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">0</div>

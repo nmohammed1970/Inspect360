@@ -27,6 +27,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useResponsive } from '../../hooks/useResponsive';
 import { getImageSource, isLocalPath } from '../../services/offline/storage';
 import { ASSIGNED_INVENTORY_CLERK_LABEL } from '../../constants/roleLabels';
 
@@ -37,11 +38,14 @@ export default function InspectionReviewScreen() {
   const route = useRoute<RoutePropType>();
   const navigation = useNavigation<NavProp>();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
+  const { stackDirection, getResponsivePadding, isSmall } = useResponsive();
+  const metaDir = stackDirection(375);
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   const { inspectionId } = route.params;
   const isOnline = useOnlineStatus();
+  const contentPad = getResponsivePadding(spacing[4]);
 
   const { data: inspection, isLoading } = useQuery({
     queryKey: [`/api/inspections/${inspectionId}`],
@@ -200,25 +204,41 @@ export default function InspectionReviewScreen() {
         contentContainerStyle={[
           styles.content,
           {
+            padding: contentPad,
             paddingTop: spacing[4],
-            paddingBottom: Math.max(insets.bottom + 80, spacing[8])
-          }
+            paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
+          },
         ]}
       >
         {/* Header Section */}
-        <View style={styles.headerSection}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <ArrowLeft size={24} color={themeColors.text.primary} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.pageTitle} numberOfLines={1}>
-              Inspection Details
-            </Text>
+        <View
+          style={[
+            styles.headerSection,
+            { flexDirection: metaDir, alignItems: metaDir === 'column' ? 'stretch' : 'center' },
+          ]}
+        >
+          <View style={[styles.headerTopRow, metaDir === 'column' && { width: '100%' }]}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+            >
+              <ArrowLeft size={24} color={themeColors.text.primary} />
+            </TouchableOpacity>
+            <View style={styles.headerTitleContainer}>
+              <Text style={[styles.pageTitle, { color: themeColors.text.primary }]} numberOfLines={2}>
+                Inspection Details
+              </Text>
+            </View>
           </View>
-          <View style={styles.headerActions}>
+          <View
+            style={[
+              styles.headerActions,
+              {
+                flexDirection: metaDir,
+                alignSelf: metaDir === 'column' ? 'stretch' : 'center',
+              },
+            ]}
+          >
             {inspection.status !== 'completed' && (
               <Button
                 title="Mark Complete"
@@ -227,12 +247,12 @@ export default function InspectionReviewScreen() {
                 variant="default"
                 size="sm"
                 icon={<CheckCircle2 size={16} color={themeColors.primary.foreground} />}
-                style={styles.completeButton}
+                style={[styles.completeButton, metaDir === 'column' && { width: '100%' }]}
                 loading={completeInspection.isPending}
               />
             )}
             <TouchableOpacity
-              style={styles.deleteButton}
+              style={[styles.deleteButton, metaDir === 'column' && { alignSelf: 'flex-end' }]}
               onPress={() => {
                 Alert.alert(
                   'Delete Inspection',
@@ -264,26 +284,26 @@ export default function InspectionReviewScreen() {
               <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Inspection Information</Text>
             </View>
             <View style={styles.cardContent}>
-              <View style={styles.cardInfoRow}>
+              <View style={[styles.cardInfoRow, isSmall && styles.cardInfoRowStack]}>
                 <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>Status:</Text>
                 {getStatusBadge(inspection.status)}
               </View>
-              <View style={styles.cardInfoRow}>
+              <View style={[styles.cardInfoRow, isSmall && styles.cardInfoRowStack]}>
                 <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>Type:</Text>
                 {getTypeBadge(inspection.type)}
               </View>
-              <View style={styles.cardInfoRow}>
+              <View style={[styles.cardInfoRow, isSmall && styles.cardInfoRowStack]}>
                 <Calendar size={16} color={themeColors.text.secondary} />
-                <Text style={[styles.cardValue, { color: themeColors.text.primary }]}>
+                <Text style={[styles.cardValue, { color: themeColors.text.primary, minWidth: 0, flexShrink: 1 }]}>
                   {inspection.scheduledDate
                     ? format(new Date(inspection.scheduledDate), 'MMMM dd, yyyy')
                     : 'Not scheduled'}
                 </Text>
               </View>
               {inspection.completedDate && (
-                <View style={styles.cardInfoRow}>
+                <View style={[styles.cardInfoRow, isSmall && styles.cardInfoRowStack]}>
                   <CheckCircle2 size={16} color={themeColors.text.secondary} />
-                  <Text style={[styles.cardValue, { color: themeColors.text.primary }]}>
+                  <Text style={[styles.cardValue, { color: themeColors.text.primary, minWidth: 0, flexShrink: 1 }]}>
                     Completed: {format(new Date(inspection.completedDate), 'MMMM dd, yyyy')}
                   </Text>
                 </View>
@@ -298,12 +318,27 @@ export default function InspectionReviewScreen() {
             </View>
             <View style={styles.cardContent}>
               <View style={styles.propertySection}>
-                <View style={styles.cardInfoRow}>
+                <View style={[styles.cardInfoRow, isSmall && styles.cardInfoRowStack]}>
                   <MapPin size={16} color={themeColors.text.secondary} />
-                  <Text style={[styles.propertyName, { color: themeColors.text.primary }]}>{getPropertyName()}</Text>
+                  <Text style={[styles.propertyName, { color: themeColors.text.primary, minWidth: 0, flexShrink: 1 }]}>
+                    {getPropertyName()}
+                  </Text>
                 </View>
-                <View style={[styles.cardInfoRow, { marginTop: spacing[1] }]}>
-                  <Text style={[styles.propertyAddress, { color: themeColors.text.secondary, flex: 1 }]}>{getPropertyAddress()}</Text>
+                <View
+                  style={[
+                    styles.cardInfoRow,
+                    { marginTop: spacing[1] },
+                    isSmall && styles.cardInfoRowStack,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.propertyAddress,
+                      { color: themeColors.text.secondary, flex: 1, minWidth: 0 },
+                    ]}
+                  >
+                    {getPropertyAddress()}
+                  </Text>
                   {getPropertyAddress() && (
                     <TouchableOpacity
                       onPress={handleOpenMap}
@@ -316,11 +351,13 @@ export default function InspectionReviewScreen() {
               </View>
               {clerk && (
                 <View style={styles.clerkSection}>
-                  <View style={styles.cardInfoRow}>
+                  <View style={[styles.cardInfoRow, isSmall && styles.cardInfoRowStack]}>
                     <User size={16} color={themeColors.text.secondary} />
-                    <Text style={[styles.cardLabel, { color: themeColors.text.secondary }]}>{ASSIGNED_INVENTORY_CLERK_LABEL}:</Text>
+                    <Text style={[styles.cardLabel, { color: themeColors.text.secondary, minWidth: 0, flexShrink: 1 }]}>
+                      {ASSIGNED_INVENTORY_CLERK_LABEL}:
+                    </Text>
                   </View>
-                  <Text style={[styles.clerkEmail, { color: themeColors.text.primary }]}>{clerk.email}</Text>
+                  <Text style={[styles.clerkEmail, { color: themeColors.text.primary, minWidth: 0 }]}>{clerk.email}</Text>
                 </View>
               )}
             </View>
@@ -339,7 +376,12 @@ export default function InspectionReviewScreen() {
 
         {/* Inspection Items Card */}
         <Card style={styles.itemsCard}>
-          <View style={styles.itemsCardHeader}>
+          <View
+            style={[
+              styles.itemsCardHeader,
+              { flexDirection: metaDir, alignItems: metaDir === 'column' ? 'stretch' : 'flex-start' },
+            ]}
+          >
             <View style={styles.itemsCardTitleContainer}>
               <Text style={[styles.cardTitle, { color: themeColors.text.primary }]}>Inspection Items</Text>
               <Text style={[styles.cardDescription, { color: themeColors.text.secondary }]}>
@@ -349,6 +391,7 @@ export default function InspectionReviewScreen() {
             {inspection.status !== 'completed' && (
               <Button
                 title="Add Item"
+                style={metaDir === 'column' ? { alignSelf: 'stretch' } : undefined}
                 onPress={() => {
                   if (!inspection) {
                     Alert.alert('Error', 'Inspection data not loaded yet');
@@ -361,18 +404,15 @@ export default function InspectionReviewScreen() {
                     const rootNavigator = navigation.getParent()?.getParent();
                     if (rootNavigator) {
                       rootNavigator.dispatch(
-                        CommonActions.navigate({
-                          name: 'Main',
+                        CommonActions.navigate('Main', {
+                          screen: 'Assets',
                           params: {
-                            screen: 'Assets',
+                            screen: 'AssetInventoryList',
                             params: {
-                              screen: 'AssetInventoryList',
-                              params: {
-                                propertyId: inspection.propertyId || undefined,
-                                blockId: inspection.blockId || undefined,
-                                autoOpen: true,
-                                inspectionId: inspectionId,
-                              },
+                              propertyId: inspection.propertyId || undefined,
+                              blockId: inspection.blockId || undefined,
+                              autoOpen: true,
+                              inspectionId: inspectionId,
                             },
                           },
                         })
@@ -439,9 +479,9 @@ export default function InspectionReviewScreen() {
               <View style={styles.itemsGrid}>
                 {items.map((item: any) => (
                   <Card key={item.id} style={styles.itemCard}>
-                    <View style={styles.itemHeader}>
+                    <View style={[styles.itemHeader, isSmall && styles.cardInfoRowStack]}>
                       <View style={styles.itemTitleContainer}>
-                        <Text style={styles.itemTitle}>{item.itemName}</Text>
+                        <Text style={[styles.itemTitle, { minWidth: 0 }]}>{item.itemName}</Text>
                         <Text style={styles.itemCategory}>{item.category}</Text>
                       </View>
                       <Badge variant="secondary">
@@ -503,10 +543,15 @@ const styles = StyleSheet.create({
     padding: spacing[4],
   },
   headerSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: spacing[6],
     gap: spacing[3],
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    flex: 1,
+    minWidth: 0,
   },
   backButton: {
     padding: spacing[1],
@@ -523,6 +568,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
+    flexWrap: 'wrap',
+  },
+  cardInfoRowStack: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
   },
   completeButton: {
     paddingHorizontal: spacing[3],
@@ -560,6 +610,7 @@ const styles = StyleSheet.create({
   cardInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: spacing[2],
   },
   cardLabel: {
@@ -574,6 +625,7 @@ const styles = StyleSheet.create({
   propertyName: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
+    flexShrink: 1,
   },
   propertyAddress: {
     fontSize: typography.fontSize.sm,
@@ -610,14 +662,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing[4],
   },
   itemsCardHeader: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
     marginBottom: spacing[4],
     gap: spacing[3],
   },
   itemsCardTitleContainer: {
     flex: 1,
+    minWidth: 0,
   },
   itemsContent: {
     gap: spacing[4],
@@ -650,6 +701,7 @@ const styles = StyleSheet.create({
   },
   itemTitleContainer: {
     flex: 1,
+    minWidth: 0,
   },
   itemTitle: {
     fontSize: typography.fontSize.base,

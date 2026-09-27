@@ -173,30 +173,30 @@ export function ModernFilePicker({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] p-0 gap-0">
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Upload Files</h2>
+      <DialogContent className="sm:max-w-[500px] p-0 gap-0 overflow-hidden">
+        <div className="p-4 sm:p-6 space-y-4 min-w-0">
+          <div className="flex items-center justify-between min-w-0 pr-8">
+            <h2 className="text-lg sm:text-xl font-semibold break-words">Upload Files</h2>
           </div>
 
           {error && (
-            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive">
+            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md text-sm text-destructive break-words">
               {error}
             </div>
           )}
 
           {isPreparing && (
             <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
               Compressing image…
             </div>
           )}
 
           {isUploading && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-sm gap-2">
                 <span className="text-muted-foreground">Uploading...</span>
-                <span className="text-muted-foreground">{uploadProgress}%</span>
+                <span className="text-muted-foreground shrink-0">{uploadProgress}%</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
@@ -214,7 +214,7 @@ export function ModernFilePicker({
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               className={cn(
-                "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
+                "border-2 border-dashed rounded-lg p-4 sm:p-8 text-center transition-colors min-w-0",
                 isDragging
                   ? "border-primary bg-primary/5"
                   : "border-muted-foreground/30 hover:border-primary/50",
@@ -227,15 +227,15 @@ export function ModernFilePicker({
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">Drag and drop files here, or</p>
-                  <div className="flex gap-3 justify-center">
+                  <p className="text-sm font-medium break-words">Drag and drop files here, or</p>
+                  <div className="flex flex-wrap gap-2 sm:gap-3 justify-center">
                     <Button
                       type="button"
                       variant="outline"
                       onClick={handleBrowseClick}
-                      className="gap-2"
+                      className="gap-2 min-h-11"
                     >
-                      <FileText className="h-4 w-4" />
+                      <FileText className="h-4 w-4 shrink-0" />
                       Browse Files
                     </Button>
                     {(accept.includes("image") || accept === "*/*") && (
@@ -243,14 +243,14 @@ export function ModernFilePicker({
                         type="button"
                         variant="outline"
                         onClick={handleCameraClick}
-                        className="gap-2"
+                        className="gap-2 min-h-11"
                       >
-                        <Camera className="h-4 w-4" />
+                        <Camera className="h-4 w-4 shrink-0" />
                         Use Camera
                       </Button>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground break-words">
                     {multiple ? `Up to ${maxFiles} files. ` : ""}
                     {accept.includes("image") && !accept.includes(".pdf")
                       ? "Large photos are compressed automatically before upload."
@@ -262,18 +262,18 @@ export function ModernFilePicker({
           )}
 
           {selectedFiles.length > 0 && !busy && (
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <p className="text-sm font-medium">Selected Files</p>
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {selectedFiles.map((file, index) => (
                   <div
                     key={index}
-                    className="flex items-center gap-3 p-3 bg-muted rounded-lg"
+                    className="flex items-center gap-3 p-3 bg-muted rounded-lg min-w-0"
                   >
                     {file.type.startsWith("image/") ? (
-                      <PreviewableFileImage file={file} className="h-12 w-12 object-cover rounded" />
+                      <PreviewableFileImage file={file} className="h-12 w-12 object-cover rounded shrink-0" />
                     ) : (
-                      <div className="h-12 w-12 flex items-center justify-center bg-background rounded">
+                      <div className="h-12 w-12 flex items-center justify-center bg-background rounded shrink-0">
                         {getFileIcon(file)}
                       </div>
                     )}
@@ -288,7 +288,7 @@ export function ModernFilePicker({
                       variant="ghost"
                       size="icon"
                       onClick={() => removeFile(index)}
-                      className="h-8 w-8 shrink-0"
+                      className="h-11 w-11 shrink-0"
                     >
                       <X className="h-4 w-4" />
                     </Button>

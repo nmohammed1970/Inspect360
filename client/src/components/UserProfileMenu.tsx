@@ -57,10 +57,10 @@ export function UserProfileMenu() {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none" data-testid="text-user-name">
+            <p className="text-sm font-medium leading-none truncate" data-testid="text-user-name">
               {getDisplayName()}
             </p>
-            <p className="text-xs leading-none text-muted-foreground" data-testid="text-user-email">
+            <p className="text-xs leading-none text-muted-foreground truncate" data-testid="text-user-email">
               {user.email}
             </p>
           </div>
@@ -72,12 +72,14 @@ export function UserProfileMenu() {
             <span>Profile</span>
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/billing" className="cursor-pointer" data-testid="link-billing">
-            <CreditCard className="mr-2 h-4 w-4" />
-            <span>Modules</span>
-          </Link>
-        </DropdownMenuItem>
+        {user.role === "owner" && (
+          <DropdownMenuItem asChild>
+            <Link href="/billing" className="cursor-pointer" data-testid="link-billing">
+              <CreditCard className="mr-2 h-4 w-4" />
+              <span>Modules</span>
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => logoutMutation.mutate()}

@@ -75,6 +75,39 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: false }));
 
+const SENSITIVE_LOG_KEYS = new Set([
+  "apikey",
+  "api_key",
+  "password",
+  "hashedpassword",
+  "token",
+  "accesstoken",
+  "refreshtoken",
+  "secret",
+  "authorization",
+  "clientsecret",
+  "stripesecretkey",
+]);
+
+function redactForLog(value: unknown, depth = 0): unknown {
+  if (value == null || depth > 4) return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((item) => redactForLog(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_LOG_KEYS.has(key.toLowerCase())) {
+        out[key] = "[REDACTED]";
+      } else {
+        out[key] = redactForLog(nested, depth + 1);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -91,7 +124,7 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        logLine += ` :: ${JSON.stringify(redactForLog(capturedJsonResponse))}`;
       }
 
       if (logLine.length > 80) {
@@ -112,6 +145,8 @@ app.use((req, res, next) => {
 
     const routesStartTime = Date.now();
     const server = await registerRoutes(app);
+    const { registerAdminPasswordResetRoutes } = await import("./adminPasswordResetRoutes");
+    registerAdminPasswordResetRoutes(app);
     const routesTime = Date.now() - routesStartTime;
     console.log(`✅ Routes registered successfully (took ${routesTime}ms)`);
 

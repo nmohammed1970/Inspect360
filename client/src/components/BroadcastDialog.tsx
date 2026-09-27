@@ -24,6 +24,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, Send, FileText, Plus, AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { dialogFooterSticky } from "@/lib/responsive";
 
 interface MessageTemplate {
   id: string;
@@ -163,7 +165,7 @@ export function BroadcastDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-primary" />
@@ -175,7 +177,7 @@ export function BroadcastDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "template" | "custom")}>
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2">
             <TabsTrigger value="template" data-testid="tab-template">
               <FileText className="h-4 w-4 mr-2" />
               Use Template
@@ -292,7 +294,7 @@ export function BroadcastDialog({
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className={cn(dialogFooterSticky)}>
           <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel">
             Cancel
           </Button>

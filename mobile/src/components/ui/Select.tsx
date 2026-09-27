@@ -9,8 +9,10 @@ import {
   Platform,
 } from 'react-native';
 import { ChevronDown, Check } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../hooks/useResponsive';
 
 interface SelectOption {
   label: string;
@@ -39,6 +41,9 @@ export default function Select({
   const theme = useTheme();
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   const [isOpen, setIsOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+  const { modalMaxHeight } = useResponsive();
+  const sheetMaxH = modalMaxHeight(0.7);
 
   const selectedOption = options.find(opt => opt.value === value);
 
@@ -100,6 +105,8 @@ export default function Select({
               {
                 backgroundColor: themeColors.background,
                 borderColor: themeColors.border?.DEFAULT || colors.border.DEFAULT,
+                maxHeight: sheetMaxH,
+                paddingBottom: Math.max(insets.bottom, spacing[2]),
               },
             ]}
             onStartShouldSetResponder={() => true}
@@ -117,7 +124,7 @@ export default function Select({
                 </Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.optionsList}>
+            <ScrollView style={[styles.optionsList, { maxHeight: sheetMaxH - 72 }]} keyboardShouldPersistTaps="handled">
               {options.map((option) => {
                 const isSelected = option.value === value;
                 return (
@@ -171,7 +178,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     borderWidth: 1,
     borderRadius: borderRadius.md,
-    minHeight: 48,
+    minHeight: 44,
   },
   disabled: {
     opacity: 0.5,
@@ -179,6 +186,7 @@ const styles = StyleSheet.create({
   triggerText: {
     fontSize: typography.fontSize.base,
     flex: 1,
+    minWidth: 0,
   },
   chevron: {
     marginLeft: spacing[2],
@@ -194,8 +202,8 @@ const styles = StyleSheet.create({
   modalContent: {
     borderTopLeftRadius: borderRadius.xl,
     borderTopRightRadius: borderRadius.xl,
-    maxHeight: '70%',
     borderTopWidth: 1,
+    width: '100%',
     ...shadows.lg,
   },
   modalHeader: {
@@ -220,7 +228,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
   },
   optionsList: {
-    maxHeight: 400,
+    flexGrow: 0,
   },
   option: {
     flexDirection: 'row',
@@ -234,6 +242,7 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: typography.fontSize.base,
     flex: 1,
+    minWidth: 0,
   },
 });
 

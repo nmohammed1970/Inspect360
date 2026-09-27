@@ -33,6 +33,8 @@ import { ASSIGNED_INVENTORY_CLERK_LABEL } from "@shared/roleLabels";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, textBreak } from "@/lib/responsive";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -372,7 +374,7 @@ export default function InspectionDetail() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="flex justify-center items-center h-64">
           <p className="text-muted-foreground">Loading inspection...</p>
         </div>
@@ -382,7 +384,7 @@ export default function InspectionDetail() {
 
   if (!inspection) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <p className="text-lg font-medium">Inspection not found</p>
@@ -440,9 +442,9 @@ export default function InspectionDetail() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex items-center gap-2 md:gap-4">
-        <Link href="/inspections">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3 md:gap-4">
+        <Link href="/inspections" className="shrink-0">
           <Button variant="ghost" size="icon" data-testid="button-back">
             <ArrowLeft className="w-4 h-4" />
           </Button>
@@ -455,12 +457,13 @@ export default function InspectionDetail() {
             {inspection.property?.name || inspection.block?.name}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           {inspection.status !== "completed" && (
             <Button
               onClick={() => setShowCompleteDialog(true)}
               disabled={completeInspection.isPending || completingAction !== null || sendingToTenantAction !== null}
               data-testid="button-complete"
+              className="w-full sm:w-auto"
             >
               <CheckCircle className="w-4 h-4 mr-2" />
               {completingAction ? "Completing..." : "Mark Complete"}
@@ -954,7 +957,7 @@ export default function InspectionDetail() {
 
       {/* Edit Inspection Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent>
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
           <DialogHeader>
             <DialogTitle>Edit Inspection</DialogTitle>
             <DialogDescription>

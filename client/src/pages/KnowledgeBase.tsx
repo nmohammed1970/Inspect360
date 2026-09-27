@@ -28,6 +28,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ModernFilePickerInline } from '@/components/ModernFilePickerInline';
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
 import { extractFileUrlFromUploadResponse } from '@/lib/utils';
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
@@ -276,21 +278,21 @@ export default function KnowledgeBase() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/admin")} data-testid="button-back">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between min-w-0">
+        <div className="flex items-start gap-3 min-w-0">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/admin")} data-testid="button-back" className="shrink-0">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <BookOpen className="h-8 w-8" />
-              AI Chatbot Knowledge Base
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2">
+              <BookOpen className="h-6 w-6 md:h-8 md:w-8 shrink-0" />
+              <span className={textTruncate}>AI Chatbot Knowledge Base</span>
             </h1>
-            <p className="text-muted-foreground">Manage documents for the AI assistant</p>
+            <p className="text-muted-foreground text-sm md:text-base">Manage documents for the AI assistant</p>
           </div>
         </div>
-        <Button onClick={() => setUploadDialog(true)} data-testid="button-upload">
+        <Button onClick={() => setUploadDialog(true)} data-testid="button-upload" className="w-full sm:w-auto shrink-0">
           <Upload className="h-4 w-4 mr-2" />
           Upload Document
         </Button>
@@ -316,34 +318,37 @@ export default function KnowledgeBase() {
               No documents uploaded yet. Upload your first document to get started.
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto min-w-0">
+            <Table className="min-w-[560px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  <TableHead>Category</TableHead>
+                  <TableHead className="hidden sm:table-cell">Category</TableHead>
                   <TableHead>File</TableHead>
-                  <TableHead>Size</TableHead>
+                  <TableHead className="hidden md:table-cell">Size</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Uploaded</TableHead>
+                  <TableHead className="hidden md:table-cell">Uploaded</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {documents.map((doc) => (
                   <tr key={doc.id} data-testid={`row-document-${doc.id}`}>
-                    <TableCell className="font-medium">{doc.title}</TableCell>
-                    <TableCell>
+                    <TableCell className={cn("font-medium", textBreak)}>{doc.title}</TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       {doc.category ? (
                         <Badge variant="outline">{doc.category}</Badge>
                       ) : (
                         <span className="text-muted-foreground text-sm">No category</span>
                       )}
                     </TableCell>
-                    <TableCell className="flex items-center gap-2">
-                      <File className="h-4 w-4" />
-                      <span className="text-sm">{doc.fileName}</span>
+                    <TableCell className="min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                      <File className="h-4 w-4 shrink-0" />
+                      <span className={cn("text-sm", textTruncate)}>{doc.fileName}</span>
+                      </div>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                       {formatFileSize(doc.fileSizeBytes)}
                     </TableCell>
                     <TableCell>
@@ -359,7 +364,7 @@ export default function KnowledgeBase() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-sm text-muted-foreground whitespace-nowrap">
                       {new Date(doc.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-right">
@@ -379,12 +384,13 @@ export default function KnowledgeBase() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       <Dialog open={uploadDialog} onOpenChange={setUploadDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
           <DialogHeader>
             <DialogTitle>Upload Knowledge Base Document</DialogTitle>
             <DialogDescription>
@@ -444,7 +450,7 @@ export default function KnowledgeBase() {
               )}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className={dialogFooterSticky}>
             <Button variant="outline" onClick={() => setUploadDialog(false)} disabled={uploadMutation.isPending}>
               Cancel
             </Button>

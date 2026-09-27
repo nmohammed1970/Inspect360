@@ -136,6 +136,8 @@ export const adminUsers = pgTable("admin_users", {
   password: varchar("password").notNull(),
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name").notNull(),
+  resetToken: varchar("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -144,6 +146,8 @@ export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  resetToken: true,
+  resetTokenExpiry: true,
 });
 
 export const loginAdminSchema = z.object({
@@ -244,7 +248,8 @@ export const creditRequests = pgTable("credit_requests", {
   requesterName: varchar("requester_name").notNull(),
   requesterEmail: varchar("requester_email").notNull(),
   organizationName: varchar("organization_name").notNull(),
-  creditsRequested: integer("credits_requested").notNull(),
+  creditsRequested: integer("credits_requested").notNull(), // property/unit count; admin chooses credits to grant
+  contactPhone: varchar("contact_phone", { length: 50 }),
   message: text("message").notNull(),
   status: varchar("status", { length: 20 }).notNull().default("REQUESTED"),
   emailStatus: varchar("email_status", { length: 20 }).notNull().default("pending"),
@@ -535,6 +540,7 @@ export const propertyExpenses = pgTable("property_expenses", {
   currency: varchar("currency", { length: 3 }).notNull().default("GBP"),
   warrantyExpiry: timestamp("warranty_expiry"),
   warrantyNotes: text("warranty_notes"),
+  photoUrl: text("photo_url"),
   receiptUrl: text("receipt_url"),
   assetInventoryId: varchar("asset_inventory_id"),
   notes: text("notes"),

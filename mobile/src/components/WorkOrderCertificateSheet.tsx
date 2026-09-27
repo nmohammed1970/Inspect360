@@ -14,9 +14,11 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as Network from 'expo-network';
 import { X, Upload, FileText, CheckCircle2, AlertTriangle } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { spacing } from '../theme/spacing';
 import { colors as baseColors } from '../theme';
+import { useResponsive } from '../hooks/useResponsive';
 import { maintenanceService, type WorkOrderCertificate } from '../services/maintenance';
 import { getAPI_URL } from '../services/api';
 import { DEFAULT_COMPLIANCE_DOC_TYPES } from '../../../shared/complianceDocTypes';
@@ -46,11 +48,11 @@ async function uploadCertificateFile(uri: string, mimeType: string, fileName: st
   const { uploadURL } = await uploadUrlResponse.json();
 
   const fileResponse = await fetch(uri);
-  const blob = await fileResponse.blob();
+  const body = await fileResponse.arrayBuffer();
   const put = await fetch(uploadURL, {
     method: 'PUT',
-    body: blob,
-    headers: { 'Content-Type': mimeType || blob.type || 'application/octet-stream' },
+    body,
+    headers: { 'Content-Type': mimeType || 'application/octet-stream' },
   });
   if (!put.ok) throw new Error('Failed to upload file');
 
@@ -81,6 +83,9 @@ async function uploadCertificateFile(uri: string, mimeType: string, fileName: st
 export function WorkOrderCertificateSheet({ visible, workOrderId, workOrderTitle, onClose }: Props) {
   const theme = useTheme();
   const themeColors = theme?.colors || baseColors;
+  const insets = useSafeAreaInsets();
+  const { stackDirection } = useResponsive();
+  const actionDir = stackDirection(360);
   const primary =
     (themeColors as any).primary?.DEFAULT || (themeColors as any).primary || '#00CED1';
   const textPrimary =
@@ -183,7 +188,7 @@ export function WorkOrderCertificateSheet({ visible, workOrderId, workOrderTitle
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.85,
       });
       if (result.canceled || !result.assets?.[0]) return;
@@ -243,8 +248,16 @@ export function WorkOrderCertificateSheet({ visible, workOrderId, workOrderTitle
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={[styles.container, { backgroundColor: background }]}>
-        <View style={[styles.header, { borderBottomColor: border }]}>
-          <View style={{ flex: 1 }}>
+        <View
+          style={[
+            styles.header,
+            {
+              borderBottomColor: border,
+              paddingTop: Math.max(insets.top, spacing[4]),
+            },
+          ]}
+        >
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[styles.title, { color: textPrimary }]}>Certificate</Text>
             {workOrderTitle ? (
               <Text style={[styles.subtitle, { color: textSecondary }]} numberOfLines={2}>
@@ -252,20 +265,23 @@ export function WorkOrderCertificateSheet({ visible, workOrderId, workOrderTitle
               </Text>
             ) : null}
           </View>
-          <TouchableOpacity onPress={onClose} hitSlop={12}>
+          <TouchableOpacity onPress={onClose} hitSlop={12} style={{ flexShrink: 0 }}>
             <X size={22} color={textPrimary} />
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: Math.max(insets.bottom, spacing[6]) }]}
+          keyboardShouldPersistTaps="handled"
+        >
           <Text style={[styles.help, { color: textSecondary }]}>
             Upload a PDF or photo of the certificate. We will try to read the type and expiry — you
             confirm before it is added to Compliance. Internet required.
           </Text>
 
-          <View style={styles.actions}>
+          <View style={[styles.actions, { flexDirection: actionDir }]}>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: primary }]}
+              style={[styles.btn, { backgroundColor: primary, flex: actionDir === 'row' ? 1 : undefined }]}
               onPress={pickDocument}
               disabled={busy}
             >
@@ -273,7 +289,10 @@ export function WorkOrderCertificateSheet({ visible, workOrderId, workOrderTitle
               <Text style={styles.btnText}>{busy ? 'Working…' : 'Choose File'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btnOutline, { borderColor: primary }]}
+              style={[
+                styles.btnOutline,
+                { borderColor: primary, flex: actionDir === 'row' ? 1 : undefined },
+              ]}
               onPress={pickPhoto}
               disabled={busy}
             >
@@ -353,16 +372,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingHorizontal: spacing[4],
-    paddingTop: spacing[10],
     paddingBottom: spacing[3],
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 12,
   },
   title: { fontSize: 18, fontWeight: '700' },
   subtitle: { fontSize: 13, marginTop: 4 },
-  body: { padding: spacing[4], gap: 12 },
+  body: { padding: spacing[4], gap: 12, flexGrow: 1 },
   help: { fontSize: 13, lineHeight: 18 },
-  actions: { gap: 8 },
+  actions: { gap: 8, flexWrap: 'wrap' },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',

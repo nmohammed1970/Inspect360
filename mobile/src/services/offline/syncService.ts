@@ -17,7 +17,7 @@ import {
 import {
   updateImageWithServerUrl,
   deleteLocalImageFile,
-  getLocalImage,
+  getLocalImageUri,
   isLocalPath,
 } from './storage';
 import { ConflictResolver } from './conflictResolver';
@@ -1088,13 +1088,6 @@ export class SyncService {
     }
 
     return { downloaded, errors };
-  }
-
-  /**
-   * Check if sync is in progress
-   */
-  isSyncInProgress(): boolean {
-    return this.isSyncing;
   }
 }
 

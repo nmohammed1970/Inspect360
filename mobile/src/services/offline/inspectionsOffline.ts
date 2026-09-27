@@ -58,7 +58,7 @@ export const inspectionsOffline = {
             lastSyncedAt: now,
             serverUpdatedAt,
             localUpdatedAt: now,
-            isDeleted: false,
+            isDeleted: 0,
           });
         } else {
           // Existing inspection - check if server is newer
@@ -74,7 +74,7 @@ export const inspectionsOffline = {
               lastSyncedAt: localRecord.syncStatus === 'synced' ? now : localRecord.lastSyncedAt,
               serverUpdatedAt,
               localUpdatedAt: localRecord.localUpdatedAt, // Keep local timestamp
-              isDeleted: false,
+              isDeleted: 0,
             });
           }
         }
@@ -142,7 +142,7 @@ export const inspectionsOffline = {
             lastSyncedAt: localRecord.syncStatus === 'synced' ? new Date().toISOString() : localRecord.lastSyncedAt,
             serverUpdatedAt,
             localUpdatedAt: localRecord.localUpdatedAt,
-            isDeleted: false,
+            isDeleted: 0,
           });
           return serverData;
         }
@@ -178,7 +178,7 @@ export const inspectionsOffline = {
           lastSyncedAt: now,
           serverUpdatedAt: serverData.updatedAt,
           localUpdatedAt: now,
-          isDeleted: false,
+          isDeleted: 0,
         });
         console.log(`[InspectionsOffline] Saved inspection ${id} to local DB`);
         return serverData;
@@ -244,7 +244,7 @@ export const inspectionsOffline = {
             lastSyncedAt: now,
             serverUpdatedAt,
             localUpdatedAt: now,
-            isDeleted: false,
+            isDeleted: 0,
           });
         } else {
           // Existing entry - merge based on timestamps
@@ -268,7 +268,7 @@ export const inspectionsOffline = {
               lastSyncedAt: localRecord.syncStatus === 'synced' ? now : localRecord.lastSyncedAt,
               serverUpdatedAt,
               localUpdatedAt: localRecord.localUpdatedAt,
-              isDeleted: false,
+              isDeleted: 0,
             });
           }
         }
@@ -329,7 +329,7 @@ export const inspectionsOffline = {
       lastSyncedAt: null,
       serverUpdatedAt: null,
       localUpdatedAt: now,
-      isDeleted: false,
+      isDeleted: 0,
     });
 
     // Queue for sync
@@ -362,7 +362,7 @@ export const inspectionsOffline = {
           lastSyncedAt: now,
           serverUpdatedAt: (serverEntry as any).updatedAt || now,
           localUpdatedAt: now,
-          isDeleted: false,
+          isDeleted: 0,
         });
         return serverEntry;
       } catch (error) {
@@ -442,7 +442,7 @@ export const inspectionsOffline = {
               lastSyncedAt: now,
               serverUpdatedAt,
               localUpdatedAt: now,
-              isDeleted: false,
+              isDeleted: 0,
             });
             // Reload the local record
             localRecord = await getLocalEntry(serverEntry.inspectionId, serverEntry.sectionRef, serverEntry.fieldKey);
@@ -484,7 +484,7 @@ export const inspectionsOffline = {
           lastSyncedAt: null,
           serverUpdatedAt: null,
           localUpdatedAt: now,
-          isDeleted: false,
+          isDeleted: 0,
         });
         // Reload the local record
         localRecord = await getLocalEntry(updates.inspectionId, updates.sectionRef, updates.fieldKey);
@@ -516,7 +516,7 @@ export const inspectionsOffline = {
       lastSyncedAt: localRecord.lastSyncedAt,
       serverUpdatedAt: localRecord.serverUpdatedAt,
       localUpdatedAt: now,
-      isDeleted: false,
+      isDeleted: 0,
     });
 
     // Queue for sync
@@ -551,7 +551,7 @@ export const inspectionsOffline = {
           lastSyncedAt: now,
           serverUpdatedAt: (serverEntry as any).updatedAt || now,
           localUpdatedAt: now,
-          isDeleted: false,
+          isDeleted: 0,
         });
         return serverEntry;
       } catch (error) {

@@ -15,6 +15,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
@@ -28,6 +29,7 @@ import { notifyEntitlementLock } from "@/lib/queryClient";
 export function TenantSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -103,12 +105,12 @@ export function TenantSidebar() {
   return (
     <Sidebar data-testid="sidebar-tenant">
       <SidebarHeader className="p-4 border-b">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <img 
             key={organization?.logoUrl || 'default'}
             src={logoSrc}
             alt={companyName} 
-            className="h-8 max-w-[180px] object-contain" 
+            className="h-8 w-auto max-w-full object-contain" 
             data-testid="img-sidebar-logo"
             onError={(e) => {
               // Fallback to default logo if image fails to load
@@ -143,11 +145,15 @@ export function TenantSidebar() {
                           if (itemLocked && (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")) {
                             event.preventDefault();
                             notifyEntitlementLock(entitlement.code);
+                            return;
+                          }
+                          if (isMobile) {
+                            setOpenMobile(false);
                           }
                         }}
                       >
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
+                        <item.icon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

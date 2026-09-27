@@ -183,7 +183,10 @@ export function QuickAddAssetSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[85vh] overflow-y-auto max-w-3xl mx-auto">
+      <SheetContent
+        side="bottom"
+        className="mx-auto flex h-[85vh] max-h-[min(85vh,calc(100dvh-2rem))] max-w-3xl flex-col overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>Quick Add Asset</SheetTitle>
           <SheetDescription>
@@ -304,7 +307,7 @@ export function QuickAddAssetSheet({
               <FormLabel>Photos</FormLabel>
               
               {photos.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {photos.map((photoUrl, index) => (
                     <Card key={index} className="overflow-hidden">
                       <CardContent className="p-0">

@@ -16,6 +16,11 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { FixfloSyncButton } from "@/components/FixfloSyncButton";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import {
+  MaintenanceAiAnalysisView,
+  applyMaintenanceAiNote,
+} from "@/components/MaintenanceAiAnalysisView";
+import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -61,11 +66,13 @@ import type { MaintenanceRequest, Property, User } from "@shared/schema";
 import { z } from "zod";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
-import { extractFileUrlFromUploadResponse } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { extractFileUrlFromUploadResponse, cn } from "@/lib/utils";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
+import { pagePad, dialogContentBase } from "@/lib/responsive";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
   property?: { name: string; address: string };
@@ -80,17 +87,24 @@ interface WorkOrder {
   costEstimate?: number | null;
   costActual?: number | null;
   createdAt: string;
+  updatedAt?: string;
+  assignedToId?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
     description?: string;
     priority: string;
+    propertyId?: string | null;
+    blockId?: string | null;
   };
+  property?: { id?: string; name?: string } | null;
+  block?: { id?: string; name?: string } | null;
   contractor?: {
     id?: string;
     firstName?: string;
     lastName?: string;
-    email: string;
+    email?: string;
+    companyName?: string | null;
   } | null;
   team?: {
     id?: string;
@@ -156,7 +170,8 @@ export default function Maintenance() {
 
   const isMaintenanceEnabled = isModuleEnabled("maintenance");
   const isAiEnabled = isModuleEnabled("ai_preventative");
-  const isWorkOrdersEnabled = isModuleEnabled("work_orders");
+  // Work orders ship inside the maintenance marketplace module (no separate work_orders key)
+  const isWorkOrdersEnabled = isMaintenanceEnabled;
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStep, setCurrentStep] = useState<"form" | "images" | "suggestions" | "review">("form");
@@ -167,6 +182,25 @@ export default function Maintenance() {
   // Work order creation state
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
+  const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
+
+  const canSeeWorkOrders =
+    user?.role === "owner" || user?.role === "contractor" || user?.role === "clerk";
+  const isAssigneeRole = user?.role === "clerk" || user?.role === "contractor";
+  const tabFromUrl = new URLSearchParams(searchParams).get("tab");
+  const defaultWorkOrdersTab =
+    tabFromUrl === "work-orders" || (isAssigneeRole && tabFromUrl !== "requests");
+  const [activeTab, setActiveTab] = useState(
+    defaultWorkOrdersTab && canSeeWorkOrders ? "work-orders" : "requests",
+  );
+
+  useEffect(() => {
+    if (tabFromUrl === "work-orders" && canSeeWorkOrders) {
+      setActiveTab("work-orders");
+    } else if (tabFromUrl === "requests") {
+      setActiveTab("requests");
+    }
+  }, [tabFromUrl, canSeeWorkOrders]);
 
   // Fetch maintenance requests
   const { data: requests = [], isLoading } = useQuery<MaintenanceRequestWithDetails[]>({
@@ -193,21 +227,15 @@ export default function Maintenance() {
     enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
   });
 
-  // Fetch work orders (only for owners and contractors)
+  // Fetch work orders (owners: org-wide; clerks/contractors: assignee-scoped by API)
   const { data: workOrders = [], isLoading: workOrdersLoading } = useQuery<WorkOrder[]>({
     queryKey: ["/api/work-orders"],
-    enabled: (user?.role === "owner" || user?.role === "contractor") && isMaintenanceEnabled !== false,
+    enabled: canSeeWorkOrders && isMaintenanceEnabled !== false,
   });
 
   // Fetch teams for work order assignment
   const { data: teams = [] } = useQuery<any[]>({
     queryKey: ["/api/teams"],
-    enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
-  });
-
-  // Fetch contractors for work order assignment
-  const { data: contractors = [] } = useQuery<any[]>({
-    queryKey: ["/api/contacts"],
     enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
   });
 
@@ -252,7 +280,14 @@ export default function Maintenance() {
       return await res.json();
     },
     onSuccess: (data: any) => {
-      setAiSuggestions(data.suggestedFixes);
+      const existingDesc = form.getValues("description") || "";
+      const applied = applyMaintenanceAiNote(data.suggestedFixes || "", {
+        preferExistingDescription: existingDesc,
+      });
+      setAiSuggestions(applied.aiSuggestedFixes);
+      if (applied.description) {
+        form.setValue("description", applied.description);
+      }
       setCurrentStep("suggestions");
       toast({
         title: "AI Analysis Complete",
@@ -596,7 +631,7 @@ export default function Maintenance() {
 
   if (!isLoadingModules && !isMaintenanceEnabled) {
     return (
-      <div className="container mx-auto p-4 md:p-6 flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4">
+      <div className={cn("container mx-auto min-w-0 flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4", pagePad)}>
         <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
           <Wrench className="h-8 w-8 text-muted-foreground" />
         </div>
@@ -715,26 +750,25 @@ export default function Maintenance() {
     return <Badge variant={config.variant} data-testid={`badge-status-${status}`}>{config.label}</Badge>;
   };
 
-  // Filter by status, property, block, and tenant (if tenant user)
-  let filteredRequests = selectedStatus === "all"
-    ? requests
-    : requests.filter(r => r.status === selectedStatus);
-
-  // Filter by property
+  // Location / tenant scope (used for summary + list)
+  let scopedRequests = requests;
   if (filterProperty !== "all") {
-    filteredRequests = filteredRequests.filter(r => r.propertyId === filterProperty);
+    scopedRequests = scopedRequests.filter((r) => r.propertyId === filterProperty);
   }
-
-  // Filter by block (find properties in block first)
   if (filterBlock !== "all") {
-    const blockPropertyIds = properties.filter(p => p.blockId === filterBlock).map(p => p.id);
-    filteredRequests = filteredRequests.filter(r => r.propertyId && blockPropertyIds.includes(r.propertyId));
+    const blockPropertyIds = properties.filter((p) => p.blockId === filterBlock).map((p) => p.id);
+    scopedRequests = scopedRequests.filter(
+      (r) => r.propertyId && blockPropertyIds.includes(r.propertyId),
+    );
+  }
+  if (user?.role === "tenant") {
+    scopedRequests = scopedRequests.filter((r) => r.reportedBy === user.id);
   }
 
-  // Tenants should only see their own requests
-  if (user?.role === "tenant") {
-    filteredRequests = filteredRequests.filter(r => r.reportedBy === user.id);
-  }
+  const filteredRequests =
+    selectedStatus === "all"
+      ? scopedRequests
+      : scopedRequests.filter((r) => r.status === selectedStatus);
 
   // Work order helper functions
   const formatCurrency = (amount?: number | null) => {
@@ -757,28 +791,28 @@ export default function Maintenance() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-maintenance">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight" data-testid="heading-maintenance">
             Maintenance
           </h1>
-          <p className="text-sm md:text-base text-muted-foreground">
+          <p className="text-sm md:text-base text-muted-foreground mt-1">
             {user?.role === "tenant"
               ? "Submit and track your maintenance requests"
-              : "Manage maintenance requests and contractor work orders"}
+              : "Manage requests, filters, and contractor work orders"}
           </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
-            <Button data-testid="button-create-request" size="sm" className="text-xs md:text-sm h-8 md:h-10 px-2 md:px-4 w-full sm:w-auto">
-              <Plus className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
+            <Button data-testid="button-create-request" size="sm" className="text-xs md:text-sm h-9 md:h-10 px-3 md:px-4 w-full sm:w-auto shrink-0">
+              <Plus className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5" />
               <span className="hidden sm:inline">New Request</span>
               <span className="sm:hidden">New</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
             <DialogHeader>
               <DialogTitle>
                 {editingRequest
@@ -940,17 +974,20 @@ export default function Maintenance() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Sparkles className="w-5 h-5 text-primary" />
-                            AI-Suggested Fixes
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <p className="text-sm whitespace-pre-wrap">{aiSuggestions}</p>
-                        </CardContent>
-                      </Card>
+                      <MaintenanceAiAnalysisView
+                        note={aiSuggestions}
+                        description={form.watch("description") || ""}
+                        onDescriptionChange={(value) => {
+                          form.setValue("description", value);
+                          const sections = parseInspectionNote(aiSuggestions);
+                          setAiSuggestions(
+                            formatInspectionNote({
+                              ...sections,
+                              description: value,
+                            }),
+                          );
+                        }}
+                      />
                       <div className="flex gap-2">
                         <Button variant="outline" onClick={() => setCurrentStep("images")} className="flex-1" data-testid="button-back-to-images">Back</Button>
                         <Button onClick={form.handleSubmit(onSubmit)} disabled={createMutation.isPending} className="flex-1" data-testid="button-submit-final">
@@ -1257,17 +1294,20 @@ export default function Maintenance() {
 
                   {/* AI Suggestions Display */}
                   {aiSuggestions && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-sm">
-                          <Sparkles className="w-4 h-4 text-primary" />
-                          AI-Suggested Fixes
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm whitespace-pre-wrap">{aiSuggestions}</p>
-                      </CardContent>
-                    </Card>
+                    <MaintenanceAiAnalysisView
+                      note={aiSuggestions}
+                      description={form.watch("description") || ""}
+                      onDescriptionChange={(value) => {
+                        form.setValue("description", value);
+                        const sections = parseInspectionNote(aiSuggestions);
+                        setAiSuggestions(
+                          formatInspectionNote({
+                            ...sections,
+                            description: value,
+                          }),
+                        );
+                      }}
+                    />
                   )}
 
                   <Button type="submit" className="w-full" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit-request">
@@ -1283,13 +1323,24 @@ export default function Maintenance() {
       </div>
 
       {/* Tabs for Requests and Work Orders */}
-      <Tabs defaultValue="requests" className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value);
+          if (value === "work-orders") {
+            navigate("/maintenance?tab=work-orders");
+          } else {
+            navigate("/maintenance?tab=requests");
+          }
+        }}
+        className="space-y-6 md:space-y-8"
+      >
         <TabsList>
           <TabsTrigger value="requests" data-testid="tab-requests">
             <Wrench className="w-4 h-4 mr-2" />
             Requests
           </TabsTrigger>
-          {(user?.role === "owner" || user?.role === "contractor") && (
+          {canSeeWorkOrders && (
             <TabsTrigger value="work-orders" data-testid="tab-work-orders" disabled={!isWorkOrdersEnabled}>
               <Clipboard className="w-4 h-4 mr-2" />
               Work Orders
@@ -1298,161 +1349,173 @@ export default function Maintenance() {
         </TabsList>
 
         {/* REQUESTS TAB */}
-        <TabsContent value="requests" className="space-y-6">
-          {/* Filters (hidden for tenants) - Desktop */}
+        <TabsContent value="requests" className="space-y-6 md:space-y-8">
+          {/* Filters (hidden for tenants) */}
           {user?.role !== "tenant" && (
-            <>
-              <div className="hidden md:flex flex-wrap gap-4 items-center">
-                {/* Status Filter Buttons */}
-                <div className="flex gap-2 flex-wrap">
-                  {["all", "open", "in_progress", "completed", "closed"].map((status) => (
-                    <Button
-                      key={status}
-                      variant={selectedStatus === status ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedStatus(status)}
-                      data-testid={`button-filter-${status}`}
-                    >
-                      {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
-                    </Button>
-                  ))}
-                </div>
-
-                {/* Block Filter */}
-                <Select value={filterBlock} onValueChange={setFilterBlock}>
-                  <SelectTrigger className="w-[180px]" data-testid="select-filter-block">
-                    <SelectValue placeholder="All Blocks" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Blocks</SelectItem>
-                    {blocks.map((block) => (
-                      <SelectItem key={block.id} value={block.id}>
-                        {block.name}
-                      </SelectItem>
+            <FiltersSection headingId="maint-filters-heading">
+                <div className="hidden md:flex flex-wrap gap-3 items-center">
+                  <div className="flex gap-2 flex-wrap">
+                    {["all", "open", "in_progress", "completed", "closed"].map((status) => (
+                      <Button
+                        key={status}
+                        variant={selectedStatus === status ? "default" : "outline"}
+                        size="sm"
+                        className="h-8"
+                        onClick={() => setSelectedStatus(status)}
+                        data-testid={`button-filter-${status}`}
+                      >
+                        {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
+                      </Button>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </div>
 
-                {/* Property Filter */}
-                <Select value={filterProperty} onValueChange={setFilterProperty}>
-                  <SelectTrigger className="w-[180px]" data-testid="select-filter-property">
-                    <SelectValue placeholder="All Properties" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Properties</SelectItem>
-                    {properties
-                      .filter(p => filterBlock === "all" || p.blockId === filterBlock)
-                      .map((property) => (
-                        <SelectItem key={property.id} value={property.id}>
-                          {property.name}
+                  <Select value={filterBlock} onValueChange={setFilterBlock}>
+                    <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[11rem] h-8" data-testid="select-filter-block">
+                      <SelectValue placeholder="All Blocks" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Blocks</SelectItem>
+                      {blocks.map((block) => (
+                        <SelectItem key={block.id} value={block.id}>
+                          {block.name}
                         </SelectItem>
                       ))}
-                  </SelectContent>
-                </Select>
+                    </SelectContent>
+                  </Select>
 
-                {/* Clear Filters */}
-                {(filterBlock !== "all" || filterProperty !== "all") && (
-                  <ClearFiltersButton
-                    onClick={() => {
-                      setFilterBlock("all");
-                      setFilterProperty("all");
-                    }}
-                    data-testid="button-clear-filters"
-                  />
-                )}
-              </div>
+                  <Select value={filterProperty} onValueChange={setFilterProperty}>
+                    <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[11rem] h-8" data-testid="select-filter-property">
+                      <SelectValue placeholder="All Properties" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Properties</SelectItem>
+                      {properties
+                        .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
+                        .map((property) => (
+                          <SelectItem key={property.id} value={property.id}>
+                            {property.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
 
-              {/* Filters - Mobile */}
-              <div className="flex md:hidden gap-2 items-center mb-4">
-                <Sheet>
-                  <SheetTrigger asChild>
-                    <Button variant="outline" size="icon" className="shrink-0">
-                      <Filter className="w-4 h-4" />
-                      {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
-                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-                      )}
-                    </Button>
-                  </SheetTrigger>
-                  <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
-                    <SheetHeader>
-                      <SheetTitle>Filters</SheetTitle>
-                      <SheetDescription>
-                        Filter maintenance requests by status, block, or property
-                      </SheetDescription>
-                    </SheetHeader>
-                    <div className="space-y-4 mt-6">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Status</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {["all", "open", "in_progress", "completed", "closed"].map((status) => (
-                            <Button
-                              key={status}
-                              variant={selectedStatus === status ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => setSelectedStatus(status)}
-                              className="flex-1 min-w-[100px]"
-                            >
-                              {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
+                  {(filterBlock !== "all" || filterProperty !== "all" || selectedStatus !== "all") && (
+                    <ClearFiltersButton
+                      onClick={() => {
+                        setSelectedStatus("all");
+                        setFilterBlock("all");
+                        setFilterProperty("all");
+                      }}
+                      data-testid="button-clear-filters"
+                    />
+                  )}
+                </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Block</label>
-                        <Select value={filterBlock} onValueChange={setFilterBlock}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All Blocks" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Blocks</SelectItem>
-                            {blocks.map((block) => (
-                              <SelectItem key={block.id} value={block.id}>
-                                {block.name}
-                              </SelectItem>
+                <div className="flex md:hidden gap-2 items-center">
+                  <Sheet>
+                    <SheetTrigger asChild>
+                      <Button variant="outline" size="sm" className="relative">
+                        <Filter className="w-4 h-4 mr-2" />
+                        Filters
+                        {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
+                          <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                        )}
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
+                      <SheetHeader>
+                        <SheetTitle>Filters</SheetTitle>
+                        <SheetDescription>
+                          Filter maintenance requests by status, block, or property
+                        </SheetDescription>
+                      </SheetHeader>
+                      <div className="space-y-4 mt-6">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Status</label>
+                          <div className="flex gap-2 flex-wrap">
+                            {["all", "open", "in_progress", "completed", "closed"].map((status) => (
+                              <Button
+                                key={status}
+                                variant={selectedStatus === status ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setSelectedStatus(status)}
+                                className="w-full sm:w-auto sm:min-w-0"
+                              >
+                                {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
+                              </Button>
                             ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                          </div>
+                        </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Property</label>
-                        <Select value={filterProperty} onValueChange={setFilterProperty}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All Properties" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Properties</SelectItem>
-                            {properties
-                              .filter(p => filterBlock === "all" || p.blockId === filterBlock)
-                              .map((property) => (
-                                <SelectItem key={property.id} value={property.id}>
-                                  {property.name}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Block</label>
+                          <Select value={filterBlock} onValueChange={setFilterBlock}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="All Blocks" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Blocks</SelectItem>
+                              {blocks.map((block) => (
+                                <SelectItem key={block.id} value={block.id}>
+                                  {block.name}
                                 </SelectItem>
                               ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                      {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
-                        <ClearFiltersButton
-                          className="w-full"
-                          onClick={() => {
-                            setSelectedStatus("all");
-                            setFilterBlock("all");
-                            setFilterProperty("all");
-                          }}
-                        />
-                      )}
-                    </div>
-                  </SheetContent>
-                </Sheet>
-              </div>
-            </>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Property</label>
+                          <Select value={filterProperty} onValueChange={setFilterProperty}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="All Properties" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Properties</SelectItem>
+                              {properties
+                                .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
+                                .map((property) => (
+                                  <SelectItem key={property.id} value={property.id}>
+                                    {property.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
+                          <ClearFiltersButton
+                            className="w-full"
+                            onClick={() => {
+                              setSelectedStatus("all");
+                              setFilterBlock("all");
+                              setFilterProperty("all");
+                            }}
+                          />
+                        )}
+                      </div>
+                    </SheetContent>
+                  </Sheet>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {filteredRequests.length} shown
+                  </p>
+                </div>
+            </FiltersSection>
           )}
 
           {/* Maintenance Requests List */}
-          <div className="space-y-4">
+          <section className="space-y-3" aria-labelledby="maint-list-heading">
+            <div className="flex items-center gap-2">
+              <Wrench className="h-4 w-4 text-primary" />
+              <h2 id="maint-list-heading" className="text-sm font-semibold tracking-tight">
+                Requests
+              </h2>
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {filteredRequests.length}
+              </span>
+            </div>
+            <div className="space-y-3">
             {isLoading ? (
               <div className="text-center py-8 text-muted-foreground">Loading...</div>
             ) : filteredRequests.length === 0 ? (
@@ -1469,12 +1532,22 @@ export default function Maintenance() {
               </Card>
             ) : (
               filteredRequests.map((request) => (
-                <Card key={request.id} data-testid={`card-request-${request.id}`}>
-                  <CardHeader className="p-4 md:p-6">
-                    <div className="flex flex-col gap-4">
-                      <div className="flex-1">
+                <Card
+                  key={request.id}
+                  data-testid={`card-request-${request.id}`}
+                  className={cn(
+                    "shadow-sm overflow-hidden border-l-4",
+                    request.status === "open" && "border-l-blue-500",
+                    request.status === "in_progress" && "border-l-amber-500",
+                    request.status === "completed" && "border-l-emerald-500",
+                    request.status === "closed" && "border-l-slate-400",
+                  )}
+                >
+                  <CardHeader className="p-4 md:p-5">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-2">
-                          <CardTitle className="text-base md:text-lg flex-1" data-testid={`text-title-${request.id}`}>
+                          <CardTitle className="text-base md:text-lg flex-1 font-semibold leading-snug" data-testid={`text-title-${request.id}`}>
                             {request.title}
                           </CardTitle>
                           <div className="flex items-center gap-2 flex-shrink-0">
@@ -1489,7 +1562,7 @@ export default function Maintenance() {
                                 <Pencil className="w-4 h-4" />
                               </Button>
                             )}
-                            <div className="flex flex-col gap-1">
+                            <div className="flex flex-col gap-1 items-end">
                               {getPriorityBadge(request.priority)}
                               {getStatusBadge(request.status)}
                             </div>
@@ -1523,14 +1596,14 @@ export default function Maintenance() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4 p-4 md:p-6 pt-0">
+                  <CardContent className="space-y-3 p-4 md:p-5 pt-0">
                     {request.description && (
-                      <p className="text-sm text-muted-foreground" data-testid={`text-description-${request.id}`}>
+                      <p className="text-sm text-muted-foreground line-clamp-3" data-testid={`text-description-${request.id}`}>
                         {request.description}
                       </p>
                     )}
 
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t">
                       <div className="text-xs md:text-sm">
                         <span className="text-muted-foreground">Reported by: </span>
                         <span data-testid={`text-reporter-${request.id}`}>
@@ -1556,7 +1629,7 @@ export default function Maintenance() {
                               updateStatusMutation.mutate({ id: request.id, status })
                             }
                           >
-                            <SelectTrigger className="w-full sm:w-40" data-testid={`select-status-${request.id}`}>
+                            <SelectTrigger className="w-full sm:w-40 h-8" data-testid={`select-status-${request.id}`}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1577,7 +1650,7 @@ export default function Maintenance() {
                                 })
                               }
                             >
-                              <SelectTrigger className="w-full sm:w-40" data-testid={`select-assign-${request.id}`}>
+                              <SelectTrigger className="w-full sm:w-40 h-8" data-testid={`select-assign-${request.id}`}>
                                 <SelectValue placeholder="Assign to..." />
                               </SelectTrigger>
                               <SelectContent>
@@ -1602,7 +1675,7 @@ export default function Maintenance() {
                               setIsWorkOrderDialogOpen(true);
                             }}
                             data-testid={`button-create-work-order-${request.id}`}
-                            className="w-full sm:w-auto"
+                            className="w-full sm:w-auto h-8"
                           >
                             <Clipboard className="w-4 h-4 mr-2" />
                             <span className="hidden sm:inline">Create Work Order</span>
@@ -1615,11 +1688,12 @@ export default function Maintenance() {
                 </Card>
               ))
             )}
-          </div>
+            </div>
+          </section>
         </TabsContent>
 
         {/* WORK ORDERS TAB */}
-        <TabsContent value="work-orders" className="space-y-6">
+        <TabsContent value="work-orders" className="space-y-6 md:space-y-8">
           {!isWorkOrdersEnabled ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
@@ -1634,139 +1708,237 @@ export default function Maintenance() {
                 </Button>
               </CardContent>
             </Card>
-          ) : workOrdersLoading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading work orders...</div>
-          ) : workOrders.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <UserIcon className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No work orders</h3>
-                <p className="text-muted-foreground text-center">
-                  {user?.role === "contractor"
-                    ? "You don't have any assigned work orders yet"
-                    : "Create work orders from maintenance requests"}
-                </p>
-              </CardContent>
-            </Card>
           ) : (
-            <div className="grid gap-4">
-              {workOrders.map((workOrder) => (
-                <Card key={workOrder.id} data-testid={`card-work-order-${workOrder.id}`}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          {getWorkOrderStatusIcon(workOrder.status)}
-                          <CardTitle className="text-lg">
-                            {workOrder.maintenanceRequest.title}
-                          </CardTitle>
-                          <Badge className={priorityColors[workOrder.maintenanceRequest.priority]}>
-                            {workOrder.maintenanceRequest.priority}
-                          </Badge>
-                        </div>
-                        <CardDescription>
-                          {workOrder.maintenanceRequest.description || "No description provided"}
-                        </CardDescription>
-                      </div>
-                      <Badge className={workOrderStatusColors[workOrder.status]}>
-                        {workOrder.status.replace("_", " ")}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                      {workOrder.team && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <UserIcon className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">Assigned Team</p>
-                            <p className="text-muted-foreground" data-testid={`text-team-${workOrder.id}`}>
-                              {workOrder.team.name}
-                            </p>
+            <>
+              {/* Work Orders list */}
+              <section className="space-y-3" aria-labelledby="maint-wo-list-heading">
+                <div className="flex items-center gap-2">
+                  <Clipboard className="h-4 w-4 text-primary" />
+                  <h2 id="maint-wo-list-heading" className="text-sm font-semibold tracking-tight">
+                    Work Orders
+                  </h2>
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {workOrders.length}
+                  </span>
+                </div>
+
+                {workOrdersLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">Loading work orders...</div>
+                ) : workOrders.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <UserIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">
+                        {isAssigneeRole ? "No Work Orders Assigned" : "No work orders"}
+                      </h3>
+                      <p className="text-muted-foreground text-center">
+                        {isAssigneeRole
+                          ? "You don't have any Work Orders assigned to you yet. New assignments will appear here."
+                          : "Create work orders from maintenance requests"}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid gap-3">
+                    {workOrders.map((workOrder) => (
+                      <Card
+                        key={workOrder.id}
+                        data-testid={`card-work-order-${workOrder.id}`}
+                        className={cn(
+                          "shadow-sm overflow-hidden border-l-4",
+                          workOrder.status === "assigned" && "border-l-blue-500",
+                          workOrder.status === "waiting_parts" && "border-l-orange-500",
+                          workOrder.status === "in_progress" && "border-l-amber-500",
+                          (workOrder.status === "completed" || workOrder.status === "rejected") && "border-l-emerald-500",
+                        )}
+                      >
+                        <CardHeader className="p-4 md:p-5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 mb-2">
+                                {getWorkOrderStatusIcon(workOrder.status)}
+                                <CardTitle className="text-base md:text-lg font-semibold leading-snug">
+                                  {workOrder.maintenanceRequest.title}
+                                </CardTitle>
+                                <Badge className={priorityColors[workOrder.maintenanceRequest.priority]}>
+                                  {workOrder.maintenanceRequest.priority}
+                                </Badge>
+                              </div>
+                              <CardDescription className="line-clamp-2">
+                                {workOrder.maintenanceRequest.description || "No description provided"}
+                              </CardDescription>
+                            </div>
+                            <Badge className={cn(workOrderStatusColors[workOrder.status], "shrink-0 capitalize")}>
+                              {workOrder.status.replace("_", " ")}
+                            </Badge>
                           </div>
-                        </div>
-                      )}
+                        </CardHeader>
+                        <CardContent className="p-4 md:p-5 pt-0">
+                          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                            {(workOrder.property?.name || workOrder.block?.name) && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Clipboard className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-medium">Location</p>
+                                  <p className="text-muted-foreground truncate">
+                                    {[workOrder.property?.name, workOrder.block?.name].filter(Boolean).join(" · ")}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
 
-                      {workOrder.contractor && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <UserIcon className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">Maintenance Contractor</p>
-                            <p className="text-muted-foreground">
-                              {workOrder.contractor.firstName} {workOrder.contractor.lastName}
-                            </p>
+                            {workOrder.team && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-medium">Assigned Team</p>
+                                  <p className="text-muted-foreground truncate" data-testid={`text-team-${workOrder.id}`}>
+                                    {workOrder.team.name}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {workOrder.contractor && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-medium">Contractor</p>
+                                  <p className="text-muted-foreground truncate">
+                                    {workOrder.contractor.firstName} {workOrder.contractor.lastName}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {workOrder.slaDue && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div>
+                                  <p className="font-medium">SLA Due</p>
+                                  <p className="text-muted-foreground">
+                                    {formatDistanceToNow(new Date(workOrder.slaDue), { addSuffix: true })}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {(workOrder.costEstimate || workOrder.costActual) && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="h-4 w-4 text-muted-foreground flex items-center justify-center font-semibold shrink-0">£</span>
+                                <div>
+                                  <p className="font-medium">Cost</p>
+                                  <p className="text-muted-foreground">
+                                    {workOrder.costActual
+                                      ? `Actual: ${formatCurrency(workOrder.costActual)}`
+                                      : `Est: ${formatCurrency(workOrder.costEstimate)}`}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-2 text-sm">
+                              <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div>
+                                <p className="font-medium">Created</p>
+                                <p className="text-muted-foreground">
+                                  {formatDistanceToNow(new Date(workOrder.createdAt), { addSuffix: true })}
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      )}
 
-                      {workOrder.slaDue && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">SLA Due</p>
-                            <p className="text-muted-foreground">
-                              {formatDistanceToNow(new Date(workOrder.slaDue), { addSuffix: true })}
-                            </p>
+                          <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
+                            {isAssigneeRole && workOrder.status !== "completed" && workOrder.status !== "rejected" && (
+                              <div className="flex items-center gap-2">
+                                <label className="text-sm font-medium">Update Status:</label>
+                                <Select
+                                  value={workOrder.status}
+                                  onValueChange={(status) => updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status })}
+                                >
+                                  <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid={`select-work-order-status-${workOrder.id}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="assigned">Assigned</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectItem value="waiting_parts">Waiting Parts</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                            {isAssigneeRole && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => setSelectedWorkOrderDetail(workOrder)}
+                                data-testid={`button-view-work-order-${workOrder.id}`}
+                              >
+                                View details
+                              </Button>
+                            )}
                           </div>
-                        </div>
-                      )}
-
-                      {(workOrder.costEstimate || workOrder.costActual) && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <span className="h-4 w-4 text-muted-foreground flex items-center justify-center font-semibold">£</span>
-                          <div>
-                            <p className="font-medium">Cost</p>
-                            <p className="text-muted-foreground">
-                              {workOrder.costActual
-                                ? `Actual: ${formatCurrency(workOrder.costActual)}`
-                                : `Est: ${formatCurrency(workOrder.costEstimate)}`}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">Created</p>
-                          <p className="text-muted-foreground">
-                            {formatDistanceToNow(new Date(workOrder.createdAt), { addSuffix: true })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {user?.role === "contractor" && workOrder.status !== "completed" && workOrder.status !== "rejected" && (
-                      <div className="mt-4 flex items-center gap-2">
-                        <label className="text-sm font-medium">Update Status:</label>
-                        <Select
-                          value={workOrder.status}
-                          onValueChange={(status) => updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status })}
-                        >
-                          <SelectTrigger className="w-48" data-testid={`select-work-order-status-${workOrder.id}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="assigned">Assigned</SelectItem>
-                            <SelectItem value="in_progress">In Progress</SelectItem>
-                            <SelectItem value="waiting_parts">Waiting Parts</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
           )}
         </TabsContent>
       </Tabs>
 
+      {/* Assignee Work Order detail (certificates + description) */}
+      <Dialog
+        open={!!selectedWorkOrderDetail}
+        onOpenChange={(open) => {
+          if (!open) setSelectedWorkOrderDetail(null);
+        }}
+      >
+        <DialogContent className={cn(dialogContentBase, "max-w-2xl max-h-[90vh] overflow-y-auto")}>
+          {selectedWorkOrderDetail && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedWorkOrderDetail.maintenanceRequest.title}</DialogTitle>
+                <DialogDescription>
+                  {[selectedWorkOrderDetail.property?.name, selectedWorkOrderDetail.block?.name]
+                    .filter(Boolean)
+                    .join(" · ") || "Work order details"}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <Badge className={priorityColors[selectedWorkOrderDetail.maintenanceRequest.priority]}>
+                    {selectedWorkOrderDetail.maintenanceRequest.priority}
+                  </Badge>
+                  <Badge className={workOrderStatusColors[selectedWorkOrderDetail.status]}>
+                    {selectedWorkOrderDetail.status.replace("_", " ")}
+                  </Badge>
+                </div>
+                {selectedWorkOrderDetail.maintenanceRequest.description && (
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    {selectedWorkOrderDetail.maintenanceRequest.description}
+                  </p>
+                )}
+                <WorkOrderCertificatePanel
+                  workOrderId={selectedWorkOrderDetail.id}
+                  propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}
+                  blockId={selectedWorkOrderDetail.maintenanceRequest.blockId}
+                />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Work Order Creation Dialog */}
       {selectedRequestForWorkOrder && (
         <Dialog open={isWorkOrderDialogOpen} onOpenChange={setIsWorkOrderDialogOpen}>
-          <DialogContent className="max-w-2xl" data-testid="dialog-create-work-order">
+          <DialogContent className={cn(dialogContentBase, "max-w-2xl")} data-testid="dialog-create-work-order">
             <DialogHeader>
               <DialogTitle>Create Work Order</DialogTitle>
               <DialogDescription>
@@ -1776,7 +1948,6 @@ export default function Maintenance() {
             <WorkOrderForm
               maintenanceRequest={selectedRequestForWorkOrder}
               teams={teams}
-              contractors={contractors}
               onSubmit={(data) => createWorkOrderMutation.mutate(data)}
               isSubmitting={createWorkOrderMutation.isPending}
             />
@@ -1791,19 +1962,17 @@ export default function Maintenance() {
 function WorkOrderForm({
   maintenanceRequest,
   teams,
-  contractors,
   onSubmit,
   isSubmitting,
 }: {
   maintenanceRequest: MaintenanceRequestWithDetails;
   teams: any[];
-  contractors: any[];
   onSubmit: (data: any) => void;
   isSubmitting: boolean;
 }) {
   const locale = useLocale();
+  const { toast } = useToast();
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
-  const [selectedContractorId, setSelectedContractorId] = useState<string>("");
   const [assignedToId, setAssignedToId] = useState<string>("");
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
@@ -1814,10 +1983,10 @@ function WorkOrderForm({
     setAssignedToId("");
     if (selectedTeamId && selectedTeamId !== "none") {
       setIsLoadingMembers(true);
-      fetch(`/api/teams/${selectedTeamId}/members`, { credentials: 'include' })
-        .then(res => res.json())
-        .then(members => {
-          setTeamMembers(members || []);
+      fetch(`/api/teams/${selectedTeamId}/members`, { credentials: "include" })
+        .then((res) => res.json())
+        .then((members) => {
+          setTeamMembers(Array.isArray(members) ? members : []);
           setIsLoadingMembers(false);
         })
         .catch(() => {
@@ -1832,11 +2001,37 @@ function WorkOrderForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!selectedTeamId || selectedTeamId === "none") {
+      toast({
+        title: "Select a maintenance team",
+        description: "Work orders can only be assigned to people on a Maintenance Team.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!assignedToId || assignedToId === "none") {
+      toast({
+        title: "Select a team member",
+        description: "Choose an inspector or maintenance contractor from the selected team.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const member = teamMembers.find(
+      (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
+    );
+    // Prefer linked user account when a contact is selected so clerk portals match
+    const resolvedAssignedToId =
+      member?.userId || member?.contact?.linkedUserId || assignedToId;
+    const contractorId = member?.contactId || undefined;
+
     onSubmit({
       maintenanceRequestId: maintenanceRequest.id,
-      teamId: selectedTeamId && selectedTeamId !== "none" ? selectedTeamId : undefined,
-      contractorId: selectedContractorId && selectedContractorId !== "none" ? selectedContractorId : undefined,
-      assignedToId: assignedToId && assignedToId !== "none" ? assignedToId : undefined,
+      teamId: selectedTeamId,
+      contractorId,
+      assignedToId: resolvedAssignedToId,
       slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
       costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
       status: "assigned",
@@ -1845,71 +2040,80 @@ function WorkOrderForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="team">
-          Assign to Team
-        </label>
-        <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
-          <SelectTrigger id="team" data-testid="select-team">
-            <SelectValue placeholder="Select a team (optional)" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            {teams.map((team: any) => (
-              <SelectItem key={team.id} value={team.id} data-testid={`option-team-${team.id}`}>
-                {team.name}
-                {team.email && ` (${team.email})`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {selectedTeamId && selectedTeamId !== "none" && (
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="assigned-to">
-            Assigned To (Team Member)
-          </label>
-          <Select value={assignedToId} onValueChange={setAssignedToId} disabled={isLoadingMembers}>
-            <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
-              <SelectValue placeholder={isLoadingMembers ? "Loading members..." : "Select a team member (optional)"} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              {teamMembers.map((member: any) => {
-                const person = member.user || member.contact;
-                if (!person) return null;
-                return (
-                  <SelectItem key={member.id} value={member.userId || member.contactId} data-testid={`option-member-${member.id}`}>
-                    {person.firstName} {person.lastName}
-                    {person.email && ` (${person.email})`}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+      {teams.length === 0 ? (
+        <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          No maintenance teams yet. Create a team under{" "}
+          <span className="font-medium text-foreground">Settings → Maintenance Team</span> and add
+          inspectors or maintenance contractors, then assign work orders here.
         </div>
-      )}
+      ) : (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="team">
+              Maintenance Team <span className="text-destructive">*</span>
+            </label>
+            <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
+              <SelectTrigger id="team" data-testid="select-team">
+                <SelectValue placeholder="Select a maintenance team" />
+              </SelectTrigger>
+              <SelectContent>
+                {teams.map((team: any) => (
+                  <SelectItem key={team.id} value={team.id} data-testid={`option-team-${team.id}`}>
+                    {team.name}
+                    {team.email && ` (${team.email})`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="contractor">
-          Assign to Maintenance Contractor
-        </label>
-        <Select value={selectedContractorId} onValueChange={setSelectedContractorId}>
-          <SelectTrigger id="contractor" data-testid="select-contractor">
-            <SelectValue placeholder="Select a contractor (optional)" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            {contractors.filter((c: any) => c.type === "contractor").map((contractor: any) => (
-              <SelectItem key={contractor.id} value={contractor.id} data-testid={`option-contractor-${contractor.id}`}>
-                {contractor.firstName} {contractor.lastName}
-                {contractor.email && ` (${contractor.email})`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+          {selectedTeamId && selectedTeamId !== "none" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="assigned-to">
+                Assign to Team Member <span className="text-destructive">*</span>
+              </label>
+              <Select
+                value={assignedToId}
+                onValueChange={setAssignedToId}
+                disabled={isLoadingMembers || teamMembers.length === 0}
+              >
+                <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
+                  <SelectValue
+                    placeholder={
+                      isLoadingMembers
+                        ? "Loading members..."
+                        : teamMembers.length === 0
+                          ? "No members on this team"
+                          : "Select inspector or contractor"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamMembers.map((member: any) => {
+                    const person = member.user || member.contact;
+                    if (!person) return null;
+                    const value = member.userId || member.contactId;
+                    const kind = member.userId ? "Inspector / Staff" : "Maintenance Contractor";
+                    return (
+                      <SelectItem
+                        key={member.id}
+                        value={value}
+                        data-testid={`option-member-${member.id}`}
+                      >
+                        {person.firstName} {person.lastName}
+                        {person.email ? ` (${person.email})` : ""} — {kind}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Only people added to this Maintenance Team can be assigned.
+              </p>
+            </div>
+          )}
+        </>
+      )}
 
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor="sla-due">
@@ -1942,7 +2146,7 @@ function WorkOrderForm({
         <Button
           type="button"
           variant="outline"
-          onClick={() => { }}
+          onClick={() => {}}
           disabled={isSubmitting}
           data-testid="button-cancel-work-order"
         >
@@ -1950,7 +2154,7 @@ function WorkOrderForm({
         </Button>
         <Button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || teams.length === 0}
           data-testid="button-submit-work-order"
         >
           {isSubmitting ? (

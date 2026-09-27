@@ -72,11 +72,11 @@ export function AdminSidebar() {
   return (
     <Sidebar data-testid="sidebar-admin">
       <SidebarHeader className="p-4 border-b">
-        <div className="flex items-center gap-2">
-          <Shield className="h-6 w-6 text-primary" />
-          <div className="flex flex-col">
-            <span className="font-bold text-sm">INSPECT 360</span>
-            <span className="text-xs text-muted-foreground">Admin Portal</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <Shield className="h-6 w-6 text-primary shrink-0" />
+          <div className="flex flex-col min-w-0">
+            <span className="font-bold text-sm truncate">INSPECT 360</span>
+            <span className="text-xs text-muted-foreground truncate">Admin Portal</span>
           </div>
         </div>
       </SidebarHeader>

@@ -31,6 +31,8 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
+import { pagePad, textBreak } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 function formatDate(value: any): string {
   if (!value) return "";
@@ -132,7 +134,7 @@ function SectionTable({
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="p-0 bg-background">
+      <CardContent className="p-0 bg-background min-w-0">
         <div className="overflow-x-auto">{children}</div>
       </CardContent>
     </Card>
@@ -140,7 +142,7 @@ function SectionTable({
 }
 
 const reportTableClass =
-  "w-full bg-background [&_thead_tr]:border-b [&_th]:h-11 [&_th]:px-4 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_th]:bg-muted/40 [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:border-b [&_tbody_tr]:border-border/60 [&_tbody_tr]:bg-background [&_tbody_tr:last-child]:border-0";
+  "min-w-0 w-full md:min-w-[720px] bg-background [&_thead_tr]:border-b [&_th]:h-11 [&_th]:px-4 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_th]:bg-muted/40 [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:border-b [&_tbody_tr]:border-border/60 [&_tbody_tr]:bg-background [&_tbody_tr:last-child]:border-0";
 
 export default function PortfolioReport() {
   const { toast } = useToast();
@@ -796,7 +798,7 @@ export default function PortfolioReport() {
   const exporting = isExportingExcel || isExportingPdf;
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className={cn("container mx-auto min-w-0", pagePad, "space-y-4 md:space-y-6")}>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/reports">
@@ -929,13 +931,13 @@ export default function PortfolioReport() {
                 <TableRow>
                   <TableHead>Block</TableHead>
                   <TableHead>Property</TableHead>
-                  <TableHead className="text-center">Type</TableHead>
+                  <TableHead className="text-center hidden sm:table-cell">Type</TableHead>
                   <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-right">Rent</TableHead>
-                  <TableHead className="text-center">Insp</TableHead>
-                  <TableHead className="text-center">Maint</TableHead>
-                  <TableHead className="text-center">Assets</TableHead>
-                  <TableHead className="text-center">Comp</TableHead>
+                  <TableHead className="text-right hidden md:table-cell">Rent</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Insp</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Maint</TableHead>
+                  <TableHead className="text-center hidden lg:table-cell">Assets</TableHead>
+                  <TableHead className="text-center hidden lg:table-cell">Comp</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -944,7 +946,7 @@ export default function PortfolioReport() {
                 ) : (
                   blocksAndPropertiesRows.map((row) => (
                     <TableRow key={row.key}>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         {row.showBlock ? (
                           <CellStack
                             title={row.blockName}
@@ -953,7 +955,7 @@ export default function PortfolioReport() {
                           />
                         ) : null}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         {row.propertyId ? (
                           <CellStack
                             title={row.propertyName}
@@ -964,7 +966,7 @@ export default function PortfolioReport() {
                           <CellStack title={row.propertyName} sub={row.propertyAddress} />
                         )}
                       </TableCell>
-                      <TableCell className="text-center">{row.type}</TableCell>
+                      <TableCell className="text-center hidden sm:table-cell">{row.type}</TableCell>
                       <TableCell className="text-center">
                         {row.status === "—" ? (
                           "—"
@@ -974,11 +976,11 @@ export default function PortfolioReport() {
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{row.rent}</TableCell>
-                      <TableCell className="text-center tabular-nums">{row.insp}</TableCell>
-                      <TableCell className="text-center tabular-nums">{row.maint}</TableCell>
-                      <TableCell className="text-center tabular-nums">{row.assets}</TableCell>
-                      <TableCell className="text-center tabular-nums">{row.comp}</TableCell>
+                      <TableCell className="text-right tabular-nums hidden md:table-cell">{row.rent}</TableCell>
+                      <TableCell className="text-center tabular-nums hidden md:table-cell">{row.insp}</TableCell>
+                      <TableCell className="text-center tabular-nums hidden md:table-cell">{row.maint}</TableCell>
+                      <TableCell className="text-center tabular-nums hidden lg:table-cell">{row.assets}</TableCell>
+                      <TableCell className="text-center tabular-nums hidden lg:table-cell">{row.comp}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -992,11 +994,11 @@ export default function PortfolioReport() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Block</TableHead>
+                  <TableHead className="hidden md:table-cell">Block</TableHead>
                   <TableHead>Property</TableHead>
-                  <TableHead className="text-center">Type</TableHead>
+                  <TableHead className="text-center hidden sm:table-cell">Type</TableHead>
                   <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-center">Schedule</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Schedule</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1005,30 +1007,30 @@ export default function PortfolioReport() {
                 ) : (
                   inspectionRows.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.date}
                           sub={row.inspector ? `Inspector: ${row.inspector}` : null}
                           href={`/inspections/${row.id}/report`}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={cn("hidden md:table-cell", textBreak)}>
                         <CellStack
                           title={row.blockName}
                           href={row.blockId ? `/blocks/${row.blockId}` : null}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.propertyName}
                           href={row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell className="text-center">{row.type}</TableCell>
+                      <TableCell className="text-center hidden sm:table-cell">{row.type}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="secondary">{row.status}</Badge>
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center hidden md:table-cell">
                         <CellStack
                           title={row.scheduled}
                           sub={row.completed ? `Done: ${row.completed}` : null}
@@ -1047,12 +1049,12 @@ export default function PortfolioReport() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Block</TableHead>
-                  <TableHead>Property</TableHead>
+                  <TableHead className="hidden md:table-cell">Block</TableHead>
+                  <TableHead className="hidden sm:table-cell">Property</TableHead>
                   <TableHead>Title</TableHead>
                   <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-center">Priority</TableHead>
-                  <TableHead>People</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Priority</TableHead>
+                  <TableHead className="hidden lg:table-cell">People</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1061,26 +1063,26 @@ export default function PortfolioReport() {
                 ) : (
                   maintenanceRows.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.created}
                           sub={row.due ? `Due: ${row.due}` : null}
                           href={`/maintenance/${row.id}`}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={cn("hidden md:table-cell", textBreak)}>
                         <CellStack
                           title={row.blockName}
                           href={row.blockId ? `/blocks/${row.blockId}` : null}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={cn("hidden sm:table-cell", textBreak)}>
                         <CellStack
                           title={row.propertyName}
                           href={row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack title={row.title} href={`/maintenance/${row.id}`} />
                       </TableCell>
                       <TableCell className="text-center">
@@ -1096,8 +1098,8 @@ export default function PortfolioReport() {
                           {row.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center">{row.priority}</TableCell>
-                      <TableCell>
+                      <TableCell className="text-center hidden md:table-cell">{row.priority}</TableCell>
+                      <TableCell className={cn("hidden lg:table-cell", textBreak)}>
                         <CellStack
                           title={row.reportedBy}
                           sub={row.assignedTo ? `Assigned: ${row.assignedTo}` : null}
@@ -1117,9 +1119,9 @@ export default function PortfolioReport() {
                 <TableRow>
                   <TableHead>Location</TableHead>
                   <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Purchase</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-center">Purchased</TableHead>
+                  <TableHead className="text-right hidden md:table-cell">Purchase</TableHead>
+                  <TableHead className="text-right hidden md:table-cell">Value</TableHead>
+                  <TableHead className="text-center hidden lg:table-cell">Purchased</TableHead>
                   <TableHead className="text-center">Condition</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1129,7 +1131,7 @@ export default function PortfolioReport() {
                 ) : (
                   assetRows.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.blockName}
                           sub={row.propertyName}
@@ -1137,16 +1139,16 @@ export default function PortfolioReport() {
                           subHref={row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.name}
                           sub={row.category}
                           href={`/asset-inventory?assetId=${row.id}`}
                         />
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{row.purchase}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.value}</TableCell>
-                      <TableCell className="text-center">{row.purchased}</TableCell>
+                      <TableCell className="text-right tabular-nums hidden md:table-cell">{row.purchase}</TableCell>
+                      <TableCell className="text-right tabular-nums hidden md:table-cell">{row.value}</TableCell>
+                      <TableCell className="text-center hidden lg:table-cell">{row.purchased}</TableCell>
                       <TableCell className="text-center">
                         <CellStack title={row.condition} sub={row.location} />
                       </TableCell>
@@ -1164,9 +1166,9 @@ export default function PortfolioReport() {
                 <TableRow>
                   <TableHead>Location</TableHead>
                   <TableHead>Document</TableHead>
-                  <TableHead className="text-center">Dates</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Dates</TableHead>
                   <TableHead className="text-center">Status</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead className="hidden lg:table-cell">Notes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1175,7 +1177,7 @@ export default function PortfolioReport() {
                 ) : (
                   complianceRows.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.blockName}
                           sub={row.propertyName}
@@ -1183,14 +1185,14 @@ export default function PortfolioReport() {
                           subHref={row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.documentType}
                           sub={row.documentName}
                           href={`/compliance?documentId=${row.id}`}
                         />
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center hidden md:table-cell">
                         <CellStack
                           title={row.issueDate}
                           sub={row.expiryDate ? `Expires: ${row.expiryDate}` : null}
@@ -1199,7 +1201,7 @@ export default function PortfolioReport() {
                       <TableCell className="text-center">
                         <Badge variant={row.variant}>{row.status}</Badge>
                       </TableCell>
-                      <TableCell className="max-w-[220px]">
+                      <TableCell className={cn("max-w-[220px] hidden lg:table-cell", textBreak)}>
                         <span className="line-clamp-2 text-muted-foreground">{row.notes}</span>
                       </TableCell>
                     </TableRow>
@@ -1216,9 +1218,9 @@ export default function PortfolioReport() {
                 <TableRow>
                   <TableHead>Location</TableHead>
                   <TableHead>Tenant</TableHead>
-                  <TableHead className="text-center">Lease</TableHead>
-                  <TableHead className="text-right">Rent</TableHead>
-                  <TableHead className="text-right">Deposit</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Lease</TableHead>
+                  <TableHead className="text-right hidden sm:table-cell">Rent</TableHead>
+                  <TableHead className="text-right hidden lg:table-cell">Deposit</TableHead>
                   <TableHead className="text-center">Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1228,7 +1230,7 @@ export default function PortfolioReport() {
                 ) : (
                   tenantRows.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.blockName}
                           sub={row.propertyName}
@@ -1236,21 +1238,21 @@ export default function PortfolioReport() {
                           subHref={row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.name}
                           sub={row.email}
                           href={row.tenantId ? `/tenants/${row.tenantId}` : row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center hidden md:table-cell">
                         <CellStack
                           title={row.leaseStart}
                           sub={row.leaseEnd ? `End: ${row.leaseEnd}` : null}
                         />
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{row.rent}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.deposit}</TableCell>
+                      <TableCell className="text-right tabular-nums hidden sm:table-cell">{row.rent}</TableCell>
+                      <TableCell className="text-right tabular-nums hidden lg:table-cell">{row.deposit}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant={row.status === "active" ? "default" : "secondary"}>
                           {row.status}
@@ -1272,7 +1274,7 @@ export default function PortfolioReport() {
                   <TableHead>Location</TableHead>
                   <TableHead>Item</TableHead>
                   <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-center">Due</TableHead>
+                  <TableHead className="text-center hidden md:table-cell">Due</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1284,7 +1286,7 @@ export default function PortfolioReport() {
                       <TableCell className="text-center">
                         <Badge variant="outline">{row.type}</Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack
                           title={row.location}
                           sub={row.locationSub}
@@ -1292,7 +1294,7 @@ export default function PortfolioReport() {
                           subHref={row.locationSubHref}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={textBreak}>
                         <CellStack title={row.item} sub={row.itemSub} href={row.href} />
                       </TableCell>
                       <TableCell className="text-center">
@@ -1306,7 +1308,7 @@ export default function PortfolioReport() {
                           {row.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center hidden md:table-cell">
                         <CellStack title={row.due} sub={row.dueSub} />
                       </TableCell>
                     </TableRow>

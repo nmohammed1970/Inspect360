@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Alert,
   Image,
-  ScrollView,
   Modal,
   ActivityIndicator,
   Platform,
@@ -30,6 +29,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import Badge from '../ui/Badge';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../hooks/useResponsive';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
 // No offline functionality - app requires server connection
 import { format } from 'date-fns';
@@ -129,6 +129,19 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const isOnline = useOnlineStatus();
   const theme = useTheme();
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const {
+    height: windowHeight,
+    isSmall,
+    moderateScale: ms,
+    modalMaxHeight,
+    stackDirection,
+    getResponsivePadding,
+  } = useResponsive();
+  const actionStack = stackDirection();
+  const photoThumbSize = ms(isSmall ? 100 : 120);
+  const signatureCanvasHeight = Math.max(ms(200), Math.round(windowHeight * (isSmall ? 0.35 : 0.42)));
+  const padSm = getResponsivePadding(spacing[2]);
+  const padMd = getResponsivePadding(spacing[4]);
 
   // Normalize field object to ensure all boolean properties are actual booleans
   const safeField = useMemo(() => {
@@ -832,7 +845,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: 'images' as any,
+        mediaTypes: ['images'],
         quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
         exif: false, // Disable EXIF to reduce file size
       });
@@ -896,7 +909,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images' as any,
+        mediaTypes: ['images'],
         quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
         allowsMultipleSelection: true,
         selectionLimit: 0, // 0 means no limit
@@ -1123,7 +1136,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               {safeField.label}
               {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
             </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false}>
+            <View style={styles.optionsWrap}>
               {safeField.options?.map((option) => (
                 <TouchableOpacity
                   key={option}
@@ -1145,7 +1158,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                   </Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+            </View>
           </View>
         );
 
@@ -1232,7 +1245,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             </Text>
             {signatureUri ? (
               <View style={styles.signaturePreview}>
-                <Image source={{ uri: signatureUri }} style={styles.signatureImage as ImageStyle} />
+                <Image
+                  source={{ uri: signatureUri }}
+                  style={[styles.signatureImage, { aspectRatio: 2.5 }] as ImageStyle}
+                  resizeMode="contain"
+                />
                 {(displayName || displayDate) ? (
                   <View style={styles.signatureMeta}>
                     {!!displayName && (
@@ -1330,7 +1347,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <Text style={[styles.checkInReferenceText, { color: themeColors.text.secondary }]}>
               Match these angles when taking your Check-Out photos for accurate comparison
             </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} style={styles.checkInPhotosContainer}>
+            <View style={styles.photosGrid}>
               {checkInPhotos.map((photoUrl: string, index: number) => (
                 <Image
                   key={index}
@@ -1341,17 +1358,20 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                         ? `${getAPI_URL()}${photoUrl}`
                         : `${getAPI_URL()}/objects/${photoUrl}`
                   }}
-                  style={styles.checkInPhoto as ImageStyle}
+                  style={[
+                    styles.checkInPhoto,
+                    { width: ms(80), height: ms(80) },
+                  ] as ImageStyle}
                 />
               ))}
-            </ScrollView>
+            </View>
           </Card>
         )}
 
         {/* Current Photos */}
         <View style={[styles.photoSection, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
-          <View style={[styles.photoHeader, { borderBottomColor: themeColors.border.DEFAULT }]}>
-            <Text style={[styles.photoLabel, { color: themeColors.text.primary }]}>
+          <View style={[styles.photoHeader, { borderBottomColor: themeColors.border.DEFAULT, flexDirection: actionStack, alignItems: actionStack === 'column' ? 'stretch' : 'center', gap: padSm }]}>
+            <Text style={[styles.photoLabel, { color: themeColors.text.primary, flex: actionStack === 'row' ? 1 : undefined }]}>
               {safeField.label}
               {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
             </Text>
@@ -1366,7 +1386,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           </View>
 
           {localPhotos.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} style={styles.photosContainer}>
+            <View style={styles.photosGrid}>
               {localPhotos.map((photo, index) => {
                 // Resolve photo URL: handle both server URLs and local paths
                 let photoUrl: string;
@@ -1433,7 +1453,15 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                     >
                       <Image 
                         source={imageSource} 
-                        style={[styles.photoThumbnail, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT }] as ImageStyle}
+                        style={[
+                          styles.photoThumbnail,
+                          {
+                            width: photoThumbSize,
+                            height: photoThumbSize,
+                            borderColor: themeColors.border.DEFAULT,
+                            backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT,
+                          },
+                        ] as ImageStyle}
                         resizeMode="cover"
                         onError={(error) => {
                           const errorMsg = error?.nativeEvent?.error || 'Unknown error';
@@ -1461,7 +1489,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                   </View>
                 );
               })}
-            </ScrollView>
+            </View>
           )}
 
         </View>
@@ -1470,9 +1498,9 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   };
 
   return (
-    <Card style={styles.card}>
+    <Card style={[styles.card, { padding: padMd }]}>
       {/* Field Label and Mark for Review */}
-      <View style={styles.fieldHeader}>
+      <View style={[styles.fieldHeader, { flexDirection: actionStack, alignItems: actionStack === 'column' ? 'flex-start' : 'center', gap: padSm }]}>
         <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
           {safeField.label}
           {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
@@ -1716,7 +1744,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
           {/* ── List of voice recordings (each: Play | Transcribe | Remove) ── */}
           {audioUrls.length > 0 && !isRecording && [...audioUrls].reverse().map((url, idx) => (
-            <View key={`${url}-${idx}`} style={[voiceCardStyles.rowPair, { marginTop: 8 }]}>
+            <View key={`${url}-${idx}`} style={[voiceCardStyles.rowPair, { marginTop: 8, flexDirection: actionStack }]}>
               <TouchableOpacity
                 style={[voiceCardStyles.halfBtn, { borderColor: themeColors.primary.DEFAULT + '60', backgroundColor: themeColors.primary.DEFAULT + '10', flex: 1, opacity: loadingPlayUrl === url ? 0.8 : 1 }]}
                 activeOpacity={0.85}
@@ -1880,9 +1908,14 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           onRequestClose={() => setShowSignature(false)}
         >
           <View style={styles.signatureModalContainer}>
-            <View style={styles.signatureModalContent}>
+            <View
+              style={[
+                styles.signatureModalContent,
+                { maxHeight: modalMaxHeight(0.9), width: '92%' },
+              ]}
+            >
               <Text style={styles.signatureModalTitle}>Sign Here</Text>
-              <View style={styles.signatureCanvasContainer}>
+              <View style={[styles.signatureCanvasContainer, { minHeight: ms(200), height: signatureCanvasHeight }]}>
                 <SignatureCanvas
                   ref={(ref: any) => {
                     signatureRef.current = ref;
@@ -1913,7 +1946,12 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                   `}
                 />
               </View>
-              <View style={styles.signatureModalActions}>
+              <View
+                style={[
+                  styles.signatureModalActions,
+                  { flexDirection: actionStack },
+                ]}
+              >
                 <Button
                   title="Cancel"
                   onPress={() => setShowSignature(false)}
@@ -1945,7 +1983,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         onRequestClose={() => setShowPhotoPicker(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { maxHeight: modalMaxHeight(0.7), width: '88%', padding: padMd }]}>
             <Text style={styles.modalTitle}>Add Photo</Text>
             <Button
               title="Take Photo"
@@ -2153,12 +2191,16 @@ const styles = StyleSheet.create({
   selectContainer: {
     marginBottom: spacing[4],
   },
+  optionsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+  },
   optionButton: {
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[2],
     borderRadius: borderRadius.md,
     backgroundColor: colors.secondary.DEFAULT,
-    marginRight: spacing[2],
     borderWidth: 1,
     borderColor: colors.border.DEFAULT,
   },
@@ -2274,7 +2316,7 @@ const styles = StyleSheet.create({
   },
   signatureImage: {
     width: '100%',
-    height: 200,
+    aspectRatio: 2.5,
     borderRadius: borderRadius.md,
     borderWidth: 2,
     borderColor: colors.border.DEFAULT,
@@ -2296,13 +2338,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: spacing[3],
   },
   signatureModalContent: {
     backgroundColor: colors.card.DEFAULT,
     borderRadius: borderRadius.lg,
     padding: spacing[4],
     width: '90%',
-    maxHeight: '80%',
   },
   signatureModalTitle: {
     fontSize: typography.fontSize.lg,
@@ -2312,7 +2354,7 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
   },
   signatureCanvasContainer: {
-    height: 300,
+    minHeight: 200,
     borderWidth: 1,
     borderColor: colors.border.DEFAULT,
     borderRadius: borderRadius.md,
@@ -2321,6 +2363,7 @@ const styles = StyleSheet.create({
   },
   signatureModalActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     gap: spacing[3],
     marginTop: spacing[2],
@@ -2360,11 +2403,15 @@ const styles = StyleSheet.create({
   checkInPhotosContainer: {
     marginTop: spacing[2],
   },
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+    marginTop: spacing[2],
+    marginBottom: spacing[2],
+  },
   checkInPhoto: {
-    width: 80,
-    height: 80,
     borderRadius: borderRadius.md,
-    marginRight: spacing[2],
   },
   photoSection: {
     marginBottom: spacing[4],
@@ -2374,9 +2421,7 @@ const styles = StyleSheet.create({
     // backgroundColor and borderColor applied dynamically via themeColors
   },
   photoHeader: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: spacing[3],
     paddingBottom: spacing[2],
     borderBottomWidth: 1,
@@ -2408,7 +2453,6 @@ const styles = StyleSheet.create({
   },
   photoItem: {
     position: 'relative',
-    marginRight: spacing[3],
     marginBottom: spacing[2],
     padding: spacing[2],
     // backgroundColor and borderColor applied dynamically via themeColors
@@ -2417,11 +2461,8 @@ const styles = StyleSheet.create({
     ...shadows.xs,
   },
   photoThumbnail: {
-    width: 120,
-    height: 120,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    // borderColor and backgroundColor applied dynamically via themeColors
   },
   photoActions: {
     position: 'absolute',

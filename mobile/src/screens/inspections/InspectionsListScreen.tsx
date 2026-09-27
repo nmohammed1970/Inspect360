@@ -10,7 +10,6 @@ import {
   Modal,
   FlatList,
   TextInput,
-  Dimensions,
   Linking,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -25,7 +24,6 @@ import {
   Play,
   FileText,
   Copy as CopyIcon,
-  Filter,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -44,11 +42,13 @@ import Input from '../../components/ui/Input';
 import DatePicker from '../../components/ui/DatePicker';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import EmptyState from '../../components/ui/EmptyState';
+import ScreenHeader from '../../components/ScreenHeader';
+import FilterBar from '../../components/FilterBar';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { formatSignerDisplayName } from '../../../../shared/signature';
 import { useTheme } from '../../contexts/ThemeContext';
 import { moderateScale, getFontSize, getButtonHeight } from '../../utils/responsive';
-import { useWindowDimensions } from 'react-native';
+import { useResponsive } from '../../hooks/useResponsive';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { Cloud, WifiOff } from 'lucide-react-native';
@@ -206,15 +206,17 @@ const STATUS_OPTIONS = [
 export default function InspectionsListScreen() {
   const navigation = useNavigation<NavigationProp>();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
-  const windowDimensions = useWindowDimensions();
-  const screenWidth = windowDimensions?.width || Dimensions.get('window').width;
+  const { width: screenWidth, stackDirection, modalMaxHeight } = useResponsive();
+  const actionDir = stackDirection(375);
 
   // Get theme colors with fallback - hooks must be called unconditionally
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
+  const isDark = !!theme?.isDark;
 
   const { isAuthenticated, user } = useAuth();
+  const canCreateInspections = user?.role === 'owner';
   const isOnline = useOnlineStatus();
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -486,24 +488,24 @@ export default function InspectionsListScreen() {
   return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]}>
       {/* Fixed Header */}
-      <View style={[styles.fixedHeader, {
-        paddingTop: insets.top + spacing[2],
-        backgroundColor: themeColors.card.DEFAULT,
-      }]}>
-        <View style={styles.pageHeader}>
-          <View style={styles.headerText}>
-            <Text style={[styles.title, { color: themeColors.text.primary }]}>Inspections</Text>
-            <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>Manage and conduct property inspections</Text>
-          </View>
-        </View>
+      <View style={[styles.fixedHeader, { backgroundColor: themeColors.card.DEFAULT }]}>
+        <ScreenHeader
+          title="Inspections"
+          subtitle="Manage and conduct property inspections"
+          includeSafeArea
+          style={{ borderBottomWidth: 0, paddingBottom: spacing[2] }}
+        />
 
         {/* Fixed Search Bar */}
-        <View style={[
-          styles.searchContainer,
-          {
-            borderColor: themeColors.border.DEFAULT,
-          }
-        ]}>
+        <View
+          style={[
+            styles.searchContainer,
+            {
+              borderColor: themeColors.border?.light || themeColors.border.DEFAULT,
+              backgroundColor: isDark ? themeColors.background : '#F8FAFC',
+            },
+          ]}
+        >
           <Search size={16} color={themeColors.text.secondary} style={styles.searchIcon} />
           <TextInput
             style={[styles.searchInput, { color: themeColors.text.primary }]}
@@ -548,89 +550,34 @@ export default function InspectionsListScreen() {
         {/* No sync banner - all data is on server */}
 
         {/* Filters */}
-        <View style={styles.filters}>
-          <Text style={[styles.filterLabel, { color: themeColors.text.primary }]}>Filter by:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-            <TouchableOpacity
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterBlockId ? themeColors.primary.light : themeColors.background,
-                  paddingHorizontal: moderateScale(spacing[3], 0.3, screenWidth),
-                  paddingVertical: moderateScale(spacing[2], 0.3, screenWidth),
-                  borderRadius: moderateScale(borderRadius.full, 0.2, screenWidth),
-                  borderWidth: 1,
-                  marginRight: moderateScale(spacing[2], 0.3, screenWidth),
-                },
-                filterBlockId && { borderColor: themeColors.primary.DEFAULT }
-              ]}
-              onPress={() => setShowBlockFilter(true)}
-            >
-              <Text style={[
-                styles.filterChipText,
-                { 
-                  color: filterBlockId ? themeColors.primary.DEFAULT : themeColors.text.secondary,
-                  fontSize: getFontSize(typography.fontSize.sm, screenWidth),
-                }
-              ]}>
-                Block: {selectedBlock?.name || 'All'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterPropertyId ? themeColors.primary.light : themeColors.background,
-                  paddingHorizontal: moderateScale(spacing[3], 0.3, screenWidth),
-                  paddingVertical: moderateScale(spacing[2], 0.3, screenWidth),
-                  borderRadius: moderateScale(borderRadius.full, 0.2, screenWidth),
-                  borderWidth: 1,
-                  marginRight: moderateScale(spacing[2], 0.3, screenWidth),
-                },
-                filterPropertyId && { borderColor: themeColors.primary.DEFAULT }
-              ]}
-              onPress={() => setShowPropertyFilter(true)}
-            >
-              <Text style={[
-                styles.filterChipText,
-                { 
-                  color: filterPropertyId ? themeColors.primary.DEFAULT : themeColors.text.secondary,
-                  fontSize: getFontSize(typography.fontSize.sm, screenWidth),
-                }
-              ]}>
-                Property: {selectedProperty?.name || 'All'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: filterStatus ? themeColors.primary.light : themeColors.background,
-                  paddingHorizontal: moderateScale(spacing[3], 0.3, screenWidth),
-                  paddingVertical: moderateScale(spacing[2], 0.3, screenWidth),
-                  borderRadius: moderateScale(borderRadius.full, 0.2, screenWidth),
-                  borderWidth: 1,
-                  marginRight: moderateScale(spacing[2], 0.3, screenWidth),
-                },
-                filterStatus && { borderColor: themeColors.primary.DEFAULT }
-              ]}
-              onPress={() => setShowStatusFilter(true)}
-            >
-              <Text style={[
-                styles.filterChipText,
-                { 
-                  color: filterStatus ? themeColors.primary.DEFAULT : themeColors.text.secondary,
-                  fontSize: getFontSize(typography.fontSize.sm, screenWidth),
-                }
-              ]}>
-                Status: {selectedStatusLabel}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
+        <FilterBar
+          style={{ marginBottom: spacing[4] }}
+          chips={[
+            {
+              label: 'Block',
+              value: selectedBlock?.name || 'All',
+              active: !!filterBlockId,
+              onPress: () => setShowBlockFilter(true),
+            },
+            {
+              label: 'Property',
+              value: selectedProperty?.name || 'All',
+              active: !!filterPropertyId,
+              onPress: () => setShowPropertyFilter(true),
+            },
+            {
+              label: 'Status',
+              value: selectedStatusLabel,
+              active: !!filterStatus,
+              onPress: () => setShowStatusFilter(true),
+            },
+          ]}
+          onClear={() => {
+            setFilterBlockId('');
+            setFilterPropertyId('');
+            setFilterStatus('');
+          }}
+        />
 
         {/* Block Filter Modal */}
         <Modal
@@ -644,7 +591,8 @@ export default function InspectionsListScreen() {
               styles.modalContent,
               {
                 backgroundColor: themeColors.background,
-                paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
+                paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4],
+                maxHeight: modalMaxHeight(0.9),
               }
             ]}>
               <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -667,7 +615,7 @@ export default function InspectionsListScreen() {
                     </View>
                   ) : blocksError ? (
                     <View style={{ padding: spacing[4], alignItems: 'center' }}>
-                      <Text style={{ color: themeColors.error || '#ef4444' }}>Error loading blocks</Text>
+                      <Text style={{ color: themeColors.destructive.DEFAULT }}>Error loading blocks</Text>
                     </View>
                   ) : (
                     <View style={{ padding: spacing[4], alignItems: 'center' }}>
@@ -716,7 +664,8 @@ export default function InspectionsListScreen() {
               styles.modalContent,
               {
                 backgroundColor: themeColors.card.DEFAULT,
-                paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
+                paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4],
+                maxHeight: modalMaxHeight(0.9),
               }
             ]}>
               <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -741,7 +690,7 @@ export default function InspectionsListScreen() {
                     </View>
                   ) : propertiesError ? (
                     <View style={{ padding: spacing[4], alignItems: 'center' }}>
-                      <Text style={{ color: themeColors.error }}>Error loading properties</Text>
+                      <Text style={{ color: themeColors.destructive.DEFAULT }}>Error loading properties</Text>
                     </View>
                   ) : (
                     <View style={{ padding: spacing[4], alignItems: 'center' }}>
@@ -793,7 +742,8 @@ export default function InspectionsListScreen() {
               styles.modalContent,
               {
                 backgroundColor: themeColors.background,
-                paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4]
+                paddingBottom: Math.max(insets.bottom || 0, spacing[6]) + spacing[4],
+                maxHeight: modalMaxHeight(0.9),
               }
             ]}>
               <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
@@ -848,10 +798,16 @@ export default function InspectionsListScreen() {
         {filteredInspections.length === 0 ? (
           <Card style={styles.emptyCard}>
             <EmptyState
-              title={effectiveInspections.length === 0 ? 'No inspections yet' : 'No inspections match your filters'}
+              title={
+                effectiveInspections.length === 0
+                  ? (canCreateInspections ? 'No inspections yet' : 'No inspections assigned')
+                  : 'No inspections match your filters'
+              }
               message={
                 effectiveInspections.length === 0
-                  ? 'Create your first inspection to get started'
+                  ? (canCreateInspections
+                      ? 'Create your first inspection to get started'
+                      : 'Inspections assigned to you will appear here')
                   : (searchTerm || filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon)
                     ? 'Try adjusting your search or filters'
                     : 'Try adjusting your filters'
@@ -920,14 +876,20 @@ export default function InspectionsListScreen() {
                     )}
 
                     {/* Action Buttons */}
-                    <View style={styles.actionButtons}>
+                    <View style={[styles.actionButtons, { flexDirection: actionDir }]}>
                       {inspection.templateSnapshotJson && inspection.status !== 'completed' && (
                         <Button
                           title={inspection.status === 'in_progress' ? 'Continue' : 'Start'}
                           onPress={() => navigation.navigate('InspectionCapture', { inspectionId: inspection.id })}
                           variant="primary"
                           size="sm"
-                          style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
+                          style={[
+                            styles.actionButton,
+                            {
+                              minWidth: actionDir === 'column' ? '100%' : moderateScale(100, 0.3, screenWidth),
+                              ...(actionDir === 'column' ? { alignSelf: 'stretch' as const } : {}),
+                            },
+                          ]}
                           icon={<Play size={14} color={themeColors.primary.foreground} />}
                         />
                       )}
@@ -936,7 +898,13 @@ export default function InspectionsListScreen() {
                         onPress={() => navigation.navigate('InspectionReport', { inspectionId: inspection.id })}
                         variant="outline"
                         size="sm"
-                        style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
+                        style={[
+                          styles.actionButton,
+                          {
+                            minWidth: actionDir === 'column' ? '100%' : moderateScale(100, 0.3, screenWidth),
+                            ...(actionDir === 'column' ? { alignSelf: 'stretch' as const } : {}),
+                          },
+                        ]}
                         icon={<FileText size={14} color={themeColors.text.primary} />}
                       />
                       <Button
@@ -946,8 +914,15 @@ export default function InspectionsListScreen() {
                         }}
                         variant="outline"
                         size="sm"
-                        style={[styles.actionButton, { minWidth: moderateScale(100, 0.3, screenWidth) }]}
+                        style={[
+                          styles.actionButton,
+                          {
+                            minWidth: actionDir === 'column' ? '100%' : moderateScale(100, 0.3, screenWidth),
+                            ...(actionDir === 'column' ? { alignSelf: 'stretch' as const } : {}),
+                          },
+                        ]}
                       />
+                      {canCreateInspections && (
                       <TouchableOpacity
                         style={[
                           styles.copyButton, 
@@ -957,12 +932,14 @@ export default function InspectionsListScreen() {
                             borderRadius: moderateScale(borderRadius.md, 0.2, screenWidth),
                             minWidth: moderateScale(44, 0.2, screenWidth),
                             minHeight: moderateScale(44, 0.2, screenWidth),
+                            ...(actionDir === 'column' ? { alignSelf: 'flex-start' as const } : {}),
                           }
                         ]}
                         onPress={() => handleCopyClick(inspection)}
                       >
                         <CopyIcon size={16} color={themeColors.text.secondary} />
                       </TouchableOpacity>
+                      )}
                     </View>
                   </View>
                 </Card>
@@ -979,7 +956,7 @@ export default function InspectionsListScreen() {
           onRequestClose={() => setShowCopyModal(false)}
         >
           <View style={[styles.modalOverlay, { paddingBottom: Math.max(insets.bottom, spacing[4]) }]}>
-            <View style={[styles.modalContent, { backgroundColor: themeColors.card.DEFAULT }]}>
+            <View style={[styles.modalContent, { backgroundColor: themeColors.card.DEFAULT, maxHeight: modalMaxHeight(0.9) }]}>
               <View style={[styles.modalHeader, { borderBottomColor: themeColors.border.light }]}>
                 <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>Copy Inspection</Text>
               </View>
@@ -1133,9 +1110,6 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: typography.fontSize.sm,
   },
-  filters: {
-    marginBottom: spacing[4],
-  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1150,26 +1124,6 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: typography.fontSize.base,
-  },
-  filterLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: spacing[2],
-  },
-  filterRow: {
-    flexDirection: 'row',
-  },
-  filterChip: {
-    // Padding and margins set dynamically with screenWidth
-  },
-  filterChipActive: {
-    // Colors set dynamically
-  },
-  filterChipText: {
-    fontSize: typography.fontSize.sm,
-  },
-  filterChipTextActive: {
-    fontWeight: typography.fontWeight.medium,
   },
   inspectionsGrid: {
     gap: spacing[4],
@@ -1188,11 +1142,13 @@ const styles = StyleSheet.create({
   },
   cardHeaderLeft: {
     flex: 1,
+    minWidth: 0,
   },
   propertyName: {
     fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.semibold,
     marginBottom: spacing[2],
+    flexShrink: 1,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -1237,10 +1193,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing[2],
     marginTop: spacing[3],
-    alignItems: 'center',
+    alignItems: 'stretch',
   },
   actionButton: {
-    flex: 1,
+    flexGrow: 1,
     // minWidth set dynamically with screenWidth in component
   },
   textButton: {

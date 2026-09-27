@@ -23,6 +23,9 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { TenantLogRequestDialog } from "@/components/TenantLogRequestDialog";
+import { ChatMarkdown } from "@/components/ChatMarkdown";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
 
 interface ChatMessage {
   id: string;
@@ -133,9 +136,9 @@ export default function TenantMaintenance() {
 
   if (isLoadingChats) {
     return (
-      <div className="p-6">
+      <div className={cn(pagePad, "min-w-0")}>
         <Skeleton className="h-12 w-64 mb-6" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
           <Skeleton className="h-96" />
           <Skeleton className="h-96 md:col-span-2" />
         </div>
@@ -144,9 +147,9 @@ export default function TenantMaintenance() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex flex-col min-w-0 min-h-0">
       {/* Header */}
-      <div className="p-6 border-b flex-shrink-0">
+      <div className={cn(pagePad, "border-b shrink-0")}>
         <Breadcrumb className="mb-4">
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -160,20 +163,21 @@ export default function TenantMaintenance() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0">
             <Button
               variant="ghost"
               onClick={() => navigate("/tenant/home")}
               data-testid="button-back-home"
+              className="shrink-0"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <MessageSquare className="h-6 w-6 text-primary" />
-                AI Maintenance Help
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 md:h-6 md:w-6 text-primary shrink-0" />
+                <span className={textTruncate}>AI Maintenance Help</span>
               </h1>
               <p className="text-muted-foreground text-sm">
                 Get instant help with property issues
@@ -184,6 +188,7 @@ export default function TenantMaintenance() {
             variant="outline"
             onClick={() => setIsLogRequestOpen(true)}
             data-testid="button-log-request-manual"
+            className="w-full sm:w-auto shrink-0"
           >
             <ClipboardList className="h-4 w-4 mr-2" />
             Log a Maintenance Request
@@ -191,15 +196,19 @@ export default function TenantMaintenance() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 min-h-0">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 min-h-0 min-w-0">
         {/* Chat History Sidebar */}
-        <div className="border-r p-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
+        <div className={cn(
+          "border-b md:border-b-0 md:border-r p-4 overflow-y-auto max-h-56 md:max-h-none min-w-0",
+          selectedChatId ? "hidden md:block" : "block",
+        )}>
+          <div className="flex items-center justify-between gap-2 mb-4">
             <h3 className="font-semibold">Conversations</h3>
             <Button
               size="sm"
               onClick={() => setSelectedChatId(null)}
               data-testid="button-new-chat"
+              className="shrink-0"
             >
               New Chat
             </Button>
@@ -208,19 +217,19 @@ export default function TenantMaintenance() {
             {chats.map((chat) => (
               <Card
                 key={chat.id}
-                className={`cursor-pointer hover-elevate ${
+                className={`cursor-pointer hover-elevate min-w-0 ${
                   selectedChatId === chat.id ? "border-primary bg-primary/5" : ""
                 }`}
                 onClick={() => setSelectedChatId(chat.id)}
                 data-testid={`chat-${chat.id}`}
               >
                 <CardHeader className="p-4 space-y-2">
-                  <CardTitle className="text-sm line-clamp-2">{chat.title}</CardTitle>
-                  <div className="flex items-center justify-between">
+                  <CardTitle className={cn("text-sm line-clamp-2", textBreak)}>{chat.title}</CardTitle>
+                  <div className="flex items-center justify-between gap-2">
                     <Badge variant={chat.status === "active" ? "default" : "secondary"} className="text-xs">
                       {chat.status}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       {format(new Date(chat.createdAt), "MMM dd")}
                     </span>
                   </div>
@@ -242,12 +251,25 @@ export default function TenantMaintenance() {
         </div>
 
         {/* Chat Interface */}
-        <div className="md:col-span-2 flex flex-col">
+        <div className="md:col-span-2 flex flex-col min-w-0 min-h-[50vh] md:min-h-[calc(100dvh-12rem)]">
+          {selectedChatId && (
+            <div className="md:hidden px-4 pt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedChatId(null)}
+                className="mb-1"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Conversations
+              </Button>
+            </div>
+          )}
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 min-w-0">
             {!selectedChatId && !isLoadingChat && (
-              <div className="flex items-center justify-center h-full">
-                <Card className="max-w-lg">
+              <div className="flex items-center justify-center h-full px-2">
+                <Card className="max-w-lg w-full min-w-0">
                   <CardHeader>
                     <CardTitle>Welcome to AI Maintenance Help</CardTitle>
                     <CardDescription>
@@ -275,14 +297,16 @@ export default function TenantMaintenance() {
             {currentChat?.messages?.map((message) => (
               <div
                 key={message.id}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} min-w-0`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg p-4 ${
+                  className={cn(
+                    "max-w-[min(100%,28rem)] sm:max-w-[80%] rounded-lg p-3 sm:p-4 min-w-0",
+                    textBreak,
                     message.role === "user"
                       ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  }`}
+                      : "bg-muted",
+                  )}
                 >
                   {message.imageUrl && (
                     <PreviewableImage
@@ -292,14 +316,21 @@ export default function TenantMaintenance() {
                       className="rounded-lg mb-2 max-w-full h-auto"
                     />
                   )}
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.role === "assistant" ? (
+                    <ChatMarkdown
+                      content={message.content}
+                      inverted={false}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  )}
                   {message.aiSuggestedFixes && (
                     <div className="mt-3 p-3 bg-background/20 rounded-lg">
                       <div className="font-semibold text-sm mb-2 flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4" />
+                        <AlertCircle className="h-4 w-4 shrink-0" />
                         Suggested Fixes:
                       </div>
-                      <p className="text-sm whitespace-pre-wrap">{message.aiSuggestedFixes}</p>
+                      <ChatMarkdown content={message.aiSuggestedFixes} className="text-sm" />
                     </div>
                   )}
                   <div className="text-xs opacity-70 mt-2">
@@ -312,7 +343,7 @@ export default function TenantMaintenance() {
           </div>
 
           {/* Input Area */}
-          <div className="border-t p-4 space-y-4">
+          <div className="border-t p-3 sm:p-4 space-y-3 sm:space-y-4 shrink-0 min-w-0">
             {currentChat && !currentChat.maintenanceRequestId && (
               <div className="flex flex-col sm:flex-row justify-center gap-2">
                 <Button
@@ -320,11 +351,12 @@ export default function TenantMaintenance() {
                   disabled={createMaintenanceMutation.isPending}
                   variant="outline"
                   data-testid="button-create-request"
+                  className="w-full sm:w-auto h-auto whitespace-normal py-2"
                 >
                   {createMaintenanceMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin shrink-0" />
                   ) : (
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    <CheckCircle2 className="h-4 w-4 mr-2 shrink-0" />
                   )}
                   Issue Not Resolved - Create Maintenance Request
                 </Button>
@@ -332,6 +364,7 @@ export default function TenantMaintenance() {
                   variant="ghost"
                   onClick={() => setIsLogRequestOpen(true)}
                   data-testid="button-log-request-from-chat"
+                  className="w-full sm:w-auto"
                 >
                   <ClipboardList className="h-4 w-4 mr-2" />
                   Log manually instead
@@ -372,10 +405,10 @@ export default function TenantMaintenance() {
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0 items-end">
               <ObjectUploader
                 buttonVariant="outline"
-                buttonClassName="h-10 w-10"
+                buttonClassName="h-10 w-10 shrink-0"
                 onGetUploadParameters={async () => {
                   try {
                     const response = await fetch('/api/objects/upload', {
@@ -499,7 +532,7 @@ export default function TenantMaintenance() {
                     handleSendMessage();
                   }
                 }}
-                className="flex-1 resize-none"
+                className="flex-1 resize-none min-w-0"
                 rows={2}
                 data-testid="input-message"
               />
@@ -507,6 +540,7 @@ export default function TenantMaintenance() {
                 onClick={handleSendMessage}
                 disabled={sendMessageMutation.isPending || (!messageInput.trim() && !uploadedImage)}
                 data-testid="button-send-message"
+                className="shrink-0"
               >
                 {sendMessageMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

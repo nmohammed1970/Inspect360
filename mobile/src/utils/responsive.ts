@@ -122,7 +122,40 @@ const isLargeDevice = (screenWidth?: number): boolean => {
   return width >= 768;
 };
 
-// Export initial dimensions for backward compatibility
+/** Pick a value by width breakpoints: small <360, large >=768, else medium. */
+function getResponsiveValue<T>(
+  values: { small: T; medium: T; large: T },
+  screenWidth?: number,
+): T {
+  const { width } = screenWidth !== undefined ? { width: screenWidth } : getWindowDimensions();
+  if (width < 360) return values.small;
+  if (width >= 768) return values.large;
+  return values.medium;
+}
+
+/** Stack form/button rows vertically on narrow phones. */
+function stackOnSmall(
+  screenWidth?: number,
+  threshold: number = 375,
+): 'column' | 'row' {
+  const { width } = screenWidth !== undefined ? { width: screenWidth } : getWindowDimensions();
+  return width < threshold ? 'column' : 'row';
+}
+
+/** Form content max width — slightly wider on tablets. */
+function getFormMaxWidth(screenWidth?: number): number {
+  return getResponsiveValue({ small: 400, medium: 400, large: 560 }, screenWidth);
+}
+
+/** Modal / sheet max height as a fraction of window height. */
+function getModalMaxHeight(fraction: number = 0.9, screenHeight?: number): number {
+  const { height } = screenHeight !== undefined ? { height: screenHeight } : getWindowDimensions();
+  return Math.round(height * fraction);
+}
+
+// Export initial dimensions for backward compatibility.
+// Prefer useResponsive() / useWindowDimensions for layout-critical styles so
+// rotation and fold/unfold update live.
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = getWindowDimensions();
 
 export {
@@ -137,6 +170,10 @@ export {
   isTablet,
   isSmallDevice,
   isLargeDevice,
+  getResponsiveValue,
+  stackOnSmall,
+  getFormMaxWidth,
+  getModalMaxHeight,
   getWindowDimensions,
   SCREEN_WIDTH,
   SCREEN_HEIGHT,

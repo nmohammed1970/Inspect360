@@ -149,6 +149,28 @@ const buildRetryUrlWithExpoHost = (fullUrl: string): string | null => {
   }
 };
 
+/** iOS Expo often surfaces unreachable hosts as FetchRequestCanceledException, not NetworkError. */
+function isTransportFailure(error: any): boolean {
+  const msg = String(error?.message || error || '');
+  const name = String(error?.name || '');
+  return (
+    name === 'AbortError' ||
+    msg.includes('AbortError') ||
+    msg.includes('Failed to fetch') ||
+    msg.includes('ERR_CONNECTION_REFUSED') ||
+    msg.includes('Network request failed') ||
+    msg.includes('NetworkError') ||
+    msg.includes('No network connection') ||
+    msg.includes('FetchRequestCanceled') ||
+    msg.includes('Fetch request has been canceled') ||
+    msg.includes('The network connection was lost') ||
+    msg.includes('Could not connect to the server') ||
+    /\bcanceled\b/i.test(msg) ||
+    /\bcancelled\b/i.test(msg) ||
+    /\baborted\b/i.test(msg)
+  );
+}
+
 // Export a getter function that re-evaluates each time (lazy evaluation)
 // This ensures hostUri is available when accessed, not at module load time
 export const getAPI_URL = (): string => {
@@ -302,9 +324,59 @@ export async function apiRequest(
       console.error(`[API] Request failed for ${method} ${fullUrl}:`, error.message);
     }
 
-    // Handle abort (timeout)
-    if (error.name === 'AbortError') {
-      throw new Error(`Server problem. Request timeout. Please try again sometime later.`);
+    // Handle abort / cancelled fetch (timeout or unreachable host on iOS)
+    if (error.name === 'AbortError' || isTransportFailure(error)) {
+      const retryUrl = buildRetryUrlWithExpoHost(fullUrl);
+      if (retryUrl) {
+        try {
+          if (isDevelopment) {
+            console.warn(`[API] Retrying cancelled/unreachable request with Expo host IP: ${retryUrl}`);
+          }
+          const retryController = new AbortController();
+          const retryTimeoutId = setTimeout(() => retryController.abort(), timeout);
+          try {
+            const retryRes = await fetch(retryUrl, {
+              method,
+              signal: retryController.signal,
+              headers: data
+                ? {
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Accept": "application/json",
+                  }
+                : {
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Accept": "application/json",
+                  },
+              body: data ? JSON.stringify(data) : undefined,
+              credentials: "include",
+            });
+            clearTimeout(retryTimeoutId);
+            await throwIfResNotOk(retryRes);
+            return retryRes;
+          } finally {
+            clearTimeout(retryTimeoutId);
+          }
+        } catch (retryError: any) {
+          if (isDevelopment) {
+            console.error('[API] Retry with Expo host IP failed:', retryError?.message || retryError);
+          }
+        }
+      }
+
+      if (error.name === 'AbortError' || String(error?.message || '').includes('timeout')) {
+        throw new Error(`Server problem. Request timeout. Please try again sometime later.`);
+      }
+
+      const baseUrl = getBaseUrl();
+      const hint = isDevelopment && (baseUrl.includes('192.') || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'))
+        ? ` (Cannot reach ${baseUrl}. Update EXPO_PUBLIC_API_URL to your PC LAN IP — Metro shows it as exp://IP:8081 — and ensure server is running on that IP:port.)`
+        : '';
+      throw new Error(
+        `Server problem. Cannot connect to server. Please check your internet connection and try again later.${hint}`
+      );
     }
 
     // Provide more helpful error messages for network errors

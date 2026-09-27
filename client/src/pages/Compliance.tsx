@@ -28,6 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 
 // Default document types (fallback if no custom types exist)
@@ -634,7 +635,7 @@ export default function Compliance() {
 
   if (authLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className="container mx-auto min-w-0 p-4 md:p-6">
         <p className="text-muted-foreground">Loading...</p>
       </div>
     );
@@ -642,7 +643,7 @@ export default function Compliance() {
 
   if (!user || (user.role !== "owner" && user.role !== "compliance")) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className="container mx-auto min-w-0 p-4 md:p-6">
         <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
           <ShieldAlert className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-800 dark:text-yellow-200">
@@ -654,7 +655,7 @@ export default function Compliance() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-compliance">
@@ -677,7 +678,7 @@ export default function Compliance() {
               <span className="sm:hidden">Upload</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Upload Compliance Document</DialogTitle>
               <DialogDescription>
@@ -1111,15 +1112,16 @@ export default function Compliance() {
         </Dialog>
       </div>
 
+      <FiltersSection headingId="compliance-filters-heading">
       {/* Filter and Sort Controls - Desktop */}
       <div className="hidden md:flex flex-wrap gap-3 items-center">
         {/* Search Bar */}
-        <div className="flex-1 w-full sm:max-w-md min-w-[200px]">
+        <div className="w-full flex-1 sm:max-w-md sm:min-w-0">
           <Input
             placeholder="Search by type, property, or block..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full"
+            className="w-full h-8"
           />
         </div>
         
@@ -1302,22 +1304,23 @@ export default function Compliance() {
       </div>
 
       {/* Filter and Sort Controls - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
+      <div className="flex md:hidden gap-2 items-center">
         {/* Search Bar */}
         <div className="relative flex-1">
           <Input
             placeholder="Search..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full"
+            className="w-full h-8"
           />
         </div>
         
         {/* Filter Button */}
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0">
-              <Filter className="w-4 h-4" />
+            <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+              <Filter className="w-4 h-4 mr-2" />
+              Filters
               {hasActiveFilters && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
               )}
@@ -1486,6 +1489,7 @@ export default function Compliance() {
         )}
         </div>
       )}
+      </FiltersSection>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">

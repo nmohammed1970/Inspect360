@@ -1361,13 +1361,13 @@ export function FieldWidget({
 
       case "rating":
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-2">
             {[1, 2, 3, 4, 5].map((rating) => (
               <button
                 key={rating}
                 type="button"
                 onClick={() => handleValueChange(rating)}
-                className="focus:outline-none"
+                className="focus:outline-none min-h-11 min-w-11 inline-flex items-center justify-center"
                 data-testid={`button-rating-${rating}-${field.id}`}
               >
                 <Star
@@ -1379,7 +1379,7 @@ export function FieldWidget({
               </button>
             ))}
             {localValue > 0 && (
-              <span className="ml-2 text-sm text-muted-foreground">
+              <span className="ml-1 sm:ml-2 text-sm text-muted-foreground">
                 {localValue} / 5
               </span>
             )}
@@ -1389,7 +1389,7 @@ export function FieldWidget({
       case "select":
         return (
           <Select value={localValue || ""} onValueChange={handleValueChange}>
-            <SelectTrigger data-testid={`select-${field.id}`}>
+            <SelectTrigger data-testid={`select-${field.id}`} className="min-h-11">
               <SelectValue placeholder={field.placeholder || "Select an option"} />
             </SelectTrigger>
             <SelectContent>
@@ -1430,7 +1430,7 @@ export function FieldWidget({
                 }
               }}
             >
-              <SelectTrigger data-testid={`select-multiselect-${field.id}`}>
+              <SelectTrigger data-testid={`select-multiselect-${field.id}`} className="min-h-11">
                 <SelectValue placeholder="Add option..." />
               </SelectTrigger>
               <SelectContent>
@@ -1448,13 +1448,14 @@ export function FieldWidget({
 
       case "boolean":
         return (
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 min-h-11">
             <Checkbox
               checked={localValue || false}
               onCheckedChange={handleValueChange}
               data-testid={`checkbox-${field.id}`}
+              className="h-5 w-5"
             />
-            <label className="text-sm cursor-pointer">
+            <label className="text-sm cursor-pointer break-words min-w-0">
               {field.placeholder || "Yes"}
             </label>
           </div>
@@ -1508,7 +1509,7 @@ export function FieldWidget({
                     <p className="text-xs text-muted-foreground">
                       Match these angles when taking your Check-Out photos for accurate comparison
                     </p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                       {checkInPhotos.map((photoUrl: string, index: number) => (
                         <div key={index} className="relative group">
                           <PreviewableImage
@@ -1571,7 +1572,7 @@ export function FieldWidget({
                         <Button
                           size="icon"
                           variant="destructive"
-                          className="absolute top-2 right-2 z-10"
+                          className="absolute top-2 right-2 z-10 min-h-11 min-w-11"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -1605,10 +1606,11 @@ export function FieldWidget({
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto min-h-11"
               onClick={() => setShowPhotoUpload(true)}
               data-testid={`button-upload-photo-${field.id}`}
             >
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-2 shrink-0" />
               {localPhotos.length > 0 ? "Add More Photos" : "Upload Photo"}
             </Button>
             {showPhotoUpload && (
@@ -1640,10 +1642,11 @@ export function FieldWidget({
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto min-h-11"
               onClick={() => setShowPhotoUpload(true)}
               data-testid={`button-upload-video-${field.id}`}
             >
-              <Upload className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-2 shrink-0" />
               {localValue ? "Replace Video" : "Upload Video"}
             </Button>
             {showPhotoUpload && (
@@ -1830,10 +1833,10 @@ export function FieldWidget({
   };
 
   return (
-    <div className="space-y-3 border rounded-lg p-4" data-testid={`field-widget-${field.id}`}>
-      <Label className="text-base font-bold flex items-center gap-2">
-        {field.label}
-        {field.required && <span className="text-destructive">*</span>}
+    <div className="space-y-3 border rounded-lg p-3 sm:p-4 min-w-0" data-testid={`field-widget-${field.id}`}>
+      <Label className="text-base font-bold flex flex-wrap items-center gap-2 break-words min-w-0">
+        <span className="break-words min-w-0">{field.label}</span>
+        {field.required && <span className="text-destructive shrink-0">*</span>}
       </Label>
 
       {renderField()}
@@ -1850,11 +1853,11 @@ export function FieldWidget({
 
       {/* AI Suggestion Badge */}
       {aiConditionSuggestion && !analyzingCondition && (field.includeCondition || field.includeCleanliness) && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Sparkles className="h-3 w-3 text-primary" />
-          <span>AI suggested: {aiConditionSuggestion.condition && `Condition: ${aiConditionSuggestion.condition}`}{aiConditionSuggestion.condition && aiConditionSuggestion.cleanliness && ", "}{aiConditionSuggestion.cleanliness && `Cleanliness: ${aiConditionSuggestion.cleanliness}`}</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground min-w-0">
+          <Sparkles className="h-3 w-3 text-primary shrink-0" />
+          <span className="break-words min-w-0">AI suggested: {aiConditionSuggestion.condition && `Condition: ${aiConditionSuggestion.condition}`}{aiConditionSuggestion.condition && aiConditionSuggestion.cleanliness && ", "}{aiConditionSuggestion.cleanliness && `Cleanliness: ${aiConditionSuggestion.cleanliness}`}</span>
           {aiConditionSuggestion.confidence && (
-            <Badge variant={aiConditionSuggestion.confidence === "high" ? "default" : aiConditionSuggestion.confidence === "medium" ? "secondary" : "outline"} className="text-xs">
+            <Badge variant={aiConditionSuggestion.confidence === "high" ? "default" : aiConditionSuggestion.confidence === "medium" ? "secondary" : "outline"} className="text-xs shrink-0">
               {aiConditionSuggestion.confidence} confidence
             </Badge>
           )}
@@ -1869,7 +1872,7 @@ export function FieldWidget({
             {analyzingCondition && <Sparkles className="h-3 w-3 text-primary animate-pulse" />}
           </Label>
           <Select value={localCondition || ""} onValueChange={handleConditionChange} disabled={analyzingCondition}>
-            <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1">
+            <SelectTrigger data-testid={`select-condition-${field.id}`} className="mt-1 min-h-11">
               <SelectValue placeholder={analyzingCondition ? "Analyzing..." : "Select condition"} />
             </SelectTrigger>
             <SelectContent>
@@ -1892,7 +1895,7 @@ export function FieldWidget({
             {analyzingCondition && <Sparkles className="h-3 w-3 text-primary animate-pulse" />}
           </Label>
           <Select value={localCleanliness || ""} onValueChange={handleCleanlinessChange} disabled={analyzingCondition}>
-            <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1">
+            <SelectTrigger data-testid={`select-cleanliness-${field.id}`} className="mt-1 min-h-11">
               <SelectValue placeholder={analyzingCondition ? "Analyzing..." : "Select cleanliness"} />
             </SelectTrigger>
             <SelectContent>
@@ -2257,7 +2260,7 @@ export function FieldWidget({
 
       {/* Mark for Review - Only for Check Out inspections WITH photos */}
       {isCheckOut && localPhotos.length > 0 && (
-        <div className="pt-3 flex items-center space-x-2">
+        <div className="pt-3 flex items-center space-x-2 min-h-11">
           <Checkbox
             id={`mark-review-${field.id}`}
             checked={localMarkedForReview}
@@ -2267,10 +2270,11 @@ export function FieldWidget({
               onMarkedForReviewChange?.(isChecked);
             }}
             data-testid={`checkbox-mark-review-${field.id}`}
+            className="h-5 w-5"
           />
           <Label
             htmlFor={`mark-review-${field.id}`}
-            className="text-sm font-medium cursor-pointer"
+            className="text-sm font-medium cursor-pointer break-words min-w-0"
           >
             Mark for Comparison Report
           </Label>

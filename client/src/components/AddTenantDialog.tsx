@@ -38,6 +38,8 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { useModules } from "@/hooks/use-modules";
 import { PhoneInput } from "@/components/PhoneInput";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { cn } from "@/lib/utils";
+import { dialogFooterSticky, formGrid2 } from "@/lib/responsive";
 
 interface User {
   id: string;
@@ -485,7 +487,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[550px]">
         {!isTenantPortalEnabled && !isLoadingModules ? (
           <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
             <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
@@ -517,7 +519,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
             {isTenantPortalEnabled && (
               <Tabs value={mode} onValueChange={(v) => setMode(v as "select" | "create")} className="w-full">
 
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2">
                   <TabsTrigger value="select" data-testid="tab-select-tenant">
                     <Users className="h-4 w-4 mr-2" />
                     Select Existing
@@ -570,7 +572,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         )}
                       />
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={formGrid2}>
                         <FormField
                           control={selectForm.control}
                           name="leaseStartDate"
@@ -614,7 +616,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={formGrid2}>
                         <FormField
                           control={selectForm.control}
                           name="monthlyRent"
@@ -702,7 +704,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         )}
                       />
 
-                      <div className="flex justify-end gap-2 pt-4">
+                      <div className={cn(dialogFooterSticky)}>
                         <Button
                           type="button"
                           variant="outline"
@@ -736,7 +738,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                       <div className="space-y-4 p-4 border rounded-lg bg-muted/50">
                         <h4 className="text-sm font-medium">Tenant User Details</h4>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={formGrid2}>
                           <FormField
                             control={createForm.control}
                             name="firstName"
@@ -862,7 +864,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                       <div className="space-y-4">
                         <h4 className="text-sm font-medium">Lease Details</h4>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={formGrid2}>
                           <FormField
                             control={createForm.control}
                             name="leaseStartDate"
@@ -906,7 +908,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                           />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={formGrid2}>
                           <FormField
                             control={createForm.control}
                             name="monthlyRent"
@@ -995,7 +997,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
                         />
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-4">
+                      <div className={cn(dialogFooterSticky)}>
                         <Button
                           type="button"
                           variant="outline"

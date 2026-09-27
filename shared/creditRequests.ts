@@ -1,10 +1,12 @@
 /**
- * Rules for buy-credit requests. Identity and status are never taken from the client body.
+ * Rules for purchase-credit requests. Identity and status are never taken from the client body.
+ * `creditsRequested` stores the user's reported property/unit count; admins choose credits to grant.
  */
 
-export const MIN_CREDIT_REQUEST = 6;
+export const MIN_CREDIT_REQUEST = 1;
 export const MAX_CREDIT_REQUEST = 100000;
 export const MAX_CREDIT_REQUEST_MESSAGE = 2000;
+export const MAX_CONTACT_PHONE_LENGTH = 50;
 export const DUPLICATE_WINDOW_MS = 60 * 1000;
 export const MAX_CREDIT_REQUESTS_PER_HOUR = 10;
 
@@ -14,27 +16,42 @@ export type CreditRequestStatus = (typeof CREDIT_REQUEST_STATUSES)[number];
 export type ParsedCreditRequest = {
   creditsRequested: number;
   message: string;
+  contactPhone: string;
 };
 
 export type CreditRequestFieldError = {
   ok: false;
-  field: "credits" | "message";
+  field: "credits" | "message" | "contactPhone";
   message: string;
 };
 
-const CREDITS_ERROR = "Please enter a valid number of credits. Minimum is 6.";
-const CREDITS_MAX_ERROR = "Please enter a valid number of credits. Maximum is 100000.";
+const UNITS_ERROR = "Please enter a valid number of properties / units. Minimum is 1.";
+const UNITS_MAX_ERROR = "Please enter a valid number of properties / units. Maximum is 100000.";
 const MESSAGE_ERROR = "Please enter a message.";
 const MESSAGE_LENGTH_ERROR = "Message must be 2000 characters or fewer.";
+const PHONE_ERROR = "Please enter a contact number.";
+const PHONE_LENGTH_ERROR = "Contact number must be 50 characters or fewer.";
 
 export function parseCreditRequestCreate(body: unknown): { ok: true } & ParsedCreditRequest | CreditRequestFieldError {
   const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
-  const credits = parseWholeCredits(record.creditsRequested);
+  const unitsRaw = record.unitsRequested ?? record.creditsRequested;
+  const credits = parseWholeCredits(unitsRaw);
   if (credits === null || credits < MIN_CREDIT_REQUEST) {
-    return { ok: false, field: "credits", message: CREDITS_ERROR };
+    return { ok: false, field: "credits", message: UNITS_ERROR };
   }
   if (credits > MAX_CREDIT_REQUEST) {
-    return { ok: false, field: "credits", message: CREDITS_MAX_ERROR };
+    return { ok: false, field: "credits", message: UNITS_MAX_ERROR };
+  }
+
+  if (typeof record.contactPhone !== "string") {
+    return { ok: false, field: "contactPhone", message: PHONE_ERROR };
+  }
+  const contactPhone = record.contactPhone.trim();
+  if (!contactPhone) {
+    return { ok: false, field: "contactPhone", message: PHONE_ERROR };
+  }
+  if (contactPhone.length > MAX_CONTACT_PHONE_LENGTH) {
+    return { ok: false, field: "contactPhone", message: PHONE_LENGTH_ERROR };
   }
 
   if (typeof record.message !== "string") {
@@ -48,7 +65,7 @@ export function parseCreditRequestCreate(body: unknown): { ok: true } & ParsedCr
     return { ok: false, field: "message", message: MESSAGE_LENGTH_ERROR };
   }
 
-  return { ok: true, creditsRequested: credits, message };
+  return { ok: true, creditsRequested: credits, message, contactPhone };
 }
 
 function parseWholeCredits(value: unknown): number | null {
@@ -95,7 +112,7 @@ export function resolveRequestIdentity(account: RequestAccount): {
 }
 
 export function isDuplicateSubmission(
-  previous: { creditsRequested: number; message: string; createdAt: Date | string } | null,
+  previous: { creditsRequested: number; message: string; contactPhone?: string | null; createdAt: Date | string } | null,
   next: ParsedCreditRequest,
   now: Date,
 ): boolean {
@@ -103,10 +120,12 @@ export function isDuplicateSubmission(
   const created = new Date(previous.createdAt);
   if (Number.isNaN(created.getTime())) return false;
   const age = now.getTime() - created.getTime();
+  const prevPhone = (previous.contactPhone || "").trim();
   return age >= 0
     && age < DUPLICATE_WINDOW_MS
     && previous.creditsRequested === next.creditsRequested
-    && previous.message === next.message;
+    && previous.message === next.message
+    && prevPhone === next.contactPhone;
 }
 
 export function exceedsHourlyLimit(recentCount: number): boolean {

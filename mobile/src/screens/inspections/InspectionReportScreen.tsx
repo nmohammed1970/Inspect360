@@ -53,6 +53,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useResponsive } from '../../hooks/useResponsive';
 import { getImageSource, isLocalPath } from '../../services/offline/storage';
 
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
@@ -107,6 +108,15 @@ const InspectionReportScreen = () => {
     const theme = useTheme();
     // Ensure themeColors is always defined - use default colors if theme not available
     const themeColors = (theme && theme.colors) ? theme.colors : colors;
+    const {
+        moderateScale: ms,
+        getResponsivePadding,
+        stackDirection,
+        isSmall,
+    } = useResponsive();
+    const contentPad = getResponsivePadding(spacing[4]);
+    const actionStack = stackDirection();
+    const photoThumbSize = ms(isSmall ? 72 : 88);
 
     const { inspectionId } = route.params;
     const { user } = useAuth();
@@ -744,7 +754,7 @@ const InspectionReportScreen = () => {
                     {isSignature && description ? (
                         <Image
                             source={{ uri: description }}
-                            style={styles.signatureImage as ImageStyle}
+                            style={[styles.signatureImage, { width: '100%', aspectRatio: 2.5 }] as ImageStyle}
                             resizeMode="contain"
                         />
                     ) : hasBodyText ? (
@@ -917,11 +927,7 @@ const InspectionReportScreen = () => {
                             { borderTopColor: themeColors.border.light, marginTop: spacing[2] },
                         ]}
                     >
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.photoScrollView}
-                        >
+                        <View style={styles.photosGrid}>
                             {entry.photos?.map((photo: string, photoIdx: number) => {
                                 let photoUrl: string;
                                 if (isLocalPath(photo)) {
@@ -938,11 +944,14 @@ const InspectionReportScreen = () => {
                                     <Image
                                         key={photoIdx}
                                         source={{ uri: photoUrl }}
-                                        style={styles.photoThumbnail as ImageStyle}
+                                        style={[
+                                            styles.photoThumbnail,
+                                            { width: photoThumbSize, height: photoThumbSize },
+                                        ] as ImageStyle}
                                     />
                                 );
                             })}
-                        </ScrollView>
+                        </View>
                     </View>
                 )}
 
@@ -1056,7 +1065,7 @@ const InspectionReportScreen = () => {
                                 {displayAudioUrls.length > 0 && !vs.isRecording && (
                                     <View style={{ marginTop: spacing[2], gap: spacing[2] }}>
                                         {[...displayAudioUrls].reverse().map((url, idx) => (
-                                            <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8 }]}>
+                                            <View key={`${url}-${idx}`} style={[styles.voiceCardRowPair, { marginTop: 8, flexDirection: actionStack }]}>
                                                 <TouchableOpacity
                                                     style={[
                                                         styles.voiceCardHalfBtn,
@@ -1173,15 +1182,16 @@ const InspectionReportScreen = () => {
                 contentContainerStyle={[
                     styles.scrollContent,
                     {
-                        paddingTop: spacing[4],
-                        paddingBottom: Math.max(insets.bottom + 80, spacing[8])
+                        paddingHorizontal: contentPad,
+                        paddingTop: contentPad,
+                        paddingBottom: Math.max(insets.bottom + 80, spacing[8]),
                     }
                 ]}
             >
                 {/* Summary Card */}
                 <Card style={styles.summaryCard}>
-                    <View style={styles.summaryHeader}>
-                        <View style={{ flex: 1 }}>
+                    <View style={[styles.summaryHeader, { flexWrap: 'wrap', gap: spacing[2] }]}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[styles.propertyName, { color: themeColors.text.primary }]}>{propertyOrBlock?.name || 'Unknown Property'}</Text>
                             <View style={styles.addressRow}>
                                 <MapPin size={14} color={themeColors.text.secondary} />
@@ -1200,9 +1210,9 @@ const InspectionReportScreen = () => {
                     <View style={styles.infoGrid}>
                         <View style={styles.infoItem}>
                             <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Property Address</Text>
-                            <View style={styles.infoValueRow}>
+                            <View style={[styles.infoValueRow, { flexWrap: 'wrap' }]}>
                                 <MapPin size={16} color={themeColors.primary.DEFAULT} />
-                                <Text style={[styles.infoValue, { color: themeColors.text.primary, flex: 1 }]} numberOfLines={2}>
+                                <Text style={[styles.infoValue, { color: themeColors.text.primary, flex: 1, minWidth: 120 }]} numberOfLines={2}>
                                     {propertyOrBlock?.address || 'No address'}
                                 </Text>
                                 {propertyOrBlock?.address && (
@@ -1551,7 +1561,6 @@ const styles = StyleSheet.create({
         gap: spacing[2],
     },
     scrollContent: {
-        padding: spacing[4],
         paddingBottom: spacing[8],
     },
     summaryCard: {
@@ -1568,6 +1577,7 @@ const styles = StyleSheet.create({
         fontSize: typography.fontSize['2xl'],
         fontWeight: typography.fontWeight.bold,
         marginBottom: spacing[1],
+        flexShrink: 1,
     },
     addressRow: {
         flexDirection: 'row',
@@ -1869,8 +1879,8 @@ const styles = StyleSheet.create({
         lineHeight: (typography.fontSize.xs - 1) * 1.4,
     },
     signatureImage: {
-        width: 200,
-        height: 80,
+        width: '100%',
+        aspectRatio: 2.5,
         borderRadius: borderRadius.md,
         borderWidth: 1,
         borderColor: '#e5e7eb',
@@ -1912,14 +1922,17 @@ const styles = StyleSheet.create({
         paddingTop: spacing[2],
         borderTopWidth: 1,
     },
+    photosGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing[2],
+        marginTop: spacing[2],
+    },
     photoScrollView: {
         marginTop: spacing[2],
     },
     photoThumbnail: {
-        width: 80,
-        height: 80,
         borderRadius: borderRadius.md,
-        marginRight: spacing[2],
     },
     emptyState: {
         padding: spacing[6],
@@ -2067,6 +2080,7 @@ const styles = StyleSheet.create({
     },
     voiceCardRowPair: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: spacing[2],
         width: '100%',
     },

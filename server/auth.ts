@@ -3,7 +3,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual, createHash, randomInt } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import connectPg from "connect-pg-simple";
 import * as cookieSignature from "cookie-signature";
@@ -12,7 +12,17 @@ import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/sch
 import { billingNowUtc } from "@shared/billingClock";
 import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
 import { getOrganizationAccessStatus, recordEntitlementEvent } from "./entitlementService";
-import { MIN_PASSWORD_LENGTH, validateNewPassword } from "@shared/passwordPolicy";
+import { validateNewPassword } from "@shared/passwordPolicy";
+import {
+  FORGOT_PASSWORD_GENERIC_SUCCESS,
+  generateResetCode,
+  hashResetToken,
+  isResetTokenExpired,
+  normalizeResetCode,
+  normalizeResetEmail,
+  resetTokenExpiryDate,
+  resetTokenMatches,
+} from "./passwordResetService";
 
 declare global {
   namespace Express {
@@ -21,15 +31,6 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
-
-/** Hash a password-reset code before storing it (never store the raw code). */
-export function hashResetToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
-export function generateResetCode(): string {
-  return String(randomInt(100000, 1000000));
-}
 
 type RateBucket = { count: number; windowStart: number };
 const authRateLimits = new Map<string, RateBucket>();
@@ -670,37 +671,29 @@ export async function setupAuth(app: Express) {
   // Forgot password - request reset token
   app.post("/api/forgot-password", async (req, res) => {
     try {
-      const { email } = req.body;
-
-      if (!email) {
+      const normalizedEmail = normalizeResetEmail(req.body?.email);
+      if (!normalizedEmail) {
         return res.status(400).json({ message: "Email is required" });
       }
 
-      const clientKey = `forgot:${String(req.ip || "unknown")}:${String(email).toLowerCase().trim()}`;
+      const clientKey = `forgot:${String(req.ip || "unknown")}:${normalizedEmail}`;
       if (!consumeAuthRateLimit(clientKey, 5, 15 * 60 * 1000)) {
         return res.status(429).json({
           message: "Too many password reset requests. Please try again later.",
         });
       }
 
-      // Normalize email to lowercase for case-insensitive matching
-      const normalizedEmail = email.toLowerCase().trim();
       const user = await storage.getUserByEmail(normalizedEmail);
 
       // Always return the same success response whether or not the email exists
       // (prevents account enumeration). Only send a code when the user is found.
-      const genericSuccess = {
-        message: "If an account exists for that email, a password reset code has been sent.",
-        emailSent: true,
-      };
-
       if (!user || user.isActive === false) {
-        return res.json(genericSuccess);
+        return res.json(FORGOT_PASSWORD_GENERIC_SUCCESS);
       }
 
       // Cryptographically secure 6-digit code; store only the hash
       const resetToken = generateResetCode();
-      const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      const expiry = resetTokenExpiryDate();
       await storage.setResetToken(user.id, hashResetToken(resetToken), expiry);
 
       // Send password reset email
@@ -728,7 +721,7 @@ export async function setupAuth(app: Express) {
         });
       }
 
-      res.json(genericSuccess);
+      res.json(FORGOT_PASSWORD_GENERIC_SUCCESS);
     } catch (error) {
       console.error("Forgot password error:", error);
       res.status(500).json({ message: "Failed to process request" });
@@ -740,7 +733,8 @@ export async function setupAuth(app: Express) {
     try {
       const { email, token, newPassword } = req.body;
 
-      if (!email || !token || !newPassword) {
+      const normalizedEmail = normalizeResetEmail(email);
+      if (!normalizedEmail || token === undefined || token === null || newPassword === undefined) {
         return res.status(400).json({ message: "Email, token, and new password are required" });
       }
 
@@ -749,17 +743,15 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: passwordCheck.message });
       }
 
-      const clientKey = `reset:${String(req.ip || "unknown")}:${String(email).toLowerCase().trim()}`;
+      const clientKey = `reset:${String(req.ip || "unknown")}:${normalizedEmail}`;
       if (!consumeAuthRateLimit(clientKey, 10, 15 * 60 * 1000)) {
         return res.status(429).json({
           message: "Too many reset attempts. Please try again later.",
         });
       }
 
-      // Normalize email and token (digits only, 6 chars)
-      const normalizedEmail = email.toLowerCase().trim();
-      const normalizedToken = String(token).replace(/\D/g, "").trim();
-      if (normalizedToken.length !== 6) {
+      const normalizedToken = normalizeResetCode(token);
+      if (!normalizedToken) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
@@ -768,13 +760,7 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
-      // Accept hashed storage (preferred) or legacy plaintext 6-digit codes during transition
-      const tokenHash = hashResetToken(normalizedToken);
-      const tokenMatches =
-        user.resetToken === tokenHash ||
-        (user.resetToken.length === 6 && user.resetToken === normalizedToken);
-
-      if (!tokenMatches || new Date() > user.resetTokenExpiry) {
+      if (!resetTokenMatches(user.resetToken, normalizedToken) || isResetTokenExpired(user.resetTokenExpiry)) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 

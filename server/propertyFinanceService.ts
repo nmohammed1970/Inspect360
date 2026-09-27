@@ -9,6 +9,7 @@ import {
   organizationRentSettings,
   propertyDeposits,
   propertyExpenses,
+  assetInventory,
   rentPeriods,
   rentReminderLog,
   tenantAssignments,
@@ -20,6 +21,7 @@ import {
   type RentPeriod,
   type PropertyDeposit,
   type PropertyExpense,
+  type InsertAssetInventory,
 } from "@shared/schema";
 import { billingCurrencySymbol } from "@shared/billingCurrencies";
 import { computeRentPeriodWindows as computeWindows } from "@shared/rentPeriodMath";
@@ -306,6 +308,37 @@ export async function createPropertyExpense(
   return row;
 }
 
+/**
+ * Create expense + optional inventory item atomically.
+ * Prevents orphan inventory when expense insert fails (which previously caused duplicates on retry).
+ */
+export async function createPropertyExpenseWithOptionalInventory(params: {
+  organizationId: string;
+  expense: Omit<typeof propertyExpenses.$inferInsert, "id" | "organizationId" | "createdAt" | "updatedAt" | "assetInventoryId">;
+  inventory?: Omit<InsertAssetInventory, "id" | "organizationId" | "createdAt" | "updatedAt"> | null;
+}): Promise<PropertyExpense> {
+  return db.transaction(async (tx) => {
+    let assetInventoryId: string | null = null;
+    if (params.inventory) {
+      const [asset] = await tx
+        .insert(assetInventory)
+        .values({ ...params.inventory, organizationId: params.organizationId })
+        .returning();
+      assetInventoryId = asset.id;
+    }
+
+    const [row] = await tx
+      .insert(propertyExpenses)
+      .values({
+        ...params.expense,
+        organizationId: params.organizationId,
+        assetInventoryId,
+      })
+      .returning();
+    return row;
+  });
+}
+
 export async function updatePropertyExpense(
   organizationId: string,
   id: string,
@@ -384,6 +417,73 @@ export async function listRentPeriodsForProperty(
       isOverdue,
     };
   });
+}
+
+export type OverdueRentAlertItem = {
+  id: string;
+  propertyId: string;
+  tenantName: string;
+  periodLabel: string;
+  amountOutstanding: string;
+  currency: string;
+  dueDate: Date;
+  daysOverdue: number;
+};
+
+/** Org-wide overdue rent periods for dashboard Action Required. */
+export async function listOverdueRentPeriodsForOrganization(
+  organizationId: string,
+  propertyIds?: string[],
+): Promise<OverdueRentAlertItem[]> {
+  if (propertyIds && propertyIds.length === 0) return [];
+
+  const today = startOfUtcDay(new Date());
+  const conditions = [
+    eq(rentPeriods.organizationId, organizationId),
+    inArray(rentPeriods.status, ["due", "partial"]),
+  ];
+  if (propertyIds?.length) {
+    conditions.push(inArray(rentPeriods.propertyId, propertyIds));
+  }
+
+  const rows = await db
+    .select({
+      period: rentPeriods,
+      tenantFirstName: users.firstName,
+      tenantLastName: users.lastName,
+      tenantUsername: users.username,
+    })
+    .from(rentPeriods)
+    .leftJoin(tenantAssignments, eq(rentPeriods.tenantAssignmentId, tenantAssignments.id))
+    .leftJoin(users, eq(tenantAssignments.tenantId, users.id))
+    .where(and(...conditions))
+    .orderBy(sql`${rentPeriods.dueDate} ASC`);
+
+  // Match listRentPeriodsForProperty overdue rules (open + past due + outstanding)
+  const overdue: OverdueRentAlertItem[] = [];
+  for (const r of rows) {
+    const outstanding = outstandingOf(r.period);
+    const due = startOfUtcDay(new Date(r.period.dueDate));
+    const isOpen = r.period.status === "due" || r.period.status === "partial";
+    const isOverdue = isOpen && due < today && outstanding > 0;
+    if (!isOverdue) continue;
+
+    const tenantName =
+      [r.tenantFirstName, r.tenantLastName].filter(Boolean).join(" ").trim() ||
+      r.tenantUsername ||
+      "Tenant";
+    overdue.push({
+      id: r.period.id,
+      propertyId: r.period.propertyId,
+      tenantName,
+      periodLabel: formatPeriodLabel(new Date(r.period.periodStart)),
+      amountOutstanding: outstanding.toFixed(2),
+      currency: r.period.currency || "GBP",
+      dueDate: r.period.dueDate,
+      daysOverdue: Math.floor((today.getTime() - due.getTime()) / (24 * 60 * 60 * 1000)),
+    });
+  }
+  return overdue;
 }
 
 export async function updateRentPeriodPayment(
@@ -732,5 +832,3 @@ export async function processScheduledRentReminders(): Promise<void> {
     }
   }
 }
-
-export { DEFAULT_TEMPLATES as RENT_REMINDER_DEFAULT_TEMPLATES };

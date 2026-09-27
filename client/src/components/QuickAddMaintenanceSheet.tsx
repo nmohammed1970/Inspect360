@@ -296,7 +296,10 @@ export function QuickAddMaintenanceSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[85vh] overflow-y-auto max-w-3xl mx-auto">
+      <SheetContent
+        side="bottom"
+        className="mx-auto flex h-[85vh] max-h-[min(85vh,calc(100dvh-2rem))] max-w-3xl flex-col overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>Log Maintenance Issue</SheetTitle>
           <SheetDescription>
@@ -387,7 +390,7 @@ export function QuickAddMaintenanceSheet({
               
               {photoUrls.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {photoUrls.map((url, index) => (
                       <div key={index} className="relative aspect-square">
                         <PreviewableImage

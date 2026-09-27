@@ -23,15 +23,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil, Tag as TagIcon, Wrench, Filter, X, Trash2 } from "lucide-react";
+import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil, Tag as TagIcon, Filter, X, Trash2, Banknote } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useSearch } from "wouter";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase } from "@/lib/responsive";
 
 function isActiveTenantAssignment(ta: any): boolean {
   const nested = ta.assignment;
@@ -90,7 +92,6 @@ export default function Properties() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
-  const [maintenancePropertyId, setMaintenancePropertyId] = useState<string | null>(null);
   const [propertyToDelete, setPropertyToDelete] = useState<any | null>(null);
 
   /** Radix Select must stay controlled; avoid value={undefined} (breaks re-open / hydration). */
@@ -468,14 +469,14 @@ export default function Properties() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-muted-foreground">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {urlBlockId && selectedBlock && (
         <Link href={`/blocks/${urlBlockId}`}>
           <Button variant="ghost" className="mb-4" data-testid="button-back-to-block">
@@ -506,7 +507,7 @@ export default function Properties() {
               <span className="sm:hidden">Add</span>
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
             <DialogHeader>
               <DialogTitle>{editingProperty ? "Edit Property" : "Create New Property"}</DialogTitle>
             </DialogHeader>
@@ -621,17 +622,16 @@ export default function Properties() {
         </Dialog>
       </div>
 
-      {/* Search and Tag Filter - Desktop */}
       {properties.length > 0 && (
-        <>
-          <div className="hidden md:flex items-center gap-4">
-            <div className="relative flex-1 max-w-md">
+        <FiltersSection headingId="properties-filters-heading">
+          <div className="hidden md:flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-0 max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search properties by name or address..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 h-8"
                 data-testid="input-search-properties"
               />
             </div>
@@ -642,22 +642,22 @@ export default function Properties() {
             />
           </div>
 
-          {/* Search and Filter - Mobile */}
-          <div className="flex md:hidden gap-2 items-center mb-4">
+          <div className="flex md:hidden gap-2 items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search properties..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 h-8"
                 data-testid="input-search-properties-mobile"
               />
             </div>
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="shrink-0">
-                  <Filter className="w-4 h-4" />
+                <Button variant="outline" size="sm" className="relative shrink-0 h-8">
+                  <Filter className="w-4 h-4 mr-2" />
+                  Filters
                   {filterTags.length > 0 && (
                     <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
                   )}
@@ -690,7 +690,7 @@ export default function Properties() {
               </SheetContent>
             </Sheet>
           </div>
-        </>
+        </FiltersSection>
       )}
 
       {properties.length === 0 ? (
@@ -813,61 +813,62 @@ export default function Properties() {
                   </CardContent>
                 </Link>
                 <CardContent className="pt-0 border-t mt-auto">
-                  <div className="grid grid-cols-5 gap-1 pt-4">
-                    <Link href={`/asset-inventory?propertyId=${property.id}`} className="w-full">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1 pt-4">
+                    <Link href={`/asset-inventory?propertyId=${property.id}`} className="w-full min-w-0">
                       <Button 
                         variant="ghost" 
                         size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full"
+                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
                         data-testid={`button-inventory-${property.id}`}
                       >
                         <Package className="h-4 w-4 mb-1" />
                         <span className="text-xs truncate">Inventory</span>
                       </Button>
                     </Link>
-                    <Link href={`/inspections?propertyId=${property.id}&create=true`} className="w-full">
+                    <Link href={`/inspections?propertyId=${property.id}&create=true`} className="w-full min-w-0">
                       <Button 
                         variant="ghost" 
                         size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full"
+                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
                         data-testid={`button-inspect-${property.id}`}
                       >
                         <ClipboardCheck className="h-4 w-4 mb-1" />
                         <span className="text-xs truncate">Inspect</span>
                       </Button>
                     </Link>
-                    <Link href={`/properties/${property.id}/tenants`} className="w-full">
+                    <Link href={`/properties/${property.id}/tenants`} className="w-full min-w-0">
                       <Button 
                         variant="ghost" 
                         size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full"
+                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
                         data-testid={`button-tenants-${property.id}`}
                       >
                         <Users className="h-4 w-4 mb-1" />
                         <span className="text-xs truncate">Tenants</span>
                       </Button>
                     </Link>
-                    <Link href={`/compliance?propertyId=${property.id}`} className="w-full">
+                    <Link href={`/compliance?propertyId=${property.id}`} className="w-full min-w-0">
                       <Button 
                         variant="ghost" 
                         size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full"
+                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
                         data-testid={`button-compliance-${property.id}`}
                       >
                         <FileText className="h-4 w-4 mb-1" />
                         <span className="text-xs truncate">Compliance</span>
                       </Button>
                     </Link>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex flex-col h-auto py-2 px-1 w-full"
-                      data-testid={`button-maintenance-${property.id}`}
-                      onClick={() => setMaintenancePropertyId(property.id)}
-                    >
-                      <Wrench className="h-4 w-4 mb-1" />
-                      <span className="text-xs truncate">Maintenance</span>
-                    </Button>
+                    <Link href={`/properties/${property.id}?tab=rent-collection`} className="w-full min-w-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
+                        data-testid={`button-rent-${property.id}`}
+                      >
+                        <Banknote className="h-4 w-4 mb-1" />
+                        <span className="text-xs truncate">Rent</span>
+                      </Button>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
@@ -875,12 +876,6 @@ export default function Properties() {
           })}
         </div>
       )}
-
-      <QuickAddMaintenanceSheet
-        open={!!maintenancePropertyId}
-        onOpenChange={(open) => !open && setMaintenancePropertyId(null)}
-        propertyId={maintenancePropertyId || undefined}
-      />
 
       <DeleteConfirmDialog
         open={!!propertyToDelete}

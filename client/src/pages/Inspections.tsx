@@ -44,6 +44,8 @@ import { Link, useLocation, useSearch } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
+import { useAuth } from "@/hooks/useAuth";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -144,6 +146,7 @@ type CopyInspectionData = z.infer<typeof copyInspectionSchema>;
 
 export default function Inspections() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const locale = useLocale();
   const [, navigate] = useLocation();
   const searchParams = useSearch();
@@ -153,6 +156,7 @@ export default function Inspections() {
   const urlOverdue = urlParams.get("overdue");
   const urlDueSoon = urlParams.get("dueSoon");
   const shouldCreate = urlParams.get("create");
+  const canCreateInspections = user?.role === "owner";
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
   
@@ -301,8 +305,9 @@ export default function Inspections() {
     setCopyDialogOpen(true);
   };
 
-  // Pre-populate form and auto-open dialog if coming from property detail
+  // Pre-populate form and auto-open dialog if coming from property detail (owners only)
   useEffect(() => {
+    if (!canCreateInspections) return;
     if (urlPropertyId && properties.length > 0) {
       // Pre-populate property selection
       form.setValue("propertyId", urlPropertyId);
@@ -315,7 +320,7 @@ export default function Inspections() {
         navigate("/inspections", { replace: true });
       }
     }
-  }, [urlPropertyId, shouldCreate, properties, navigate]);
+  }, [urlPropertyId, shouldCreate, properties, navigate, canCreateInspections]);
 
   // Filter properties based on selected block
   const filteredProperties = useMemo(() => {
@@ -522,7 +527,7 @@ export default function Inspections() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
+      <div className="container mx-auto min-w-0 p-4 md:p-6">
         <div className="flex justify-center items-center h-64">
           <p className="text-muted-foreground">Loading inspections...</p>
         </div>
@@ -531,14 +536,17 @@ export default function Inspections() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-page-title">Inspections</h1>
           <p className="text-sm md:text-base text-muted-foreground">
-            Manage and conduct property inspections
+            {canCreateInspections
+              ? "Manage and conduct property inspections"
+              : "Work on inspections assigned to you"}
           </p>
         </div>
+        {canCreateInspections && (
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           if (!hasCredits && open) {
             toast({
@@ -909,25 +917,15 @@ export default function Inspections() {
             </Form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
-      {/* Filters - Desktop */}
-      <Card className="hidden md:block">
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex flex-col">
-              <span className="mb-1.5 block text-sm font-medium invisible select-none" aria-hidden="true">
-                Filter
-              </span>
-              <div className="flex h-9 items-center gap-2 text-muted-foreground">
-                <Filter className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium whitespace-nowrap">Filter by:</span>
-              </div>
-            </div>
-            <div className="flex-1 min-w-[200px] max-w-xs">
-              <label className="text-sm font-medium mb-1.5 block">Block</label>
+      <FiltersSection headingId="inspections-filters-heading">
+        <div className="hidden md:flex flex-wrap gap-3 items-end">
+            <div className="w-full sm:w-auto sm:flex-1 sm:min-w-0 sm:max-w-xs">
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Block</label>
               <Select value={filterBlockId || "__all__"} onValueChange={(value) => setFilterBlockId(value === "__all__" ? "" : value)}>
-                <SelectTrigger data-testid="filter-block">
+                <SelectTrigger className="h-8" data-testid="filter-block">
                   <SelectValue placeholder="All blocks" />
                 </SelectTrigger>
                 <SelectContent>
@@ -940,14 +938,14 @@ export default function Inspections() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[200px] max-w-xs">
-              <label className="text-sm font-medium mb-1.5 block">Property</label>
+            <div className="w-full sm:w-auto sm:flex-1 sm:min-w-0 sm:max-w-xs">
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Property</label>
               <Select 
                 value={filterPropertyId || "__all__"} 
                 onValueChange={(value) => setFilterPropertyId(value === "__all__" ? "" : value)}
                 disabled={!filterBlockId && filteredProperties.length === 0}
               >
-                <SelectTrigger data-testid="filter-property">
+                <SelectTrigger className="h-8" data-testid="filter-property">
                   <SelectValue placeholder="All properties" />
                 </SelectTrigger>
                 <SelectContent>
@@ -960,10 +958,10 @@ export default function Inspections() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[150px] max-w-[180px]">
-              <label className="text-sm font-medium mb-1.5 block">Status</label>
+            <div className="w-full sm:w-auto sm:flex-1 sm:min-w-0 sm:max-w-[180px]">
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Status</label>
               <Select value={filterStatus || "__all__"} onValueChange={(value) => setFilterStatus(value === "__all__" ? "" : value)}>
-                <SelectTrigger data-testid="filter-status">
+                <SelectTrigger className="h-8" data-testid="filter-status">
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
@@ -975,10 +973,10 @@ export default function Inspections() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex-1 min-w-[200px] max-w-xs">
-              <label className="text-sm font-medium mb-1.5 block">Tenant</label>
+            <div className="w-full sm:w-auto sm:flex-1 sm:min-w-0 sm:max-w-xs">
+              <label className="text-xs font-medium mb-1.5 block text-muted-foreground">Tenant</label>
               <Select value={filterTenantId || "__all__"} onValueChange={(value) => setFilterTenantId(value === "__all__" ? "" : value)}>
-                <SelectTrigger data-testid="filter-tenant">
+                <SelectTrigger className="h-8" data-testid="filter-tenant">
                   <SelectValue placeholder="All tenants" />
                 </SelectTrigger>
                 <SelectContent>
@@ -991,65 +989,51 @@ export default function Inspections() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col">
-              <span className="mb-1.5 block text-sm font-medium invisible select-none" aria-hidden="true">
-                Options
-              </span>
-              <div className="flex h-9 items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="filter-overdue"
-                    checked={filterOverdue}
-                    onCheckedChange={(checked) => setFilterOverdue(checked === true)}
-                    data-testid="filter-overdue"
-                  />
-                  <label htmlFor="filter-overdue" className="text-sm font-medium cursor-pointer whitespace-nowrap">
-                    Overdue
-                  </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="filter-due-soon"
-                    checked={filterDueSoon}
-                    onCheckedChange={(checked) => setFilterDueSoon(checked === true)}
-                    data-testid="filter-due-soon"
-                  />
-                  <label htmlFor="filter-due-soon" className="text-sm font-medium cursor-pointer whitespace-nowrap">
-                    Due Soon
-                  </label>
-                </div>
+            <div className="flex h-8 items-center gap-4 mb-0.5">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="filter-overdue"
+                  checked={filterOverdue}
+                  onCheckedChange={(checked) => setFilterOverdue(checked === true)}
+                  data-testid="filter-overdue"
+                />
+                <label htmlFor="filter-overdue" className="text-sm font-medium cursor-pointer whitespace-nowrap">
+                  Overdue
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="filter-due-soon"
+                  checked={filterDueSoon}
+                  onCheckedChange={(checked) => setFilterDueSoon(checked === true)}
+                  data-testid="filter-due-soon"
+                />
+                <label htmlFor="filter-due-soon" className="text-sm font-medium cursor-pointer whitespace-nowrap">
+                  Due Soon
+                </label>
               </div>
             </div>
             {(filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon || filterTenantId) && (
-              <div className="flex flex-col">
-                <span className="mb-1.5 block text-sm font-medium invisible select-none" aria-hidden="true">
-                  Clear
-                </span>
-                <div className="flex h-9 items-center">
-                  <ClearFiltersButton
-                    onClick={() => {
-                      setFilterBlockId("");
-                      setFilterPropertyId("");
-                      setFilterStatus("");
-                      setFilterOverdue(false);
-                      setFilterDueSoon(false);
-                      setFilterTenantId("");
-                    }}
-                    data-testid="button-clear-filters"
-                  />
-                </div>
-              </div>
+              <ClearFiltersButton
+                onClick={() => {
+                  setFilterBlockId("");
+                  setFilterPropertyId("");
+                  setFilterStatus("");
+                  setFilterOverdue(false);
+                  setFilterDueSoon(false);
+                  setFilterTenantId("");
+                }}
+                data-testid="button-clear-filters"
+              />
             )}
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Filters - Mobile */}
-      <div className="flex md:hidden gap-2 items-center mb-4">
+      <div className="flex md:hidden gap-2 items-center">
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" className="shrink-0">
-              <Filter className="w-4 h-4" />
+            <Button variant="outline" size="sm" className="shrink-0 relative h-8">
+              <Filter className="w-4 h-4 mr-2" />
+              Filters
               {(filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon || filterTenantId) && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
               )}
@@ -1175,19 +1159,25 @@ export default function Inspections() {
           </SheetContent>
         </Sheet>
       </div>
+      </FiltersSection>
 
       {filteredInspections.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-lg font-medium" data-testid="text-empty-state">
-              {inspections.length === 0 ? "No inspections yet" : "No inspections match your filters"}
+              {inspections.length === 0
+                ? (canCreateInspections ? "No inspections yet" : "No inspections assigned")
+                : "No inspections match your filters"}
             </p>
             <p className="text-sm text-muted-foreground mb-4">
-              {inspections.length === 0 
-                ? "Create your first inspection to get started"
-                : "Try adjusting your filters or create a new inspection"
-              }
+              {inspections.length === 0
+                ? (canCreateInspections
+                    ? "Create your first inspection to get started"
+                    : "Inspections assigned to you by your organization will appear here")
+                : (canCreateInspections
+                    ? "Try adjusting your filters or create a new inspection"
+                    : "Try adjusting your filters")}
             </p>
           </CardContent>
         </Card>
@@ -1308,6 +1298,7 @@ export default function Inspections() {
                   >
                     View Details
                   </Button>
+                  {canCreateInspections && (
                   <Button
                     variant="outline"
                     size="icon"
@@ -1317,6 +1308,7 @@ export default function Inspections() {
                   >
                     <Copy className="w-4 h-4" />
                   </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

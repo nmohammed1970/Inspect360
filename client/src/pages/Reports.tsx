@@ -1,6 +1,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
+import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
 import {
   FileText,
   Building2,
@@ -80,7 +82,7 @@ export default function Reports() {
   ];
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Reports</h1>

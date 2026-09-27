@@ -18,12 +18,16 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import { pagePad, textBreak } from "@/lib/responsive";
+import { FiltersSection } from "@/components/FiltersSection";
 
 type CreditRequestRow = {
   id: string;
   organizationName: string;
   requesterName: string;
   requesterEmail: string;
+  contactPhone?: string | null;
   creditsRequested: number;
   message: string;
   status: "REQUESTED" | "GRANTED";
@@ -89,7 +93,9 @@ export default function AdminCreditRequests() {
     onSuccess: () => {
       toast({ title: "Request marked as granted" });
       setConfirmGrant(false);
+      setSelectedId(null);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-requests/open-count"] });
     },
     onError: (error: Error) => {
       toast({ variant: "destructive", title: "Could not update request", description: error.message });
@@ -103,24 +109,24 @@ export default function AdminCreditRequests() {
   const selected = detailQuery.data;
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Credit Requests</h1>
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <div className="min-w-0">
+        <h1 className="text-xl md:text-2xl font-semibold tracking-tight">Credit Requests</h1>
         <p className="text-sm text-muted-foreground mt-1">Review requests to buy credits. Marking a request granted does not add credits.</p>
       </div>
 
-      <Card className="border-border/60 shadow-sm">
-        <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-1">
-            <label htmlFor="credit-request-search" className="text-sm font-medium">Search</label>
+      <FiltersSection headingId="admin-credit-requests-filters-heading">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex-1 min-w-0 w-full">
             <Input
               id="credit-request-search"
               value={q}
               placeholder="Organization, name, or email"
               onChange={(event) => { setQ(event.target.value); setPage(1); }}
+              className="w-full h-8"
             />
           </div>
-          <div className="flex gap-2" role="group" aria-label="Filter by status">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status">
             {[
               ["", "All"],
               ["REQUESTED", "Requested"],
@@ -132,13 +138,14 @@ export default function AdminCreditRequests() {
                 size="sm"
                 variant={status === value ? "default" : "outline"}
                 onClick={() => { setStatus(value); setPage(1); }}
+                className="shrink-0 h-8"
               >
                 {label}
               </Button>
             ))}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </FiltersSection>
 
       {listQuery.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading credit requests</div>
@@ -154,14 +161,15 @@ export default function AdminCreditRequests() {
           <CardContent className="p-6 text-sm text-muted-foreground">No credit requests have been submitted yet.</CardContent>
         </Card>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
+        <div className="overflow-x-auto rounded-md border min-w-0">
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Organization</TableHead>
                 <TableHead>Requested By</TableHead>
-                <TableHead>Credits</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>Units</TableHead>
+                <TableHead className="hidden sm:table-cell">Contact</TableHead>
+                <TableHead className="hidden md:table-cell">Date</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -169,10 +177,11 @@ export default function AdminCreditRequests() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setSelectedId(row.id)}>
-                  <TableCell>{row.organizationName}</TableCell>
-                  <TableCell>{row.requesterName}</TableCell>
+                  <TableCell className={textBreak}>{row.organizationName}</TableCell>
+                  <TableCell className={textBreak}>{row.requesterName}</TableCell>
                   <TableCell>{row.creditsRequested}</TableCell>
-                  <TableCell>{formatWhen(row.createdAt)}</TableCell>
+                  <TableCell className={cn("hidden sm:table-cell", textBreak)}>{row.contactPhone || "—"}</TableCell>
+                  <TableCell className="hidden md:table-cell whitespace-nowrap">{formatWhen(row.createdAt)}</TableCell>
                   <TableCell><StatusBadge status={row.status} /></TableCell>
                   <TableCell className="text-right">
                     <Button type="button" size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setSelectedId(row.id); }}>
@@ -187,7 +196,7 @@ export default function AdminCreditRequests() {
       )}
 
       {total > pageSize ? (
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
           <span>Page {page} of {pages}</span>
           <div className="flex gap-2">
             <Button type="button" size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</Button>
@@ -196,11 +205,22 @@ export default function AdminCreditRequests() {
         </div>
       ) : null}
 
-      <Dialog open={!!selectedId} onOpenChange={(open) => { if (!open) { setSelectedId(null); setConfirmGrant(false); } }}>
+      {/* Close detail dialog while confirm is open to avoid nested overlay lock (Dialog z-60 vs AlertDialog). */}
+      <Dialog
+        open={!!selectedId && !confirmGrant}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null);
+            setConfirmGrant(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Credit Request</DialogTitle>
-            <DialogDescription>Submitted details. Granting this request does not add credits to the organization.</DialogDescription>
+            <DialogTitle>Purchase Credits Request</DialogTitle>
+            <DialogDescription>
+              Submitted unit count and contact details. Mark as granted after you allocate credits separately — granting this row does not add credits automatically.
+            </DialogDescription>
           </DialogHeader>
           {detailQuery.isLoading || !selected ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading</div>
@@ -209,7 +229,8 @@ export default function AdminCreditRequests() {
               <p><span className="text-muted-foreground">Organization</span><br />{selected.organizationName}</p>
               <p><span className="text-muted-foreground">Requested By</span><br />{selected.requesterName}</p>
               <p><span className="text-muted-foreground">Email</span><br />{selected.requesterEmail}</p>
-              <p><span className="text-muted-foreground">Credits Requested</span><br />{selected.creditsRequested}</p>
+              <p><span className="text-muted-foreground">Contact Number</span><br />{selected.contactPhone || "—"}</p>
+              <p><span className="text-muted-foreground">Properties / Units</span><br />{selected.creditsRequested}</p>
               <p><span className="text-muted-foreground">Request Date</span><br />{formatWhen(selected.createdAt)}</p>
               <p><span className="text-muted-foreground">Status</span><br /><StatusBadge status={selected.status} /></p>
               <p><span className="text-muted-foreground">Notification</span><br />{selected.emailStatus === "sent" ? "Sent" : selected.emailStatus === "failed" ? "Failed" : "Pending"}{selected.emailStatus === "failed" && selected.emailError ? ` — ${selected.emailError}` : ""}</p>
@@ -224,7 +245,13 @@ export default function AdminCreditRequests() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={confirmGrant} onOpenChange={setConfirmGrant}>
+      <AlertDialog
+        open={confirmGrant}
+        onOpenChange={(open) => {
+          setConfirmGrant(open);
+          // Cancel returns to the detail dialog (selectedId still set)
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Mark as granted?</AlertDialogTitle>

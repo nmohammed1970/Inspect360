@@ -83,13 +83,17 @@ import { useState, useEffect, useLayoutEffect } from "react";
 import { useNotifications } from "@/hooks/useNotifications";
 import { NotificationPopup } from "@/components/NotificationPopup";
 
-// Component to redirect clerks to inspections page
-function ClerkRedirect({ to }: { to: string }) {
+// Redirect field roles (clerk / contractor) away from owner-only areas
+function FieldRoleRedirect({ to }: { to: string }) {
   const [, setLocation] = useLocation();
   useEffect(() => {
     setLocation(to);
   }, [to, setLocation]);
   return null;
+}
+
+function isFieldStaffRole(role: string | undefined): boolean {
+  return role === "clerk" || role === "contractor";
 }
 
 function AppContent() {
@@ -111,6 +115,8 @@ function AppContent() {
     "/forgot-password",
     "/reset-password",
     "/admin/login",
+    "/admin/forgot-password",
+    "/admin/reset-password",
     "/admin/dashboard",
     "/admin/team",
     "/admin/knowledge-base",
@@ -181,6 +187,13 @@ function AppContent() {
     return (
       <TooltipProvider>
         <Switch>
+          <Route path="/admin/login" component={AdminLogin} />
+          <Route path="/admin/forgot-password">
+            {() => <ForgotPassword portal="admin" />}
+          </Route>
+          <Route path="/admin/reset-password">
+            {() => <ResetPassword portal="admin" />}
+          </Route>
           <Route path="/admin/dashboard">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard" }]}>
@@ -217,9 +230,9 @@ function AppContent() {
           <Route path="/admin/extensive">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Extensive" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Extensive Inspections</h1>
+                <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
+                  <div className="mb-6 min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-2">Extensive Inspections</h1>
                     <p className="text-muted-foreground">Manage extensive inspection types and pricing</p>
                   </div>
                   <ExtensiveInspectionManagement />
@@ -230,9 +243,9 @@ function AppContent() {
           <Route path="/admin/modules">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Modules" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Modules</h1>
+                <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
+                  <div className="mb-6 min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-2">Modules</h1>
                     <p className="text-muted-foreground">Manage modules</p>
                   </div>
                   <ModuleManagement />
@@ -257,9 +270,9 @@ function AppContent() {
           <Route path="/admin/quotations">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Quotations" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Quotations</h1>
+                <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
+                  <div className="mb-6 min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-2">Quotations</h1>
                     <p className="text-muted-foreground">Manage quotation requests and quotes</p>
                   </div>
                   <QuotationsManagement />
@@ -302,9 +315,19 @@ function AppContent() {
         <Switch>
           <Route path="/" component={Auth} />
           <Route path="/auth" component={Auth} />
-          <Route path="/forgot-password" component={ForgotPassword} />
-          <Route path="/reset-password" component={ResetPassword} />
+          <Route path="/forgot-password">
+            {() => <ForgotPassword portal="user" />}
+          </Route>
+          <Route path="/reset-password">
+            {() => <ResetPassword portal="user" />}
+          </Route>
           <Route path="/admin/login" component={AdminLogin} />
+          <Route path="/admin/forgot-password">
+            {() => <ForgotPassword portal="admin" />}
+          </Route>
+          <Route path="/admin/reset-password">
+            {() => <ResetPassword portal="admin" />}
+          </Route>
           <Route path="/admin/dashboard">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard" }]}>
@@ -341,9 +364,9 @@ function AppContent() {
           <Route path="/admin/extensive">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Extensive" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Extensive Inspections</h1>
+                <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
+                  <div className="mb-6 min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-2">Extensive Inspections</h1>
                     <p className="text-muted-foreground">Manage extensive inspection types and pricing</p>
                   </div>
                   <ExtensiveInspectionManagement />
@@ -354,9 +377,9 @@ function AppContent() {
           <Route path="/admin/modules">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Modules" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Modules</h1>
+                <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
+                  <div className="mb-6 min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-2">Modules</h1>
                     <p className="text-muted-foreground">Manage modules</p>
                   </div>
                   <ModuleManagement />
@@ -381,9 +404,9 @@ function AppContent() {
           <Route path="/admin/quotations">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Quotations" }]}>
-                <div className="container mx-auto p-6 max-w-7xl">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Quotations</h1>
+                <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
+                  <div className="mb-6 min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-2">Quotations</h1>
                     <p className="text-muted-foreground">Manage quotation requests and quotes</p>
                   </div>
                   <QuotationsManagement />
@@ -420,14 +443,14 @@ function AppContent() {
     return (
       <TooltipProvider>
         <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
+          <div className="flex h-screen w-full min-w-0">
             <TenantSidebar />
-            <div className="flex flex-col flex-1">
-              <header className="flex items-center justify-between p-4 border-b bg-card">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <div className="flex flex-col flex-1 min-w-0">
+              <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0 min-w-0">
+                <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
                 <TenantProfileMenu />
               </header>
-              <main className="flex-1 overflow-auto bg-background">
+              <main className="flex-1 overflow-auto bg-background min-w-0">
                 <Switch>
                   <Route path="/" component={TenantHome} />
                   <Route path="/tenant/home" component={TenantHome} />
@@ -503,22 +526,31 @@ function AppContent() {
   return (
     <TooltipProvider>
       <SidebarProvider style={style as React.CSSProperties}>
-        <div className="flex h-screen w-full">
+        <div className="flex h-screen w-full min-w-0">
           <AppSidebar />
-          <div className="flex flex-col flex-1">
-            <header className="flex items-center justify-between p-4 border-b bg-card">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <div className="flex flex-col flex-1 min-w-0">
+            <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0 min-w-0">
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
               <UserProfileMenu />
             </header>
-            <main className="flex-1 overflow-auto bg-background">
+            <main className="flex-1 overflow-auto bg-background min-w-0">
               <Switch>
-                {user?.role === "clerk" ? (
+                {isFieldStaffRole(user?.role) ? (
                   <>
                     <Route path="/">
-                      {() => <ClerkRedirect to="/inspections" />}
+                      {() => <FieldRoleRedirect to="/inspections" />}
                     </Route>
                     <Route path="/dashboard">
-                      {() => <ClerkRedirect to="/inspections" />}
+                      {() => <FieldRoleRedirect to="/inspections" />}
+                    </Route>
+                    <Route path="/settings">
+                      {() => <FieldRoleRedirect to="/inspections" />}
+                    </Route>
+                    <Route path="/billing">
+                      {() => <FieldRoleRedirect to="/inspections" />}
+                    </Route>
+                    <Route path="/analytics">
+                      {() => <FieldRoleRedirect to="/maintenance?tab=work-orders" />}
                     </Route>
                   </>
                 ) : (

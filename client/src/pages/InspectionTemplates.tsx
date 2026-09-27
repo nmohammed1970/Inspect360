@@ -20,6 +20,9 @@ import { z } from "zod";
 import { TemplateBuilder } from "../components/TemplateBuilder";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FiltersSection } from "@/components/FiltersSection";
+import { cn } from "@/lib/utils";
+import { pagePad, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
 
 // Form schemas
 const templateFormSchema = insertInspectionTemplateSchema.extend({
@@ -292,122 +295,123 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
         </div>
       </div>
 
-      {/* Filters */}
-      <Card className="shadow-sm rounded-xl">
-        <CardContent className="p-6">
-          <div className="space-y-4">
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search templates by name or description..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-9"
-                data-testid="input-search-templates"
-              />
-              {searchQuery && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setSearchQuery("")}
-                  data-testid="button-clear-search"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              )}
+      <FiltersSection
+        headingId="inspection-templates-filters-heading"
+        headingEnd={
+          hasActiveFilters ? (
+            <ClearFiltersButton
+              onClick={clearAllFilters}
+              data-testid="button-clear-filters"
+            />
+          ) : (
+            <span className="text-xs text-muted-foreground tabular-nums" data-testid="text-result-count">
+              {templatesLoading ? "…" : `${templates?.length || 0}`}
+            </span>
+          )
+        }
+      >
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search templates by name or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-9 h-8"
+              data-testid="input-search-templates"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                onClick={() => setSearchQuery("")}
+                data-testid="button-clear-search"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium block text-muted-foreground">Category</label>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="h-8" data-testid="select-filter-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories?.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* Filter Controls Row */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Category</label>
-                <Select value={filterCategory} onValueChange={setFilterCategory}>
-                  <SelectTrigger data-testid="select-filter-category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories?.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">Scope</label>
-                <Select value={filterScope} onValueChange={setFilterScope}>
-                  <SelectTrigger data-testid="select-filter-scope">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Scopes</SelectItem>
-                    <SelectItem value="property">Property</SelectItem>
-                    <SelectItem value="block">Block</SelectItem>
-                    <SelectItem value="both">Both</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">Status</label>
-                <Select value={filterActive} onValueChange={setFilterActive}>
-                  <SelectTrigger data-testid="select-filter-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="true">Active Only</SelectItem>
-                    <SelectItem value="false">Inactive Only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">Sort By</label>
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger data-testid="select-sort-by">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="name-asc">Name (A-Z)</SelectItem>
-                    <SelectItem value="name-desc">Name (Z-A)</SelectItem>
-                    <SelectItem value="newest">Newest First</SelectItem>
-                    <SelectItem value="oldest">Oldest First</SelectItem>
-                    <SelectItem value="version">Highest Version</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium block text-muted-foreground">Scope</label>
+              <Select value={filterScope} onValueChange={setFilterScope}>
+                <SelectTrigger className="h-8" data-testid="select-filter-scope">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Scopes</SelectItem>
+                  <SelectItem value="property">Property</SelectItem>
+                  <SelectItem value="block">Block</SelectItem>
+                  <SelectItem value="both">Both</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* Results Count and Clear Filters */}
-            <div className="flex items-center justify-between pt-2">
-              <div className="text-sm text-muted-foreground">
-                {templatesLoading ? (
-                  "Loading..."
-                ) : (
-                  <span data-testid="text-result-count">
-                    Showing <span className="font-semibold text-foreground">{templates?.length || 0}</span> {templates?.length === 1 ? "template" : "templates"}
-                    {rawTemplates && templates && rawTemplates.length !== templates.length && (
-                      <span className="ml-1">(filtered from {rawTemplates.length})</span>
-                    )}
-                  </span>
-                )}
-              </div>
-              {hasActiveFilters && (
-                <ClearFiltersButton
-                  onClick={clearAllFilters}
-                  data-testid="button-clear-filters"
-                />
-              )}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium block text-muted-foreground">Status</label>
+              <Select value={filterActive} onValueChange={setFilterActive}>
+                <SelectTrigger className="h-8" data-testid="select-filter-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="true">Active Only</SelectItem>
+                  <SelectItem value="false">Inactive Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium block text-muted-foreground">Sort By</label>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="h-8" data-testid="select-sort-by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name-asc">Name (A-Z)</SelectItem>
+                  <SelectItem value="name-desc">Name (Z-A)</SelectItem>
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="version">Highest Version</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        </CardContent>
-      </Card>
+
+          <p className="text-xs text-muted-foreground">
+            {templatesLoading ? (
+              "Loading..."
+            ) : (
+              <>
+                Showing <span className="font-semibold text-foreground">{templates?.length || 0}</span>{" "}
+                {templates?.length === 1 ? "template" : "templates"}
+                {rawTemplates && templates && rawTemplates.length !== templates.length && (
+                  <span className="ml-1">(filtered from {rawTemplates.length})</span>
+                )}
+              </>
+            )}
+          </p>
+        </div>
+      </FiltersSection>
 
       {/* Templates Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -547,7 +551,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
 
       {/* Category Dialog */}
       <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
-        <DialogContent data-testid="dialog-category-form">
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-category-form">
           <DialogHeader>
             <DialogTitle>Manage Categories</DialogTitle>
             <DialogDescription>
@@ -609,7 +613,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
                   </FormItem>
                 )}
               />
-              <DialogFooter>
+              <DialogFooter className={cn(dialogFooterSticky)}>
                 <Button
                   type="button"
                   variant="outline"
@@ -680,7 +684,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
   }
 
   return (
-    <div className="container mx-auto p-8 space-y-8">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {content}
     </div>
   );

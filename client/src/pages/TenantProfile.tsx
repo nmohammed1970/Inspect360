@@ -15,6 +15,8 @@ import { updateSelfProfileSchema, type User } from "@shared/schema";
 import { changePasswordFormSchema, type ChangePasswordFormValues, MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
 import { z } from "zod";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { cn } from "@/lib/utils";
+import { pagePad, formGrid2 } from "@/lib/responsive";
 import { useAuth } from "@/hooks/useAuth";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
@@ -188,10 +190,10 @@ export default function TenantProfile() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
-          <UserIcon className="w-8 h-8" />
+    <div className={cn("container mx-auto max-w-4xl min-w-0", pagePad)}>
+      <div className="mb-6 min-w-0">
+        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
+          <UserIcon className="w-7 h-7 md:w-8 md:h-8 shrink-0" />
           Profile
         </h1>
         <p className="text-muted-foreground mt-2">
@@ -199,7 +201,7 @@ export default function TenantProfile() {
         </p>
       </div>
 
-      <Card data-testid="card-profile-form">
+      <Card data-testid="card-profile-form" className="min-w-0">
         <CardHeader>
           <CardTitle>Personal Information</CardTitle>
           <CardDescription>
@@ -209,8 +211,8 @@ export default function TenantProfile() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="flex items-start gap-6">
-                <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 min-w-0">
+                <div className="flex flex-col items-center gap-3 shrink-0">
                   <Avatar className="w-24 h-24">
                     <AvatarImage src={form.watch("profileImageUrl") || user?.profileImageUrl || ""} alt="Profile" />
                     <AvatarFallback className="text-2xl">{getUserInitials()}</AvatarFallback>
@@ -227,8 +229,8 @@ export default function TenantProfile() {
                   </ObjectUploader>
                 </div>
 
-                <div className="flex-1 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex-1 space-y-4 w-full min-w-0">
+                  <div className={formGrid2}>
                     <FormField
                       control={form.control}
                       name="firstName"

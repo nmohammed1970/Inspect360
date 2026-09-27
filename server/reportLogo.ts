@@ -68,21 +68,3 @@ export function resolveCoverLogoSrc(
   if (trimmed) return trimmed;
   return getDefaultCoverLogoDataUrl(variant);
 }
-
-/** Whether a logo src is safe to embed in report HTML (data URL, http(s), or absolute path). */
-export function isEmbeddableReportLogoSrc(url: string): boolean {
-  if (!url || typeof url !== "string") return false;
-  const lower = url.trim().toLowerCase();
-  if (
-    lower.startsWith("data:image/png") ||
-    lower.startsWith("data:image/jpeg") ||
-    lower.startsWith("data:image/jpg") ||
-    lower.startsWith("data:image/gif") ||
-    lower.startsWith("data:image/webp")
-  ) {
-    return true;
-  }
-  if (lower.startsWith("https://") || lower.startsWith("http://")) return true;
-  if (lower.startsWith("/")) return true;
-  return false;
-}

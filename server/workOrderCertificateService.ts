@@ -373,18 +373,27 @@ export async function updateWorkOrderFields(input: {
   userRole: string;
   teamId?: string | null;
   assignedToId?: string | null;
+  contractorId?: string | null;
   status?: string;
   slaDue?: string | Date | null;
   costEstimate?: number | null;
 }): Promise<typeof workOrders.$inferSelect> {
   const ctx = await resolveWorkOrderContext(input.workOrderId, input.organizationId);
-  if (input.userRole === "contractor" && ctx.workOrder.contractorId !== input.userId) {
-    throw httpError("Access denied", 403);
+  // Non-owners cannot reassign team / assigned person via this endpoint
+  if (input.userRole !== "owner") {
+    if (
+      input.teamId !== undefined ||
+      input.assignedToId !== undefined ||
+      input.contractorId !== undefined
+    ) {
+      throw httpError("Only owners can reassign work orders", 403);
+    }
   }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (input.teamId !== undefined) updates.teamId = input.teamId === "unassigned" ? null : input.teamId;
   if (input.assignedToId !== undefined) updates.assignedToId = input.assignedToId;
+  if (input.contractorId !== undefined) updates.contractorId = input.contractorId;
   if (input.slaDue !== undefined) {
     updates.slaDue = input.slaDue ? new Date(input.slaDue) : null;
   }

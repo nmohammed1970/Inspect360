@@ -325,7 +325,7 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
                 {pendingSelections.length} selected
               </Badge>
               <Select value={selectedType} onValueChange={setSelectedType}>
-                <SelectTrigger className="w-[140px]" data-testid="select-inspection-type">
+                <SelectTrigger className="w-full sm:w-[140px]" data-testid="select-inspection-type">
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -459,7 +459,7 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
         </div>
 
         {/* Summary Stats */}
-        <div className="mt-6 pt-6 border-t grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="mt-6 pt-6 border-t grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <div className="text-sm text-muted-foreground">Total Inspections</div>
             <div className="text-2xl font-bold" data-testid="stat-total-scheduled">{report.totalScheduled}</div>

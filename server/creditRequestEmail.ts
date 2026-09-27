@@ -4,6 +4,7 @@ export type CreditRequestEmailInput = {
   organizationName: string;
   requesterName: string;
   requesterEmail: string;
+  contactPhone?: string | null;
   creditsRequested: number;
   message: string;
   requestedAt: Date;
@@ -20,7 +21,8 @@ export function buildCreditRequestEmail(input: CreditRequestEmailInput): CreditR
   const organization = input.organizationName.trim() || "Organization";
   const name = input.requesterName.trim() || "User";
   const email = input.requesterEmail.trim();
-  const credits = String(input.creditsRequested);
+  const phone = (input.contactPhone || "").trim() || "—";
+  const units = String(input.creditsRequested);
   const message = input.message.trim();
   const when = input.requestedAt.toLocaleString("en-GB", {
     timeZone: "UTC",
@@ -30,20 +32,23 @@ export function buildCreditRequestEmail(input: CreditRequestEmailInput): CreditR
     hour: "2-digit",
     minute: "2-digit",
   });
-  const subject = `New Credit Request - ${organization}`;
+  const subject = `New Credit Purchase Request - ${organization}`;
   const text = [
-    "New Credit Request",
+    "New Credit Purchase Request",
     "",
     `Organization: ${organization}`,
     `Requested By: ${name}`,
     `Email: ${email}`,
-    `Credits Requested: ${credits}`,
+    `Contact Number: ${phone}`,
+    `Properties / Units: ${units}`,
     `Request Date: ${when} UTC`,
     "",
     "Message:",
     message,
     "",
     "Status: REQUESTED",
+    "",
+    "Note: Allocate credits based on the reported property / unit count.",
     "",
     `Review: ${input.adminUrl}`,
   ].join("\n");
@@ -57,15 +62,17 @@ export function buildCreditRequestEmail(input: CreditRequestEmailInput): CreditR
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
   <div style="background-color: #ffffff; border-radius: 8px; padding: 32px;">
     <p style="margin: 0 0 8px 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: #3B7A8C;">Inspect360</p>
-    <h1 style="margin: 0 0 16px 0; font-size: 20px;">New Credit Request</h1>
+    <h1 style="margin: 0 0 16px 0; font-size: 20px;">New Credit Purchase Request</h1>
     ${row("Organization", organization)}
     ${row("Requested By", name)}
     ${row("Email", email)}
-    ${row("Credits Requested", credits)}
+    ${row("Contact Number", phone)}
+    ${row("Properties / Units", units)}
     ${row("Request Date", `${when} UTC`)}
     <p style="margin:16px 0 8px 0;"><strong>Message</strong></p>
     <p style="margin:0 0 16px 0; white-space: pre-wrap;">${escapeHtml(message)}</p>
     ${row("Status", "REQUESTED")}
+    <p style="margin:16px 0 0 0; font-size: 13px; color: #555;">Allocate credits based on the reported property / unit count.</p>
     <p style="margin: 28px 0 0 0;">
       <a href="${escapeHtml(input.adminUrl)}" style="display: inline-block; background: #04C6BD; color: #021F36; text-decoration: none; font-weight: 600; padding: 12px 18px; border-radius: 6px;">Review request</a>
     </p>
