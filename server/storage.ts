@@ -254,6 +254,7 @@ import {
   type QuotationActivityLog,
   type InsertQuotationActivityLog,
 } from "@shared/schema";
+import { normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -889,7 +890,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(userData).returning();
+    const payload = {
+      ...userData,
+      phone:
+        userData.phone !== undefined
+          ? normalizePhoneForStorage(userData.phone)
+          : userData.phone,
+    };
+    const [user] = await db.insert(users).values(payload).returning();
     return user;
   }
 
@@ -924,9 +932,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User> {
+    const payload: Partial<UpsertUser> = { ...updates };
+    if (payload.phone !== undefined) {
+      payload.phone = normalizePhoneForStorage(payload.phone as string | null) as any;
+    }
     const [user] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...payload, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
     return user;
@@ -1017,9 +1029,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateOrganization(id: string, updates: Partial<InsertOrganization>): Promise<Organization> {
+    const payload: Partial<InsertOrganization> = { ...updates };
+    if (payload.brandingPhone !== undefined) {
+      payload.brandingPhone = normalizePhoneForStorage(payload.brandingPhone as string | null) as any;
+    }
     const [org] = await db
       .update(organizations)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...payload, updatedAt: new Date() })
       .where(eq(organizations.id, id))
       .returning();
     return org;
@@ -1029,7 +1045,14 @@ export class DatabaseStorage implements IStorage {
 
   // Contact operations
   async createContact(contactData: InsertContact & { organizationId: string }): Promise<Contact> {
-    const [contact] = await db.insert(contacts).values(contactData).returning();
+    const payload = {
+      ...contactData,
+      phone:
+        contactData.phone !== undefined
+          ? normalizePhoneForStorage(contactData.phone)
+          : contactData.phone,
+    };
+    const [contact] = await db.insert(contacts).values(payload).returning();
     return contact;
   }
 
@@ -1047,9 +1070,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateContact(id: string, updates: Partial<InsertContact>): Promise<Contact> {
+    const payload: Partial<InsertContact> = { ...updates };
+    if (payload.phone !== undefined) {
+      payload.phone = normalizePhoneForStorage(payload.phone as string | null) as any;
+    }
     const [contact] = await db
       .update(contacts)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...payload, updatedAt: new Date() })
       .where(eq(contacts.id, id))
       .returning();
     return contact;
@@ -2130,7 +2157,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTenantAssignment(assignment: InsertTenantAssignment & { organizationId: string }): Promise<TenantAssignment> {
-    const [created] = await db.insert(tenantAssignments).values(assignment).returning();
+    const payload = {
+      ...assignment,
+      nextOfKinPhone:
+        assignment.nextOfKinPhone !== undefined
+          ? normalizePhoneForStorage(assignment.nextOfKinPhone)
+          : assignment.nextOfKinPhone,
+    };
+    const [created] = await db.insert(tenantAssignments).values(payload).returning();
     return created;
   }
 
@@ -2140,8 +2174,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTenantAssignment(id: string, updates: Partial<InsertTenantAssignment>): Promise<TenantAssignment> {
+    const payload: Partial<InsertTenantAssignment> = { ...updates };
+    if (payload.nextOfKinPhone !== undefined) {
+      payload.nextOfKinPhone = normalizePhoneForStorage(
+        payload.nextOfKinPhone as string | null,
+      ) as any;
+    }
     const [updated] = await db.update(tenantAssignments)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...payload, updatedAt: new Date() })
       .where(eq(tenantAssignments.id, id))
       .returning();
     return updated;

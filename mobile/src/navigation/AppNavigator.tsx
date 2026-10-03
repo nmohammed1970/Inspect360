@@ -257,14 +257,18 @@ function MainTabNavigator() {
 }
 
 function OpsNavigator() {
+  const OpsEntitlementLockHost = require('../components/OpsEntitlementLockHost').default;
   return (
-    <OpsStack.Navigator id="OpsStack" screenOptions={{ headerShown: false }}>
-      <OpsStack.Screen name="Tabs" component={MainTabNavigator} />
-      <OpsStack.Screen
-        name="Profile"
-        getComponent={() => require('../screens/profile/ProfileScreen').default}
-      />
-    </OpsStack.Navigator>
+    <>
+      <OpsStack.Navigator id="OpsStack" screenOptions={{ headerShown: false }}>
+        <OpsStack.Screen name="Tabs" component={MainTabNavigator} />
+        <OpsStack.Screen
+          name="Profile"
+          getComponent={() => require('../screens/profile/ProfileScreen').default}
+        />
+      </OpsStack.Navigator>
+      <OpsEntitlementLockHost />
+    </>
   );
 }
 

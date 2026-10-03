@@ -88,7 +88,7 @@ export default function TenantHomeScreen() {
   const showLockedAlert = () => {
     Alert.alert(
       entitlementCode === 'CREDITS_EXPIRED' ? 'Your credits have expired' : 'Your trial has ended',
-      'Access to inspection review and comparison reports is locked. Ask your property manager to renew access.',
+      'Please contact your administration (property manager) to buy credits and unlock the app again.',
     );
   };
 

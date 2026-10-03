@@ -34,7 +34,10 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-[70] grid w-[calc(100%-2rem)] max-w-lg max-h-[min(85vh,calc(100dvh-2rem))] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-4 sm:p-6 shadow-lg duration-200 overflow-y-auto overscroll-contain data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-lg",
+        "fixed z-[70] grid box-border gap-4 border bg-background p-4 sm:p-6 shadow-lg duration-200 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg",
+        "left-4 right-4 top-[50%] w-auto max-w-lg max-h-[min(85vh,calc(100dvh-2rem))] translate-y-[-50%]",
+        "sm:left-[50%] sm:right-auto sm:w-full sm:translate-x-[-50%]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-top-[48%]",
         className
       )}
       {...props}
@@ -49,7 +52,7 @@ const AlertDialogHeader = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col space-y-2 text-center sm:text-left",
+      "flex flex-col space-y-2 text-center sm:text-left min-w-0",
       className
     )}
     {...props}

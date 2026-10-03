@@ -49,6 +49,10 @@ Edit your `.env` file and configure:
 - **SESSION_SECRET**: Random secret for session management (required)
 - **RESEND_API_KEY**: Your Resend API key (optional, for email functionality)
 - **RESEND_FROM_EMAIL**: Email address to send emails from (optional, required if using email features)
+- **TEXTMAGIC_USERNAME**: TextMagic account username (optional, for tenant SMS)
+- **TEXTMAGIC_API_KEY**: TextMagic API key (optional, required if enabling SMS)
+- **TEXTMAGIC_FROM**: Optional TextMagic sender id / phone
+- **TEXTMAGIC_ENABLED**: Set `true` to send SMS; `false` skips SMS safely
 - **STRIPE_SECRET_KEY**: Your Stripe secret key (optional, for payments)
 - **STRIPE_WEBHOOK_SECRET**: Your Stripe webhook secret (optional)
 - **AI_INTEGRATIONS_OPENAI_BASE_URL**: OpenAI API base URL (optional, for AI features)
@@ -111,6 +115,10 @@ The application will be available at `http://localhost:5000` (or your configured
 | `SESSION_SECRET` | ✅ Yes | Secret key for session encryption |
 | `RESEND_API_KEY` | ❌ No | Resend API key (for email functionality) |
 | `RESEND_FROM_EMAIL` | ❌ No | Email address to send emails from (required if using email features) |
+| `TEXTMAGIC_USERNAME` | ❌ No | TextMagic username (tenant SMS) |
+| `TEXTMAGIC_API_KEY` | ❌ No | TextMagic API key (required if SMS enabled) |
+| `TEXTMAGIC_FROM` | ❌ No | Optional TextMagic sender |
+| `TEXTMAGIC_ENABLED` | ❌ No | `true` to enable SMS sends |
 | `STRIPE_SECRET_KEY` | ❌ No | Stripe API secret key (for payments) |
 | `STRIPE_WEBHOOK_SECRET` | ❌ No | Stripe webhook secret |
 | `AI_INTEGRATIONS_OPENAI_BASE_URL` | ❌ No | OpenAI API base URL |

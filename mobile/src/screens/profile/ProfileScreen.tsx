@@ -22,6 +22,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Upload, Plus, X, FileText, Trash2, User as UserIcon, Mail, Shield, LogOut, Fingerprint, ChevronLeft } from 'lucide-react-native';
 import { profileService, type UpdateProfileData, type UserDocument } from '../../services/profile';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
+import { uploadLocalFile } from '../../services/objectUpload';
 import { biometricService } from '../../services/biometric';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -35,6 +36,9 @@ import { Moon, Sun, Monitor } from 'lucide-react-native';
 import { getTeamRoleDisplayLabel } from '../../constants/roleLabels';
 import { useResponsive } from '../../hooks/useResponsive';
 import FormScreen from '../../components/ui/FormScreen';
+import PhoneInput from '../../components/PhoneInput';
+import { resolveMediaUrl } from '../../utils/mediaUrl';
+import { normalizePhoneForStorage } from '../../../shared/phoneCountryCodes';
 
 const DOCUMENT_TYPES = [
   { value: 'license', label: 'License' },
@@ -244,10 +248,10 @@ export default function ProfileScreen() {
       data.lastName = trimmedLastName;
     }
 
-    // Phone is optional
+    // Phone is optional — store E.164 when possible
     const trimmedPhone = phone.trim();
     if (trimmedPhone && trimmedPhone.length > 0) {
-      data.phone = trimmedPhone;
+      data.phone = normalizePhoneForStorage(trimmedPhone) || trimmedPhone;
     }
 
     // Profile image URL
@@ -321,56 +325,10 @@ export default function ProfileScreen() {
 
   const uploadImageFile = async (uri: string) => {
     try {
-      // Get upload URL
-      const uploadUrlResponse = await fetch(`${getAPI_URL()}/api/objects/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const fileUrl = await uploadLocalFile(uri, {
+        mimeType: 'image/jpeg',
+        fileName: `profile_${Date.now()}.jpg`,
       });
-
-      if (!uploadUrlResponse.ok) {
-        throw new Error('Failed to get upload URL');
-      }
-
-      const { uploadURL } = await uploadUrlResponse.json();
-
-      // Convert image to blob
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      // Upload to S3
-      const uploadResponse = await fetch(uploadURL, {
-        method: 'PUT',
-        body: blob,
-        headers: {
-          'Content-Type': 'image/jpeg',
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload image');
-      }
-
-      // Extract file URL from upload URL
-      // The uploadURL format is: /api/objects/upload-direct?objectId=xxx or full URL
-      // We need to extract the objectId and construct: /objects/xxx
-      let fileUrl: string;
-
-      // Use manual regex extraction (works in React Native)
-      const objectIdMatch = uploadURL.match(/[?&]objectId=([^&]+)/);
-      if (objectIdMatch && objectIdMatch[1]) {
-        fileUrl = `/objects/${objectIdMatch[1]}`;
-      } else {
-        // Fallback: try to extract from path if objectId not in query
-        const pathMatch = uploadURL.match(/\/objects\/([^?&\/]+)/);
-        if (pathMatch && pathMatch[1]) {
-          fileUrl = `/objects/${pathMatch[1]}`;
-        } else {
-          console.error('Error extracting file URL from upload URL:', uploadURL);
-          throw new Error('Failed to extract file URL from upload response');
-        }
-      }
 
       // Update state with the properly formatted URL
       setProfileImageUrl(fileUrl);
@@ -396,7 +354,7 @@ export default function ProfileScreen() {
       // Phone is optional and can be empty
       const trimmedPhone = phone.trim();
       if (trimmedPhone && trimmedPhone.length > 0) {
-        updateData.phone = trimmedPhone;
+        updateData.phone = normalizePhoneForStorage(trimmedPhone) || trimmedPhone;
       }
 
       // Only include arrays if they have items
@@ -468,56 +426,10 @@ export default function ProfileScreen() {
 
   const uploadDocumentFile = async (uri: string, mimeType: string = 'application/octet-stream') => {
     try {
-      // Get upload URL
-      const uploadUrlResponse = await fetch(`${getAPI_URL()}/api/objects/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const fileUrl = await uploadLocalFile(uri, {
+        mimeType,
+        fileName: `document_${Date.now()}.${pendingDocFileExtension || 'bin'}`,
       });
-
-      if (!uploadUrlResponse.ok) {
-        throw new Error('Failed to get upload URL');
-      }
-
-      const { uploadURL } = await uploadUrlResponse.json();
-
-      // Convert file to blob
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      // Upload to S3
-      const uploadResponse = await fetch(uploadURL, {
-        method: 'PUT',
-        body: blob,
-        headers: {
-          'Content-Type': mimeType,
-        },
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload document');
-      }
-
-      // Extract file URL from upload URL
-      // The uploadURL format is: /api/objects/upload-direct?objectId=xxx or full URL
-      // We need to extract the objectId and construct: /objects/xxx
-      let fileUrl: string;
-
-      // Use manual regex extraction (works in React Native)
-      const objectIdMatch = uploadURL.match(/[?&]objectId=([^&]+)/);
-      if (objectIdMatch && objectIdMatch[1]) {
-        fileUrl = `/objects/${objectIdMatch[1]}`;
-      } else {
-        // Fallback: try to extract from path if objectId not in query
-        const pathMatch = uploadURL.match(/\/objects\/([^?&\/]+)/);
-        if (pathMatch && pathMatch[1]) {
-          fileUrl = `/objects/${pathMatch[1]}`;
-        } else {
-          console.error('Error extracting file URL from upload URL:', uploadURL);
-          throw new Error('Failed to extract file URL from upload response');
-        }
-      }
 
       setPendingDocFileUrl(fileUrl);
       setShowDocumentForm(true);
@@ -578,24 +490,10 @@ export default function ProfileScreen() {
   const getProfileImageUrl = () => {
     if (!profileImageUrl) return null;
     try {
-      // If it's already a full URL, use it directly with cache busting
-      if (profileImageUrl.startsWith('http://') || profileImageUrl.startsWith('https://')) {
-        const separator = profileImageUrl.includes('?') ? '&' : '?';
-        return `${profileImageUrl}${separator}_t=${Date.now()}`;
-      }
-
-      // Ensure the URL starts with / for relative paths
-      const cleanUrl = profileImageUrl.startsWith('/') ? profileImageUrl : `/${profileImageUrl}`;
-
-      // Construct full URL
-      let fullUrl = `${getAPI_URL()}${cleanUrl}`;
-
-      // Remove any double slashes in the URL
-      fullUrl = fullUrl.replace(/([^:]\/)\/+/g, '$1');
-
-      // Add cache busting to force refresh
-      const separator = fullUrl.includes('?') ? '&' : '?';
-      return `${fullUrl}${separator}_t=${Date.now()}`;
+      const resolved = resolveMediaUrl(profileImageUrl);
+      if (!resolved) return null;
+      const separator = resolved.includes('?') ? '&' : '?';
+      return `${resolved}${separator}_t=${Date.now()}`;
     } catch (error) {
       console.error('Error constructing profile image URL:', error);
       return null;
@@ -877,12 +775,11 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.personalInfoField}>
-              <Input
+              <PhoneInput
                 label="Phone Number"
                 value={phone}
-                onChangeText={setPhone}
-                placeholder="Enter phone number"
-                keyboardType="phone-pad"
+                onChange={setPhone}
+                placeholder="7123456789"
               />
             </View>
 

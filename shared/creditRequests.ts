@@ -3,6 +3,8 @@
  * `creditsRequested` stores the user's reported property/unit count; admins choose credits to grant.
  */
 
+import { normalizePhoneForStorage } from "./phoneCountryCodes";
+
 export const MIN_CREDIT_REQUEST = 1;
 export const MAX_CREDIT_REQUEST = 100000;
 export const MAX_CREDIT_REQUEST_MESSAGE = 2000;
@@ -29,7 +31,7 @@ const UNITS_ERROR = "Please enter a valid number of properties / units. Minimum 
 const UNITS_MAX_ERROR = "Please enter a valid number of properties / units. Maximum is 100000.";
 const MESSAGE_ERROR = "Please enter a message.";
 const MESSAGE_LENGTH_ERROR = "Message must be 2000 characters or fewer.";
-const PHONE_ERROR = "Please enter a contact number.";
+const PHONE_ERROR = "Please enter a contact number with country code (e.g. +44 …).";
 const PHONE_LENGTH_ERROR = "Contact number must be 50 characters or fewer.";
 
 export function parseCreditRequestCreate(body: unknown): { ok: true } & ParsedCreditRequest | CreditRequestFieldError {
@@ -46,7 +48,7 @@ export function parseCreditRequestCreate(body: unknown): { ok: true } & ParsedCr
   if (typeof record.contactPhone !== "string") {
     return { ok: false, field: "contactPhone", message: PHONE_ERROR };
   }
-  const contactPhone = record.contactPhone.trim();
+  const contactPhone = normalizePhoneForStorage(record.contactPhone);
   if (!contactPhone) {
     return { ok: false, field: "contactPhone", message: PHONE_ERROR };
   }

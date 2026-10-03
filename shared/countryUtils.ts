@@ -146,6 +146,7 @@ export const COMMON_COUNTRIES = [
   { code: "NZ", name: "New Zealand" },
   { code: "SG", name: "Singapore" },
   { code: "IN", name: "India" },
+  { code: "PK", name: "Pakistan" },
   { code: "ZA", name: "South Africa" },
   { code: "SA", name: "Saudi Arabia" },
   { code: "QA", name: "Qatar" },

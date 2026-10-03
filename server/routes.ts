@@ -1127,6 +1127,43 @@ async function isModuleAvailableForInstance(moduleKey: string, organizationId: s
  * Optionally mark a completed check-in/check-out for tenant review and notify the active tenant.
  * Does not fail completion if no tenant is assigned.
  */
+async function sendComparisonReportSmsSafe(opts: {
+  organizationId: string;
+  tenant: { id: string; firstName?: string | null; lastName?: string | null; phone?: string | null };
+  reportId: string;
+  propertyName?: string | null;
+}): Promise<void> {
+  try {
+    const {
+      sendTenantSms,
+      getOrCreateSmsTemplates,
+      resolveSmsTemplateBody,
+      SMS_EVENT_TYPES,
+      getPortalBaseUrl,
+    } = await import("./smsService");
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, opts.organizationId));
+    const tenantName =
+      [opts.tenant.firstName, opts.tenant.lastName].filter(Boolean).join(" ").trim() || "Tenant";
+    const templates = await getOrCreateSmsTemplates(opts.organizationId);
+    await sendTenantSms({
+      organizationId: opts.organizationId,
+      tenantUserId: opts.tenant.id,
+      phone: opts.tenant.phone,
+      eventType: SMS_EVENT_TYPES.COMPARISON_REPORT,
+      eventKey: `comparison_report:${opts.reportId}`,
+      templateBody: resolveSmsTemplateBody(templates, SMS_EVENT_TYPES.COMPARISON_REPORT),
+      vars: {
+        tenant_name: tenantName,
+        property_name: opts.propertyName || "your property",
+        organization_name: org?.name || "Inspect360",
+        portal_link: `${getPortalBaseUrl()}/tenant`,
+      },
+    });
+  } catch (e: any) {
+    console.error("[Notification] Comparison report SMS failed (non-fatal):", e?.message || e);
+  }
+}
+
 async function requestTenantInspectionReview(opts: {
   inspectionId: string;
   inspection: { type: string; propertyId?: string | null };
@@ -1187,6 +1224,42 @@ async function requestTenantInspectionReview(opts: {
     });
   } catch (notifError) {
     console.error("[Notification] Error creating inspection review notification:", notifError);
+  }
+
+  // SMS additional channel — never fails the review request
+  try {
+    const {
+      sendTenantSms,
+      getOrCreateSmsTemplates,
+      resolveSmsTemplateBody,
+      SMS_EVENT_TYPES,
+      getPortalBaseUrl,
+    } = await import("./smsService");
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
+    const tenantName =
+      [activeTenant.firstName, activeTenant.lastName].filter(Boolean).join(" ").trim() || "Tenant";
+    const eventType =
+      inspection.type === "check_out"
+        ? SMS_EVENT_TYPES.CHECK_OUT_INSPECTION
+        : SMS_EVENT_TYPES.CHECK_IN_INSPECTION;
+    const templates = await getOrCreateSmsTemplates(organizationId);
+    await sendTenantSms({
+      organizationId,
+      tenantUserId: activeTenant.id,
+      phone: activeTenant.phone,
+      eventType,
+      eventKey: `inspection_review:${inspectionId}`,
+      templateBody: resolveSmsTemplateBody(templates, eventType),
+      vars: {
+        tenant_name: tenantName,
+        property_name: propertyName || "your property",
+        organization_name: org?.name || "Inspect360",
+        inspection_type: inspection.type === "check_out" ? "check-out" : "check-in",
+        portal_link: `${getPortalBaseUrl()}/tenant`,
+      },
+    });
+  } catch (smsErr: any) {
+    console.error("[Notification] Inspection review SMS failed (non-fatal):", smsErr?.message || smsErr);
   }
 
   return { sent: true };
@@ -5818,6 +5891,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/organization/sms-templates", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const { getOrCreateSmsTemplates, DEFAULT_SMS_TEMPLATES } = await import("./smsService");
+      const row = await getOrCreateSmsTemplates(user.organizationId);
+      res.json({ ...row, defaults: DEFAULT_SMS_TEMPLATES });
+    } catch (error) {
+      console.error("Error fetching SMS templates:", error);
+      res.status(500).json({ message: "Failed to fetch SMS templates" });
+    }
+  });
+
+  app.patch("/api/organization/sms-templates", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const allowed = [
+        "rentPreDue1Body",
+        "rentPreDue2Body",
+        "rentPreDue3Body",
+        "rentOverdueBody",
+        "comparisonReportBody",
+        "checkInInspectionBody",
+        "checkOutInspectionBody",
+      ] as const;
+      const updates: Record<string, string | null> = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updates[key] = req.body[key];
+      }
+      const { updateSmsTemplates } = await import("./smsService");
+      res.json(await updateSmsTemplates(user.organizationId, updates));
+    } catch (error) {
+      console.error("Error updating SMS templates:", error);
+      res.status(500).json({ message: "Failed to update SMS templates" });
+    }
+  });
+
+  app.post("/api/organization/sms-templates/test", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
+      const { sendTestSms, SMS_EVENT_TYPES } = await import("./smsService");
+      const eventType = String(req.body?.eventType || SMS_EVENT_TYPES.RENT_OVERDUE);
+      const phone = String(req.body?.phone || user.phone || "");
+      const result = await sendTestSms({
+        organizationId: user.organizationId,
+        requestedByUserId: user.id,
+        eventType,
+        phone,
+      });
+      if (!result.ok) return res.status(result.status).json({ message: result.message });
+      res.json({ ok: true, message: "Test SMS sent" });
+    } catch (error) {
+      console.error("Error sending test SMS:", error);
+      res.status(500).json({ message: "Failed to send test SMS" });
+    }
+  });
+
   // ==================== USER ROUTES ====================
 
   app.get("/api/users/clerks", isAuthenticated, async (req: any, res) => {
@@ -8769,6 +8901,13 @@ Cleanliness guidelines:
             isRead: notification.isRead,
             createdAt: notification.createdAt || new Date(),
           });
+
+          await sendComparisonReportSmsSafe({
+            organizationId: user.organizationId!,
+            tenant: activeTenant,
+            reportId: report.id,
+            propertyName: property.name,
+          });
         } catch (notifError) {
           console.error("[Notification] Error creating notification for tenant:", notifError);
           // Don't fail the request if notification fails
@@ -9094,6 +9233,13 @@ LIABILITY: [tenant/landlord/shared]`;
             data: notification.data,
             isRead: notification.isRead,
             createdAt: notification.createdAt || new Date(),
+          });
+
+          await sendComparisonReportSmsSafe({
+            organizationId: user.organizationId!,
+            tenant: activeTenant,
+            reportId: report.id,
+            propertyName: property.name,
           });
         } catch (notifError) {
           console.error("[Notification] Error creating notification for tenant:", notifError);
@@ -27856,7 +28002,7 @@ ${optionalNotes || "No details provided."}`;
       }
 
       // Extract and validate the fields we allow updating
-      const { firstName, lastName, email } = req.body;
+      const { firstName, lastName, email, phone } = req.body;
 
       const updatePayload: any = {};
 
@@ -27886,6 +28032,12 @@ ${optionalNotes || "No details provided."}`;
         updatePayload.email = normalizedEmail;
       }
 
+      // Update phone if provided (null/empty clears it)
+      if (phone !== undefined) {
+        updatePayload.phone =
+          phone === null || String(phone).trim() === "" ? null : String(phone).trim();
+      }
+
       if (Object.keys(updatePayload).length === 0) {
         return res.status(400).json({ message: "No valid fields to update" });
       }
@@ -27896,7 +28048,8 @@ ${optionalNotes || "No details provided."}`;
         id: updatedUser.id,
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
-        email: updatedUser.email
+        email: updatedUser.email,
+        phone: updatedUser.phone,
       });
 
       // Don't return password

@@ -28,6 +28,7 @@ import SettingsTeamsPanel from "@/components/SettingsTeamsPanel";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { AddressInput } from "@/components/AddressInput";
+import { PhoneInput } from "@/components/PhoneInput";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -41,7 +42,7 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent';
+type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
@@ -52,6 +53,7 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tenant-portal', label: 'Tenant Portal Configuration', icon: DoorOpen },
   { id: 'late-rent', label: 'Late Rent Notification', icon: Bell },
+  { id: 'tenant-sms', label: 'Tenant SMS Notifications', icon: Bell },
 ];
 
 export default function Settings() {
@@ -681,14 +683,15 @@ export default function Settings() {
                             </div>
                             <div>
                               <Label htmlFor="brandingPhone" className="text-sm">Contact Phone</Label>
-                              <Input
-                                id="brandingPhone"
-                                value={brandingPhone}
-                                onChange={(e) => setBrandingPhone(e.target.value)}
-                                placeholder="+44 20 1234 5678"
-                                className="mt-1"
-                                data-testid="input-branding-phone"
-                              />
+                              <div className="mt-1">
+                                <PhoneInput
+                                  id="brandingPhone"
+                                  value={brandingPhone}
+                                  onChange={(value) => setBrandingPhone(value)}
+                                  placeholder="7123456789"
+                                  data-testid="input-branding-phone"
+                                />
+                              </div>
                             </div>
                           </div>
 
@@ -1004,6 +1007,7 @@ export default function Settings() {
           )}
 
           {activeSection === 'late-rent' && <LateRentNotificationSettings />}
+          {activeSection === 'tenant-sms' && <TenantSmsNotificationSettings />}
         </div>
       </div>
 
@@ -1837,6 +1841,208 @@ function LateRentNotificationSettings() {
         <div className="flex justify-end">
           <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
             {saveMutation.isPending ? "Saving..." : "Save settings"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const SMS_TEMPLATE_FIELDS = [
+  {
+    key: "rentPreDue1Body" as const,
+    label: "Rent reminder 1 (pre-due)",
+    placeholders: "{tenant_name}, {property_name}, {amount}, {amount_outstanding}, {due_date}, {period}, {days_until_due}, {organization_name}",
+    testEvent: "rent_pre_due_1",
+  },
+  {
+    key: "rentPreDue2Body" as const,
+    label: "Rent reminder 2 (pre-due)",
+    placeholders: "{tenant_name}, {property_name}, {amount}, {amount_outstanding}, {due_date}, {period}, {days_until_due}, {organization_name}",
+    testEvent: "rent_pre_due_2",
+  },
+  {
+    key: "rentPreDue3Body" as const,
+    label: "Rent reminder 3 (pre-due)",
+    placeholders: "{tenant_name}, {property_name}, {amount}, {amount_outstanding}, {due_date}, {period}, {days_until_due}, {organization_name}",
+    testEvent: "rent_pre_due_3",
+  },
+  {
+    key: "rentOverdueBody" as const,
+    label: "Rent overdue / Send Reminder",
+    placeholders: "{tenant_name}, {property_name}, {amount}, {amount_outstanding}, {due_date}, {period}, {days_overdue}, {organization_name}",
+    testEvent: "rent_overdue",
+  },
+  {
+    key: "comparisonReportBody" as const,
+    label: "Comparison report available",
+    placeholders: "{tenant_name}, {property_name}, {organization_name}, {portal_link}",
+    testEvent: "comparison_report",
+  },
+  {
+    key: "checkInInspectionBody" as const,
+    label: "Check-in inspection review",
+    placeholders: "{tenant_name}, {property_name}, {organization_name}, {inspection_type}, {portal_link}",
+    testEvent: "check_in_inspection",
+  },
+  {
+    key: "checkOutInspectionBody" as const,
+    label: "Check-out inspection review",
+    placeholders: "{tenant_name}, {property_name}, {organization_name}, {inspection_type}, {portal_link}",
+    testEvent: "check_out_inspection",
+  },
+] as const;
+
+function TenantSmsNotificationSettings() {
+  const { toast } = useToast();
+  const { data: templates, isLoading } = useQuery<any>({
+    queryKey: ["/api/organization/sms-templates"],
+  });
+
+  const [form, setForm] = useState({
+    rentPreDue1Body: "",
+    rentPreDue2Body: "",
+    rentPreDue3Body: "",
+    rentOverdueBody: "",
+    comparisonReportBody: "",
+    checkInInspectionBody: "",
+    checkOutInspectionBody: "",
+  });
+  const [testPhone, setTestPhone] = useState("");
+  const [testEventType, setTestEventType] = useState("rent_overdue");
+
+  useEffect(() => {
+    if (templates) {
+      setForm({
+        rentPreDue1Body: templates.rentPreDue1Body || templates.defaults?.rentPreDue1Body || "",
+        rentPreDue2Body: templates.rentPreDue2Body || templates.defaults?.rentPreDue2Body || "",
+        rentPreDue3Body: templates.rentPreDue3Body || templates.defaults?.rentPreDue3Body || "",
+        rentOverdueBody: templates.rentOverdueBody || templates.defaults?.rentOverdueBody || "",
+        comparisonReportBody:
+          templates.comparisonReportBody || templates.defaults?.comparisonReportBody || "",
+        checkInInspectionBody:
+          templates.checkInInspectionBody || templates.defaults?.checkInInspectionBody || "",
+        checkOutInspectionBody:
+          templates.checkOutInspectionBody || templates.defaults?.checkOutInspectionBody || "",
+      });
+    }
+  }, [templates]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => apiRequest("PATCH", "/api/organization/sms-templates", form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organization/sms-templates"] });
+      toast({ title: "SMS templates saved" });
+    },
+    onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const testMutation = useMutation({
+    mutationFn: async () =>
+      apiRequest("POST", "/api/organization/sms-templates/test", {
+        eventType: testEventType,
+        phone: testPhone,
+      }),
+    onSuccess: () => toast({ title: "Test SMS sent" }),
+    onError: (e: Error) => toast({ variant: "destructive", title: "Test SMS failed", description: e.message }),
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading...</p>;
+  }
+
+  return (
+    <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+      <CardHeader>
+        <CardTitle className="text-2xl">Tenant SMS Notifications</CardTitle>
+        <CardDescription className="mt-2">
+          SMS templates sent via TextMagic in addition to existing email and dashboard notifications.
+          Use the same {"{placeholder}"} syntax as rent emails. Long messages are sent as multi-part SMS
+          (not truncated). Tenancy End / Lease End SMS is not available yet.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground mb-1">Email templates</p>
+          <p>
+            Rent email templates remain under Late Rent Notification. This section configures SMS
+            bodies only (sent in addition to email / dashboard notifications).
+          </p>
+        </div>
+
+        {SMS_TEMPLATE_FIELDS.map((field) => {
+          const value = form[field.key];
+          const len = value.length;
+          const segments = len === 0 ? 0 : Math.ceil(len / 160);
+          return (
+            <div key={field.key} className="space-y-2 border rounded-lg p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <Label className="font-medium">{field.label}</Label>
+                <span className={cn("text-xs", len > 160 ? "text-amber-600" : "text-muted-foreground")}>
+                  {len} characters{segments > 1 ? ` · ~${segments} SMS segments` : ""}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">Placeholders: {field.placeholders}</p>
+              <Textarea
+                rows={3}
+                value={value}
+                onChange={(e) => setForm((f) => ({ ...f, [field.key]: e.target.value }))}
+                data-testid={`sms-template-${field.key}`}
+              />
+            </div>
+          );
+        })}
+
+        <div className="space-y-3 border rounded-lg p-4">
+          <Label className="font-medium">Send test SMS</Label>
+          <p className="text-xs text-muted-foreground">
+            Owner only. Sends a [TEST] message using the selected template. Requires TextMagic to be enabled
+            on the server.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Template</Label>
+              <Select value={testEventType} onValueChange={setTestEventType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SMS_TEMPLATE_FIELDS.map((f) => (
+                    <SelectItem key={f.testEvent} value={f.testEvent}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Phone</Label>
+              <PhoneInput
+                value={testPhone}
+                onChange={setTestPhone}
+                placeholder="7123456789"
+                data-testid="input-sms-test-phone"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={testMutation.isPending || !testPhone.trim()}
+            onClick={() => testMutation.mutate()}
+            data-testid="button-send-test-sms"
+          >
+            {testMutation.isPending ? "Sending..." : "Send test SMS"}
+          </Button>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            data-testid="button-save-sms-templates"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save SMS templates"}
           </Button>
         </div>
       </CardContent>

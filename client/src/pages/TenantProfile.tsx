@@ -12,12 +12,14 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { User as UserIcon, Loader2, Upload, Lock, Eye, EyeOff } from "lucide-react";
 import { updateSelfProfileSchema, type User } from "@shared/schema";
-import { changePasswordFormSchema, type ChangePasswordFormValues, MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
+import { MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
+import { changePasswordFormSchema, type ChangePasswordFormValues } from "@shared/passwordPolicyForms";
 import { z } from "zod";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { cn } from "@/lib/utils";
 import { pagePad, formGrid2 } from "@/lib/responsive";
 import { useAuth } from "@/hooks/useAuth";
+import { PhoneInput } from "@/components/PhoneInput";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
@@ -275,10 +277,10 @@ export default function TenantProfile() {
                       <FormItem>
                         <FormLabel>Phone Number</FormLabel>
                         <FormControl>
-                          <Input
+                          <PhoneInput
+                            field={field}
                             placeholder="Enter your phone number"
                             data-testid="input-phone"
-                            {...field}
                           />
                         </FormControl>
                         <FormMessage />

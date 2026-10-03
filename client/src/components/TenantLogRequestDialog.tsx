@@ -28,6 +28,8 @@ import {
   applyMaintenanceAiNote,
 } from "@/components/MaintenanceAiAnalysisView";
 import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
+import { dialogContentBase } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 interface TenantLogRequestDialogProps {
   open: boolean;
@@ -180,7 +182,7 @@ export function TenantLogRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl" data-testid="dialog-log-request">
+      <DialogContent className={cn(dialogContentBase, "sm:max-w-2xl")} data-testid="dialog-log-request">
         <DialogHeader>
           <DialogTitle>Log a Maintenance Request</DialogTitle>
           <DialogDescription>
@@ -189,19 +191,19 @@ export function TenantLogRequestDialog({
         </DialogHeader>
 
         {hasTenancy && property && (
-          <div className="rounded-lg border bg-muted/40 p-3 flex items-start gap-3">
+          <div className="rounded-lg border bg-muted/40 p-3 flex items-start gap-3 min-w-0">
             <div className="p-2 bg-primary/10 rounded-lg shrink-0">
               <Home className="h-4 w-4 text-primary" />
             </div>
-            <div className="min-w-0 space-y-0.5">
+            <div className="min-w-0 flex-1 space-y-0.5">
               <p className="text-xs text-muted-foreground">Filing against</p>
-              <p className="font-medium truncate" data-testid="text-property-name">
+              <p className="font-medium break-words" data-testid="text-property-name">
                 {property.name}
               </p>
               {property.address && (
-                <p className="text-sm text-muted-foreground flex items-center gap-1.5 truncate">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  {property.address}
+                <p className="text-sm text-muted-foreground flex items-start gap-1.5 min-w-0">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span className="break-words min-w-0">{property.address}</span>
                 </p>
               )}
             </div>
@@ -209,16 +211,17 @@ export function TenantLogRequestDialog({
         )}
 
         {!hasTenancy && tenancyData !== undefined && (
-          <p className="text-sm text-destructive">
+          <p className="text-sm text-destructive break-words">
             No active property is linked to your account. Please contact your property manager.
           </p>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
+        <form onSubmit={handleSubmit} className="space-y-4 min-w-0">
+          <div className="space-y-2 min-w-0">
             <Label htmlFor="log-request-title">Title</Label>
             <Input
               id="log-request-title"
+              className="w-full min-w-0"
               placeholder="e.g. Kitchen tap leaking"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -227,10 +230,10 @@ export function TenantLogRequestDialog({
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 min-w-0">
             <Label htmlFor="log-request-priority">Priority</Label>
             <Select value={priority} onValueChange={setPriority}>
-              <SelectTrigger id="log-request-priority" data-testid="select-request-priority">
+              <SelectTrigger id="log-request-priority" className="w-full min-w-0" data-testid="select-request-priority">
                 <SelectValue placeholder="Select priority" />
               </SelectTrigger>
               <SelectContent>

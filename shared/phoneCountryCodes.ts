@@ -1,12 +1,9 @@
-// Mapping of ISO 3166-1 alpha-2 country codes to phone country codes
+// Mapping of ISO 3166-1 alpha-2 country codes to phone dial codes
 export const COUNTRY_TO_PHONE_CODE: Record<string, string> = {
-  // United Kingdom and Crown Dependencies
   GB: "+44",
   GG: "+44",
   IM: "+44",
   JE: "+44",
-  
-  // United States and territories
   US: "+1",
   CA: "+1",
   AS: "+1",
@@ -14,44 +11,18 @@ export const COUNTRY_TO_PHONE_CODE: Record<string, string> = {
   MP: "+1",
   PR: "+1",
   VI: "+1",
-  
-  // United Arab Emirates
   AE: "+971",
-  
-  // Australia
   AU: "+61",
-  
-  // Ireland
   IE: "+353",
-  
-  // New Zealand
   NZ: "+64",
-  
-  // Singapore
   SG: "+65",
-  
-  // India
   IN: "+91",
-  
-  // South Africa
   ZA: "+27",
-  
-  // Saudi Arabia
   SA: "+966",
-  
-  // Qatar
   QA: "+974",
-  
-  // Kuwait
   KW: "+965",
-  
-  // Bahrain
   BH: "+973",
-  
-  // Oman
   OM: "+968",
-  
-  // Additional common countries
   FR: "+33",
   DE: "+49",
   IT: "+39",
@@ -91,59 +62,172 @@ export const COUNTRY_TO_PHONE_CODE: Record<string, string> = {
   PH: "+63",
 };
 
-// Get phone country code from ISO country code
+/** Preferred UI labels for dial codes (unique codes only). */
+export const PHONE_CODE_LABELS: Record<string, string> = {
+  "+1": "United States / Canada",
+  "+7": "Russia",
+  "+20": "Egypt",
+  "+27": "South Africa",
+  "+30": "Greece",
+  "+31": "Netherlands",
+  "+32": "Belgium",
+  "+33": "France",
+  "+34": "Spain",
+  "+39": "Italy",
+  "+41": "Switzerland",
+  "+43": "Austria",
+  "+44": "United Kingdom",
+  "+45": "Denmark",
+  "+46": "Sweden",
+  "+47": "Norway",
+  "+48": "Poland",
+  "+49": "Germany",
+  "+51": "Peru",
+  "+52": "Mexico",
+  "+54": "Argentina",
+  "+55": "Brazil",
+  "+56": "Chile",
+  "+57": "Colombia",
+  "+60": "Malaysia",
+  "+61": "Australia",
+  "+62": "Indonesia",
+  "+63": "Philippines",
+  "+64": "New Zealand",
+  "+65": "Singapore",
+  "+66": "Thailand",
+  "+81": "Japan",
+  "+82": "South Korea",
+  "+84": "Vietnam",
+  "+86": "China",
+  "+90": "Turkey",
+  "+91": "India",
+  "+92": "Pakistan",
+  "+234": "Nigeria",
+  "+254": "Kenya",
+  "+263": "Zimbabwe",
+  "+351": "Portugal",
+  "+353": "Ireland",
+  "+358": "Finland",
+  "+880": "Bangladesh",
+  "+965": "Kuwait",
+  "+966": "Saudi Arabia",
+  "+968": "Oman",
+  "+971": "United Arab Emirates",
+  "+973": "Bahrain",
+  "+974": "Qatar",
+};
+
+/** Dial codes longest-first so +353 wins over +35 / +3. */
+const DIAL_CODES_LONGEST_FIRST: string[] = Array.from(
+  new Set(Object.values(COUNTRY_TO_PHONE_CODE)),
+).sort((a, b) => b.length - a.length);
+
+export function getPhoneCodeOptions(): Array<{ code: string; label: string }> {
+  return DIAL_CODES_LONGEST_FIRST.slice()
+    .sort((a, b) => {
+      const numA = parseInt(a.replace("+", ""), 10) || 9999;
+      const numB = parseInt(b.replace("+", ""), 10) || 9999;
+      return numA - numB;
+    })
+    .map((code) => ({
+      code,
+      label: PHONE_CODE_LABELS[code] || code,
+    }));
+}
+
 export function getPhoneCodeForCountry(countryCode: string): string {
   return COUNTRY_TO_PHONE_CODE[countryCode.toUpperCase()] || "+1";
 }
 
-// Reverse lookup: get country code from phone code (for most common ones)
 export function getCountryCodeFromPhoneCode(phoneCode: string): string | null {
   const normalized = phoneCode.startsWith("+") ? phoneCode : `+${phoneCode}`;
   for (const [country, code] of Object.entries(COUNTRY_TO_PHONE_CODE)) {
-    if (code === normalized) {
-      return country;
-    }
+    if (code === normalized) return country;
   }
   return null;
 }
 
-// Parse phone number: splits combined phone number into country code and number
-// Handles formats like: "+44 7700 900000", "+44 7700900000", "447700900000", etc.
+/**
+ * Split a stored/combined phone into dial code + national number.
+ * Matches known dial codes longest-first (works with E.164 like +447700900123).
+ */
 export function parsePhoneNumber(fullPhone: string | null | undefined): {
   countryCode: string | null;
   number: string;
 } {
-  if (!fullPhone) {
-    return { countryCode: null, number: "" };
-  }
-
+  if (!fullPhone) return { countryCode: null, number: "" };
   const trimmed = fullPhone.trim();
-  if (!trimmed) {
-    return { countryCode: null, number: "" };
+  if (!trimmed) return { countryCode: null, number: "" };
+
+  const compact = trimmed.replace(/[\s\-().]/g, "");
+
+  for (const code of DIAL_CODES_LONGEST_FIRST) {
+    if (compact.startsWith(code)) {
+      return {
+        countryCode: code,
+        number: compact.slice(code.length),
+      };
+    }
   }
 
-  // Try to extract country code from the beginning
-  // Match common patterns: +44, +1, +971, etc.
-  const phoneCodeMatch = trimmed.match(/^(\+\d{1,3})[\s\-]*(.*)$/);
-  if (phoneCodeMatch) {
-    return {
-      countryCode: phoneCodeMatch[1],
-      number: phoneCodeMatch[2].trim(),
-    };
+  // Unknown +prefix: take 1–3 digit country code heuristically
+  const fallback = compact.match(/^(\+\d{1,3})(.*)$/);
+  if (fallback) {
+    return { countryCode: fallback[1], number: fallback[2] };
   }
 
-  // If no country code prefix, return null for country code and the whole thing as number
-  // This allows the component to use the user's default country code
   return { countryCode: null, number: trimmed };
 }
 
-// Combine country code and number into a single phone string
+/** Combine dial code + national number for display while typing. */
 export function combinePhoneNumber(countryCode: string, number: string): string {
-  if (!number.trim()) {
-    return "";
-  }
+  if (!number.trim()) return "";
   const normalizedCode = countryCode.startsWith("+") ? countryCode : `+${countryCode}`;
-  const normalizedNumber = number.trim();
-  return `${normalizedCode} ${normalizedNumber}`;
+  const national = number.trim().replace(/\D/g, "").replace(/^0+/, "");
+  if (!national) return "";
+  return `${normalizedCode} ${national}`;
 }
 
+/**
+ * Normalize to E.164 (+ and digits only). Returns null if missing/invalid.
+ * Suitable for TextMagic and DB storage.
+ */
+export function normalizePhoneE164(raw: string | null | undefined): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const parsed = parsePhoneNumber(trimmed);
+  let digits = "";
+  let withPlus = "";
+
+  if (parsed.countryCode) {
+    const codeDigits = parsed.countryCode.replace(/\D/g, "");
+    const national = parsed.number.replace(/\D/g, "").replace(/^0+/, "");
+    if (!codeDigits || !national) return null;
+    digits = `${codeDigits}${national}`;
+    withPlus = `+${digits}`;
+  } else {
+    const cleaned = trimmed.replace(/[\s\-().]/g, "");
+    if (!cleaned.startsWith("+")) return null;
+    digits = cleaned.slice(1).replace(/\D/g, "");
+    withPlus = `+${digits}`;
+  }
+
+  if (digits.length < 8 || digits.length > 15) return null;
+  if (!/^\+\d{8,15}$/.test(withPlus)) return null;
+  return withPlus;
+}
+
+/**
+ * Value to persist in DB. Empty → null. Prefer E.164; otherwise compact +digits if possible.
+ */
+export function normalizePhoneForStorage(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const e164 = normalizePhoneE164(trimmed);
+  if (e164) return e164;
+  const compact = trimmed.replace(/[\s\-().]/g, "");
+  return compact || null;
+}

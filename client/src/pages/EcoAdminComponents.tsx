@@ -2367,7 +2367,7 @@ export function QuotationsManagement() {
 
       {/* Quote Dialog */}
       <Dialog open={quoteDialogOpen} onOpenChange={setQuoteDialogOpen}>
-        <DialogContent className="max-w-2xl w-[calc(100%-2rem)]">
+        <DialogContent className={cn(dialogContentBase, "max-w-2xl")}>
           <DialogHeader>
             <DialogTitle>Create/Update Quote</DialogTitle>
             <DialogDescription>

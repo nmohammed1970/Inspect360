@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { dialogContentBase } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 interface FeedbackFormProps {
   trigger?: React.ReactNode;
@@ -97,7 +99,7 @@ export function FeedbackForm({ trigger }: FeedbackFormProps) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className={cn(dialogContentBase, "sm:max-w-[500px]")}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MessageSquarePlus className="h-5 w-5 text-primary" />

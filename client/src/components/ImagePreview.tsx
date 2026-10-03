@@ -77,7 +77,7 @@ export function ImagePreviewProvider({ children }: { children: React.ReactNode }
     <ImagePreviewContext.Provider value={{ openPreview }}>
       {children}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[96vh] max-w-[min(96vw,1200px)] w-[96vw] gap-0 overflow-hidden p-0 sm:p-0">
+        <DialogContent className="left-2 right-2 top-[50%] w-auto max-w-[min(96vw,1200px)] translate-x-0 sm:left-[50%] sm:right-auto sm:w-[min(96vw,1200px)] sm:translate-x-[-50%] max-h-[96vh] gap-0 overflow-hidden p-0 sm:p-0">
           <DialogTitle className="sr-only">{current?.title || current?.alt || "Image preview"}</DialogTitle>
           <DialogDescription className="sr-only">
             {current?.caption || "Large preview of the selected image"}
