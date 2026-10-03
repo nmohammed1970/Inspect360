@@ -1,7 +1,8 @@
 /**
  * Password policy tests. Run with: npx tsx shared/passwordPolicy.test.ts
  */
-import { MIN_PASSWORD_LENGTH, validateNewPassword, changePasswordFormSchema } from "./passwordPolicy";
+import { MIN_PASSWORD_LENGTH, validateNewPassword } from "./passwordPolicy";
+import { changePasswordFormSchema } from "./passwordPolicyForms";
 
 let passed = 0;
 let failed = 0;

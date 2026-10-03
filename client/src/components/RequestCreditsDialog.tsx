@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { dialogContentBase } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 type AccountUser = {
   firstName?: string | null;
@@ -95,7 +97,7 @@ export function RequestCreditsDialog({ open, onOpenChange, user }: RequestCredit
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!submit.isPending) { if (!next) reset(); onOpenChange(next); } }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={cn(dialogContentBase, "sm:max-w-lg")}>
         <DialogHeader>
           <DialogTitle>Purchase Credits</DialogTitle>
           <DialogDescription>

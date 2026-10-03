@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { colors, spacing, borderRadius, shadows } from '../theme';
 import { getFontSize, moderateScale } from '../utils/responsive';
+import { resolveMediaUrl } from '../utils/mediaUrl';
 
 function getInitials(user: {
   firstName?: string | null;
@@ -54,16 +55,25 @@ export default function UserProfileMenu() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
 
   const initials = useMemo(() => (user ? getInitials(user) : 'U'), [user]);
   const displayName = useMemo(() => (user ? getDisplayName(user) : 'Account'), [user]);
-  const photoUrl = user?.profileImageUrl || null;
+  const photoUrl = useMemo(
+    () => resolveMediaUrl(user?.profileImageUrl),
+    [user?.profileImageUrl],
+  );
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [photoUrl]);
 
   if (!user) return null;
 
+  const showImage = !!photoUrl && !imageFailed;
+
   const goProfile = () => {
     setOpen(false);
-    // Nested tabs → OpsStack owns Profile; navigate bubbles to the matching route
     navigation.navigate('Profile');
   };
 
@@ -95,8 +105,12 @@ export default function UserProfileMenu() {
           },
         ]}
       >
-        {photoUrl ? (
-          <Image source={{ uri: photoUrl }} style={styles.avatarImage} />
+        {showImage ? (
+          <Image
+            source={{ uri: photoUrl! }}
+            style={styles.avatarImage}
+            onError={() => setImageFailed(true)}
+          />
         ) : (
           <View style={[styles.avatarFallback, { backgroundColor: themeColors.primary.DEFAULT }]}>
             <Text style={styles.avatarInitials}>{initials}</Text>
@@ -126,8 +140,12 @@ export default function UserProfileMenu() {
           >
             <View style={styles.sheetHeader}>
               <View style={styles.sheetIdentity}>
-                {photoUrl ? (
-                  <Image source={{ uri: photoUrl }} style={styles.sheetAvatar} />
+                {showImage ? (
+                  <Image
+                    source={{ uri: photoUrl! }}
+                    style={styles.sheetAvatar}
+                    onError={() => setImageFailed(true)}
+                  />
                 ) : (
                   <View
                     style={[

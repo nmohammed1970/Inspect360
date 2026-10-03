@@ -62,7 +62,7 @@ const trimmed = parseCreditRequestCreate({
   contactPhone: "  +1 555  ",
   message: "  Need credits.  ",
 });
-assert(trimmed.ok && trimmed.message === "Need credits." && trimmed.contactPhone === "+1 555", "message and phone trimmed");
+assert(trimmed.ok && trimmed.message === "Need credits." && trimmed.contactPhone === "+1555", "message and phone trimmed/normalized");
 
 const spoofed = parseCreditRequestCreate({
   creditsRequested: 10,

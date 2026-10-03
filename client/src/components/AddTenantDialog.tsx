@@ -39,7 +39,8 @@ import { useModules } from "@/hooks/use-modules";
 import { PhoneInput } from "@/components/PhoneInput";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { cn } from "@/lib/utils";
-import { dialogFooterSticky, formGrid2 } from "@/lib/responsive";
+import { dialogContentBase, dialogFooterSticky, formGrid2 } from "@/lib/responsive";
+import { normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 
 interface User {
   id: string;
@@ -251,7 +252,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
         userPayload.lastName = data.lastName.trim();
       }
       if (data.phone?.trim()) {
-        userPayload.phone = data.phone.trim();
+        userPayload.phone = normalizePhoneForStorage(data.phone) || data.phone.trim();
       }
 
       // Don't include undefined fields - Zod will handle optional fields
@@ -487,7 +488,7 @@ export default function AddTenantDialog({ propertyId, children, onSuccess }: Add
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[550px]">
+      <DialogContent className={cn(dialogContentBase, "sm:max-w-[550px]")}>
         {!isTenantPortalEnabled && !isLoadingModules ? (
           <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
             <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">

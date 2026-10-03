@@ -43,7 +43,8 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useLocale } from "@/contexts/LocaleContext";
 import { PhoneInput } from "@/components/PhoneInput";
 import { cn } from "@/lib/utils";
-import { dialogFooterSticky, formGrid2 } from "@/lib/responsive";
+import { dialogContentBase, dialogFooterSticky, formGrid2 } from "@/lib/responsive";
+import { normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 
 const formSchema = z.object({
   firstName: z.string().optional().refine((val) => !val || val.trim().length > 0, {
@@ -55,6 +56,7 @@ const formSchema = z.object({
   email: z.string().optional().refine((val) => !val || z.string().email().safeParse(val).success, {
     message: "Invalid email address",
   }),
+  phone: z.string().optional(),
   leaseStartDate: z.string().optional(),
   leaseEndDate: z.string().optional(),
   monthlyRent: z.string().optional(),
@@ -75,6 +77,7 @@ interface TenantAssignment {
   firstName?: string;
   lastName?: string;
   email: string;
+  phone?: string;
   assignment: {
     id: string;
     leaseStartDate?: Date | string;
@@ -159,6 +162,7 @@ export default function EditTenantDialog({
       firstName: "",
       lastName: "",
       email: "",
+      phone: "",
       leaseStartDate: "",
       leaseEndDate: "",
       monthlyRent: "",
@@ -186,6 +190,7 @@ export default function EditTenantDialog({
         firstName: tenant.firstName || "",
         lastName: tenant.lastName || "",
         email: tenant.email || "",
+        phone: tenant.phone || "",
         leaseStartDate,
         leaseEndDate,
         monthlyRent: tenant.assignment.monthlyRent || "",
@@ -203,7 +208,7 @@ export default function EditTenantDialog({
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      // First, update the user (firstName, lastName, email)
+      // First, update the user (firstName, lastName, email, phone)
       const userUpdatePayload: any = {};
       
       // Always update firstName (send trimmed value or null if empty)
@@ -219,6 +224,10 @@ export default function EditTenantDialog({
         // Allow clearing email by sending null
         userUpdatePayload.email = null;
       }
+
+      userUpdatePayload.phone = data.phone?.trim()
+        ? normalizePhoneForStorage(data.phone) || data.phone.trim()
+        : null;
 
       // Update user if there are changes
       if (Object.keys(userUpdatePayload).length > 0) {
@@ -317,6 +326,7 @@ export default function EditTenantDialog({
           firstName: updatedUser.firstName || "",
           lastName: updatedUser.lastName || "",
           email: updatedUser.email || "",
+          phone: updatedUser.phone || "",
           leaseStartDate,
           leaseEndDate,
           monthlyRent: updatedAssignment.monthlyRent || "",
@@ -339,6 +349,7 @@ export default function EditTenantDialog({
           firstName: variables.firstName || "",
           lastName: variables.lastName || "",
           email: variables.email || "",
+          phone: variables.phone || "",
           leaseStartDate,
           leaseEndDate,
           monthlyRent: variables.monthlyRent || "",
@@ -522,7 +533,7 @@ export default function EditTenantDialog({
     <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[700px]">
+      <DialogContent className={cn(dialogContentBase, "sm:max-w-[700px]")}>
         <DialogHeader>
           <DialogTitle>Edit Tenant Assignment</DialogTitle>
           <DialogDescription>Update lease details for {fullName}</DialogDescription>
@@ -585,6 +596,29 @@ export default function EditTenantDialog({
                         data-testid="input-tenant-email"
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contact Number</FormLabel>
+                    <FormControl>
+                      <PhoneInput
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        placeholder="Enter phone number"
+                        data-testid="input-tenant-phone"
+                        field={field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Include country code for SMS (e.g. +44 …)
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

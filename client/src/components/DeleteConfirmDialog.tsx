@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertTriangle } from "lucide-react";
+import { dialogContentBase } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 
 /** Exact confirmation text required for all destructive deletes */
 export const DELETE_CONFIRM_WORD = "Delete";
@@ -56,7 +58,7 @@ export function DeleteConfirmDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className={cn(dialogContentBase, "sm:max-w-md")}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-destructive">
             <AlertTriangle className="h-5 w-5 shrink-0" />

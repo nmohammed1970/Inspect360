@@ -700,6 +700,10 @@ export default function AdminDashboard() {
                     .filter(Boolean)
                     .join(" ");
                   const active = instance.isActive !== false;
+                  const entitlementExpired =
+                    instance.entitlement?.locked === true ||
+                    instance.entitlement?.code === "TRIAL_EXPIRED" ||
+                    instance.entitlement?.code === "CREDITS_EXPIRED";
                   return (
                     <TableRow key={instance.id} className="hover:bg-muted/30">
                       <TableCell className="font-medium">{getOrganizationLabel(instance)}</TableCell>
@@ -721,18 +725,40 @@ export default function AdminDashboard() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="text-sm font-medium">{instance.entitlement?.label || "—"}</div>
+                        <div
+                          className={cn(
+                            "text-sm font-medium",
+                            entitlementExpired && "text-destructive",
+                          )}
+                        >
+                          {instance.entitlement?.label || "—"}
+                        </div>
                         {instance.entitlement?.daysRemaining != null && instance.entitlement.daysRemaining > 0 && (
                           <div className="text-xs text-muted-foreground">{instance.entitlement.daysRemaining} days left</div>
                         )}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-left text-sm">
+                      <TableCell
+                        className={cn(
+                          "whitespace-nowrap text-left text-sm",
+                          entitlementExpired && instance.entitlement?.code === "TRIAL_EXPIRED" && "text-destructive",
+                        )}
+                      >
                         <span className="block text-left">{formatUtcDateTime(instance.entitlement?.trialEndAt)}</span>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-left font-semibold tabular-nums">
+                      <TableCell
+                        className={cn(
+                          "whitespace-nowrap text-left font-semibold tabular-nums",
+                          entitlementExpired && "text-destructive",
+                        )}
+                      >
                         <span className="block text-left">{instance.creditBalance?.total ?? 0}</span>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-left text-sm">
+                      <TableCell
+                        className={cn(
+                          "whitespace-nowrap text-left text-sm",
+                          entitlementExpired && instance.entitlement?.code === "CREDITS_EXPIRED" && "text-destructive",
+                        )}
+                      >
                         <span className="block text-left">{formatInclusiveExpiry(instance.entitlement?.creditExpiryAt || instance.creditBalance?.expiresOn)}</span>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-left tabular-nums">

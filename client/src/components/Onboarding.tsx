@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { formGrid2 } from "@/lib/responsive";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { PhoneInput } from "@/components/PhoneInput";
 import type { User, Organization } from "@shared/schema";
 import { SIGNUP_CREDIT_GRANT } from "@/config/billingTiers";
 
@@ -367,14 +368,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
                 <div>
                   <Label htmlFor="brandingPhone" className="text-sm">Phone</Label>
-                  <Input
-                    id="brandingPhone"
-                    value={brandingPhone}
-                    onChange={(e) => setBrandingPhone(e.target.value)}
-                    placeholder="+44 20 1234 5678"
-                    className="mt-1"
-                    data-testid="input-branding-phone"
-                  />
+                  <div className="mt-1">
+                    <PhoneInput
+                      id="brandingPhone"
+                      value={brandingPhone}
+                      onChange={(value) => setBrandingPhone(value)}
+                      placeholder="7123456789"
+                      data-testid="input-branding-phone"
+                    />
+                  </div>
                 </div>
               </div>
               

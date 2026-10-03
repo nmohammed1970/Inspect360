@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RequestCreditsDialog } from "@/components/RequestCreditsDialog";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeEntitlementLock } from "@/lib/queryClient";
@@ -27,6 +28,7 @@ const COPY: Record<LockCode, { title: string; body: string }> = {
 
 export function EntitlementLockHost() {
   const [open, setOpen] = useState(false);
+  const [creditRequestOpen, setCreditRequestOpen] = useState(false);
   const [code, setCode] = useState<LockCode>("TRIAL_EXPIRED");
   const [location, navigate] = useLocation();
   const { user } = useAuth();
@@ -52,19 +54,31 @@ export function EntitlementLockHost() {
 
   const copy = COPY[code];
 
+  const openBuyCredits = () => {
+    setOpen(false);
+    setCreditRequestOpen(true);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{copy.title}</DialogTitle>
-          <DialogDescription>{copy.body}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button onClick={() => setOpen(false)} data-testid="button-contact-admin">
-            Contact Admin
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{copy.title}</DialogTitle>
+            <DialogDescription>{copy.body}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={openBuyCredits} data-testid="button-contact-admin">
+              Buy Credits
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <RequestCreditsDialog
+        open={creditRequestOpen}
+        onOpenChange={setCreditRequestOpen}
+        user={user}
+      />
+    </>
   );
 }

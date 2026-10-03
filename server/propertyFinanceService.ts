@@ -363,6 +363,8 @@ export type RentPeriodListItem = RentPeriod & {
   amountOutstanding: string;
   tenantName: string;
   tenantEmail: string | null;
+  tenantUserId: string | null;
+  tenantPhone: string | null;
   hasTenantEmail: boolean;
   daysOverdue: number;
   periodLabel: string;
@@ -376,9 +378,11 @@ export async function listRentPeriodsForProperty(
   const rows = await db
     .select({
       period: rentPeriods,
+      tenantUserId: users.id,
       tenantFirstName: users.firstName,
       tenantLastName: users.lastName,
       tenantEmail: users.email,
+      tenantPhone: users.phone,
       tenantUsername: users.username,
     })
     .from(rentPeriods)
@@ -411,6 +415,8 @@ export async function listRentPeriodsForProperty(
       amountOutstanding: outstanding.toFixed(2),
       tenantName,
       tenantEmail: email,
+      tenantUserId: r.tenantUserId || null,
+      tenantPhone: r.tenantPhone || null,
       hasTenantEmail: Boolean(email && email.includes("@")),
       daysOverdue,
       periodLabel: formatPeriodLabel(new Date(r.period.periodStart)),
@@ -668,11 +674,34 @@ export async function sendManualRentReminder(
   try {
     await sendRentEmail(item.tenantEmail, subject, body);
     await markReminderSent(claim.id);
-    return { ok: true };
   } catch (e: any) {
     await markReminderFailed(claim.id, e?.message || "Send failed");
     return { ok: false, message: "Failed to send reminder email", status: 500 };
   }
+
+  // SMS after successful email — never fails the reminder action
+  try {
+    const {
+      sendTenantSms,
+      getOrCreateSmsTemplates,
+      resolveSmsTemplateBody,
+      SMS_EVENT_TYPES,
+    } = await import("./smsService");
+    const smsTemplates = await getOrCreateSmsTemplates(organizationId);
+    await sendTenantSms({
+      organizationId,
+      tenantUserId: item.tenantUserId,
+      phone: item.tenantPhone,
+      eventType: SMS_EVENT_TYPES.RENT_OVERDUE,
+      eventKey: `${periodId}:overdue:${claim.id}:manual`,
+      templateBody: resolveSmsTemplateBody(smsTemplates, SMS_EVENT_TYPES.RENT_OVERDUE),
+      vars,
+    });
+  } catch (smsErr: any) {
+    console.error("[RentFinance] SMS after manual reminder failed (non-fatal):", smsErr?.message || smsErr);
+  }
+
+  return { ok: true };
 }
 
 function buildTemplateVars(
@@ -799,6 +828,15 @@ export async function processScheduledRentReminders(): Promise<void> {
               substituteVars(slot.body || slot.fallbackBody, vars),
             );
             await markReminderSent(claim.id);
+            await sendRentSmsSafe({
+              organizationId: settings.organizationId,
+              item,
+              vars,
+              reminderType: slot.type,
+              scheduledForDate: todayKey,
+              trigger: "scheduled",
+              claimId: claim.id,
+            });
           } catch (e: any) {
             await markReminderFailed(claim.id, e?.message || "Send failed");
           }
@@ -824,11 +862,61 @@ export async function processScheduledRentReminders(): Promise<void> {
               substituteVars(settings.overdueBody || DEFAULT_TEMPLATES.overdueBody, vars),
             );
             await markReminderSent(claim.id);
+            await sendRentSmsSafe({
+              organizationId: settings.organizationId,
+              item,
+              vars,
+              reminderType: "overdue",
+              scheduledForDate: todayKey,
+              trigger: "scheduled",
+              claimId: claim.id,
+            });
           } catch (e: any) {
             await markReminderFailed(claim.id, e?.message || "Send failed");
           }
         }
       }
     }
+  }
+}
+
+async function sendRentSmsSafe(input: {
+  organizationId: string;
+  item: RentPeriodListItem;
+  vars: Record<string, string>;
+  reminderType: string;
+  scheduledForDate: string;
+  trigger: string;
+  claimId: string;
+}): Promise<void> {
+  try {
+    const {
+      sendTenantSms,
+      getOrCreateSmsTemplates,
+      resolveSmsTemplateBody,
+      SMS_EVENT_TYPES,
+    } = await import("./smsService");
+
+    const eventType =
+      input.reminderType === "pre_due_1"
+        ? SMS_EVENT_TYPES.RENT_PRE_DUE_1
+        : input.reminderType === "pre_due_2"
+          ? SMS_EVENT_TYPES.RENT_PRE_DUE_2
+          : input.reminderType === "pre_due_3"
+            ? SMS_EVENT_TYPES.RENT_PRE_DUE_3
+            : SMS_EVENT_TYPES.RENT_OVERDUE;
+
+    const smsTemplates = await getOrCreateSmsTemplates(input.organizationId);
+    await sendTenantSms({
+      organizationId: input.organizationId,
+      tenantUserId: input.item.tenantUserId,
+      phone: input.item.tenantPhone,
+      eventType,
+      eventKey: `${input.item.id}:${input.reminderType}:${input.scheduledForDate}:${input.trigger}`,
+      templateBody: resolveSmsTemplateBody(smsTemplates, eventType),
+      vars: input.vars,
+    });
+  } catch (e: any) {
+    console.error("[RentFinance] SMS failed (non-fatal):", e?.message || e);
   }
 }

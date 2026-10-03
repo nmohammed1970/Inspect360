@@ -5,18 +5,22 @@ import { useTenantEntitlement } from '../hooks/useTenantEntitlement';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import Button from './ui/Button';
+import {
+  subscribeEntitlementLock,
+  type EntitlementLockCode,
+} from '../services/entitlementLock';
 import { colors, spacing, borderRadius } from '../theme';
 import { useResponsive } from '../hooks/useResponsive';
 import { getFontSize } from '../utils/responsive';
 
-const COPY: Record<string, { title: string; body: string }> = {
+const COPY: Record<EntitlementLockCode, { title: string; body: string }> = {
   TRIAL_EXPIRED: {
     title: 'Your trial has ended',
-    body: 'Access to Maintenance, Comparisons, Community, and inspection review is locked. Ask your property manager to renew access.',
+    body: 'Access to Maintenance, Comparisons, Community, and inspection review is locked. Please contact your administration (property manager) to buy credits and unlock the app again.',
   },
   CREDITS_EXPIRED: {
     title: 'Your credits have expired',
-    body: 'Access to Maintenance, Comparisons, Community, and inspection review is locked. Ask your property manager to renew access.',
+    body: 'Access to Maintenance, Comparisons, Community, and inspection review is locked. Please contact your administration (property manager) to buy credits and unlock the app again.',
   },
 };
 
@@ -36,22 +40,37 @@ export default function TenantEntitlementLockHost({ forceOpen, onDismissForce }:
   const themeColors = theme?.colors ?? colors;
   const insets = useSafeAreaInsets();
   const { formMaxWidth, modalMaxHeight, isSmall } = useResponsive();
-  const { locked, code } = useTenantEntitlement();
+  const { locked, code: entitlementCode } = useTenantEntitlement();
   const [open, setOpen] = useState(false);
+  const [code, setCode] = useState<EntitlementLockCode>('TRIAL_EXPIRED');
+
+  const isTenant = isAuthenticated && user?.role === 'tenant';
 
   useEffect(() => {
-    if (locked && isAuthenticated && user?.role === 'tenant') {
+    return subscribeEntitlementLock((next) => {
+      if (!isTenant) return;
+      setCode(next);
       setOpen(true);
-    } else {
+    });
+  }, [isTenant]);
+
+  useEffect(() => {
+    if (locked && isTenant) {
+      setCode(entitlementCode);
+      setOpen(true);
+    } else if (!locked) {
       setOpen(false);
     }
-  }, [locked, isAuthenticated, user?.role, code]);
+  }, [locked, isTenant, entitlementCode]);
 
   useEffect(() => {
-    if (forceOpen) setOpen(true);
-  }, [forceOpen]);
+    if (forceOpen) {
+      setCode(entitlementCode);
+      setOpen(true);
+    }
+  }, [forceOpen, entitlementCode]);
 
-  if (!isAuthenticated || user?.role !== 'tenant') return null;
+  if (!isTenant) return null;
   if (!open && !forceOpen) return null;
   if (!locked && !forceOpen) return null;
 
@@ -96,7 +115,7 @@ export default function TenantEntitlementLockHost({ forceOpen, onDismissForce }:
             <Text style={[styles.title, { color: themeColors.text?.primary }]}>{copy.title}</Text>
             <Text style={[styles.body, { color: themeColors.text?.secondary }]}>{copy.body}</Text>
             <Button
-              title="OK"
+              title="Got it"
               onPress={() => {
                 setOpen(false);
                 onDismissForce?.();

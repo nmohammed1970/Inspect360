@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as Network from 'expo-network';
 import { Platform } from 'react-native';
+import { notifyEntitlementLock } from './entitlementLock';
 
 const PRODUCTION_API_URL = 'https://portal.inspect360.ai';
 
@@ -199,17 +200,20 @@ export interface ApiError {
   message: string;
   error?: string;
   status?: number;
+  code?: string;
 }
 
 async function throwIfResNotOk(res: Response): Promise<void> {
   if (!res.ok) {
     let errorMessage = res.statusText;
+    let code: string | undefined;
 
     try {
       const contentType = res.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
         const errorData = await res.json();
         errorMessage = errorData.message || errorData.error || JSON.stringify(errorData);
+        code = typeof errorData.code === "string" ? errorData.code : undefined;
       } else {
         errorMessage = await res.text() || res.statusText;
       }
@@ -218,9 +222,18 @@ async function throwIfResNotOk(res: Response): Promise<void> {
       errorMessage = res.statusText;
     }
 
-    // Provide user-friendly messages for authentication errors
-    if (res.status === 401 || res.status === 403) {
-      // For login endpoints, provide a simple message
+    // Trial/credits lock — surface to UI; do not treat as session logout
+    if (code === "TRIAL_EXPIRED" || code === "CREDITS_EXPIRED") {
+      notifyEntitlementLock(code);
+      if (code === "CREDITS_EXPIRED") {
+        errorMessage =
+          "Your credits have expired. Please contact your administration to buy credits to unlock the app again.";
+      } else {
+        errorMessage =
+          "Your trial has ended. Please contact your administration to buy credits to unlock the app again.";
+      }
+    } else if (res.status === 401 || res.status === 403) {
+      // Provide user-friendly messages for authentication errors
       if (res.url?.includes('/api/login')) {
         errorMessage = 'Wrong credentials. Please try again.';
       } else {
@@ -236,6 +249,7 @@ async function throwIfResNotOk(res: Response): Promise<void> {
     const error: ApiError = {
       message: errorMessage,
       status: res.status,
+      code,
     };
 
     throw error;

@@ -48,7 +48,7 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
-import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
+import { pagePad, textBreak, textTruncate, dialogContentBase } from "@/lib/responsive";
 
 interface ComparisonReport {
   id: string;
@@ -921,7 +921,7 @@ export default function TenantComparisonReportDetail() {
 
       {/* Dispute Dialog */}
       <Dialog open={disputeDialogOpen} onOpenChange={setDisputeDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className={cn(dialogContentBase, "sm:max-w-[500px]")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Flag className="w-5 h-5" />

@@ -3,9 +3,9 @@
 /** Standard page padding for main content regions. */
 export const pagePad = "p-4 md:p-6";
 
-/** Dialog content: viewport-safe width + height with internal scroll. */
+/** Dialog content: reinforce viewport-safe height/scroll (width comes from DialogContent). */
 export const dialogContentBase =
-  "w-[calc(100%-2rem)] max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto";
+  "min-w-0 max-h-[min(85vh,calc(100dvh-2rem))] overflow-x-hidden overflow-y-auto";
 
 /** Sticky dialog footer for long forms on short screens. */
 export const dialogFooterSticky =

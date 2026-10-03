@@ -2313,6 +2313,48 @@ export const insertTopupOrderSchema = createInsertSchema(topupOrders).omit({
 export type TopupOrder = typeof topupOrders.$inferSelect;
 export type InsertTopupOrder = z.infer<typeof insertTopupOrderSchema>;
 
+/** Org-level SMS body templates for tenant notifications (TextMagic). */
+export const organizationSmsTemplates = pgTable("organization_sms_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().unique(),
+  rentPreDue1Body: text("rent_pre_due_1_body"),
+  rentPreDue2Body: text("rent_pre_due_2_body"),
+  rentPreDue3Body: text("rent_pre_due_3_body"),
+  rentOverdueBody: text("rent_overdue_body"),
+  comparisonReportBody: text("comparison_report_body"),
+  checkInInspectionBody: text("check_in_inspection_body"),
+  checkOutInspectionBody: text("check_out_inspection_body"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type OrganizationSmsTemplates = typeof organizationSmsTemplates.$inferSelect;
+
+/** Idempotent SMS delivery ledger (TextMagic). */
+export const smsDeliveryLog = pgTable("sms_delivery_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  tenantUserId: varchar("tenant_user_id"),
+  eventType: varchar("event_type", { length: 60 }).notNull(),
+  eventKey: varchar("event_key", { length: 200 }).notNull(),
+  recipientPhone: varchar("recipient_phone", { length: 40 }),
+  status: varchar("status", { length: 30 }).notNull().default("pending"),
+  lastError: text("last_error"),
+  providerMessageId: varchar("provider_message_id", { length: 100 }),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("sms_delivery_log_claim_uidx").on(
+    table.organizationId,
+    table.eventType,
+    table.eventKey,
+  ),
+  index("idx_sms_delivery_log_org").on(table.organizationId, table.createdAt),
+]);
+
+export type SmsDeliveryLog = typeof smsDeliveryLog.$inferSelect;
+
 // Message Templates (for broadcasting to tenants)
 export const messageTemplates = pgTable("message_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

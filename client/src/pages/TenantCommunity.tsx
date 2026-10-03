@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { pagePad, textBreak, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, textBreak, dialogFooterSticky, dialogContentBase } from "@/lib/responsive";
 
 interface CommunityGroup {
   id: string;
@@ -347,7 +347,7 @@ export default function TenantCommunity() {
         </div>
 
         <Dialog open={!!showFlagDialog} onOpenChange={(open) => !open && setShowFlagDialog(null)}>
-          <DialogContent>
+          <DialogContent className={dialogContentBase}>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -523,7 +523,7 @@ export default function TenantCommunity() {
         )}
 
         <Dialog open={showCreateThread} onOpenChange={setShowCreateThread}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
             <DialogHeader>
               <DialogTitle>Create New Thread</DialogTitle>
               <DialogDescription>Start a discussion in {selectedGroup.name}</DialogDescription>
@@ -694,7 +694,7 @@ export default function TenantCommunity() {
       )}
 
       <Dialog open={showRulesDialog} onOpenChange={setShowRulesDialog}>
-        <DialogContent className="max-w-lg max-h-[80vh]">
+        <DialogContent className={cn(dialogContentBase, "max-w-lg max-h-[80vh]")}>
           <DialogHeader>
             <DialogTitle>Community Guidelines</DialogTitle>
             <DialogDescription>
@@ -762,7 +762,7 @@ Violations may result in content removal or loss of community privileges.`}
       </Dialog>
 
       <Dialog open={showCreateGroup} onOpenChange={setShowCreateGroup}>
-        <DialogContent>
+        <DialogContent className={dialogContentBase}>
           <DialogHeader>
             <DialogTitle>Create Community Group</DialogTitle>
             <DialogDescription>

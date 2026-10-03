@@ -1,8 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useColorScheme, Appearance } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import { useColorScheme, Appearance, AppState, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
 import { colors as lightColors, darkColors } from '../theme/colors';
 
 export type ThemeMode = 'light' | 'dark' | 'auto';
@@ -19,7 +18,6 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_STORAGE_KEY = 'app_theme_mode';
 
-// Storage helper functions
 const setStorageItem = async (key: string, value: string) => {
   if (Platform.OS === 'web') {
     await AsyncStorage.setItem(key, value);
@@ -31,36 +29,70 @@ const setStorageItem = async (key: string, value: string) => {
 const getStorageItem = async (key: string): Promise<string | null> => {
   if (Platform.OS === 'web') {
     return await AsyncStorage.getItem(key);
-  } else {
-    return await SecureStore.getItemAsync(key);
   }
+  return await SecureStore.getItemAsync(key);
 };
 
+function resolveScheme(scheme: string | null | undefined): 'light' | 'dark' {
+  return scheme === 'dark' ? 'dark' : 'light';
+}
+
+function readOsScheme(): 'light' | 'dark' {
+  return resolveScheme(Appearance.getColorScheme());
+}
+
+/**
+ * App theme is entirely JS-driven.
+ *
+ * Do NOT call Appearance.setColorScheme():
+ * - Forcing light/dark overrides the real OS preference.
+ * - Passing null crashes Android (Kotlin non-null style parameter).
+ * Light/Dark/System are applied only via our React theme colors.
+ */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const systemColorScheme = useColorScheme();
+  const hookColorScheme = useColorScheme();
   const [themeMode, setThemeModeState] = useState<ThemeMode>('auto');
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [osScheme, setOsScheme] = useState<'light' | 'dark'>(readOsScheme);
+  const [, setIsInitialized] = useState(false);
 
-  // Determine actual theme based on mode and system preference
-  const getActualTheme = (mode: ThemeMode, systemScheme: 'light' | 'dark' | null): 'light' | 'dark' => {
-    if (mode === 'auto') {
-      return systemScheme === 'dark' ? 'dark' : 'light';
+  // Track the real device appearance.
+  useEffect(() => {
+    const syncOsScheme = () => {
+      setOsScheme(readOsScheme());
+    };
+
+    syncOsScheme();
+
+    const appearanceSub = Appearance.addChangeListener(({ colorScheme }) => {
+      setOsScheme(resolveScheme(colorScheme));
+    });
+
+    // Android often only refreshes appearance after resume from Settings.
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncOsScheme();
+      }
+    });
+
+    return () => {
+      appearanceSub.remove();
+      appStateSub.remove();
+    };
+  }, []);
+
+  // Keep in sync with useColorScheme when RN reports a concrete value.
+  useEffect(() => {
+    if (hookColorScheme === 'dark' || hookColorScheme === 'light') {
+      setOsScheme(hookColorScheme);
     }
-    return mode;
-  };
+  }, [hookColorScheme]);
 
-  const actualTheme = getActualTheme(themeMode, systemColorScheme || 'light');
-  const isDark = actualTheme === 'dark';
-  // Always ensure themeColors is defined - use lightColors as default
-  const themeColors = (isDark ? darkColors : lightColors) || lightColors;
-
-  // Load saved theme preference on mount
   useEffect(() => {
     const loadTheme = async () => {
       try {
         const savedMode = await getStorageItem(THEME_STORAGE_KEY);
-        if (savedMode && (savedMode === 'light' || savedMode === 'dark' || savedMode === 'auto')) {
-          setThemeModeState(savedMode as ThemeMode);
+        if (savedMode === 'light' || savedMode === 'dark' || savedMode === 'auto') {
+          setThemeModeState(savedMode);
         }
       } catch (error) {
         console.error('Error loading theme preference:', error);
@@ -68,26 +100,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setIsInitialized(true);
       }
     };
-
     loadTheme();
   }, []);
 
-  // Listen to system theme changes when in auto mode
-  useEffect(() => {
-    if (themeMode !== 'auto') return;
+  const actualTheme: 'light' | 'dark' = useMemo(() => {
+    if (themeMode === 'auto') {
+      return osScheme;
+    }
+    return themeMode;
+  }, [themeMode, osScheme]);
 
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
-      // Theme will update automatically via getActualTheme
-      // Force a re-render by updating state
-      setThemeModeState((prev) => prev); // Trigger re-render
-    });
-
-    return () => subscription.remove();
-  }, [themeMode]);
+  const isDark = actualTheme === 'dark';
+  const themeColors = (isDark ? darkColors : lightColors) || lightColors;
 
   const setThemeMode = async (mode: ThemeMode) => {
     try {
       await setStorageItem(THEME_STORAGE_KEY, mode);
+      if (mode === 'auto') {
+        // Fresh read so System mode matches the device right away.
+        setOsScheme(readOsScheme());
+      }
       setThemeModeState(mode);
     } catch (error) {
       console.error('Error saving theme preference:', error);
@@ -95,14 +127,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Always provide theme context, but use default values until initialized
-  // This prevents "Cannot read property" errors when components try to use themeColors
   return (
     <ThemeContext.Provider
       value={{
         theme: actualTheme,
         themeMode,
-        colors: themeColors, // Will be lightColors or darkColors, never undefined
+        colors: themeColors,
         setThemeMode,
         isDark,
       }}
@@ -115,7 +145,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function useTheme(): ThemeContextType {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    // Return a safe default instead of throwing to prevent crashes during module loading
     console.warn('useTheme called outside ThemeProvider, using default colors');
     return {
       theme: 'light' as const,
@@ -125,7 +154,6 @@ export function useTheme(): ThemeContextType {
       isDark: false,
     };
   }
-  // Ensure colors is always defined - double-check for safety
   if (!context.colors) {
     console.warn('Theme context colors is undefined, using default colors');
     return {
@@ -133,10 +161,8 @@ export function useTheme(): ThemeContextType {
       colors: lightColors,
     };
   }
-  // Final safety check - ensure the returned object always has colors
   return {
     ...context,
     colors: context.colors || lightColors,
   };
 }
-

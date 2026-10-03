@@ -19,7 +19,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
-import { parsePhoneNumber, combinePhoneNumber, getPhoneCodeForCountry } from "@shared/phoneCountryCodes";
+import { parsePhoneNumber, combinePhoneNumber, getPhoneCodeForCountry, normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 import { useLocale } from "@/contexts/LocaleContext";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
@@ -239,7 +239,7 @@ export default function Contacts() {
       firstName: formData.get("firstName") as string,
       lastName: formData.get("lastName") as string,
       email: formData.get("email") as string || undefined,
-      phone: phoneValue || undefined, // Combined phone number
+      phone: phoneValue ? normalizePhoneForStorage(phoneValue) || phoneValue : undefined,
       countryCode: parsedPhone.countryCode || defaultPhoneCode, // Extract country code for schema compatibility
       companyName: formData.get("companyName") as string || undefined,
       jobTitle: formData.get("jobTitle") as string || undefined,
