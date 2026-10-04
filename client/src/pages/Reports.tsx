@@ -11,6 +11,7 @@ import {
   Package,
   ClipboardCheck,
   FileBarChart,
+  History,
   ShieldCheck,
 } from "lucide-react";
 
@@ -21,6 +22,15 @@ export default function Reports() {
       description: "Full portfolio export as PDF or Excel — blocks, properties, inspections, and more",
       icon: FileBarChart,
       link: "/reports/portfolio",
+      color: "text-primary",
+      bgColor: "bg-primary/10",
+      available: true,
+    },
+    {
+      title: "Property History Report",
+      description: "Complete history for one property — inspections, tenants, compliance, and more",
+      icon: History,
+      link: "/reports/property-history",
       color: "text-primary",
       bgColor: "bg-primary/10",
       available: true,
