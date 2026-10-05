@@ -39,6 +39,7 @@ import {
   User,
   Upload,
   Pencil,
+  History,
   ImageIcon,
   Mail,
   Phone,
@@ -425,14 +426,22 @@ export default function PropertyDetail() {
               </div>
             )}
           </div>
-          <Button
-            variant="outline"
-            onClick={handleOpenEditDialog}
-            data-testid="button-edit-property"
-          >
-            <Pencil className="h-4 w-4 mr-2" />
-            Edit Property
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={`/reports/property-history?propertyId=${property.id}`}>
+              <Button variant="outline" data-testid="button-property-history-report">
+                <History className="h-4 w-4 mr-2" />
+                Property History Report
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              onClick={handleOpenEditDialog}
+              data-testid="button-edit-property"
+            >
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit Property
+            </Button>
+          </div>
         </div>
 
         {/* Property Image and Map Section */}

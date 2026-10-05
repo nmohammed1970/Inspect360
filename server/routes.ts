@@ -9861,11 +9861,28 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     }
   });
 
-  app.get("/api/comparisons/:propertyId", isAuthenticated, async (req, res) => {
+  app.get("/api/comparisons/:propertyId", isAuthenticated, async (req: any, res) => {
     try {
       const { propertyId } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const property = await storage.getProperty(propertyId);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
       const reports = await storage.getComparisonReportsByProperty(propertyId);
-      res.json(reports);
+      if (req.query.includeItems !== "true") {
+        return res.json(reports);
+      }
+      const withItems = await Promise.all(
+        reports.map(async (report) => ({
+          ...report,
+          items: await storage.getComparisonReportItems(report.id),
+        })),
+      );
+      res.json(withItems);
     } catch (error) {
       console.error("Error fetching comparisons:", error);
       res.status(500).json({ message: "Failed to fetch comparisons" });
@@ -34152,6 +34169,163 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       }
     } catch (error: any) {
       console.error("Error generating portfolio PDF report:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ message: error.message || "Failed to generate PDF report" });
+      }
+    }
+  });
+
+  app.get("/api/reports/property-history/pdf", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user || !user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const propertyId = typeof req.query.propertyId === "string" ? req.query.propertyId : "";
+      if (!propertyId) {
+        return res.status(400).json({ message: "propertyId is required" });
+      }
+
+      const orgId = user.organizationId;
+      const property = await storage.getProperty(propertyId);
+      if (!property || property.organizationId !== orgId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      const [
+        block,
+        inspections,
+        tenantAssignments,
+        allCompliance,
+        maintenanceRequests,
+        workOrders,
+        comparisonReports,
+        assetInventory,
+        organization,
+        orgUsers,
+      ] = await Promise.all([
+        property.blockId ? storage.getBlock(property.blockId) : Promise.resolve(null),
+        storage.getInspectionsByProperty(propertyId),
+        storage.getTenantAssignmentsByProperty(propertyId, orgId),
+        storage.getComplianceDocuments(orgId),
+        storage.getMaintenanceRequestsByProperty(propertyId),
+        storage.getWorkOrdersByOrganization(orgId),
+        storage.getComparisonReportsByProperty(propertyId),
+        storage.getAssetInventoryByProperty(propertyId),
+        storage.getOrganization(orgId),
+        storage.getUsersByOrganization(orgId),
+      ]);
+
+      const complianceDocuments = (allCompliance || []).filter((d: any) => d.propertyId === propertyId);
+      const propertyWorkOrders = (workOrders || []).filter(
+        (wo: any) =>
+          wo.maintenanceRequest?.propertyId === propertyId || wo.property?.id === propertyId
+      );
+
+      const userById = new Map((orgUsers || []).map((u: any) => [u.id, u]));
+      const occupancyStatus = tenantAssignments.some((ta: any) => {
+        const nested = ta.assignment;
+        const raw =
+          nested?.isActive !== undefined && nested?.isActive !== null
+            ? nested.isActive
+            : ta.isActive !== undefined && ta.isActive !== null
+              ? ta.isActive
+              : (ta as any).is_active;
+        if (raw === false || raw === 0 || raw === "false" || raw === "f") return false;
+        if (raw === true || raw === 1 || raw === "true" || raw === "t") return true;
+        if (raw === null || raw === undefined) return true;
+        return ta.status === "active" || ta.status === "current";
+      })
+        ? "Occupied"
+        : "Vacant";
+
+      const disputeStatuses = new Set(["disputed", "resolved", "waived"]);
+      const disputeItems: Array<{ item: any; report: any }> = [];
+      for (const report of comparisonReports || []) {
+        const items = await storage.getComparisonReportItems(report.id);
+        for (const item of items) {
+          if (disputeStatuses.has(item.status)) {
+            disputeItems.push({ item, report });
+          }
+        }
+      }
+
+      const { generatePropertyHistoryReportHTML, sanitizePropertyHistoryFilename } = await import(
+        "./propertyHistoryReportPdf"
+      );
+
+      const branding = organization
+        ? {
+            logoUrl: organization.logoUrl,
+            brandingName: organization.brandingName || null,
+            brandingEmail: organization.brandingEmail,
+            brandingPhone: organization.brandingPhone,
+            brandingWebsite: organization.brandingWebsite,
+          }
+        : {};
+
+      const protocol = req.protocol;
+      const host = req.get("host");
+      const baseUrl = `${protocol}://${host}`;
+
+      const html = await generatePropertyHistoryReportHTML({
+        organizationName: organization?.name || "Inspect360",
+        property,
+        block,
+        occupancyStatus,
+        inspections,
+        inspectorById: userById,
+        assignedUserById: userById,
+        tenantAssignments,
+        comparisonTenantsById: userById,
+        complianceDocuments,
+        maintenanceRequests,
+        workOrders: propertyWorkOrders,
+        disputeItems,
+        assetInventory,
+        branding,
+        baseUrl,
+        countryCode: organization?.countryCode || "GB",
+      });
+
+      let browser;
+      try {
+        browser = await launchPuppeteerBrowser();
+        const page = await browser.newPage();
+        await page.setContent(html, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        });
+
+        const pdf = await page.pdf({
+          format: "A4",
+          landscape: true,
+          printBackground: true,
+          margin: {
+            top: "12mm",
+            right: "10mm",
+            bottom: "12mm",
+            left: "10mm",
+          },
+        });
+
+        const pdfBuffer = Buffer.from(pdf);
+        const dateStamp = new Date().toISOString().split("T")[0];
+        const fileName = `property-history-${sanitizePropertyHistoryFilename(property.name)}-${dateStamp}.pdf`;
+        console.log(`[Property History PDF] Generated ${pdfBuffer.length} bytes`);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+        res.setHeader("Content-Length", pdfBuffer.length.toString());
+        res.setHeader("Cache-Control", "no-cache");
+        res.send(pdfBuffer);
+      } finally {
+        if (browser) {
+          await browser.close();
+        }
+      }
+    } catch (error: any) {
+      console.error("Error generating property history PDF report:", error);
       if (!res.headersSent) {
         res.status(500).json({ message: error.message || "Failed to generate PDF report" });
       }
