@@ -46,6 +46,16 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { PageHeader } from "@/components/PageHeader";
+import { cardGrid, pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
+import { formatRoomCountsSummary, parseRoomCounts } from "@shared/propertyLayout";
+import {
+  formatInspectionStatus,
+  formatInspectionType,
+  inspectionStatusBadgeVariant,
+} from "@shared/inspectionLabels";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -148,6 +158,7 @@ export default function Inspections() {
   const { toast } = useToast();
   const { user } = useAuth();
   const locale = useLocale();
+  const { tenanciesEnabled } = useCompanyModules();
   const [, navigate] = useLocation();
   const searchParams = useSearch();
   const urlParams = new URLSearchParams(searchParams);
@@ -243,7 +254,7 @@ export default function Inspections() {
   // Fetch tenants for selected property
   const { data: tenants = [] } = useQuery<any[]>({
     queryKey: ["/api/properties", selectedPropertyId, "tenants"],
-    enabled: !!selectedPropertyId,
+    enabled: !!selectedPropertyId && tenanciesEnabled,
   });
 
   // Copy inspection form
@@ -487,47 +498,27 @@ export default function Inspections() {
       delete payload.clerkId;
     }
     
-    // Remove tenantId if empty or sentinel
-    if (payload.tenantId === "__none__" || !payload.tenantId) {
+    // Remove tenantId if empty, sentinel, or tenancies module is off
+    if (!tenanciesEnabled || payload.tenantId === "__none__" || !payload.tenantId) {
       delete payload.tenantId;
     }
     
     createInspection.mutate(payload);
   };
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: any; label: string; className?: string }> = {
-      draft: { variant: "outline", label: "Draft", className: "border-muted-foreground/50 text-muted-foreground" },
-      scheduled: { variant: "outline", label: "Scheduled", className: "border-blue-500 text-blue-600 dark:text-blue-400" },
-      in_progress: { variant: "default", label: "In Progress", className: "bg-amber-500 text-white dark:bg-amber-600" },
-      completed: { variant: "default", label: "Completed", className: "bg-primary text-primary-foreground" },
-    };
-    const config = variants[status] || variants.draft;
-    return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
-  };
+  const getStatusBadge = (status: string) => (
+    <Badge variant={inspectionStatusBadgeVariant(status)}>
+      {formatInspectionStatus(status)}
+    </Badge>
+  );
 
-  const getTypeBadge = (type: string) => {
-    const labels: Record<string, string> = {
-      check_in: "Check In",
-      check_out: "Check Out",
-      routine: "Routine",
-      maintenance: "Maintenance",
-      esg_sustainability_inspection: "ESG Sustainability Inspection",
-      fire_hazard_assessment: "Fire Hazard Assessment",
-      maintenance_inspection: "Maintenance Inspection",
-      damage: "Damage",
-      emergency: "Emergency",
-      safety_compliance: "Safety & Compliance",
-      compliance_regulatory: "Compliance / Regulatory",
-      pre_purchase: "Pre-Purchase",
-      specialized: "Specialized",
-    };
-    return <Badge variant="outline">{labels[type] || type}</Badge>;
-  };
+  const getTypeBadge = (type: string) => (
+    <Badge variant="outline">{formatInspectionType(type)}</Badge>
+  );
 
   if (isLoading) {
     return (
-      <div className="container mx-auto min-w-0 p-4 md:p-6">
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="flex justify-center items-center h-64">
           <p className="text-muted-foreground">Loading inspections...</p>
         </div>
@@ -536,17 +527,16 @@ export default function Inspections() {
   }
 
   return (
-    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-page-title">Inspections</h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            {canCreateInspections
-              ? "Manage and conduct property inspections"
-              : "Work on inspections assigned to you"}
-          </p>
-        </div>
-        {canCreateInspections && (
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <PageHeader
+        title={<span data-testid="text-page-title">Inspections</span>}
+        description={
+          canCreateInspections
+            ? "Manage and conduct property inspections"
+            : "Work on inspections assigned to you"
+        }
+        actions={
+          canCreateInspections ? (
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           if (!hasCredits && open) {
             toast({
@@ -564,9 +554,8 @@ export default function Inspections() {
                 <span className="inline-block">
                   <DialogTrigger asChild>
                     <Button 
+                      variant="brand"
                       data-testid="button-create-inspection" 
-                      size="sm" 
-                      className="text-xs md:text-sm h-8 md:h-10 px-2 md:px-4"
                       disabled={!hasCredits}
                       onClick={(e) => {
                         if (!hasCredits) {
@@ -689,8 +678,33 @@ export default function Inspections() {
                   />
                 )}
 
-                {/* Active Tenants Display */}
-                {form.watch("targetType") === "property" && selectedPropertyId && (
+                {form.watch("targetType") === "property" && selectedPropertyId && (() => {
+                  const selectedProperty = properties.find((p: any) => p.id === selectedPropertyId);
+                  if (!selectedProperty) return null;
+                  const summary = formatRoomCountsSummary(
+                    parseRoomCounts({
+                      bedrooms: selectedProperty.bedrooms,
+                      kitchens: selectedProperty.kitchens,
+                      bathrooms: selectedProperty.bathrooms,
+                      livingRooms: selectedProperty.livingRooms,
+                    }),
+                  );
+                  return (
+                    <div
+                      className="rounded-md border bg-muted/30 p-3 space-y-1"
+                      data-testid="selected-property-layout-summary"
+                    >
+                      <p className="text-sm font-medium">Selected Property Layout</p>
+                      <p className="text-sm text-muted-foreground">{summary}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Inspection rooms will be generated from these property counts.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Active Tenants Display — tenancies module only */}
+                {tenanciesEnabled && form.watch("targetType") === "property" && selectedPropertyId && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Users className="h-4 w-4 text-muted-foreground" />
@@ -741,7 +755,7 @@ export default function Inspections() {
                   </div>
                 )}
 
-                {form.watch("targetType") === "property" && selectedPropertyId && tenants.length > 0 && (
+                {tenanciesEnabled && form.watch("targetType") === "property" && selectedPropertyId && tenants.length > 0 && (
                   <FormField
                     control={form.control}
                     name="tenantId"
@@ -917,8 +931,9 @@ export default function Inspections() {
             </Form>
           </DialogContent>
         </Dialog>
-        )}
-      </div>
+          ) : undefined
+        }
+      />
 
       <FiltersSection headingId="inspections-filters-heading">
         <div className="hidden md:flex flex-wrap gap-3 items-end">
@@ -1182,7 +1197,7 @@ export default function Inspections() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className={cardGrid}>
           {filteredInspections.map((inspection: any) => (
             <Card key={inspection.id} className="hover-elevate flex flex-col" data-testid={`card-inspection-${inspection.id}`}>
               <CardHeader>
@@ -1192,8 +1207,8 @@ export default function Inspections() {
                   </CardTitle>
                   <div className="flex flex-col items-end gap-1">
                     {getStatusBadge(inspection.status)}
-                    {/* Tenant Approval Status - For Check-In Inspections */}
-                    {inspection.type === "check_in" && (
+                    {/* Tenant Approval Status - For Check-In Inspections (tenancies module only) */}
+                    {tenanciesEnabled && inspection.type === "check_in" && (
                       (() => {
                         // Check if deadline has passed and status is still pending/null - should show as approved
                         const deadline = inspection.tenantApprovalDeadline 
@@ -1270,8 +1285,9 @@ export default function Inspections() {
                 <div className="flex gap-2 flex-wrap mt-auto">
                   {inspection.templateSnapshotJson && inspection.status !== "completed" && (
                     <Button
+                      variant="brand"
                       size="sm"
-                      className="flex-1"
+                      className="flex-1 min-h-9"
                       onClick={() => navigate(`/inspections/${inspection.id}/capture`)}
                       data-testid={`button-start-capture-${inspection.id}`}
                     >
@@ -1282,7 +1298,7 @@ export default function Inspections() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 min-h-9"
                     onClick={() => navigate(`/inspections/${inspection.id}/report`)}
                     data-testid={`button-view-report-${inspection.id}`}
                   >
@@ -1292,7 +1308,7 @@ export default function Inspections() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 min-h-9"
                     onClick={() => navigate(`/inspections/${inspection.id}`)}
                     data-testid={`button-view-details-${inspection.id}`}
                   >
@@ -1302,6 +1318,7 @@ export default function Inspections() {
                   <Button
                     variant="outline"
                     size="icon"
+                    className="h-9 w-9 shrink-0"
                     onClick={() => handleCopyClick(inspection)}
                     data-testid={`button-copy-inspection-${inspection.id}`}
                     title="Copy Inspection"

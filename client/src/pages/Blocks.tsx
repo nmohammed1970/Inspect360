@@ -19,11 +19,15 @@ import { AddressInput } from "@/components/AddressInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
+import { CardQuickActions } from "@/components/CardQuickActions";
+import type { CardQuickAction } from "@/components/CardQuickActions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tag } from "@shared/schema";
 import { Tag as TagIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase } from "@/lib/responsive";
+import { pagePad, dialogContentBase, cardGridComfortable } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 function getBlockDeleteReason(block: Block): string | null {
   const stats = block.stats;
@@ -85,6 +89,7 @@ export default function Blocks() {
   const [maintenanceBlockId, setMaintenanceBlockId] = useState<string | null>(null);
   const [blockToDelete, setBlockToDelete] = useState<Block | null>(null);
   const { toast } = useToast();
+  const { tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
 
   const { data: blocks = [], isLoading } = useQuery<Block[]>({
     queryKey: ["/api/blocks"],
@@ -317,17 +322,16 @@ export default function Blocks() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      {/* Modern Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Blocks & Buildings</h1>
-          <p className="text-sm md:text-base text-muted-foreground">Manage your property complexes and building blocks</p>
-        </div>
-        <Button onClick={handleOpenCreate} size="lg" className="transition-smooth" data-testid="button-create-block">
-          <Plus className="mr-2 h-5 w-5" />
-          New Block
-        </Button>
-      </div>
+      <PageHeader
+        title="Blocks & Buildings"
+        description="Manage your property complexes and building blocks"
+        actions={
+          <Button variant="brand" onClick={handleOpenCreate} data-testid="button-create-block">
+            <Plus className="mr-2 h-5 w-5" />
+            New Block
+          </Button>
+        }
+      />
 
       {blocks.length > 0 && (
         <FiltersSection headingId="blocks-filters-heading">
@@ -409,7 +413,7 @@ export default function Blocks() {
           </div>
         </div>
       ) : blocks.length === 0 ? (
-        <Card className="glass-card-strong">
+        <Card className="clean-card">
           <CardContent className="flex flex-col items-center justify-center py-16 md:py-24">
             <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
               <Building className="h-10 w-10 text-primary" />
@@ -425,7 +429,7 @@ export default function Blocks() {
           </CardContent>
         </Card>
       ) : filteredBlocks.length === 0 ? (
-        <Card className="glass-card">
+        <Card className="clean-card">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Search className="h-8 w-8 text-muted-foreground" />
@@ -440,9 +444,9 @@ export default function Blocks() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-6 md:gap-8 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
+        <div className={cardGridComfortable}>
           {filteredBlocks.map((block) => (
-            <Card key={block.id} data-testid={`card-block-${block.id}`} className="glass-card card-hover-lift overflow-hidden flex h-full flex-col">
+            <Card key={block.id} data-testid={`card-block-${block.id}`} className="clean-card card-hover-lift overflow-hidden flex h-full flex-col">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/blocks/${block.id}`} className="flex-1 min-w-0">
@@ -455,6 +459,7 @@ export default function Blocks() {
                     <CardDescription className="line-clamp-2 min-h-[2.75rem] cursor-pointer mt-3 text-base">{block.address}</CardDescription>
                   </Link>
                   <div className="flex gap-1 flex-shrink-0">
+                    {maintenanceEnabled && (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -468,6 +473,7 @@ export default function Blocks() {
                     >
                       <Wrench className="h-4 w-4" />
                     </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -546,19 +552,21 @@ export default function Blocks() {
                   </div>
 
                   {/* Compliance */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(block.stats?.complianceRate || 0) >= 80 ? 'bg-accent/10' : 'bg-destructive/10'}`}>
-                        <CheckCircle2 className={`h-4 w-4 ${(block.stats?.complianceRate || 0) >= 80 ? 'text-accent' : 'text-destructive'}`} />
+                  {complianceEnabled && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(block.stats?.complianceRate || 0) >= 80 ? 'bg-accent/10' : 'bg-destructive/10'}`}>
+                          <CheckCircle2 className={`h-4 w-4 ${(block.stats?.complianceRate || 0) >= 80 ? 'text-accent' : 'text-destructive'}`} />
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground">Compliance</span>
                       </div>
-                      <span className="text-xs font-medium text-muted-foreground">Compliance</span>
+                      <div className="flex items-baseline gap-2">
+                        <span className={`text-2xl font-bold ${(block.stats?.complianceRate || 0) >= 80 ? 'text-accent' : 'text-destructive'}`} data-testid={`badge-compliance-${block.id}`}>
+                          {block.stats?.complianceRate || 0}%
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className={`text-2xl font-bold ${(block.stats?.complianceRate || 0) >= 80 ? 'text-accent' : 'text-destructive'}`} data-testid={`badge-compliance-${block.id}`}>
-                        {block.stats?.complianceRate || 0}%
-                      </span>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Due Soon */}
                   <div className="space-y-2">
@@ -633,73 +641,52 @@ export default function Blocks() {
                 {/* Quick Actions */}
                 <div className="mt-auto space-y-5">
                   <div className="h-px bg-border/30" />
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-                    <Link href={`/properties?blockId=${block.id}`} className="w-full">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                        data-testid={`button-properties-${block.id}`}
-                      >
-                        <Home className="h-4 w-4 mb-1 shrink-0" />
-                        <span className="text-[10px] leading-tight text-center w-full">Properties</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/asset-inventory?blockId=${block.id}`} className="w-full">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                        data-testid={`button-inventory-${block.id}`}
-                      >
-                        <Package className="h-4 w-4 mb-1 shrink-0" />
-                        <span className="text-[10px] leading-tight text-center w-full">Inventory</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/inspections?blockId=${block.id}&create=true`} className="w-full">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                        data-testid={`button-inspect-${block.id}`}
-                      >
-                        <ClipboardCheck className="h-4 w-4 mb-1 shrink-0" />
-                        <span className="text-[10px] leading-tight text-center w-full">Inspect</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/blocks/${block.id}/tenants`} className="w-full">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                        data-testid={`button-tenants-${block.id}`}
-                      >
-                        <Users className="h-4 w-4 mb-1 shrink-0" />
-                        <span className="text-[10px] leading-tight text-center w-full">Tenants</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/compliance?blockId=${block.id}`} className="w-full">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                        data-testid={`button-compliance-${block.id}`}
-                      >
-                        <FileText className="h-4 w-4 mb-1 shrink-0" />
-                        <span className="text-[10px] leading-tight text-center w-full">Compliance</span>
-                      </Button>
-                    </Link>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="flex flex-col h-auto py-2 px-0.5 w-full min-w-0"
-                      data-testid={`button-maintenance-${block.id}`}
-                      onClick={() => setMaintenanceBlockId(block.id)}
-                    >
-                      <Wrench className="h-4 w-4 mb-1 shrink-0" />
-                      <span className="text-[10px] leading-tight text-center w-full">Maint.</span>
-                    </Button>
-                  </div>
+                  <CardQuickActions
+                    actions={([
+                      {
+                        id: "properties",
+                        label: "Properties",
+                        icon: Home,
+                        href: `/properties?blockId=${block.id}`,
+                        testId: `button-properties-${block.id}`,
+                      },
+                      {
+                        id: "inventory",
+                        label: "Inventory",
+                        icon: Package,
+                        href: `/asset-inventory?blockId=${block.id}`,
+                        testId: `button-inventory-${block.id}`,
+                      },
+                      {
+                        id: "inspect",
+                        label: "Inspect",
+                        icon: ClipboardCheck,
+                        href: `/inspections?blockId=${block.id}&create=true`,
+                        testId: `button-inspect-${block.id}`,
+                      },
+                      tenanciesEnabled && {
+                        id: "tenants",
+                        label: "Tenants",
+                        icon: Users,
+                        href: `/blocks/${block.id}/tenants`,
+                        testId: `button-tenants-${block.id}`,
+                      },
+                      complianceEnabled && {
+                        id: "compliance",
+                        label: "Compliance",
+                        icon: FileText,
+                        href: `/compliance?blockId=${block.id}`,
+                        testId: `button-compliance-${block.id}`,
+                      },
+                      maintenanceEnabled && {
+                        id: "maintenance",
+                        label: "Maintenance",
+                        icon: Wrench,
+                        onClick: () => setMaintenanceBlockId(block.id),
+                        testId: `button-maintenance-${block.id}`,
+                      },
+                    ] as (CardQuickAction | false)[]).filter(Boolean) as CardQuickAction[]}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -776,11 +763,13 @@ export default function Blocks() {
         </DialogContent>
       </Dialog>
 
+      {maintenanceEnabled && (
       <QuickAddMaintenanceSheet
         open={!!maintenanceBlockId}
         onOpenChange={(open) => !open && setMaintenanceBlockId(null)}
         blockId={maintenanceBlockId || undefined}
       />
+      )}
 
       <DeleteConfirmDialog
         open={!!blockToDelete}

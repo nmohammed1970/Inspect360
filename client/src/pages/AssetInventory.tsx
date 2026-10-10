@@ -24,7 +24,7 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
-import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
 
 const conditionLabels = {
   excellent: "Excellent",
@@ -680,7 +680,7 @@ export default function AssetInventory() {
       
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold break-words">
+          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight font-heading break-words">
             {currentBlock 
               ? `${currentBlock.name} - Asset Inventory` 
               : currentProperty 
@@ -700,7 +700,7 @@ export default function AssetInventory() {
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => handleOpenDialog()} data-testid="button-add-asset" style={{ backgroundColor: '#00D2BD' }} className="hover:opacity-90">
+            <Button variant="brand" onClick={() => handleOpenDialog()} data-testid="button-add-asset">
               <Plus className="w-4 h-4 mr-2" />
               Add Asset
             </Button>
@@ -1309,7 +1309,7 @@ export default function AssetInventory() {
                 : "Get started by adding your first asset"}
             </p>
             {!searchTerm && filterCategory === "all" && filterCondition === "all" && filterPropertyBlock === "all" && filterSpecificLocation === "all" && (
-              <Button onClick={() => handleOpenDialog()} data-testid="button-add-first-asset" style={{ backgroundColor: '#00D2BD' }} className="hover:opacity-90">
+              <Button variant="brand" onClick={() => handleOpenDialog()} data-testid="button-add-first-asset">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Your First Asset
               </Button>

@@ -28,12 +28,20 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useCompanyModules } from '../../hooks/useCompanyModules';
 import { FieldWidget } from '../../components/inspections/FieldWidget';
+import { InspectionGalleryPanel } from '../../components/inspections/InspectionGalleryPanel';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { formatSignerDisplayName } from '../../../../shared/signature';
 import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
+import {
+  applyPropertyCountsToTemplateSnapshot,
+  isBedroomCountField,
+  parseRepeatableCountValue,
+  repeatableCountsFromPropertyLayout,
+} from '../../../../shared/propertyLayout';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
@@ -73,6 +81,7 @@ export default function InspectionCaptureScreen() {
   const { inspectionId } = route.params;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
+  const { maintenanceEnabled } = useCompanyModules();
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
@@ -90,6 +99,7 @@ export default function InspectionCaptureScreen() {
   const tabFontSize = getFontSize(typography.fontSize.xs);
 
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [captureMode, setCaptureMode] = useState<'sections' | 'gallery'>('sections');
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const repeatableCountsInitialized = useRef(false); // Track if we've initialized default counts
@@ -149,6 +159,8 @@ export default function InspectionCaptureScreen() {
   });
 
   const effectiveInspection = inspection;
+  const propertyRoomCountsSnapshot = effectiveInspection?.propertyRoomCountsSnapshot ?? null;
+  const roomsLockedFromProperty = !!propertyRoomCountsSnapshot;
 
   // Check if inspection is deleted
   const isDeleted = (inspectionError as any)?.isDeleted ||
@@ -319,7 +331,7 @@ export default function InspectionCaptureScreen() {
       return [];
     }
 
-    return rawTemplateStructure.sections.map(section => ({
+    const mapped = rawTemplateStructure.sections.map(section => ({
       ...section,
       fields: (section.fields || []).map((field: any) => {
         // Ensure boolean properties are actual booleans, not strings
@@ -351,7 +363,17 @@ export default function InspectionCaptureScreen() {
         return parsedField;
       }),
     }));
-  }, [effectiveInspection?.templateSnapshotJson, effectiveInspection?.templateId]);
+
+    const snapshot = effectiveInspection?.propertyRoomCountsSnapshot;
+    if (!snapshot) return mapped;
+
+    const applied = applyPropertyCountsToTemplateSnapshot({ sections: mapped }, snapshot);
+    return (applied.structure.sections || []) as TemplateSection[];
+  }, [
+    effectiveInspection?.templateSnapshotJson,
+    effectiveInspection?.templateId,
+    effectiveInspection?.propertyRoomCountsSnapshot,
+  ]);
 
   // Load existing entries into state
   // Always update entries when existingEntries changes (to support copy from check-in)
@@ -370,8 +392,7 @@ export default function InspectionCaptureScreen() {
       // Check if this is a repeatable count entry
       if (entry.fieldKey && entry.fieldKey.startsWith('__repeatable_count_')) {
         const sectionId = entry.fieldKey.replace('__repeatable_count_', '');
-        const count = typeof entry.valueJson === 'number' ? entry.valueJson : parseInt(String(entry.valueJson || 1), 10);
-        countsMap[sectionId] = Math.max(1, count); // Ensure at least 1
+        countsMap[sectionId] = parseRepeatableCountValue(entry.valueJson, 1);
         // Don't add count entries to entriesMap - they're metadata only
       }
     });
@@ -416,14 +437,20 @@ export default function InspectionCaptureScreen() {
     });
     
     // Set repeatable counts FIRST - this ensures counts are available before entries are processed
-    // Use functional update to merge with existing counts
-    if (Object.keys(countsMap).length > 0) {
+    // Property snapshot (if present) always wins over stale __repeatable_count_* rows
+    const snapshotCounts = propertyRoomCountsSnapshot
+      ? repeatableCountsFromPropertyLayout(
+          { sections: (effectiveInspection?.templateSnapshotJson as any)?.sections || [] },
+          propertyRoomCountsSnapshot,
+        )
+      : {};
+    const mergedCounts = { ...countsMap, ...snapshotCounts };
+    if (Object.keys(mergedCounts).length > 0) {
       repeatableCountsInitialized.current = true; // Mark as initialized from saved data
       setRepeatableCounts(prev => {
         const merged = { ...prev };
-        Object.keys(countsMap).forEach(sectionId => {
-          // Always use the saved count from entries (it's persisted)
-          merged[sectionId] = countsMap[sectionId];
+        Object.keys(mergedCounts).forEach(sectionId => {
+          merged[sectionId] = mergedCounts[sectionId];
         });
         return merged;
       });
@@ -461,7 +488,7 @@ export default function InspectionCaptureScreen() {
       });
       return merged;
     });
-  }, [effectiveEntries, sections]);
+  }, [effectiveEntries, sections, propertyRoomCountsSnapshot, effectiveInspection?.templateSnapshotJson]);
 
   // Debug logging
   useEffect(() => {
@@ -556,8 +583,48 @@ export default function InspectionCaptureScreen() {
     },
   });
 
-  // Initialize repeatable sections to 1 by default (only if not already set from entries)
+  // Property layout snapshot wins for bedrooms / kitchens / bathrooms / living rooms
+  const propertyCountsAppliedRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!propertyRoomCountsSnapshot || !sections.length) return;
+
+    const fromProperty = repeatableCountsFromPropertyLayout(
+      { sections },
+      propertyRoomCountsSnapshot,
+    );
+    if (!Object.keys(fromProperty).length) return;
+
+    const fingerprint = JSON.stringify(fromProperty);
+    setRepeatableCounts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [sectionId, count] of Object.entries(fromProperty)) {
+        if (next[sectionId] !== count) {
+          next[sectionId] = count;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    repeatableCountsInitialized.current = true;
+
+    if (propertyCountsAppliedRef.current === fingerprint) return;
+    propertyCountsAppliedRef.current = fingerprint;
+
+    for (const [sectionId, count] of Object.entries(fromProperty)) {
+      updateEntry.mutate({
+        inspectionId,
+        sectionRef: sectionId,
+        fieldKey: `__repeatable_count_${sectionId}`,
+        fieldType: 'number',
+        valueJson: count,
+      });
+    }
+  }, [propertyRoomCountsSnapshot, sections, inspectionId, updateEntry]);
+
+  // Initialize repeatable sections to 1 by default (only if not already set from entries / property)
+  useEffect(() => {
+    if (roomsLockedFromProperty) return;
     if (sections.length > 0 && effectiveEntries && effectiveEntries.length === 0 && !repeatableCountsInitialized.current) {
       // Only set defaults if we have no existing entries (new inspection) and haven't initialized yet
       const defaultCounts: Record<string, number> = {};
@@ -583,7 +650,7 @@ export default function InspectionCaptureScreen() {
         });
       }
     }
-  }, [sections, effectiveEntries, repeatableCounts, inspectionId, updateEntry]);
+  }, [sections, effectiveEntries, repeatableCounts, inspectionId, updateEntry, roomsLockedFromProperty]);
 
   // Update inspection status mutation
   const updateStatusMutation = useMutation({
@@ -766,6 +833,7 @@ export default function InspectionCaptureScreen() {
 
   // Handle repeatable count change
   const handleRepeatableCountChange = React.useCallback((sectionId: string, count: number) => {
+    if (roomsLockedFromProperty) return;
     const newCount = Math.max(1, Math.min(50, count)); // Limit between 1 and 50
     const prevCount = repeatableCounts[sectionId] ?? 1;
     
@@ -812,7 +880,7 @@ export default function InspectionCaptureScreen() {
         return updated;
       });
     }
-  }, [sections, repeatableCounts, inspectionId, updateEntry]);
+  }, [sections, repeatableCounts, inspectionId, updateEntry, roomsLockedFromProperty]);
 
   const handleFieldChange = React.useCallback(async (
     sectionRef: string,
@@ -1212,6 +1280,7 @@ export default function InspectionCaptureScreen() {
             style: styles.content,
           }}
           footer={
+            captureMode === 'gallery' ? null : (
             <View style={[styles.footerActions, { flexDirection: 'row' }]}>
               <Button
                 title="Previous"
@@ -1244,6 +1313,7 @@ export default function InspectionCaptureScreen() {
                 ]}
               />
             </View>
+            )
           }
         >
             {/* Quick Actions Row */}
@@ -1373,6 +1443,86 @@ export default function InspectionCaptureScreen() {
               <Progress value={progress} height={10} style={styles.progressBar} />
             </View>
 
+            {/* Capture mode: Sections | Gallery */}
+            <View style={{ flexDirection: 'row', gap: spacing[2], marginBottom: spacing[3] }}>
+              <TouchableOpacity
+                onPress={() => setCaptureMode('sections')}
+                style={[
+                  styles.tabButton,
+                  {
+                    flex: 1,
+                    backgroundColor: captureMode === 'sections' ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+                    borderColor: captureMode === 'sections' ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                    paddingHorizontal: ms(spacing[3], 0.3),
+                    paddingVertical: ms(spacing[2], 0.3),
+                    alignItems: 'center',
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: captureMode === 'sections'
+                      ? (themeColors.primary.foreground || '#ffffff')
+                      : themeColors.text.primary,
+                    fontWeight: '600',
+                    fontSize: tabFontSize,
+                  }}
+                >
+                  Sections
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setCaptureMode('gallery')}
+                style={[
+                  styles.tabButton,
+                  {
+                    flex: 1,
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 6,
+                    backgroundColor: captureMode === 'gallery' ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+                    borderColor: captureMode === 'gallery' ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                    paddingHorizontal: ms(spacing[3], 0.3),
+                    paddingVertical: ms(spacing[2], 0.3),
+                    alignItems: 'center',
+                  },
+                ]}
+              >
+                <Images
+                  size={14}
+                  color={
+                    captureMode === 'gallery'
+                      ? (themeColors.primary.foreground || '#ffffff')
+                      : themeColors.text.primary
+                  }
+                />
+                <Text
+                  style={{
+                    color: captureMode === 'gallery'
+                      ? (themeColors.primary.foreground || '#ffffff')
+                      : themeColors.text.primary,
+                    fontWeight: '600',
+                    fontSize: tabFontSize,
+                  }}
+                >
+                  Gallery
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {captureMode === 'gallery' && (
+              <InspectionGalleryPanel
+                inspectionId={inspectionId}
+                canEdit={effectiveInspection?.status !== 'completed' && !isDeleted}
+                onEntriesChanged={() => {
+                  queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+                  queryClient.invalidateQueries({ queryKey: ['inspection', inspectionId] });
+                }}
+              />
+            )}
+
+            {captureMode === 'sections' && (
+            <>
             {/* Section Tabs */}
             <View style={styles.tabsContainerWrapper}>
               <View style={styles.tabsContainerInner}>
@@ -1457,12 +1607,14 @@ export default function InspectionCaptureScreen() {
                   </Card>
                 )}
 
-                {/* Repeatable section count input */}
-                {currentSection.repeatable && (
+                {/* Repeatable section count input (hidden when locked from property) */}
+                {currentSection.repeatable && !roomsLockedFromProperty && (
                   <Card style={[styles.fieldContainer, { backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT }]}>
-                    <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
-                      How many {currentSection.title.toLowerCase()}?
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing[2] }}>
+                      <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
+                        {`How many ${currentSection.title.toLowerCase()}?`}
+                      </Text>
+                    </View>
                     <View style={{ flexDirection: actionStack === 'column' ? 'column' : 'row', alignItems: actionStack === 'column' ? 'stretch' : 'center', flexWrap: 'wrap', gap: spacing[3], marginTop: spacing[2] }}>
                       <TouchableOpacity
                         onPress={() => {
@@ -1552,6 +1704,7 @@ export default function InspectionCaptureScreen() {
                                   photos={entry?.photos}
                                   inspectionId={inspectionId}
                                   entryId={properEntryId}
+                                  sectionRef={sectionRef}
                                   sectionName={instanceName}
                                   isCheckOut={effectiveInspection?.type === 'check_out'}
                                   markedForReview={entry?.markedForReview || false}
@@ -1596,8 +1749,11 @@ export default function InspectionCaptureScreen() {
                                   onMarkedForReviewChange={(marked) => {
                                     handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked, instanceIndex);
                                   }}
-                                  onLogMaintenance={(fieldLabel, photos) => {
+                                  onLogMaintenance={
+                                    maintenanceEnabled
+                                      ? (fieldLabel, photos) => {
                                     try {
+                                      const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
                                       const rootNavigator = navigation.getParent()?.getParent();
                                       if (rootNavigator) {
                                         rootNavigator.dispatch(
@@ -1610,8 +1766,8 @@ export default function InspectionCaptureScreen() {
                                                 propertyId: effectiveInspection?.propertyId,
                                                 blockId: effectiveInspection?.blockId,
                                                 fieldLabel,
-                                                photos,
-                                                entryId: entry?.id,
+                                                photos: fieldPhotos,
+                                                entryId: entry?.id || properEntryId,
                                                 sectionTitle: instanceName,
                                               },
                                             },
@@ -1621,7 +1777,9 @@ export default function InspectionCaptureScreen() {
                                     } catch (error) {
                                       console.error('[InspectionCapture] Navigation error:', error);
                                     }
-                                  }}
+                                  }
+                                      : undefined
+                                  }
                                 />
                               </View>
                             );
@@ -1653,6 +1811,9 @@ export default function InspectionCaptureScreen() {
                       // This ensures consistency between entries and photos
                       const properEntryId = entry?.id || key;
 
+                      const lockBedroomCount =
+                        roomsLockedFromProperty && isBedroomCountField(field);
+
                       return (
                         <View key={field.id || field.key || `field-${Math.random()}`} style={styles.fieldContainer}>
                           <FieldWidget
@@ -1662,10 +1823,15 @@ export default function InspectionCaptureScreen() {
                             photos={entry?.photos}
                             inspectionId={inspectionId}
                             entryId={properEntryId}
+                            sectionRef={currentSection.id}
                             sectionName={currentSection.title}
                             isCheckOut={effectiveInspection?.type === 'check_out'}
                             markedForReview={entry?.markedForReview || false}
-                            disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                            disabled={
+                              effectiveInspection?.status === 'completed' ||
+                              isDeleted ||
+                              lockBedroomCount
+                            }
                             autoContext={{
                               inspectorName: resolvedInspectorName,
                               address: property
@@ -1710,10 +1876,13 @@ export default function InspectionCaptureScreen() {
                             onMarkedForReviewChange={(marked) => {
                               handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked);
                             }}
-                            onLogMaintenance={(fieldLabel, photos) => {
+                            onLogMaintenance={
+                              maintenanceEnabled
+                                ? (fieldLabel, photos) => {
                               // Navigate to maintenance creation with context from inspection
                               // Navigate from RootStack -> Main -> Maintenance -> CreateMaintenance
                               try {
+                                const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
                                 // Get the root navigator (RootStack)
                                 const rootNavigator = navigation.getParent()?.getParent();
                                 if (rootNavigator) {
@@ -1727,8 +1896,8 @@ export default function InspectionCaptureScreen() {
                                           propertyId: effectiveInspection?.propertyId,
                                           blockId: effectiveInspection?.blockId,
                                           fieldLabel,
-                                          photos,
-                                          entryId: entry?.id,
+                                          photos: fieldPhotos,
+                                          entryId: entry?.id || properEntryId,
                                           sectionTitle: currentSection?.title,
                                         },
                                       },
@@ -1757,7 +1926,9 @@ export default function InspectionCaptureScreen() {
                               } catch (error) {
                                 console.error('[InspectionCapture] Navigation error:', error);
                               }
-                            }}
+                            }
+                                : undefined
+                            }
                           />
                         </View>
                       );
@@ -1777,6 +1948,8 @@ export default function InspectionCaptureScreen() {
               <View style={styles.centerContent}>
                 <Text style={[styles.errorText, { color: themeColors.text.primary }]}>No section selected</Text>
               </View>
+            )}
+            </>
             )}
         </FormScreen>
 

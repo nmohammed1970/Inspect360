@@ -18,10 +18,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
 import type { Inspection } from "@shared/schema";
 import { FieldWidget } from "@/components/FieldWidget";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
@@ -29,7 +31,18 @@ import { InspectionQuickActions } from "@/components/InspectionQuickActions";
 import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
 import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
-import { formatSignerDisplayName } from "@shared/signature";
+import { formatSignerDisplayName, isTenantSignatureField } from "@shared/signature";
+import {
+  applyPropertyCountsToTemplateSnapshot,
+  isBedroomCountField,
+  isPropertyTypeField,
+  matchPropertyTypeToOption,
+  parseRepeatableCountValue,
+  repeatableCountsFromPropertyLayout,
+  type PropertyRoomCountsSnapshot,
+} from "@shared/propertyLayout";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
 
 interface AIAnalysisStatus {
   status: "idle" | "processing" | "completed" | "failed";
@@ -88,10 +101,12 @@ export default function InspectionCapture() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [captureMode, setCaptureMode] = useState<"sections" | "gallery">("sections");
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const repeatableCountsInitialized = React.useRef(false); // Track if we've initialized default counts
   const isOnline = useOnlineStatus();
+  const { tenanciesEnabled, maintenanceEnabled } = useCompanyModules();
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showAssetSheet, setShowAssetSheet] = useState(false);
@@ -126,6 +141,11 @@ export default function InspectionCapture() {
   const { data: inspection, isLoading } = useQuery<Inspection>({
     queryKey: ["/api/inspections", id],
   });
+
+  const propertyRoomCountsSnapshot =
+    (inspection as Inspection & { propertyRoomCountsSnapshot?: PropertyRoomCountsSnapshot | null })
+      ?.propertyRoomCountsSnapshot ?? null;
+  const roomsLockedFromProperty = !!propertyRoomCountsSnapshot;
 
   // Fetch property details if inspection has a propertyId
   const { data: property } = useQuery<any>({
@@ -233,8 +253,7 @@ export default function InspectionCapture() {
       // Check if this is a repeatable count entry
       if (entry.fieldKey && entry.fieldKey.startsWith('__repeatable_count_')) {
         const sectionId = entry.fieldKey.replace('__repeatable_count_', '');
-        const count = typeof entry.valueJson === 'number' ? entry.valueJson : parseInt(String(entry.valueJson || 1), 10);
-        countsMap[sectionId] = Math.max(1, count); // Ensure at least 1
+        countsMap[sectionId] = parseRepeatableCountValue(entry.valueJson, 1);
         // Don't add count entries to entriesMap - they're metadata only
       }
     });
@@ -301,14 +320,20 @@ export default function InspectionCapture() {
     });
     
     // Set repeatable counts FIRST - this ensures counts are available before entries are processed
-    // Use functional update to merge with existing counts
-    if (Object.keys(countsMap).length > 0) {
+    // Property snapshot (if present) always wins over stale __repeatable_count_* rows
+    const snapshotCounts = propertyRoomCountsSnapshot
+      ? repeatableCountsFromPropertyLayout(
+          inspection?.templateSnapshotJson as any,
+          propertyRoomCountsSnapshot,
+        )
+      : {};
+    const mergedCounts = { ...countsMap, ...snapshotCounts };
+    if (Object.keys(mergedCounts).length > 0) {
       repeatableCountsInitialized.current = true; // Mark as initialized from saved data
       setRepeatableCounts(prev => {
         const merged = { ...prev };
-        Object.keys(countsMap).forEach(sectionId => {
-          // Always use the saved count from entries (it's persisted)
-          merged[sectionId] = countsMap[sectionId];
+        Object.keys(mergedCounts).forEach(sectionId => {
+          merged[sectionId] = mergedCounts[sectionId];
         });
         return merged;
       });
@@ -329,7 +354,7 @@ export default function InspectionCapture() {
       });
       return hasChanges ? { ...prev, ...entriesMap } : prev;
     });
-  }, [existingEntries]);
+  }, [existingEntries, propertyRoomCountsSnapshot, inspection?.templateSnapshotJson]);
 
   // Parse template structure from snapshot and migrate old templates
   const rawTemplateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
@@ -372,19 +397,31 @@ export default function InspectionCapture() {
     return [...fields, wallsField];
   };
 
-  // Migrate old templates: ensure all fields have both id and key
-  const templateStructure = rawTemplateStructure ? {
-    sections: rawTemplateStructure.sections.map(section => ({
-      ...section,
-      fields: ensureBedroomWallsField(section, section.fields.map((field: any) => ({
-        ...field,
-        id: field.id || field.key, // Use existing id or fall back to key
-        key: field.key || field.id, // Ensure key exists too
-      }))),
-    })),
-  } : null;
+  // Migrate old templates: ensure all fields have both id and key;
+  // property snapshot forces Kitchen/Living repeatable for this inspection.
+  const sections = React.useMemo(() => {
+    if (!rawTemplateStructure?.sections) return [] as TemplateSection[];
 
-  const sections = templateStructure?.sections || [];
+    const migrated = rawTemplateStructure.sections.map((section) => ({
+      ...section,
+      fields: ensureBedroomWallsField(
+        section,
+        (section.fields || []).map((field: any) => ({
+          ...field,
+          id: field.id || field.key,
+          key: field.key || field.id,
+        })),
+      ),
+    }));
+
+    if (!propertyRoomCountsSnapshot) return migrated as TemplateSection[];
+
+    const applied = applyPropertyCountsToTemplateSnapshot(
+      { sections: migrated },
+      propertyRoomCountsSnapshot,
+    );
+    return (applied.structure.sections || []) as TemplateSection[];
+  }, [rawTemplateStructure, propertyRoomCountsSnapshot]);
 
   // Update entry mutation
   const updateEntry = useMutation({
@@ -432,8 +469,60 @@ export default function InspectionCapture() {
     },
   });
 
-  // Initialize repeatable sections to 1 by default (only if not already set from entries)
+  // Property layout snapshot wins for all room-type repeatable sections
+  const propertyCountsAppliedRef = React.useRef<string | null>(null);
   useEffect(() => {
+    if (!propertyRoomCountsSnapshot || !sections.length || !id) return;
+
+    const fromProperty = repeatableCountsFromPropertyLayout(
+      { sections },
+      propertyRoomCountsSnapshot,
+    );
+    if (!Object.keys(fromProperty).length) return;
+
+    const fingerprint = JSON.stringify(fromProperty);
+    setRepeatableCounts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [sectionId, count] of Object.entries(fromProperty)) {
+        if (next[sectionId] !== count) {
+          next[sectionId] = count;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    repeatableCountsInitialized.current = true;
+
+    // Persist / repair __repeatable_count_* so gallery destinations + reloads match
+    if (propertyCountsAppliedRef.current === fingerprint) return;
+    propertyCountsAppliedRef.current = fingerprint;
+
+    for (const [sectionId, count] of Object.entries(fromProperty)) {
+      const countFieldKey = `__repeatable_count_${sectionId}`;
+      const countEntry: InspectionEntry = {
+        sectionRef: sectionId,
+        fieldKey: countFieldKey,
+        fieldType: "number",
+        valueJson: count,
+      };
+      if (isOnline) {
+        updateEntry.mutate(countEntry);
+      } else {
+        offlineQueue.enqueue({
+          inspectionId: id,
+          sectionRef: sectionId,
+          fieldKey: countFieldKey,
+          fieldType: "number",
+          valueJson: count,
+        });
+      }
+    }
+  }, [propertyRoomCountsSnapshot, sections, id, isOnline, updateEntry]);
+
+  // Initialize repeatable sections to 1 by default (only if not already set from entries / property)
+  useEffect(() => {
+    if (roomsLockedFromProperty) return;
     if (sections.length > 0 && existingEntries && existingEntries.length === 0 && !repeatableCountsInitialized.current) {
       // Only set defaults if we have no existing entries (new inspection) and haven't initialized yet
       const defaultCounts: Record<string, number> = {};
@@ -468,7 +557,7 @@ export default function InspectionCapture() {
         });
       }
     }
-  }, [sections, existingEntries, repeatableCounts, isOnline, updateEntry, id]);
+  }, [sections, existingEntries, repeatableCounts, isOnline, updateEntry, id, roomsLockedFromProperty]);
 
   // Server-side copy mutation
   const copyFromCheckIn = useMutation({
@@ -711,7 +800,7 @@ export default function InspectionCapture() {
   const addressPopulatedRef = React.useRef(false);
   
   useEffect(() => {
-    if (!property?.address || !templateStructure || !sections.length || !id) return;
+    if (!property?.address || !sections.length || !id) return;
     
     // If already populated, don't run again
     if (addressPopulatedRef.current) return;
@@ -795,9 +884,88 @@ export default function InspectionCapture() {
       addressPopulatedRef.current = true;
       return prev;
     });
-  }, [property?.address, templateStructure, sections, existingEntries, id, isOnline, updateEntry]);
+  }, [property?.address, sections, existingEntries, id, isOnline, updateEntry]);
+
+  // Auto-populate Property Type from the property record when the field is empty
+  const propertyTypePopulatedRef = React.useRef(false);
 
   useEffect(() => {
+    if (!property?.propertyType || !sections.length || !id) return;
+    if (propertyTypePopulatedRef.current) return;
+
+    const generalInfoSection = sections.find(
+      (section) =>
+        section.title?.toLowerCase().includes("general") ||
+        section.id?.toLowerCase().includes("general"),
+    );
+    if (!generalInfoSection) return;
+
+    const propertyTypeField = generalInfoSection.fields.find((field) =>
+      isPropertyTypeField(field),
+    );
+    if (!propertyTypeField) return;
+
+    const matched = matchPropertyTypeToOption(
+      property.propertyType,
+      propertyTypeField.options,
+    );
+    if (!matched) {
+      propertyTypePopulatedRef.current = true;
+      return;
+    }
+
+    const entryKey = `${generalInfoSection.id}-${propertyTypeField.id}`;
+    const hasExistingEntry = existingEntries.some(
+      (entry: any) =>
+        entry.sectionRef === generalInfoSection.id &&
+        entry.fieldKey === propertyTypeField.id &&
+        entry.valueJson != null &&
+        entry.valueJson !== "",
+    );
+    if (hasExistingEntry) {
+      propertyTypePopulatedRef.current = true;
+      return;
+    }
+
+    setEntries((prev) => {
+      const existingEntry = prev[entryKey];
+      if (existingEntry?.valueJson != null && existingEntry.valueJson !== "") {
+        propertyTypePopulatedRef.current = true;
+        return prev;
+      }
+
+      const entry: InspectionEntry = {
+        sectionRef: generalInfoSection.id,
+        fieldKey: propertyTypeField.id,
+        fieldType: (propertyTypeField.type as any) || "select",
+        valueJson: matched,
+      };
+      propertyTypePopulatedRef.current = true;
+
+      if (isOnline) {
+        updateEntry.mutate(entry);
+      } else {
+        offlineQueue.enqueue({
+          inspectionId: id,
+          sectionRef: generalInfoSection.id,
+          fieldKey: propertyTypeField.id,
+          fieldType: propertyTypeField.type || "select",
+          valueJson: matched,
+        });
+        setPendingCount(offlineQueue.getPendingCount());
+      }
+
+      return {
+        ...prev,
+        [entryKey]: entry,
+      };
+    });
+  }, [property?.propertyType, sections, existingEntries, id, isOnline, updateEntry]);
+
+  useEffect(() => {
+    // Property-seeded inspections freeze room counts; do not resync from General.
+    if (roomsLockedFromProperty) return;
+
     const generalInfoSection = sections.find((section) =>
       section.title?.toLowerCase().includes("general") ||
       section.id?.toLowerCase().includes("general")
@@ -811,17 +979,9 @@ export default function InspectionCapture() {
 
     if (!generalInfoSection || !bedroomsSection) return;
 
-    const bedroomCountField = generalInfoSection.fields.find((field) => {
-      const labelLower = field.label?.toLowerCase() || "";
-      const fieldIdLower = field.id?.toLowerCase() || "";
-      const fieldKeyLower = field.key?.toLowerCase() || "";
-
-      return (
-        (labelLower.includes("number") && labelLower.includes("bedroom")) ||
-        fieldIdLower.includes("num_bedroom") ||
-        fieldKeyLower.includes("num_bedroom")
-      );
-    });
+    const bedroomCountField = generalInfoSection.fields.find((field) =>
+      isBedroomCountField(field),
+    );
 
     if (!bedroomCountField) return;
 
@@ -840,10 +1000,11 @@ export default function InspectionCapture() {
     if (currentCount !== desiredCount) {
       handleRepeatableCountChange(bedroomsSection.id, desiredCount);
     }
-  }, [entries, sections, repeatableCounts]);
+  }, [entries, sections, repeatableCounts, roomsLockedFromProperty]);
 
   // Handle repeatable count change
   const handleRepeatableCountChange = (sectionId: string, count: number) => {
+    if (roomsLockedFromProperty) return;
     const newCount = Math.max(1, Math.min(50, count)); // Limit between 1 and 50
     const prevCount = repeatableCounts[sectionId] ?? 1;
     
@@ -905,6 +1066,7 @@ export default function InspectionCapture() {
   // Auto-fill "Number of Bedrooms" on check-out from the latest check-in (same property)
   useEffect(() => {
     if (!inspection || inspection.type !== "check_out" || !id) return;
+    if (roomsLockedFromProperty) return;
     if (!checkInData?.entries?.length) return;
     if (!sections.length) return;
 
@@ -919,16 +1081,9 @@ export default function InspectionCapture() {
     );
     if (!generalInfoSection || !bedroomsSection) return;
 
-    const bedroomCountField = generalInfoSection.fields.find((field) => {
-      const labelLower = field.label?.toLowerCase() || "";
-      const fieldIdLower = (field.id || "").toLowerCase();
-      const fieldKeyLower = (field.key || "").toLowerCase();
-      return (
-        (labelLower.includes("number") && labelLower.includes("bedroom")) ||
-        fieldIdLower.includes("num_bedroom") ||
-        fieldKeyLower.includes("num_bedroom")
-      );
-    });
+    const bedroomCountField = generalInfoSection.fields.find((field) =>
+      isBedroomCountField(field),
+    );
     if (!bedroomCountField) return;
 
     const alreadySaved = existingEntries.some((e: any) => {
@@ -992,6 +1147,7 @@ export default function InspectionCapture() {
   }, [
     inspection?.id,
     inspection?.type,
+    roomsLockedFromProperty,
     checkInData,
     sections,
     existingEntries,
@@ -1226,6 +1382,7 @@ export default function InspectionCapture() {
   });
 
   const shouldOfferTenantReview =
+    tenanciesEnabled &&
     (inspection?.type === "check_in" || inspection?.type === "check_out") &&
     !!inspection?.propertyId;
 
@@ -1339,7 +1496,7 @@ export default function InspectionCapture() {
     );
   }
 
-  if (!templateStructure || sections.length === 0) {
+  if (!rawTemplateStructure || sections.length === 0) {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card>
@@ -1359,11 +1516,11 @@ export default function InspectionCapture() {
   }
 
   return (
-    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6 min-w-0">
+    <div className={cn("container mx-auto min-w-0 space-y-4 sm:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 min-w-0">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2 break-words" data-testid="text-inspection-title">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight font-heading mb-1 sm:mb-2 break-words" data-testid="text-inspection-title">
             Inspection Capture
           </h1>
           <p className="text-xs sm:text-sm md:text-base text-muted-foreground">
@@ -1373,9 +1530,9 @@ export default function InspectionCapture() {
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
           {/* Online/Offline status */}
           <Badge
-            variant={isOnline ? "default" : "secondary"}
+            variant={isOnline ? "success" : "secondary"}
             data-testid="badge-online-status"
-            className="gap-2 text-xs sm:text-sm"
+            className="gap-2 text-xs sm:text-sm rounded-button"
           >
             {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {isOnline ? "Online" : "Offline"}
@@ -1415,15 +1572,15 @@ export default function InspectionCapture() {
               <span className="sm:hidden">Analysing</span>
             </Button>
           ) : aiAnalysisStatus?.status === "completed" ? (
-            <Badge variant="default" className="bg-green-600 text-xs sm:text-sm" data-testid="badge-ai-complete">
+            <Badge variant="success" className="text-xs sm:text-sm" data-testid="badge-ai-complete">
               <CheckCircle2 className="w-3 h-3 mr-1" />
               <span className="hidden sm:inline">AI Analysis Complete</span>
               <span className="sm:hidden">AI Done</span>
             </Badge>
           ) : (
             <Button
-              variant="default"
-              className="bg-primary hover:bg-primary/90 text-xs sm:text-sm h-7 sm:h-8 md:h-9"
+              variant="brand"
+              className="text-xs sm:text-sm min-h-9"
               onClick={() => startAIAnalysis.mutate()}
               disabled={startAIAnalysis.isPending || !isOnline}
               data-testid="button-analyze-report"
@@ -1436,11 +1593,12 @@ export default function InspectionCapture() {
           )}
 
           <Button
+            variant="brand"
             onClick={() => setShowCompleteDialog(true)}
             disabled={completeInspection.isPending || completingAction !== null || sendingToTenantAction !== null}
             data-testid="button-complete-inspection"
             size="sm"
-            className="text-xs sm:text-sm h-7 sm:h-8 md:h-9"
+            className="text-xs sm:text-sm min-h-9"
           >
             <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
             <span className="hidden sm:inline">
@@ -1680,22 +1838,69 @@ export default function InspectionCapture() {
         </CardContent>
       </Card>
 
-      {/* Section navigation */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-3 sm:mx-0 px-3 sm:px-0 min-w-0">
-        {sections.map((section, index) => (
-          <Button
-            key={section.id}
-            variant={index === currentSectionIndex ? "default" : "outline"}
-            size="sm"
-            onClick={() => setCurrentSectionIndex(index)}
-            data-testid={`button-section-${index}`}
-            className="text-xs sm:text-sm whitespace-nowrap shrink-0 min-h-11 px-3"
-          >
-            {section.title}
-          </Button>
-        ))}
+      {/* Section navigation + Gallery (pinned right) */}
+      <div className="flex items-center gap-2 min-w-0 pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="flex-1 min-w-0 overflow-x-auto flex items-center gap-2">
+          {sections.map((section, index) => {
+            const isActive = captureMode === "sections" && index === currentSectionIndex;
+            return (
+            <Button
+              key={section.id}
+              variant={isActive ? "brand" : "outline"}
+              size="sm"
+              onClick={() => {
+                setCaptureMode("sections");
+                setCurrentSectionIndex(index);
+              }}
+              data-testid={`button-section-${index}`}
+              className={cn(
+                "text-xs sm:text-sm whitespace-nowrap shrink-0 min-h-11 px-3",
+                !isActive && "bg-card",
+              )}
+            >
+              {section.title}
+            </Button>
+            );
+          })}
+        </div>
+        <Button
+          type="button"
+          variant="brand"
+          size="default"
+          onClick={() => setCaptureMode("gallery")}
+          data-testid="button-mode-gallery"
+          title="Inspection photo gallery"
+          aria-pressed={captureMode === "gallery"}
+          className={cn(
+            "group shrink-0 min-h-11 gap-2.5 pl-1.5 pr-3 py-1.5",
+            captureMode === "gallery" &&
+              "from-[#00A89A] via-[#009688] to-[#007F74]",
+          )}
+        >
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-[9px] bg-white/20 ring-1 ring-white/25 shrink-0">
+            <Images className="h-4 w-4 text-white" aria-hidden />
+          </span>
+          <span className="tracking-wide">Gallery</span>
+          <ArrowRight className="h-4 w-4 text-white/95 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
+        </Button>
       </div>
 
+      {captureMode === "gallery" && id && (
+        <Card className="min-w-0">
+          <CardContent className="p-4 sm:p-6">
+            <InspectionGalleryPanel
+              inspectionId={id}
+              canEdit={inspection.status !== "completed"}
+              onEntriesChanged={() => {
+                queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {captureMode === "sections" && (
+      <>
       {/* Current section */}
       {currentSection && (
         <Card className="border-2 min-w-0">
@@ -1708,57 +1913,59 @@ export default function InspectionCapture() {
             )}
           </CardHeader>
           <CardContent className="space-y-6 p-4 sm:p-6 pt-0">
-            {/* Repeatable section count input */}
-            {currentSection.repeatable && (
+            {/* Repeatable section count input (hidden when locked from property — instances render below) */}
+            {currentSection.repeatable && !roomsLockedFromProperty && (
               <div className="p-3 sm:p-4 bg-muted/50 rounded-lg border-2 border-dashed">
-                <Label htmlFor={`repeatable-count-${currentSection.id}`} className="text-base font-semibold mb-2 block break-words">
-                  How many {currentSection.title.toLowerCase()}?
-                </Label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="min-h-11 min-w-11 shrink-0"
-                    onClick={() => {
-                      const currentCount = repeatableCounts[currentSection.id] ?? 1;
-                      handleRepeatableCountChange(currentSection.id, currentCount - 1);
-                    }}
-                    disabled={(repeatableCounts[currentSection.id] ?? 1) <= 1}
-                  >
-                    <Minus className="h-4 w-4" />
-                  </Button>
-                  <Input
-                    id={`repeatable-count-${currentSection.id}`}
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={repeatableCounts[currentSection.id] ?? 1}
-                    onChange={(e) => {
-                      const count = parseInt(e.target.value, 10) || 1;
-                      handleRepeatableCountChange(currentSection.id, count);
-                    }}
-                    className="w-24 min-h-11 text-center"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="min-h-11 min-w-11 shrink-0"
-                    onClick={() => {
-                      const currentCount = repeatableCounts[currentSection.id] ?? 1;
-                      handleRepeatableCountChange(currentSection.id, currentCount + 1);
-                    }}
-                    disabled={(repeatableCounts[currentSection.id] ?? 1) >= 50}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <span className="text-sm text-muted-foreground break-words min-w-0 basis-full sm:basis-auto">
-                    {(repeatableCounts[currentSection.id] ?? 1) > 0 
-                      ? `${repeatableCounts[currentSection.id] ?? 1} ${currentSection.title.toLowerCase()} will be created`
-                      : "Enter the number of items to inspect"}
-                  </span>
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <Label htmlFor={`repeatable-count-${currentSection.id}`} className="text-base font-semibold break-words">
+                    {`How many ${currentSection.title.toLowerCase()}?`}
+                  </Label>
                 </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="min-h-11 min-w-11 shrink-0"
+                      onClick={() => {
+                        const currentCount = repeatableCounts[currentSection.id] ?? 1;
+                        handleRepeatableCountChange(currentSection.id, currentCount - 1);
+                      }}
+                      disabled={(repeatableCounts[currentSection.id] ?? 1) <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      id={`repeatable-count-${currentSection.id}`}
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={repeatableCounts[currentSection.id] ?? 1}
+                      onChange={(e) => {
+                        const count = parseInt(e.target.value, 10) || 1;
+                        handleRepeatableCountChange(currentSection.id, count);
+                      }}
+                      className="w-24 min-h-11 text-center"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="min-h-11 min-w-11 shrink-0"
+                      onClick={() => {
+                        const currentCount = repeatableCounts[currentSection.id] ?? 1;
+                        handleRepeatableCountChange(currentSection.id, currentCount + 1);
+                      }}
+                      disabled={(repeatableCounts[currentSection.id] ?? 1) >= 50}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm text-muted-foreground break-words min-w-0 basis-full sm:basis-auto">
+                      {(repeatableCounts[currentSection.id] ?? 1) > 0
+                        ? `${repeatableCounts[currentSection.id] ?? 1} ${currentSection.title.toLowerCase()} will be created`
+                        : "Enter the number of items to inspect"}
+                    </span>
+                  </div>
               </div>
             )}
 
@@ -1771,6 +1978,13 @@ export default function InspectionCapture() {
                   <div key={`instance-${instanceIndex}`} className="space-y-6 p-3 sm:p-4 border-2 rounded-lg bg-card min-w-0">
                     <h3 className="text-base sm:text-lg font-semibold text-primary break-words">{instanceName}</h3>
                     {currentSection.fields.map((field) => {
+                      if (
+                        !tenanciesEnabled &&
+                        field.type === "signature" &&
+                        isTenantSignatureField(field)
+                      ) {
+                        return null;
+                      }
                       const sectionRef = `${currentSection.id}/${instanceName}`;
                       const entryKey = `${sectionRef}-${field.id}`;
                       const entry = entries[entryKey];
@@ -1834,18 +2048,24 @@ export default function InspectionCapture() {
                           isCheckOut={inspection?.type === "check_out"}
                           markedForReview={entry?.markedForReview || false}
                           sectionName={instanceName}
+                          sectionRef={sectionRef}
                           autoContext={autoContext}
                           onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos, instanceIndex)}
                           onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked, instanceIndex)}
-                          onLogMaintenance={(fieldLabel: string, photos: string[]) => {
-                            setMaintenanceContext({
-                              fieldLabel,
-                              sectionTitle: instanceName,
-                              entryId: entry?.id,
-                              photos,
-                            });
-                            setShowMaintenanceSheet(true);
-                          }}
+                          onLogMaintenance={
+                            maintenanceEnabled
+                              ? (fieldLabel: string, photos: string[]) => {
+                                  const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
+                                  setMaintenanceContext({
+                                    fieldLabel,
+                                    sectionTitle: instanceName,
+                                    entryId: entry?.id,
+                                    photos: fieldPhotos,
+                                  });
+                                  setShowMaintenanceSheet(true);
+                                }
+                              : undefined
+                          }
                         />
                       );
                     })}
@@ -1855,6 +2075,13 @@ export default function InspectionCapture() {
             ) : !currentSection.repeatable ? (
               // Render normally for non-repeatable sections
               currentSection.fields.map((field) => {
+                if (
+                  !tenanciesEnabled &&
+                  field.type === "signature" &&
+                  isTenantSignatureField(field)
+                ) {
+                  return null;
+                }
                 const entryKey = `${currentSection.id}-${field.id}`;
                 const entry = entries[entryKey];
                 
@@ -1905,6 +2132,9 @@ export default function InspectionCapture() {
                     : new Date().toISOString().split("T")[0],
                 };
 
+                const lockBedroomCount =
+                  roomsLockedFromProperty && isBedroomCountField(field);
+
                 return (
                   <FieldWidget
                     key={field.id}
@@ -1917,18 +2147,28 @@ export default function InspectionCapture() {
                     isCheckOut={inspection?.type === "check_out"}
                     markedForReview={entry?.markedForReview || false}
                     sectionName={currentSection.title}
+                    sectionRef={currentSection.id}
+                    disabled={lockBedroomCount}
                     autoContext={autoContext}
-                    onChange={(value: any, note?: string, photos?: string[]) => handleFieldChange(field.id, value, note, photos)}
-                    onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
-                    onLogMaintenance={(fieldLabel: string, photos: string[]) => {
-                      setMaintenanceContext({
-                        fieldLabel,
-                        sectionTitle: currentSection.title,
-                        entryId: entry?.id,
-                        photos,
-                      });
-                      setShowMaintenanceSheet(true);
+                    onChange={(value: any, note?: string, photos?: string[]) => {
+                      if (lockBedroomCount) return;
+                      handleFieldChange(field.id, value, note, photos);
                     }}
+                    onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
+                    onLogMaintenance={
+                      maintenanceEnabled
+                        ? (fieldLabel: string, photos: string[]) => {
+                            const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
+                            setMaintenanceContext({
+                              fieldLabel,
+                              sectionTitle: currentSection.title,
+                              entryId: entry?.id,
+                              photos: fieldPhotos,
+                            });
+                            setShowMaintenanceSheet(true);
+                          }
+                        : undefined
+                    }
                   />
                 );
               })
@@ -1950,6 +2190,7 @@ export default function InspectionCapture() {
           Previous
         </Button>
         <Button
+          variant="brand"
           className="min-h-11 flex-1 sm:flex-none"
           onClick={goToNextSection}
           disabled={currentSectionIndex === sections.length - 1}
@@ -1959,12 +2200,14 @@ export default function InspectionCapture() {
           <ChevronRight className="w-4 h-4 ml-2 shrink-0" />
         </Button>
       </div>
+      </>
+      )}
 
       {/* Quick Actions FAB */}
       <InspectionQuickActions
         onAddAsset={() => setShowAssetSheet(true)}
         onUpdateAsset={() => setShowUpdateAssetSheet(true)}
-        onLogMaintenance={() => setShowMaintenanceSheet(true)}
+        onLogMaintenance={maintenanceEnabled ? () => setShowMaintenanceSheet(true) : undefined}
       />
 
       {/* Quick Add Asset Sheet */}
@@ -1986,6 +2229,7 @@ export default function InspectionCapture() {
       />
 
       {/* Quick Add Maintenance Sheet */}
+      {maintenanceEnabled && (
       <QuickAddMaintenanceSheet
         open={showMaintenanceSheet}
         onOpenChange={(open) => {
@@ -2002,6 +2246,7 @@ export default function InspectionCapture() {
         sectionTitle={maintenanceContext.sectionTitle}
         initialPhotos={maintenanceContext.photos}
       />
+      )}
     </div>
   );
 }

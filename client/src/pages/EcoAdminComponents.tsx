@@ -884,7 +884,7 @@ export function AddonPackManagement() {
         <CardContent>
           {packs && packs.length > 0 ? (
             <div className="overflow-x-auto min-w-0">
-            <Table className="min-w-[640px]">
+            <Table className="[&_th]:bg-muted/40 [&_td]:py-3 min-w-[640px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Pack Name</TableHead>
@@ -1036,7 +1036,7 @@ export function AddonPackManagement() {
                 <h4 className="font-semibold">Existing Pricing</h4>
                 {packPricing && packPricing.length > 0 ? (
                   <div className="overflow-x-auto min-w-0">
-                  <Table className="min-w-[640px]">
+                  <Table className="[&_th]:bg-muted/40 [&_td]:py-3 min-w-[640px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Tier</TableHead>
@@ -2296,7 +2296,7 @@ export function QuotationsManagement() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto min-w-0">
-          <Table className="min-w-[900px]">
+          <Table className="[&_th]:bg-muted/40 [&_td]:py-3 min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>

@@ -30,17 +30,24 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ASSIGNED_INVENTORY_CLERK_LABEL } from "@shared/roleLabels";
+import {
+  formatInspectionStatus,
+  formatInspectionType,
+  inspectionStatusBadgeVariant,
+} from "@shared/inspectionLabels";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, textBreak } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const locale = useLocale();
   const [, setLocation] = useLocation();
+  const { tenanciesEnabled } = useCompanyModules();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -400,35 +407,15 @@ export default function InspectionDetail() {
     );
   }
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: any; label: string; className?: string }> = {
-      draft: { variant: "outline", label: "Draft", className: "border-muted-foreground/50 text-muted-foreground" },
-      scheduled: { variant: "outline", label: "Scheduled", className: "border-blue-500 text-blue-600 dark:text-blue-400" },
-      in_progress: { variant: "default", label: "In Progress", className: "bg-amber-500 text-white dark:bg-amber-600" },
-      completed: { variant: "default", label: "Completed", className: "bg-primary text-primary-foreground" },
-    };
-    const config = variants[status] || variants.draft;
-    return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
-  };
+  const getStatusBadge = (status: string) => (
+    <Badge variant={inspectionStatusBadgeVariant(status)}>
+      {formatInspectionStatus(status)}
+    </Badge>
+  );
 
-  const getTypeBadge = (type: string) => {
-    const labels: Record<string, string> = {
-      check_in: "Check In",
-      check_out: "Check Out",
-      routine: "Routine",
-      maintenance: "Maintenance",
-      esg_sustainability_inspection: "ESG Sustainability Inspection",
-      fire_hazard_assessment: "Fire Hazard Assessment",
-      maintenance_inspection: "Maintenance Inspection",
-      damage: "Damage",
-      emergency: "Emergency",
-      safety_compliance: "Safety & Compliance",
-      compliance_regulatory: "Compliance / Regulatory",
-      pre_purchase: "Pre-Purchase",
-      specialized: "Specialized",
-    };
-    return <Badge variant="outline">{labels[type] || type}</Badge>;
-  };
+  const getTypeBadge = (type: string) => (
+    <Badge variant="outline">{formatInspectionType(type)}</Badge>
+  );
 
   const items = inspection?.items || [];
   

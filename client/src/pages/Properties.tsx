@@ -1,28 +1,10 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { TagInput } from "@/components/TagInput";
 import { TagFilter } from "@/components/TagFilter";
-import { AddressInput } from "@/components/AddressInput";
 import type { Tag } from "@shared/schema";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil, Tag as TagIcon, Filter, X, Trash2, Banknote } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -31,9 +13,14 @@ import { Link, useSearch } from "wouter";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { CardQuickActions } from "@/components/CardQuickActions";
+import type { CardQuickAction } from "@/components/CardQuickActions";
+import { PropertyFormDialog } from "@/components/PropertyFormDialog";
+import { PageHeader } from "@/components/PageHeader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase } from "@/lib/responsive";
+import { pagePad, cardGrid } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 function isActiveTenantAssignment(ta: any): boolean {
   const nested = ta.assignment;
@@ -80,56 +67,13 @@ export default function Properties() {
   const { toast } = useToast();
   const searchParams = useSearch();
   const urlBlockId = new URLSearchParams(searchParams).get("blockId");
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled } = useCompanyModules();
   
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<any | null>(null);
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [propertyType, setPropertyType] = useState<string | undefined>();
-  /** DB value not in the standard list — show as its own select option so Radix can match `value`. */
-  const [propertyTypeExtra, setPropertyTypeExtra] = useState<{ value: string; label: string } | null>(null);
-  const [blockId, setBlockId] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
-  const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [propertyToDelete, setPropertyToDelete] = useState<any | null>(null);
-
-  /** Radix Select must stay controlled; avoid value={undefined} (breaks re-open / hydration). */
-  const PROPERTY_TYPE_NONE = "__property_type_none__";
-
-  const propertyTypes = [
-    { value: "apartment", label: "Apartment" },
-    { value: "house", label: "House" },
-    { value: "studio", label: "Studio" },
-    { value: "townhouse", label: "Townhouse" },
-    { value: "flat", label: "Flat" },
-    { value: "maisonette", label: "Maisonette" },
-    { value: "bungalow", label: "Bungalow" },
-    { value: "detached", label: "Detached" },
-    { value: "semi-detached", label: "Semi-Detached" },
-    { value: "terraced", label: "Terraced" },
-    { value: "penthouse", label: "Penthouse" },
-    { value: "duplex", label: "Duplex" },
-    { value: "commercial", label: "Commercial" },
-    { value: "other", label: "Other" },
-  ];
-  const propertyTypeValues = new Set(propertyTypes.map((t) => t.value));
-
-  const normalizePropertyType = (value?: string | null): string | undefined => {
-    if (value == null) return undefined;
-    const trimmed = String(value).trim();
-    if (!trimmed) return undefined;
-    const lower = trimmed.toLowerCase();
-    if (propertyTypeValues.has(lower)) return lower;
-    // Labels / legacy: "Semi-Detached", underscores, mixed spacing
-    const slug = lower.replace(/[\s_]+/g, "-");
-    if (propertyTypeValues.has(slug)) return slug;
-    const compact = lower.replace(/[\s_-]+/g, "");
-    for (const v of propertyTypeValues) {
-      if (v.replace(/-/g, "") === compact) return v;
-    }
-    return undefined;
-  };
 
   const { data: properties = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/properties"],
@@ -219,77 +163,6 @@ export default function Properties() {
     return filtered;
   }, [propertiesWithTags, urlBlockId, searchQuery, filterTags]);
 
-  // Prepopulate form when dialog opens and we have a selected block (only for new properties, not edits)
-  useEffect(() => {
-    if (dialogOpen && !editingProperty && urlBlockId && selectedBlock) {
-      setAddress(selectedBlock.address || "");
-      setBlockId(urlBlockId);
-    }
-  }, [dialogOpen, editingProperty, urlBlockId, selectedBlock]);
-
-  const createProperty = useMutation({
-    mutationFn: async (data: { name: string; address: string; propertyType?: string | null; blockId?: string }) => {
-      const res = await apiRequest("POST", "/api/properties", data);
-      return await res.json();
-    },
-    onSuccess: async (property: any) => {
-      // Apply tags first, then refresh list so cards show the new tags immediately
-      if (selectedTags.length > 0 && property?.id) {
-        await updatePropertyTags(property.id, selectedTags);
-      }
-      await queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
-      
-      toast({
-        title: "Success",
-        description: "Property created successfully",
-      });
-      handleCloseDialog();
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to create property",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const updateProperty = useMutation({
-    mutationFn: async (data: { id: string; name: string; address: string; propertyType?: string | null; blockId?: string }) => {
-      const body: Record<string, unknown> = {
-        name: data.name,
-        address: data.address,
-        blockId: data.blockId,
-      };
-      if (data.propertyType !== undefined) {
-        body.propertyType = data.propertyType;
-      }
-      console.log("[Properties] PATCH payload", { id: data.id, body });
-      return await apiRequest("PATCH", `/api/properties/${data.id}`, body);
-    },
-    onSuccess: async (_, variables) => {
-      // Apply tag changes first, then refresh so cards update without a page reload
-      await updatePropertyTags(variables.id, selectedTags);
-      await queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.id] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
-      
-      toast({
-        title: "Success",
-        description: "Property updated successfully",
-      });
-      handleCloseDialog();
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update property",
-        variant: "destructive",
-      });
-    },
-  });
-
   const deleteProperty = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/properties/${id}`);
@@ -312,159 +185,12 @@ export default function Properties() {
 
   const handleOpenCreate = () => {
     setEditingProperty(null);
-    setName("");
-    setPropertyType(undefined);
-    setPropertyTypeExtra(null);
-    const initialBlockId = urlBlockId || undefined;
-    setBlockId(initialBlockId);
-    const blockFromUrl = initialBlockId
-      ? blocks.find((b: any) => b.id === initialBlockId)
-      : undefined;
-    setAddress(blockFromUrl?.address || "");
-    setSelectedTags([]);
     setDialogOpen(true);
   };
 
-  const handleOpenEdit = async (property: any) => {
-    let propertyData = property;
-    try {
-      const propertyRes = await fetch(`/api/properties/${property.id}?_t=${Date.now()}`, {
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (propertyRes.ok) {
-        propertyData = await propertyRes.json();
-      }
-    } catch (error) {
-      console.error("Error fetching latest property details:", error);
-    }
-
-    const rawType =
-      propertyData.propertyType ??
-      propertyData.property_type ??
-      null;
-
-    const normalized = normalizePropertyType(rawType);
-    const rawTrimmed =
-      rawType != null && String(rawType).trim() !== "" ? String(rawType).trim() : null;
-
-    setEditingProperty(propertyData);
-    setName(propertyData.name);
-    setAddress(propertyData.address);
-    if (normalized) {
-      setPropertyType(normalized);
-      setPropertyTypeExtra(null);
-    } else if (rawTrimmed) {
-      const slug = rawTrimmed.toLowerCase().replace(/[\s_]+/g, "-");
-      if (propertyTypeValues.has(slug)) {
-        setPropertyType(slug);
-        setPropertyTypeExtra(null);
-      } else {
-        setPropertyType(slug);
-        setPropertyTypeExtra({ value: slug, label: rawTrimmed });
-      }
-    } else {
-      setPropertyType(undefined);
-      setPropertyTypeExtra(null);
-    }
-    setBlockId(propertyData.blockId || undefined);
-    
-    // Fetch tags for this property
-    try {
-      const res = await fetch(`/api/properties/${property.id}/tags`, { credentials: "include" });
-      if (res.ok) {
-        const tags = await res.json();
-        setSelectedTags(tags);
-      }
-    } catch (error) {
-      console.error("Error fetching property tags:", error);
-    }
-    
+  const handleOpenEdit = (property: any) => {
+    setEditingProperty(property);
     setDialogOpen(true);
-  };
-
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setEditingProperty(null);
-    setName("");
-    setAddress("");
-    setPropertyType(undefined);
-    setPropertyTypeExtra(null);
-    setBlockId(undefined);
-    setSelectedTags([]);
-  };
-
-  const updatePropertyTags = async (propertyId: string, tags: Tag[]) => {
-    // Get current tags for the property
-    try {
-      const res = await fetch(`/api/properties/${propertyId}/tags`, { credentials: "include" });
-      const currentTags = res.ok ? await res.json() : [];
-      
-      // Remove tags that are no longer selected
-      for (const currentTag of currentTags) {
-        if (!tags.find(t => t.id === currentTag.id)) {
-          await apiRequest("DELETE", `/api/properties/${propertyId}/tags/${currentTag.id}`);
-        }
-      }
-      
-      // Add new tags
-      for (const tag of tags) {
-        if (!currentTags.find((t: Tag) => t.id === tag.id)) {
-          await apiRequest("POST", `/api/properties/${propertyId}/tags/${tag.id}`);
-        }
-      }
-
-      // Update local tags cache immediately so cards refresh without waiting on a full remount
-      queryClient.setQueriesData<Record<string, Tag[]>>(
-        { queryKey: ["/api/properties/tags"] },
-        (old) => ({
-          ...(old || {}),
-          [propertyId]: tags,
-        }),
-      );
-    } catch (error) {
-      console.error("Error updating property tags:", error);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !address) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      });
-      return;
-    }
-    // Convert "none" to null to explicitly remove block assignment, undefined means don't change
-    const finalBlockId = blockId === "none" ? null : (blockId || undefined);
-
-    const noneOrUnset = propertyType === undefined;
-
-    if (editingProperty) {
-      const forApi = noneOrUnset
-        ? null
-        : normalizePropertyType(propertyType) ?? propertyType ?? null;
-      console.log("[Properties] Submit edit", {
-        editingPropertyId: editingProperty.id,
-        propertyTypeState: propertyType,
-        normalizedPropertyType: normalizePropertyType(propertyType),
-        forApi,
-      });
-      updateProperty.mutate({
-        id: editingProperty.id,
-        name,
-        address,
-        propertyType: forApi,
-        blockId: finalBlockId,
-      });
-    } else {
-      const forApi = noneOrUnset
-        ? undefined
-        : normalizePropertyType(propertyType) ?? propertyType;
-      createProperty.mutate({ name, address, propertyType: forApi, blockId: finalBlockId });
-    }
   };
 
   if (isLoading) {
@@ -477,150 +203,45 @@ export default function Properties() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      {urlBlockId && selectedBlock && (
-        <Link href={`/blocks/${urlBlockId}`}>
-          <Button variant="ghost" className="mb-4" data-testid="button-back-to-block">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to {selectedBlock.name}
-          </Button>
-        </Link>
-      )}
-      
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
-            {urlBlockId && selectedBlock ? `${selectedBlock.name} - Properties` : "Properties"}
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            {urlBlockId && selectedBlock 
-              ? `Properties in ${selectedBlock.name}` 
-              : "Manage your building portfolio"
-            }
-          </p>
-        </div>
-
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button style={{ backgroundColor: '#00D2BD' }} className="hover:opacity-90 text-xs md:text-sm h-8 md:h-10 px-2 md:px-4" data-testid="button-create-property" onClick={handleOpenCreate} size="sm">
-              <Plus className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
-              <span className="hidden sm:inline">Add Property</span>
-              <span className="sm:hidden">Add</span>
-            </Button>
-          </DialogTrigger>
-          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-            <DialogHeader>
-              <DialogTitle>{editingProperty ? "Edit Property" : "Create New Property"}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="name" required>Property Name</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Flat 12, Unit 5B"
-                  data-testid="input-property-name"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="address" required>Address</Label>
-                <AddressInput
-                  id="address"
-                  value={address}
-                  onChange={setAddress}
-                  placeholder="Start typing to search..."
-                  data-testid="input-property-address"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="propertyType">Property Type</Label>
-                <Select
-                  value={propertyType ?? PROPERTY_TYPE_NONE}
-                  onValueChange={(v) => {
-                    if (v === PROPERTY_TYPE_NONE) {
-                      setPropertyType(undefined);
-                      setPropertyTypeExtra(null);
-                      return;
-                    }
-                    setPropertyType(v);
-                    setPropertyTypeExtra(null);
-                  }}
-                >
-                  <SelectTrigger data-testid="select-property-type">
-                    <SelectValue placeholder="Select property type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={PROPERTY_TYPE_NONE}>Select property type</SelectItem>
-                    {propertyTypeExtra && (
-                      <SelectItem value={propertyTypeExtra.value}>
-                        {propertyTypeExtra.label} (saved)
-                      </SelectItem>
-                    )}
-                    {propertyTypes.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="block">Block (Optional)</Label>
-                <Select
-                  value={blockId}
-                  onValueChange={(value) => {
-                    setBlockId(value);
-                    if (value && value !== "none") {
-                      const selected = blocks.find((b: any) => b.id === value);
-                      if (selected?.address) {
-                        setAddress(selected.address);
-                      }
-                    }
-                  }}
-                >
-                  <SelectTrigger data-testid="select-block">
-                    <SelectValue placeholder="Select a block" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Block</SelectItem>
-                    {blocks.map((block: any) => (
-                      <SelectItem key={block.id} value={block.id}>
-                        {block.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Assign this property to a building/block for better organization. Selecting a block fills the address.
-                </p>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Tags</Label>
-                <TagInput
-                  selectedTags={selectedTags}
-                  onTagsChange={setSelectedTags}
-                  placeholder="Add tags to organize this property..."
-                />
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={createProperty.isPending || updateProperty.isPending}
-                data-testid="button-submit-property"
-              >
-                {editingProperty 
-                  ? (updateProperty.isPending ? "Updating..." : "Update Property")
-                  : (createProperty.isPending ? "Creating..." : "Create Property")
-                }
+      <PageHeader
+        leading={
+          urlBlockId && selectedBlock ? (
+            <Link href={`/blocks/${urlBlockId}`}>
+              <Button variant="ghost" size="sm" data-testid="button-back-to-block">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to {selectedBlock.name}
               </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+            </Link>
+          ) : undefined
+        }
+        title={urlBlockId && selectedBlock ? `${selectedBlock.name} - Properties` : "Properties"}
+        description={
+          urlBlockId && selectedBlock
+            ? `Properties in ${selectedBlock.name}`
+            : "Manage your building portfolio"
+        }
+        actions={
+          <Button
+            variant="brand"
+            data-testid="button-create-property"
+            onClick={handleOpenCreate}
+          >
+            <Plus className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
+            <span className="hidden sm:inline">Add Property</span>
+            <span className="sm:hidden">Add</span>
+          </Button>
+        }
+      />
+
+      <PropertyFormDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setEditingProperty(null);
+        }}
+        property={editingProperty}
+        defaultBlockId={urlBlockId}
+      />
 
       {properties.length > 0 && (
         <FiltersSection headingId="properties-filters-heading">
@@ -713,7 +334,7 @@ export default function Properties() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 items-stretch">
+        <div className={cardGrid}>
           {filteredProperties.map((property: any) => {
             const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
             return (
@@ -813,63 +434,46 @@ export default function Properties() {
                   </CardContent>
                 </Link>
                 <CardContent className="pt-0 border-t mt-auto">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1 pt-4">
-                    <Link href={`/asset-inventory?propertyId=${property.id}`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-inventory-${property.id}`}
-                      >
-                        <Package className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Inventory</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/inspections?propertyId=${property.id}&create=true`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-inspect-${property.id}`}
-                      >
-                        <ClipboardCheck className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Inspect</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/properties/${property.id}/tenants`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-tenants-${property.id}`}
-                      >
-                        <Users className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Tenants</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/compliance?propertyId=${property.id}`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-compliance-${property.id}`}
-                      >
-                        <FileText className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Compliance</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/properties/${property.id}?tab=rent-collection`} className="w-full min-w-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-rent-${property.id}`}
-                      >
-                        <Banknote className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Rent</span>
-                      </Button>
-                    </Link>
-                  </div>
+                  <CardQuickActions
+                    className="pt-4"
+                    actions={([
+                      {
+                        id: "inventory",
+                        label: "Inventory",
+                        icon: Package,
+                        href: `/asset-inventory?propertyId=${property.id}`,
+                        testId: `button-inventory-${property.id}`,
+                      },
+                      {
+                        id: "inspect",
+                        label: "Inspect",
+                        icon: ClipboardCheck,
+                        href: `/inspections?propertyId=${property.id}&create=true`,
+                        testId: `button-inspect-${property.id}`,
+                      },
+                      tenanciesEnabled && {
+                        id: "tenants",
+                        label: "Tenants",
+                        icon: Users,
+                        href: `/properties/${property.id}/tenants`,
+                        testId: `button-tenants-${property.id}`,
+                      },
+                      complianceEnabled && {
+                        id: "compliance",
+                        label: "Compliance",
+                        icon: FileText,
+                        href: `/compliance?propertyId=${property.id}`,
+                        testId: `button-compliance-${property.id}`,
+                      },
+                      rentalsEnabled && {
+                        id: "rent",
+                        label: "Rent",
+                        icon: Banknote,
+                        href: `/properties/${property.id}?tab=rent-collection`,
+                        testId: `button-rent-${property.id}`,
+                      },
+                    ] as (CardQuickAction | false)[]).filter(Boolean) as CardQuickAction[]}
+                  />
                 </CardContent>
               </Card>
             );

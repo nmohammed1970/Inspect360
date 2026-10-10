@@ -47,6 +47,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -167,6 +168,7 @@ export default function ComparisonReportDetail() {
   const { toast } = useToast();
   const { user } = useAuth();
   const locale = useLocale();
+  const { tenanciesEnabled } = useCompanyModules();
   const [commentText, setCommentText] = useState("");
   const [isInternalComment, setIsInternalComment] = useState(false);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
@@ -540,7 +542,7 @@ export default function ComparisonReportDetail() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <Button
-            variant="outline"
+            variant="brand"
             onClick={handleDownloadPdf}
             disabled={isDownloadingPdf}
             data-testid="button-download-pdf"
@@ -1037,7 +1039,9 @@ export default function ComparisonReportDetail() {
             Electronic Signatures
           </CardTitle>
           <CardDescription>
-            Both parties must sign to finalize the report
+            {tenanciesEnabled
+              ? "Both parties must sign to finalize the report"
+              : "Operator signature finalizes the report"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -1080,6 +1084,7 @@ export default function ComparisonReportDetail() {
             )}
           </div>
 
+          {tenanciesEnabled && (
           <div className="flex items-center justify-between p-4 border rounded-lg gap-4 flex-wrap">
             <div className="space-y-1">
               <div className="font-medium flex items-center gap-2">
@@ -1113,6 +1118,7 @@ export default function ComparisonReportDetail() {
               )}
             </div>
           </div>
+          )}
 
           {canSign && (
             <div className="space-y-3 p-4 bg-muted rounded-lg">
@@ -1187,7 +1193,7 @@ export default function ComparisonReportDetail() {
             </div>
           )}
 
-          {report.operatorSignature && !report.tenantSignature && (
+          {tenanciesEnabled && report.operatorSignature && !report.tenantSignature && (
             <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-lg">
               <p className="text-sm">
                 You have signed this report. Waiting for tenant signature. The tenant can access this report through their portal.
@@ -1195,12 +1201,17 @@ export default function ComparisonReportDetail() {
             </div>
           )}
 
-          {report.operatorSignature && report.tenantSignature && (
+          {report.operatorSignature &&
+            (!tenanciesEnabled || report.tenantSignature) && (
             <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg flex items-center gap-3">
               <CheckCircle className="w-6 h-6 text-green-600" />
               <div>
                 <p className="font-medium text-green-800 dark:text-green-200">Report Fully Signed</p>
-                <p className="text-sm text-green-700 dark:text-green-300">Both parties have signed this comparison report.</p>
+                <p className="text-sm text-green-700 dark:text-green-300">
+                  {tenanciesEnabled
+                    ? "Both parties have signed this comparison report."
+                    : "Operator has signed this comparison report."}
+                </p>
               </div>
             </div>
           )}

@@ -22,7 +22,9 @@ import { FiltersSection } from "@/components/FiltersSection";
 import { parsePhoneNumber, combinePhoneNumber, getPhoneCodeForCountry, normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 import { useLocale } from "@/contexts/LocaleContext";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 type ContactWithTags = Omit<Contact, 'tags'> & { tags?: TagType[] };
 
@@ -34,6 +36,7 @@ const contactTypeLabels: Record<string, string> = {
   partner: "Partner",
   vendor: "Vendor",
   tenant: "Tenant",
+  landlord: "Landlord",
   other: "Other",
 };
 
@@ -45,11 +48,13 @@ const contactTypeBadgeVariants: Record<string, "default" | "secondary" | "outlin
   partner: "default",
   vendor: "secondary",
   tenant: "default",
+  landlord: "secondary",
   other: "outline",
 };
 
 export default function Contacts() {
   const { toast } = useToast();
+  const { tenanciesEnabled } = useCompanyModules();
   const { countryCode: userCountryCode } = useLocale();
   const defaultPhoneCode = getPhoneCodeForCountry(userCountryCode);
   const [searchTerm, setSearchTerm] = useState("");
@@ -82,6 +87,7 @@ export default function Contacts() {
 
   const { data: tenantAssignments = [] } = useQuery<TenantAssignment[]>({
     queryKey: ["/api/tenant-assignments"],
+    enabled: tenanciesEnabled,
   });
 
   const createMutation = useMutation({
@@ -379,16 +385,14 @@ export default function Contacts() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Contacts</h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            Manage internal team members and external contacts
-          </p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <PageHeader
+        title="Contacts"
+        description="Manage internal team members and external contacts"
+        actions={
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button
+                variant="brand"
                 onClick={() => {
                   setEditingContact(null);
                   setPhoneValue("");
@@ -431,6 +435,8 @@ export default function Contacts() {
                         <SelectItem value="company">Company</SelectItem>
                         <SelectItem value="partner">Partner</SelectItem>
                         <SelectItem value="vendor">Vendor</SelectItem>
+                        <SelectItem value="tenant">Tenant</SelectItem>
+                        <SelectItem value="landlord">Landlord</SelectItem>
                         <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
@@ -701,7 +707,8 @@ export default function Contacts() {
               </form>
             </DialogContent>
           </Dialog>
-        </div>
+        }
+      />
 
         <FiltersSection headingId="contacts-filters-heading">
         <div className="hidden md:flex gap-3 items-center flex-wrap">
@@ -728,6 +735,8 @@ export default function Contacts() {
               <SelectItem value="company">Company</SelectItem>
               <SelectItem value="partner">Partner</SelectItem>
               <SelectItem value="vendor">Vendor</SelectItem>
+              <SelectItem value="tenant">Tenant</SelectItem>
+              <SelectItem value="landlord">Landlord</SelectItem>
               <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
@@ -841,6 +850,8 @@ export default function Contacts() {
                       <SelectItem value="company">Company</SelectItem>
                       <SelectItem value="partner">Partner</SelectItem>
                       <SelectItem value="vendor">Vendor</SelectItem>
+                      <SelectItem value="tenant">Tenant</SelectItem>
+                      <SelectItem value="landlord">Landlord</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>

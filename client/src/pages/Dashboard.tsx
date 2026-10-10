@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -39,6 +40,8 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 
 function formatInclusiveUtcDate(iso: string | null | undefined): string {
@@ -201,6 +204,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
   const { data: entitlement } = useEntitlement();
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
   const featuresLocked = !!entitlement?.locked;
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
@@ -338,7 +342,7 @@ export default function Dashboard() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: isAuthenticated && !featuresLocked && visibleWidgets.complianceSchedule && !!complianceScheduleEntityId,
+    enabled: isAuthenticated && !featuresLocked && complianceEnabled && visibleWidgets.complianceSchedule && !!complianceScheduleEntityId,
   });
 
   // Filter properties for schedule widgets based on selected block
@@ -454,9 +458,9 @@ export default function Dashboard() {
   const creditsLow = creditsRemaining < 5 && !featuresLocked && !entitlement?.warning;
 
   const totalAlerts = (stats?.alerts.overdueInspections || 0) +
-                      (stats?.alerts.overdueCompliance || 0) +
-                      (stats?.alerts.urgentMaintenance || 0) +
-                      (stats?.alerts.overdueRent || 0);
+                      (complianceEnabled ? (stats?.alerts.overdueCompliance || 0) : 0) +
+                      (maintenanceEnabled ? (stats?.alerts.urgentMaintenance || 0) : 0) +
+                      (rentalsEnabled ? (stats?.alerts.overdueRent || 0) : 0);
 
   const getKpiColor = (value: number, thresholds: { good: number; warning: number }) => {
     if (value >= thresholds.good) return "text-green-600 dark:text-green-400";
@@ -471,15 +475,15 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header Section */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-dashboard-title">
+          <div className="min-w-0 flex-1 space-y-1">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight font-heading" data-testid="text-dashboard-title">
               Operations Dashboard
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm md:text-base text-muted-foreground">
               Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
             </p>
           </div>
@@ -520,7 +524,9 @@ export default function Dashboard() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                  {(Object.keys(widgetLabels) as WidgetKey[]).map((key) => (
+                  {(Object.keys(widgetLabels) as WidgetKey[])
+                    .filter((key) => key !== "complianceSchedule" || complianceEnabled)
+                    .map((key) => (
                     <div key={key} className="flex items-center justify-between gap-4 p-2 rounded-lg border">
                       <div className="flex items-center gap-3">
                         {visibleWidgets[key] ? (
@@ -634,7 +640,7 @@ export default function Dashboard() {
               <Button
                 onClick={handleExportDashboardPDF}
                 disabled={isExportingPDF}
-                variant="default"
+                variant="brand"
                 className="ml-auto"
                 data-testid="button-export-dashboard-pdf"
               >
@@ -750,7 +756,7 @@ export default function Dashboard() {
               <Button
                 onClick={handleExportDashboardPDF}
                 disabled={isExportingPDF}
-                variant="default"
+                variant="brand"
                 className="flex-1"
                 data-testid="button-export-dashboard-pdf-mobile"
               >
@@ -790,7 +796,12 @@ export default function Dashboard() {
                       {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {stats?.alerts.overdueInspections || 0} overdue inspections, {stats?.alerts.overdueCompliance || 0} expired compliance, {stats?.alerts.urgentMaintenance || 0} urgent maintenance, {stats?.alerts.overdueRent || 0} overdue rent
+                      {[
+                        `${stats?.alerts.overdueInspections || 0} overdue inspections`,
+                        complianceEnabled ? `${stats?.alerts.overdueCompliance || 0} expired compliance` : null,
+                        maintenanceEnabled ? `${stats?.alerts.urgentMaintenance || 0} urgent maintenance` : null,
+                        rentalsEnabled ? `${stats?.alerts.overdueRent || 0} overdue rent` : null,
+                      ].filter(Boolean).join(", ")}
                     </p>
                   </div>
                 </div>
@@ -896,47 +907,51 @@ export default function Dashboard() {
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="panel-kpis">
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Card data-testid="kpi-occupancy">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <Home className="h-4 w-4 text-muted-foreground" />
-                  {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
-                </div>
-                <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
-                  {stats?.kpis?.occupancyRate ?? 0}%
-                </p>
-                <p className="text-xs text-muted-foreground">Occupancy Rate</p>
-              </CardContent>
-            </Card>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Percentage of properties currently occupied</p>
-          </TooltipContent>
-        </UiTooltip>
-
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Link href="/compliance">
-              <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
+        {tenanciesEnabled && (
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <Card data-testid="kpi-occupancy">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                    {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
+                    <Home className="h-4 w-4 text-muted-foreground" />
+                    {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
                   </div>
-                  <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}`}>
-                    {stats?.kpis?.complianceRate ?? 0}%
+                  <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
+                    {stats?.kpis?.occupancyRate ?? 0}%
                   </p>
-                  <p className="text-xs text-muted-foreground">Compliance Rate</p>
+                  <p className="text-xs text-muted-foreground">Occupancy Rate</p>
                 </CardContent>
               </Card>
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Share of compliance documents that are currently valid — click to view</p>
-          </TooltipContent>
-        </UiTooltip>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Percentage of properties currently occupied</p>
+            </TooltipContent>
+          </UiTooltip>
+        )}
+
+        {complianceEnabled && (
+          <UiTooltip>
+            <TooltipTrigger asChild>
+              <Link href="/compliance">
+                <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                      {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
+                    </div>
+                    <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}`}>
+                      {stats?.kpis?.complianceRate ?? 0}%
+                    </p>
+                    <p className="text-xs text-muted-foreground">Compliance Rate</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Share of compliance documents that are currently valid — click to view</p>
+            </TooltipContent>
+          </UiTooltip>
+        )}
 
         <UiTooltip>
           <TooltipTrigger asChild>
@@ -960,6 +975,8 @@ export default function Dashboard() {
           </TooltipContent>
         </UiTooltip>
 
+        {maintenanceEnabled && (
+        <>
         <UiTooltip>
           <TooltipTrigger asChild>
             <Link href="/maintenance">
@@ -1023,6 +1040,8 @@ export default function Dashboard() {
             <p>Maintenance requests currently being worked on — click to view</p>
           </TooltipContent>
         </UiTooltip>
+        </>
+        )}
       </div>
       )}
 
@@ -1053,19 +1072,25 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="inspections" className="w-full min-w-0">
-                <TabsList className="w-full">
-                  <TabsTrigger value="inspections" className="flex-1 text-xs md:text-sm" data-testid="tab-overdue-inspections">
+                <TabsList>
+                  <TabsTrigger value="inspections" className="text-xs md:text-sm" data-testid="tab-overdue-inspections">
                     Inspections ({stats?.alerts?.overdueInspections ?? 0})
                   </TabsTrigger>
-                  <TabsTrigger value="compliance" className="flex-1 text-xs md:text-sm" data-testid="tab-overdue-compliance">
-                    Compliance ({stats?.alerts?.overdueCompliance ?? 0})
-                  </TabsTrigger>
-                  <TabsTrigger value="maintenance" className="flex-1 text-xs md:text-sm" data-testid="tab-urgent-maintenance">
+                  {complianceEnabled && (
+                    <TabsTrigger value="compliance" className="text-xs md:text-sm" data-testid="tab-overdue-compliance">
+                      Compliance ({stats?.alerts?.overdueCompliance ?? 0})
+                    </TabsTrigger>
+                  )}
+                  {maintenanceEnabled && (
+                  <TabsTrigger value="maintenance" className="text-xs md:text-sm" data-testid="tab-urgent-maintenance">
                     Maintenance ({stats?.alerts?.urgentMaintenance ?? 0})
                   </TabsTrigger>
-                  <TabsTrigger value="rent" className="flex-1 text-xs md:text-sm" data-testid="tab-overdue-rent">
-                    Rent ({stats?.alerts?.overdueRent ?? 0})
-                  </TabsTrigger>
+                  )}
+                  {rentalsEnabled && (
+                    <TabsTrigger value="rent" className="text-xs md:text-sm" data-testid="tab-overdue-rent">
+                      Rent ({stats?.alerts?.overdueRent ?? 0})
+                    </TabsTrigger>
+                  )}
                 </TabsList>
                 
                 <TabsContent value="inspections" className="mt-4">
@@ -1154,6 +1179,7 @@ export default function Dashboard() {
                   )}
                 </TabsContent>
 
+                {maintenanceEnabled && (
                 <TabsContent value="maintenance" className="mt-4">
                   {(stats?.alerts?.urgentMaintenanceList?.length ?? 0) === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
@@ -1203,6 +1229,7 @@ export default function Dashboard() {
                     </div>
                   )}
                 </TabsContent>
+                )}
 
                 <TabsContent value="rent" className="mt-4">
                   {(stats?.alerts?.overdueRentList?.length ?? 0) === 0 ? (
@@ -1380,6 +1407,7 @@ export default function Dashboard() {
                 </TooltipContent>
               </UiTooltip>
 
+              {complianceEnabled && (
               <UiTooltip>
                 <TooltipTrigger asChild>
                   <Link href="/compliance?expiring=30">
@@ -1396,7 +1424,9 @@ export default function Dashboard() {
                   <p>Compliance documents expiring within 30 days</p>
                 </TooltipContent>
               </UiTooltip>
+              )}
 
+              {complianceEnabled && (
               <UiTooltip>
                 <TooltipTrigger asChild>
                   <Link href="/compliance?expiring=90">
@@ -1413,6 +1443,7 @@ export default function Dashboard() {
                   <p>Compliance documents expiring within 90 days</p>
                 </TooltipContent>
               </UiTooltip>
+              )}
             </CardContent>
           </Card>
           )}
@@ -1538,18 +1569,22 @@ export default function Dashboard() {
                   <span className="font-semibold">{stats?.totals?.inspections ?? 0}</span>
                 </div>
               </Link>
-              <Link href="/compliance">
-                <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-compliance">
-                  <span className="text-sm text-muted-foreground">Compliance Docs</span>
-                  <span className="font-semibold">{stats?.totals?.compliance ?? 0}</span>
-                </div>
-              </Link>
+              {complianceEnabled && (
+                <Link href="/compliance">
+                  <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-compliance">
+                    <span className="text-sm text-muted-foreground">Compliance Docs</span>
+                    <span className="font-semibold">{stats?.totals?.compliance ?? 0}</span>
+                  </div>
+                </Link>
+              )}
+              {maintenanceEnabled && (
               <Link href="/maintenance">
                 <div className="flex items-center justify-between p-2 rounded hover-elevate cursor-pointer" data-testid="stat-maintenance">
                   <span className="text-sm text-muted-foreground">Maintenance Requests</span>
                   <span className="font-semibold">{stats?.totals?.maintenance ?? 0}</span>
                 </div>
               </Link>
+              )}
             </CardContent>
           </Card>
           )}
@@ -1610,7 +1645,7 @@ export default function Dashboard() {
       )}
 
       {/* Compliance Schedule Widget */}
-      {visibleWidgets.complianceSchedule && (
+      {complianceEnabled && visibleWidgets.complianceSchedule && (
         <Card data-testid="panel-compliance-schedule">
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

@@ -22,7 +22,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, dialogContentBase, dialogFooterSticky, cardGridComfortable } from "@/lib/responsive";
 
 // Form schemas
 const templateFormSchema = insertInspectionTemplateSchema.extend({
@@ -414,7 +414,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
       </FiltersSection>
 
       {/* Templates Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className={cardGridComfortable}>
         {templatesLoading ? (
           // Loading skeletons
           Array.from({ length: 6 }).map((_, i) => (

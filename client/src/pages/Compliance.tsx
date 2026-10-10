@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
+import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 // Default document types (fallback if no custom types exist)
 const DEFAULT_DOCUMENT_TYPES = [
@@ -655,25 +657,21 @@ export default function Compliance() {
   }
 
   return (
-    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-compliance">
-            Compliance Center
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-1">
-            {propertyIdFromUrl
-              ? `Documents for ${getPropertyName(propertyIdFromUrl) || "this property"}`
-              : blockIdFromUrl
-                ? `Documents for ${getBlockName(blockIdFromUrl) || "this block"}`
-                : "Manage compliance documents and certifications"}
-          </p>
-        </div>
-        
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <PageHeader
+        title={<span data-testid="heading-compliance">Compliance Center</span>}
+        description={
+          propertyIdFromUrl
+            ? `Documents for ${getPropertyName(propertyIdFromUrl) || "this property"}`
+            : blockIdFromUrl
+              ? `Documents for ${getBlockName(blockIdFromUrl) || "this block"}`
+              : "Manage compliance documents and certifications"
+        }
+        actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-primary w-full sm:w-auto text-xs md:text-sm h-8 md:h-10 px-2 md:px-4" data-testid="button-upload-document" size="sm">
-              <Upload className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
+            <Button variant="brand" className="w-full sm:w-auto shrink-0" data-testid="button-upload-document">
+              <Upload className="w-4 h-4 mr-2" />
               <span className="hidden sm:inline">Upload Document</span>
               <span className="sm:hidden">Upload</span>
             </Button>
@@ -1093,7 +1091,8 @@ export default function Compliance() {
                   </Button>
                   <Button
                     type="submit"
-                    className="bg-primary w-full sm:w-auto"
+                    variant="brand"
+                    className="w-full sm:w-auto"
                     disabled={
                       uploadMutation.isPending ||
                       isUploading ||
@@ -1110,7 +1109,8 @@ export default function Compliance() {
             </Form>
           </DialogContent>
         </Dialog>
-      </div>
+        }
+      />
 
       <FiltersSection headingId="compliance-filters-heading">
       {/* Filter and Sort Controls - Desktop */}

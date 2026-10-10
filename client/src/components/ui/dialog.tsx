@@ -83,7 +83,7 @@ const DialogContent = React.forwardRef<
         className={cn(
           // Mobile: pin to left/right insets so the panel cannot overflow the viewport.
           // sm+: center with translate; width is still capped by max-w + w-full.
-          "fixed z-[60] grid box-border gap-4 border bg-background p-4 sm:p-6 shadow-lg duration-200 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg",
+          "fixed z-[60] grid box-border gap-4 border bg-background p-4 sm:p-6 shadow-dialog duration-200 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain rounded-card",
           "left-4 right-4 top-[50%] w-auto max-w-lg max-h-[min(85vh,calc(100dvh-2rem))] translate-y-[-50%]",
           "sm:left-[50%] sm:right-auto sm:w-full sm:translate-x-[-50%]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-top-[48%]",

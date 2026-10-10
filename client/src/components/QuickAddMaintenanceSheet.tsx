@@ -65,21 +65,12 @@ export function QuickAddMaintenanceSheet({
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [photoUrls, setPhotoUrls] = useState<string[]>(initialPhotos);
+  const [photoUrls, setPhotoUrls] = useState<string[]>(() => (initialPhotos || []).slice(0, 5));
   const [photoUrlMap, setPhotoUrlMap] = useState<Map<string, string>>(new Map()); // Map of display URLs to original URLs
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Use ref to track previous initialPhotos to avoid unnecessary updates
-  const prevInitialPhotosRef = useRef<string[]>(initialPhotos);
-  
-  useEffect(() => {
-    // Only update if initialPhotos actually changed (deep comparison)
-    if (JSON.stringify(prevInitialPhotosRef.current) !== JSON.stringify(initialPhotos)) {
-      setPhotoUrls(initialPhotos);
-      prevInitialPhotosRef.current = initialPhotos;
-    }
-  }, [initialPhotos, open]);
+  const seededPhotos = (initialPhotos || []).filter(Boolean).slice(0, 5);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -216,26 +207,34 @@ export function QuickAddMaintenanceSheet({
   // Track if sheet was previously open
   const wasOpenRef = useRef(false);
 
-  // Reset form every time the sheet opens
+  // Reset form every time the sheet opens, and pull photos from the inspection field
   useEffect(() => {
     if (open && !wasOpenRef.current) {
-      // Sheet just opened - reset form with current context
+      const sectionInfo = sectionTitle ? ` in ${sectionTitle}` : "";
+      const seededTitle = fieldLabel
+        ? `Maintenance: ${fieldLabel}${sectionInfo}`
+        : "";
+      const seededDescription = fieldLabel
+        ? `Maintenance request created from inspection field: ${fieldLabel}${sectionInfo}`
+        : "";
+
       form.reset({
-        title: "",
-        description: "",
+        title: seededTitle,
+        description: seededDescription,
         propertyId: propertyId || undefined,
         blockId: blockId || undefined,
         priority: "medium",
-        photoUrls: [],
+        photoUrls: seededPhotos,
         inspectionId: inspectionId || undefined,
         inspectionEntryId: inspectionEntryId || undefined,
         source: inspectionId ? "inspection" : "manual",
       });
-      setPhotoUrls(initialPhotos);
+      setPhotoUrls(seededPhotos);
+      setPhotoUrlMap(new Map());
     }
     wasOpenRef.current = open;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, propertyId, blockId]);
+  }, [open, propertyId, blockId, fieldLabel, sectionTitle, inspectionId, inspectionEntryId, seededPhotos.join("|")]);
 
   const createMaintenanceMutation = useMutation({
     mutationFn: async (data: QuickAddMaintenance) => {

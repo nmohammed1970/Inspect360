@@ -36,6 +36,7 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { reportTableClass } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
@@ -204,8 +205,8 @@ export default function InventoryReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredInventory.length === 0}
-          size="sm"
-          className="sm:size-default self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
@@ -464,7 +465,7 @@ export default function InventoryReport() {
           ) : (
             <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
               <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                <Table>
+                <Table className={reportTableClass}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[150px]">Asset Name</TableHead>

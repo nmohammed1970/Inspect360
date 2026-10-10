@@ -45,11 +45,18 @@ export const workOrderCertificateExtractionStatusEnum = pgEnum("work_order_certi
   "added_to_compliance",
   "failed",
 ]);
+export const floorPlanAnalysisStatusEnum = pgEnum("floor_plan_analysis_status", [
+  "none",
+  "uploading",
+  "processing",
+  "complete",
+  "failed",
+]);
 export const assetConditionEnum = pgEnum("asset_condition", ["excellent", "good", "fair", "poor", "needs_replacement"]);
 export const inspectionPointDataTypeEnum = pgEnum("inspection_point_data_type", ["text", "number", "checkbox", "photo", "rating"]);
 export const conditionRatingEnum = pgEnum("condition_rating", ["excellent", "good", "fair", "poor", "not_applicable"]);
 export const cleanlinessRatingEnum = pgEnum("cleanliness_rating", ["very_clean", "clean", "acceptable", "needs_cleaning", "not_applicable"]);
-export const contactTypeEnum = pgEnum("contact_type", ["internal", "contractor", "lead", "company", "partner", "vendor", "tenant", "other"]);
+export const contactTypeEnum = pgEnum("contact_type", ["internal", "contractor", "lead", "company", "partner", "vendor", "tenant", "landlord", "other"]);
 export const templateScopeEnum = pgEnum("template_scope", ["block", "property", "both"]);
 export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature", "auto_inspection_date", "auto_inspector", "auto_address", "auto_tenant_names"]);
 export const maintenanceSourceEnum = pgEnum("maintenance_source", ["manual", "inspection", "tenant_portal", "routine"]);
@@ -202,6 +209,11 @@ export const organizations = pgTable("organizations", {
   tenantPortalChatbotEnabled: boolean("tenant_portal_chatbot_enabled").default(true), // Enable/disable Chatbot feature in tenant portal
   tenantPortalMaintenanceEnabled: boolean("tenant_portal_maintenance_enabled").default(true), // Enable/disable Maintenance Request feature in tenant portal
   checkInApprovalPeriodDays: integer("check_in_approval_period_days").default(5), // Number of days tenants have to review and approve check-in inspections
+  /** Company module toggles (Settings → Internal Modules). Default ON for existing orgs. */
+  rentalsEnabled: boolean("rentals_enabled").notNull().default(true),
+  tenanciesEnabled: boolean("tenancies_enabled").notNull().default(true),
+  complianceEnabled: boolean("compliance_enabled").notNull().default(true),
+  maintenanceEnabled: boolean("maintenance_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -396,16 +408,38 @@ export const properties = pgTable("properties", {
   propertyType: varchar("property_type"), // Property type: apartment, house, studio, etc.
   imageUrl: text("image_url"), // Property image URL
   sqft: integer("sqft"), // Property area in square feet (for cost estimation)
+  landlordContactId: varchar("landlord_contact_id"),
   fixfloPropertyId: varchar("fixflo_property_id"), // Fixflo external property/asset ID
   fixfloSyncedAt: timestamp("fixflo_synced_at"), // Last successful sync timestamp
+  /** Property layout — source of truth for new inspection room generation (1–30). */
+  bedrooms: integer("bedrooms").notNull().default(1),
+  kitchens: integer("kitchens").notNull().default(1),
+  bathrooms: integer("bathrooms").notNull().default(1),
+  livingRooms: integer("living_rooms").notNull().default(1),
+  floorPlanUrl: text("floor_plan_url"),
+  floorPlanMimeType: varchar("floor_plan_mime_type", { length: 128 }),
+  floorPlanFileName: varchar("floor_plan_file_name", { length: 512 }),
+  floorPlanUploadedAt: timestamp("floor_plan_uploaded_at"),
+  floorPlanAnalysisStatus: floorPlanAnalysisStatusEnum("floor_plan_analysis_status")
+    .notNull()
+    .default("none"),
+  floorPlanAnalysisJson: jsonb("floor_plan_analysis_json"),
+  floorPlanAnalysedAt: timestamp("floor_plan_analysed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+export const roomCountFieldSchema = z.coerce.number().int().min(1).max(30);
 
 export const insertPropertySchema = createInsertSchema(properties).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  bedrooms: roomCountFieldSchema.optional(),
+  kitchens: roomCountFieldSchema.optional(),
+  bathrooms: roomCountFieldSchema.optional(),
+  livingRooms: roomCountFieldSchema.optional(),
 });
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
@@ -776,6 +810,8 @@ export const inspections = pgTable("inspections", {
   templateVersion: integer("template_version"), // Snapshot of template version used
   templateSnapshotJson: jsonb("template_snapshot_json"), // Copy of template structure at inspection start
   inventorySnapshotJson: jsonb("inventory_snapshot_json"), // Copy of inventory layout at inspection start
+  /** Snapshot of property room counts at create time (new inspections only; never rewritten). */
+  propertyRoomCountsSnapshot: jsonb("property_room_counts_snapshot"),
   // Inspection can be on either a block or a property (at least one must be set)
   blockId: varchar("block_id"),
   propertyId: varchar("property_id"),
@@ -899,6 +935,62 @@ export const insertInspectionEntrySchema = createInsertSchema(inspectionEntries)
 });
 export type InspectionEntry = typeof inspectionEntries.$inferSelect;
 export type InsertInspectionEntry = z.infer<typeof insertInspectionEntrySchema>;
+
+/** Per-inspection image gallery (source of truth for media; assignments sync into entry.photos). */
+export const inspectionGalleryImages = pgTable("inspection_gallery_images", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  inspectionId: varchar("inspection_id").notNull(),
+  objectUrl: text("object_url").notNull(),
+  fileName: varchar("file_name", { length: 512 }),
+  mimeType: varchar("mime_type", { length: 128 }),
+  byteSize: integer("byte_size"),
+  width: integer("width"),
+  height: integer("height"),
+  uploadedByUserId: varchar("uploaded_by_user_id"),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("inspection_gallery_images_inspection_id_idx").on(table.inspectionId),
+  index("inspection_gallery_images_org_id_idx").on(table.organizationId),
+  uniqueIndex("inspection_gallery_images_insp_url_uidx").on(table.inspectionId, table.objectUrl),
+]);
+
+export const insertInspectionGalleryImageSchema = createInsertSchema(inspectionGalleryImages).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InspectionGalleryImage = typeof inspectionGalleryImages.$inferSelect;
+export type InsertInspectionGalleryImage = z.infer<typeof insertInspectionGalleryImageSchema>;
+
+/** Links a gallery image to a template destination (sectionRef + fieldKey). */
+export const inspectionGalleryAssignments = pgTable("inspection_gallery_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  galleryImageId: varchar("gallery_image_id").notNull(),
+  inspectionId: varchar("inspection_id").notNull(),
+  sectionRef: text("section_ref").notNull(),
+  fieldKey: varchar("field_key").notNull(),
+  createdByUserId: varchar("created_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("inspection_gallery_assignments_inspection_id_idx").on(table.inspectionId),
+  index("inspection_gallery_assignments_image_id_idx").on(table.galleryImageId),
+  index("inspection_gallery_assignments_dest_idx").on(table.inspectionId, table.sectionRef, table.fieldKey),
+  uniqueIndex("inspection_gallery_assignments_unique_uidx").on(
+    table.galleryImageId,
+    table.sectionRef,
+    table.fieldKey,
+  ),
+]);
+
+export const insertInspectionGalleryAssignmentSchema = createInsertSchema(inspectionGalleryAssignments).omit({
+  id: true,
+  createdAt: true,
+});
+export type InspectionGalleryAssignment = typeof inspectionGalleryAssignments.$inferSelect;
+export type InsertInspectionGalleryAssignment = z.infer<typeof insertInspectionGalleryAssignmentSchema>;
 
 // AI Image Analyses (results from OpenAI Vision API)
 export const aiImageAnalyses = pgTable("ai_image_analyses", {
@@ -1473,6 +1565,96 @@ export const insertFixfloSyncStateSchema = createInsertSchema(fixfloSyncState).o
 export type FixfloSyncState = typeof fixfloSyncState.$inferSelect;
 export type InsertFixfloSyncState = z.infer<typeof insertFixfloSyncStateSchema>;
 
+export const reapitConnections = pgTable("reapit_connections", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().unique(),
+  reapitCustomerId: varchar("reapit_customer_id"),
+  status: varchar("status").notNull().default("disconnected"),
+  encryptedTokens: text("encrypted_tokens"),
+  lastError: text("last_error"),
+  connectedAt: timestamp("connected_at"),
+  disconnectedAt: timestamp("disconnected_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("reapit_connections_customer_id_idx").on(table.reapitCustomerId),
+]);
+
+export const reapitEntityMappings = pgTable("reapit_entity_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  entityType: varchar("entity_type").notNull(),
+  reapitId: varchar("reapit_id").notNull(),
+  inspect360Table: varchar("inspect360_table").notNull(),
+  inspect360Id: varchar("inspect360_id").notNull(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("reapit_entity_mappings_reapit_uidx").on(table.organizationId, table.entityType, table.reapitId),
+  uniqueIndex("reapit_entity_mappings_local_uidx").on(
+    table.organizationId,
+    table.inspect360Table,
+    table.inspect360Id,
+    table.entityType,
+  ),
+  index("reapit_entity_mappings_org_idx").on(table.organizationId),
+]);
+
+export const reapitSyncRuns = pgTable("reapit_sync_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  type: varchar("type").notNull(),
+  status: varchar("status").notNull().default("queued"),
+  countersJson: jsonb("counters_json").$type<Record<string, number>>().default({}),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("reapit_sync_runs_org_idx").on(table.organizationId),
+]);
+
+export const reapitWebhookEvents = pgTable("reapit_webhook_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  eventId: varchar("event_id").notNull().unique(),
+  topicId: varchar("topic_id").notNull(),
+  reapitEntityId: varchar("reapit_entity_id"),
+  reapitCustomerId: varchar("reapit_customer_id"),
+  status: varchar("status").notNull().default("pending"),
+  payloadJson: jsonb("payload_json"),
+  errorMessage: text("error_message"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("reapit_webhook_events_org_idx").on(table.organizationId),
+  index("reapit_webhook_events_status_idx").on(table.status),
+]);
+
+export const reapitJobs = pgTable("reapit_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  kind: varchar("kind").notNull(),
+  status: varchar("status").notNull().default("queued"),
+  runAfter: timestamp("run_after").defaultNow(),
+  attempts: integer("attempts").notNull().default(0),
+  payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().default({}),
+  errorMessage: text("error_message"),
+  lockedAt: timestamp("locked_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("reapit_jobs_status_run_after_idx").on(table.status, table.runAfter),
+]);
+
+export type ReapitConnection = typeof reapitConnections.$inferSelect;
+export type ReapitEntityMapping = typeof reapitEntityMappings.$inferSelect;
+export type ReapitSyncRun = typeof reapitSyncRuns.$inferSelect;
+export type ReapitWebhookEvent = typeof reapitWebhookEvents.$inferSelect;
+export type ReapitJob = typeof reapitJobs.$inferSelect;
+
 // Teams (Work order distribution lists for BTR operators)
 export const teams = pgTable("teams", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1962,6 +2144,13 @@ export const updatePropertySchema = z.object({
   blockId: z.string().nullable().optional(),
   imageUrl: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  bedrooms: roomCountFieldSchema.optional(),
+  kitchens: roomCountFieldSchema.optional(),
+  bathrooms: roomCountFieldSchema.optional(),
+  livingRooms: roomCountFieldSchema.optional(),
+  floorPlanUrl: z.string().nullable().optional(),
+  floorPlanMimeType: z.string().max(128).nullable().optional(),
+  floorPlanFileName: z.string().max(512).nullable().optional(),
 });
 
 // Compliance update schema

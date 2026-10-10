@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useModules } from "@/hooks/use-modules";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
@@ -42,6 +43,7 @@ export function AppSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -151,9 +153,19 @@ export function AppSidebar() {
     },
   ];
 
-  const filteredMainMenu = mainMenuItems.filter((item) =>
-    item.roles.includes(user?.role || "")
-  );
+  const filteredMainMenu = mainMenuItems.filter((item) => {
+    if (!item.roles.includes(user?.role || "")) return false;
+    if (item.url === "/compliance" && !complianceEnabled) return false;
+    if (
+      !maintenanceEnabled &&
+      (item.url === "/maintenance" ||
+        item.url === "/analytics" ||
+        item.url.startsWith("/maintenance?"))
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   // Dynamic active state styling based on organization's brand color
   const getActiveStyle = (isActive: boolean) => {
@@ -208,13 +220,17 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       data-active={isActive}
-                      className={!organization?.brandingPrimaryColor ? "data-[active=true]:bg-sidebar-accent" : ""}
+                      className={
+                        !organization?.brandingPrimaryColor
+                          ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
+                          : "gap-2.5"
+                      }
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       <Link href={item.url} onClick={handleClick} className={itemLocked ? "opacity-50" : undefined}>
                         <item.icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{item.title}</span>
+                        <span className="truncate font-medium">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -241,13 +257,17 @@ export function AppSidebar() {
                       <SidebarMenuButton
                         asChild
                         data-active={isActive}
-                        className={!organization?.brandingPrimaryColor ? "data-[active=true]:bg-sidebar-accent" : ""}
+                        className={
+                          !organization?.brandingPrimaryColor
+                            ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
+                            : "gap-2.5"
+                        }
                         style={getActiveStyle(isActive)}
                         data-testid="link-settings"
                       >
                         <Link href="/settings" onClick={handleClick}>
                           <Settings className="w-4 h-4" />
-                          <span>Settings</span>
+                          <span className="font-medium">Settings</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

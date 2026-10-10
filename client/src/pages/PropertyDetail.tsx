@@ -48,14 +48,15 @@ import {
   Banknote,
   Receipt,
 } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { AddressInput } from "@/components/AddressInput";
+import { PropertyFormDialog } from "@/components/PropertyFormDialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { MapPreview } from "@/components/MapPreview";
 import AddTenantDialog from "@/components/AddTenantDialog";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, formGrid2, textBreak } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll } from "@/lib/responsive";
 
 interface Property {
   id: string;
@@ -67,6 +68,15 @@ interface Property {
   organizationId: string;
   imageUrl?: string | null;
   propertyType?: string | null;
+  bedrooms?: number;
+  kitchens?: number;
+  bathrooms?: number;
+  livingRooms?: number;
+  floorPlanUrl?: string | null;
+  floorPlanMimeType?: string | null;
+  floorPlanFileName?: string | null;
+  floorPlanAnalysisStatus?: string | null;
+  floorPlanAnalysisJson?: any;
 }
 
 interface PropertyStats {
@@ -161,36 +171,36 @@ export default function PropertyDetail() {
   const propertyId = params?.id;
   const searchParams = useSearch();
   const urlTab = new URLSearchParams(searchParams).get("tab");
-  const propertyTabs = useMemo(
-    () =>
-      new Set([
-        "inspections",
-        "tenants",
-        "inventory",
-        "inspection-schedule",
-        "compliance-schedule",
-        "maintenance",
-        "deposit",
-        "rent-collection",
-        "expenses",
-      ]),
-    [],
-  );
-  const resolvedTab =
-    urlTab === "compliance"
-      ? "compliance-schedule"
-      : urlTab && propertyTabs.has(urlTab)
-        ? urlTab
-        : "inspections";
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const propertyTabs = useMemo(() => {
+    const tabs = new Set([
+      "inspections",
+      "inventory",
+      "inspection-schedule",
+    ]);
+    if (maintenanceEnabled) tabs.add("maintenance");
+    if (tenanciesEnabled) tabs.add("tenants");
+    if (complianceEnabled) tabs.add("compliance-schedule");
+    if (rentalsEnabled) {
+      tabs.add("deposit");
+      tabs.add("rent-collection");
+      tabs.add("expenses");
+    }
+    return tabs;
+  }, [rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled]);
+  const resolvedTab = (() => {
+    const requested =
+      urlTab === "compliance" ? "compliance-schedule" : urlTab;
+    if (requested && propertyTabs.has(requested)) return requested;
+    return "inspections";
+  })();
   const [activeTab, setActiveTab] = useState(resolvedTab);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editAddress, setEditAddress] = useState("");
-  const [editNotes, setEditNotes] = useState("");
   const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
-  const [propertyImageDialogOpen, setPropertyImageDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canSeeReapitSource = user?.role === "owner" || user?.role === "clerk";
 
   useEffect(() => {
     setActiveTab(resolvedTab);
@@ -203,7 +213,6 @@ export default function PropertyDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
-      setPropertyImageDialogOpen(false);
       toast({
         title: "Success",
         description: "Property image updated successfully",
@@ -218,6 +227,35 @@ export default function PropertyDetail() {
     },
   });
 
+  const getPropertyImageUploadParameters = async () => {
+    const response = await fetch("/api/objects/upload", {
+      method: "POST",
+      credentials: "include",
+    });
+    const { uploadURL } = await response.json();
+    return {
+      method: "PUT" as const,
+      url: uploadURL,
+    };
+  };
+
+  const handlePropertyImageUploadComplete = (result: {
+    successful: Array<{ uploadURL?: string }>;
+  }) => {
+    if (!result.successful?.length) return;
+    let fileUrl = result.successful[0].uploadURL;
+    if (!fileUrl) return;
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      try {
+        const urlObj = new URL(fileUrl);
+        fileUrl = `/objects${urlObj.pathname}`;
+      } catch {
+        fileUrl = `/objects/${fileUrl}`;
+      }
+    }
+    updatePropertyImage.mutate(fileUrl);
+  };
+
   const { data: property, isLoading: propertyLoading } = useQuery<Property>({
     queryKey: ["/api/properties", propertyId],
     queryFn: async () => {
@@ -226,6 +264,16 @@ export default function PropertyDetail() {
       return res.json();
     },
     enabled: !!propertyId,
+  });
+
+  const { data: reapitMapping } = useQuery<{ lastSyncedAt?: string | null } | null>({
+    queryKey: ["/api/reapit/mappings/property", propertyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/reapit/mappings/property/${propertyId}`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!propertyId && canSeeReapitSource,
   });
 
   const { data: stats } = useQuery<PropertyStats>({
@@ -245,7 +293,7 @@ export default function PropertyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && tenanciesEnabled,
   });
 
   const hasOccupyingTenant = tenants.some((t) => t.assignment?.isActive !== false);
@@ -293,7 +341,7 @@ export default function PropertyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && complianceEnabled,
   });
 
   const complianceRateFromDocs = computeDocumentComplianceRate(
@@ -307,7 +355,7 @@ export default function PropertyDetail() {
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && complianceEnabled,
   });
 
   const { data: maintenance = [] } = useQuery<MaintenanceRequest[]>({
@@ -317,57 +365,9 @@ export default function PropertyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && maintenanceEnabled,
   });
 
-
-  const updatePropertyMutation = useMutation({
-    mutationFn: async (data: { name: string; address: string; notes?: string }) => {
-      return await apiRequest("PATCH", `/api/properties/${propertyId}`, data);
-    },
-    onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ["/api/properties", propertyId] });
-      await queryClient.refetchQueries({ queryKey: ["/api/properties"] });
-      toast({
-        title: "Success",
-        description: "Property updated successfully",
-      });
-      setEditDialogOpen(false);
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update property",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleOpenEditDialog = () => {
-    if (property) {
-      setEditName(property.name);
-      setEditAddress(property.address);
-      setEditNotes(property.notes || "");
-      setEditDialogOpen(true);
-    }
-  };
-
-  const handleEditSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editName || !editAddress) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      });
-      return;
-    }
-    updatePropertyMutation.mutate({
-      name: editName,
-      address: editAddress,
-      notes: editNotes || undefined,
-    });
-  };
 
   if (propertyLoading) {
     return (
@@ -425,6 +425,14 @@ export default function PropertyDetail() {
                 </Badge>
               </div>
             )}
+            {canSeeReapitSource && reapitMapping && (
+              <p className="text-xs text-muted-foreground" data-testid="text-reapit-source">
+                Source: Reapit
+                {reapitMapping.lastSyncedAt
+                  ? ` · last synced ${new Date(reapitMapping.lastSyncedAt).toLocaleString()}`
+                  : ""}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href={`/reports/property-history?propertyId=${property.id}`}>
@@ -435,7 +443,7 @@ export default function PropertyDetail() {
             </Link>
             <Button
               variant="outline"
-              onClick={handleOpenEditDialog}
+              onClick={() => setEditDialogOpen(true)}
               data-testid="button-edit-property"
             >
               <Pencil className="h-4 w-4 mr-2" />
@@ -446,7 +454,7 @@ export default function PropertyDetail() {
 
         {/* Property Image and Map Section */}
         <div className={formGrid2}>
-          {/* Property Image with Upload */}
+          {/* Property Image with Upload — opens media picker directly */}
           <Card className="overflow-hidden">
             {property.imageUrl ? (
               <div className="relative aspect-video">
@@ -457,28 +465,37 @@ export default function PropertyDetail() {
                   className="w-full h-full object-cover"
                   data-testid="img-property"
                 />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="absolute bottom-2 right-2"
-                  onClick={() => setPropertyImageDialogOpen(true)}
-                  data-testid="button-change-property-image"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Change Photo
-                </Button>
+                <div className="absolute bottom-2 right-2 z-10">
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    maxFileSize={10 * 1024 * 1024}
+                    buttonVariant="secondary"
+                    buttonClassName="h-9 px-3"
+                    onGetUploadParameters={getPropertyImageUploadParameters}
+                    onComplete={handlePropertyImageUploadComplete}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Change Photo
+                  </ObjectUploader>
+                </div>
               </div>
             ) : (
               <div
-                className="aspect-video bg-muted flex items-center justify-center cursor-pointer hover-elevate"
-                onClick={() => setPropertyImageDialogOpen(true)}
+                className="aspect-video bg-muted [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
                 data-testid="button-upload-property-image"
               >
-                <div className="text-center text-muted-foreground">
-                  <Upload className="h-16 w-16 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-medium">Upload Property Photo</p>
-                  <p className="text-xs">Click to add an image</p>
-                </div>
+                <ObjectUploader
+                  maxNumberOfFiles={1}
+                  maxFileSize={10 * 1024 * 1024}
+                  buttonVariant="ghost"
+                  buttonClassName="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-muted/80"
+                  onGetUploadParameters={getPropertyImageUploadParameters}
+                  onComplete={handlePropertyImageUploadComplete}
+                >
+                  <Upload className="h-16 w-16 opacity-50" />
+                  <span className="text-sm font-medium">Upload Property Photo</span>
+                  <span className="text-xs font-normal">Click to add an image</span>
+                </ObjectUploader>
               </div>
             )}
           </Card>
@@ -494,54 +511,6 @@ export default function PropertyDetail() {
           </Card>
         </div>
 
-        {/* Property Image Upload Dialog */}
-        <Dialog open={propertyImageDialogOpen} onOpenChange={setPropertyImageDialogOpen}>
-          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-            <DialogHeader>
-              <DialogTitle>Upload Property Photo</DialogTitle>
-              <DialogDescription>
-                Upload an image of the property to display on the property page.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <ObjectUploader
-                maxNumberOfFiles={1}
-                maxFileSize={10 * 1024 * 1024}
-                onGetUploadParameters={async () => {
-                  const response = await fetch('/api/objects/upload', {
-                    method: 'POST',
-                    credentials: 'include',
-                  });
-                  const { uploadURL } = await response.json();
-                  return {
-                    method: 'PUT' as const,
-                    url: uploadURL,
-                  };
-                }}
-                onComplete={async (result) => {
-                  if (result.successful && result.successful.length > 0) {
-                    let fileUrl = result.successful[0].uploadURL;
-                    if (fileUrl) {
-                      if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-                        try {
-                          const urlObj = new URL(fileUrl);
-                          fileUrl = `/objects${urlObj.pathname}`;
-                        } catch {
-                          fileUrl = `/objects/${fileUrl}`;
-                        }
-                      }
-                      updatePropertyImage.mutate(fileUrl);
-                    }
-                  }
-                }}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Select Property Photo
-              </ObjectUploader>
-            </div>
-          </DialogContent>
-        </Dialog>
-
         {property.notes && (
           <Card>
             <CardContent className="pt-6">
@@ -554,25 +523,29 @@ export default function PropertyDetail() {
       {/* Stats Overview */}
       {stats && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{occupancyLabel}</div>
-            </CardContent>
-          </Card>
+          {tenanciesEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{occupancyLabel}</div>
+              </CardContent>
+            </Card>
+          )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Compliance</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
-            </CardContent>
-          </Card>
+          {complianceEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Compliance</CardTitle>
+                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -589,58 +562,70 @@ export default function PropertyDetail() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
-              <Wrench className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.maintenanceRequests}</div>
-              <p className="text-xs text-muted-foreground">Open requests</p>
-            </CardContent>
-          </Card>
+          {maintenanceEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
+                <Wrench className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.maintenanceRequests}</div>
+                <p className="text-xs text-muted-foreground">Open requests</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
       {/* Tabbed Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="inspections" data-testid="tab-inspections">
-            <ClipboardCheck className="h-4 w-4 mr-2" />
-            Inspections
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-w-0">
+        <TabsList className={tabsListScroll}>
+          <TabsTrigger value="inspections" data-testid="tab-inspections" className="shrink-0 gap-1.5">
+            <ClipboardCheck className="h-4 w-4 shrink-0" />
+            <span>Inspections</span>
           </TabsTrigger>
-          <TabsTrigger value="tenants" data-testid="tab-tenants">
-            <Users className="h-4 w-4 mr-2" />
-            Tenants
+          {tenanciesEnabled && (
+            <TabsTrigger value="tenants" data-testid="tab-tenants" className="shrink-0 gap-1.5">
+              <Users className="h-4 w-4 shrink-0" />
+              <span>Tenants</span>
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="inventory" data-testid="tab-inventory" className="shrink-0 gap-1.5">
+            <Package className="h-4 w-4 shrink-0" />
+            <span>Inventory</span>
           </TabsTrigger>
-          <TabsTrigger value="inventory" data-testid="tab-inventory">
-            <Package className="h-4 w-4 mr-2" />
-            Inventory
+          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule" className="shrink-0 gap-1.5">
+            <ClipboardCheck className="h-4 w-4 shrink-0" />
+            <span>Inspection Schedule</span>
           </TabsTrigger>
-          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule">
-            <ClipboardCheck className="h-4 w-4 mr-2" />
-            Inspection Schedule
+          {complianceEnabled && (
+            <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule" className="shrink-0 gap-1.5">
+              <FileCheck className="h-4 w-4 shrink-0" />
+              <span>Compliance Documents</span>
+            </TabsTrigger>
+          )}
+          {maintenanceEnabled && (
+          <TabsTrigger value="maintenance" data-testid="tab-maintenance" className="shrink-0 gap-1.5">
+            <Wrench className="h-4 w-4 shrink-0" />
+            <span>Maintenance</span>
           </TabsTrigger>
-          <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule">
-            <FileCheck className="h-4 w-4 mr-2" />
-            Compliance Documents
-          </TabsTrigger>
-          <TabsTrigger value="maintenance" data-testid="tab-maintenance">
-            <Wrench className="h-4 w-4 mr-2" />
-            Maintenance
-          </TabsTrigger>
-          <TabsTrigger value="deposit" data-testid="tab-deposit">
-            <Wallet className="h-4 w-4 mr-2" />
-            Deposit
-          </TabsTrigger>
-          <TabsTrigger value="rent-collection" data-testid="tab-rent-collection">
-            <Banknote className="h-4 w-4 mr-2" />
-            Rent Collection
-          </TabsTrigger>
-          <TabsTrigger value="expenses" data-testid="tab-expenses">
-            <Receipt className="h-4 w-4 mr-2" />
-            Expenses
-          </TabsTrigger>
+          )}
+          {rentalsEnabled && (
+            <>
+              <TabsTrigger value="deposit" data-testid="tab-deposit" className="shrink-0 gap-1.5">
+                <Wallet className="h-4 w-4 shrink-0" />
+                <span>Deposit</span>
+              </TabsTrigger>
+              <TabsTrigger value="rent-collection" data-testid="tab-rent-collection" className="shrink-0 gap-1.5">
+                <Banknote className="h-4 w-4 shrink-0" />
+                <span>Rent Collection</span>
+              </TabsTrigger>
+              <TabsTrigger value="expenses" data-testid="tab-expenses" className="shrink-0 gap-1.5">
+                <Receipt className="h-4 w-4 shrink-0" />
+                <span>Expenses</span>
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         {/* Inspections Tab */}
@@ -969,6 +954,7 @@ export default function PropertyDetail() {
         </TabsContent>
 
         {/* Maintenance Tab */}
+        {maintenanceEnabled && (
         <TabsContent value="maintenance" className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">Maintenance Requests</h2>
@@ -1031,6 +1017,7 @@ export default function PropertyDetail() {
             </div>
           )}
         </TabsContent>
+        )}
 
         <TabsContent value="deposit" className="space-y-4">
           <PropertyDepositPanel propertyId={propertyId!} />
@@ -1044,55 +1031,11 @@ export default function PropertyDetail() {
           <PropertyExpensesPanel propertyId={propertyId!} />
         </TabsContent>
       </Tabs>
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-          <DialogHeader>
-            <DialogTitle>Edit Property</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleEditSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="edit-name" required>Property Name</Label>
-              <Input
-                id="edit-name"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="e.g., Flat 12, Unit 5B"
-                data-testid="input-edit-property-name"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-address" required>Address</Label>
-              <AddressInput
-                id="edit-address"
-                value={editAddress}
-                onChange={setEditAddress}
-                placeholder="123 Main St, City, State ZIP"
-                data-testid="input-edit-property-address"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-notes">Notes</Label>
-              <Textarea
-                id="edit-notes"
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                placeholder="Additional notes about this property..."
-                data-testid="input-edit-property-notes"
-              />
-            </div>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={updatePropertyMutation.isPending}
-              data-testid="button-submit-edit-property"
-            >
-              {updatePropertyMutation.isPending ? "Updating..." : "Update Property"}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <PropertyFormDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        property={property}
+      />
 
       {/* Inventory Item Details Dialog */}
       <Dialog open={inventoryDialogOpen} onOpenChange={setInventoryDialogOpen}>

@@ -35,12 +35,16 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { reportTableClass } from "@/components/data-table";
+import { occupancyBadgeVariant } from "@shared/inspectionLabels";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 export default function PropertiesReport() {
   const { toast } = useToast();
+  const { maintenanceEnabled } = useCompanyModules();
   const [filterBlock, setFilterBlock] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -64,9 +68,10 @@ export default function PropertiesReport() {
 
   const { data: maintenanceRequests = [], isLoading: maintenanceLoading } = useQuery<any[]>({
     queryKey: ["/api/maintenance"],
+    enabled: maintenanceEnabled,
   });
 
-  const isLoading = propertiesLoading || blocksLoading || inspectionsLoading || tenantAssignmentsLoading || maintenanceLoading;
+  const isLoading = propertiesLoading || blocksLoading || inspectionsLoading || tenantAssignmentsLoading || (maintenanceEnabled && maintenanceLoading);
 
   // Calculate statistics for each property
   const propertiesWithStats = useMemo(() => {
@@ -200,8 +205,8 @@ export default function PropertiesReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredProperties.length === 0}
-          size="sm"
-          className="sm:size-default self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
@@ -240,12 +245,14 @@ export default function PropertiesReport() {
             <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-vacant">{vacantProperties}</CardTitle>
           </CardHeader>
         </Card>
+        {maintenanceEnabled && (
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="text-xs sm:text-sm">Open Maintenance</CardDescription>
             <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-open-maintenance">{totalOpenMaintenance}</CardTitle>
           </CardHeader>
         </Card>
+        )}
       </div>
 
       <FiltersSection headingId="properties-report-filters-heading">
@@ -384,7 +391,7 @@ export default function PropertiesReport() {
           ) : (
             <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
               <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                <Table>
+                <Table className={reportTableClass}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[120px]">Block</TableHead>
@@ -393,7 +400,9 @@ export default function PropertiesReport() {
                       <TableHead className="min-w-[90px]">Status</TableHead>
                       <TableHead className="min-w-[120px] hidden md:table-cell">Tenant</TableHead>
                       <TableHead className="min-w-[100px] hidden lg:table-cell">Inspections</TableHead>
+                      {maintenanceEnabled && (
                       <TableHead className="min-w-[110px] hidden lg:table-cell">Maintenance</TableHead>
+                      )}
                       <TableHead className="min-w-[120px] hidden xl:table-cell">Last Inspection</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -426,7 +435,10 @@ export default function PropertiesReport() {
                           <span className="text-sm">{property.address}</span>
                         </TableCell>
                         <TableCell data-testid={`badge-status-${property.id}`}>
-                          <Badge variant={property.isOccupied ? "default" : "secondary"} className="text-xs">
+                          <Badge
+                            variant={occupancyBadgeVariant(property.isOccupied ? "Occupied" : "Vacant")}
+                            className="text-xs"
+                          >
                             {property.isOccupied ? "Occupied" : "Vacant"}
                           </Badge>
                         </TableCell>
@@ -444,6 +456,7 @@ export default function PropertiesReport() {
                             {property.totalInspections}
                           </Badge>
                         </TableCell>
+                        {maintenanceEnabled && (
                         <TableCell className="hidden lg:table-cell" data-testid={`badge-maintenance-${property.id}`}>
                           <div className="flex items-center gap-2">
                             <Badge variant={property.openMaintenanceCount > 0 ? "destructive" : "outline"} className="text-xs">
@@ -451,6 +464,7 @@ export default function PropertiesReport() {
                             </Badge>
                           </div>
                         </TableCell>
+                        )}
                         <TableCell className="hidden xl:table-cell" data-testid={`text-last-inspection-${property.id}`}>
                           {property.lastInspection ? (
                             <span className="text-sm">

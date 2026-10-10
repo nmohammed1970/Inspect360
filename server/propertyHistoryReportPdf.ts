@@ -15,6 +15,8 @@ import {
   statusBadge,
   buildCoverChrome,
   sanitizeReportUrl,
+  resolveReportImageToDataUrl,
+  renderCoverSubjectImageHtml,
 } from "./reportPdfShared";
 
 export type PropertyHistoryReportBranding = LandscapeReportBranding;
@@ -178,6 +180,14 @@ export async function generatePropertyHistoryReportHTML(params: {
     baseUrl,
   });
 
+  let coverSubjectImageHtml = "";
+  try {
+    const coverDataUrl = await resolveReportImageToDataUrl(property?.imageUrl, baseUrl);
+    coverSubjectImageHtml = renderCoverSubjectImageHtml(coverDataUrl, "Property");
+  } catch (coverError) {
+    console.warn("[PropertyHistory PDF] Cover image failed; continuing without it:", coverError);
+  }
+
   const propertyTitle = property.name || "Property";
   const propertyAddress = property.address || "";
   const woByRequestId = new Map<string, any>();
@@ -303,6 +313,7 @@ export async function generatePropertyHistoryReportHTML(params: {
         ${logoHtml}
       </div>
       <div class="cover-title">Property History Report</div>
+      ${coverSubjectImageHtml}
       <div class="cover-subtitle">${escapeHtml(propertyTitle)}${propertyAddress ? ` — ${escapeHtml(propertyAddress)}` : ""}</div>
       <div class="cover-meta"><strong>Organization:</strong> ${escapeHtml(displayName)}</div>
       <div class="cover-meta"><strong>Report Date:</strong> ${escapeHtml(reportDate)}</div>

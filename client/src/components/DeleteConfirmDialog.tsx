@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -21,9 +21,11 @@ interface DeleteConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title?: string;
-  description?: string;
+  description?: ReactNode;
   /** Optional name of the item being deleted (shown in the body) */
   itemName?: string;
+  /** Extra warning shown below the description (e.g. cascade deletes) */
+  warning?: ReactNode;
   confirmLabel?: string;
   isPending?: boolean;
   onConfirm: () => void;
@@ -38,6 +40,7 @@ export function DeleteConfirmDialog({
   title = "Delete permanently?",
   description = "This action cannot be undone.",
   itemName,
+  warning,
   confirmLabel = "Delete",
   isPending = false,
   onConfirm,
@@ -64,14 +67,23 @@ export function DeleteConfirmDialog({
             <AlertTriangle className="h-5 w-5 shrink-0" />
             {title}
           </DialogTitle>
-          <DialogDescription>
-            {description}
-            {itemName ? (
-              <>
-                {" "}
-                <span className="font-medium text-foreground">{itemName}</span>
-              </>
-            ) : null}
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                {description}
+                {itemName ? (
+                  <>
+                    {" "}
+                    <span className="font-medium text-foreground">{itemName}</span>
+                  </>
+                ) : null}
+              </p>
+              {warning ? (
+                <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive">
+                  {warning}
+                </p>
+              ) : null}
+            </div>
           </DialogDescription>
         </DialogHeader>
 

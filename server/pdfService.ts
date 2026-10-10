@@ -5,6 +5,11 @@ import { format } from "date-fns";
 import { parseSignatureValue, isTenantSignatureField, formatSignerDisplayName } from "@shared/signature";
 import { parseInspectionNote } from "@shared/inspectionNoteSections";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
+import {
+  coverSubjectImageCss,
+  renderCoverSubjectImageHtml,
+  resolvePropertyOrBlockCoverDataUrl,
+} from "./reportPdfShared";
 
 // Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
 const isReplit = process.env.REPL_ID || process.env.REPLIT;
@@ -241,11 +246,13 @@ interface Inspection {
     name: string;
     address: string;
     propertyType?: string;
+    imageUrl?: string | null;
   };
   block?: {
     id: string;
     name: string;
     address: string;
+    imageUrl?: string | null;
   };
   inspector?: {
     id: string;
@@ -315,13 +322,19 @@ interface ReportConfig {
   closingSectionText?: string;
 }
 
+export type InspectionPdfOptions = {
+  /** When false, omit tenant signature fields (tenancies module off). Default true. */
+  includeTenantSurfaces?: boolean;
+};
+
 export async function generateInspectionPDF(
   inspection: Inspection,
   entries: InspectionEntry[],
   baseUrl: string,
   branding?: BrandingInfo,
   maintenanceRequests?: MaintenanceRequest[],
-  reportConfig?: ReportConfig
+  reportConfig?: ReportConfig,
+  options?: InspectionPdfOptions,
 ): Promise<Buffer> {
   // Convert branding images to base64 for embedding in PDF
   let processedBranding = branding;
@@ -384,8 +397,38 @@ export async function generateInspectionPDF(
     };
     console.log('[PDF] No branding provided — using Inspect360 LogoWhite for cover');
   }
+
+  // Property/block cover photo (omit when missing or unloadable)
+  let coverSubjectImageHtml = "";
+  try {
+    const isBlockOnly = Boolean(inspection.blockId) && !inspection.propertyId;
+    const coverDataUrl = await resolvePropertyOrBlockCoverDataUrl(
+      isBlockOnly
+        ? { property: null, block: inspection.block }
+        : { property: inspection.property, block: inspection.block },
+      baseUrl,
+    );
+    coverSubjectImageHtml = renderCoverSubjectImageHtml(
+      coverDataUrl,
+      isBlockOnly ? "Block" : "Property",
+    );
+    if (coverSubjectImageHtml) {
+      console.log("[PDF] Property/block cover image embedded on cover page");
+    }
+  } catch (coverError) {
+    console.warn("[PDF] Cover subject image failed; continuing without it:", coverError);
+  }
   
-  const html = generateInspectionHTML(inspection, entries, baseUrl, processedBranding, maintenanceRequests, reportConfig);
+  const html = generateInspectionHTML(
+    inspection,
+    entries,
+    baseUrl,
+    processedBranding,
+    maintenanceRequests,
+    reportConfig,
+    options,
+    coverSubjectImageHtml,
+  );
 
   let browser;
   try {
@@ -490,8 +533,11 @@ function generateInspectionHTML(
   baseUrl: string,
   branding?: BrandingInfo,
   maintenanceRequests?: MaintenanceRequest[],
-  reportConfig?: ReportConfig
+  reportConfig?: ReportConfig,
+  options?: InspectionPdfOptions,
+  coverSubjectImageHtml = "",
 ): string {
+  const includeTenantSurfaces = options?.includeTenantSurfaces !== false;
   // Default all report sections to true if not specified
   const config: Required<ReportConfig> = {
     showCover: reportConfig?.showCover ?? true,
@@ -523,11 +569,20 @@ function generateInspectionHTML(
     inspection.block?.name ||
     inspection.property?.name ||
     (isBlockInspection ? "Unknown Block" : "Unknown Property");
-  const propertyAddress =
+  const rawPropertyAddress =
     locationEntity?.address ||
     inspection.block?.address ||
     inspection.property?.address ||
-    "No address";
+    "";
+  const propertyAddress =
+    typeof rawPropertyAddress === "string"
+      ? rawPropertyAddress.trim()
+      : rawPropertyAddress && typeof rawPropertyAddress === "object"
+        ? [rawPropertyAddress.street, rawPropertyAddress.city, rawPropertyAddress.state, rawPropertyAddress.postalCode, rawPropertyAddress.country]
+            .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+            .join(", ")
+        : "";
+  const propertyAddressDisplay = propertyAddress || "No address";
   const locationAddressLabel = isBlockInspection || (!inspection.property && inspection.block)
     ? "Block Address"
     : "Property Address";
@@ -889,6 +944,13 @@ function generateInspectionHTML(
 
         // Render fields for this instance
         section.fields.forEach((field) => {
+          if (
+            !includeTenantSurfaces &&
+            field.type === "signature" &&
+            isTenantSignatureField(field)
+          ) {
+            return;
+          }
           fieldCounter++;
           const { rowHTML, photoHTML } = renderFieldRow(
             field,
@@ -943,6 +1005,13 @@ function generateInspectionHTML(
       let fieldCounter = 0;
 
       section.fields.forEach((field) => {
+        if (
+          !includeTenantSurfaces &&
+          field.type === "signature" &&
+          isTenantSignatureField(field)
+        ) {
+          return;
+        }
         fieldCounter++;
         const { rowHTML, photoHTML } = renderFieldRow(
           field,
@@ -993,22 +1062,26 @@ function generateInspectionHTML(
   // Trade associations section removed - not shown in report
   const tradeAssociationsPageHTML = '';
 
+  const propertyNameLong = propertyName.length > 36;
   const coverPageHTML = config.showCover ? `
     <!-- Cover Page -->
     <div class="cover-page">
       <div class="cover-content">
         ${logoHtml ? `<div class="cover-logo-container">${logoHtml}</div>` : ''}
-        <div class="cover-property">${escapeHtml(propertyName)}</div>
-        ${presentedByHtml}
-        <div class="cover-divider"></div>
         <div class="cover-title">${escapeHtml(coverTitle)}</div>
         ${coverSubtitle ? `<div class="cover-subtitle">${escapeHtml(coverSubtitle)}</div>` : ''}
+        <div class="cover-details cover-details-above">
+          <div class="cover-detail-item">
+            <span>${escapeHtml(inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "))}</span>
+          </div>
+        </div>
+        <div class="cover-property${propertyNameLong ? " cover-property-long" : ""}">${escapeHtml(propertyName)}</div>
+        ${coverSubjectImageHtml}
+        ${propertyAddress ? `<div class="cover-address">${escapeHtml(propertyAddress)}</div>` : ''}
+        ${presentedByHtml}
         <div class="cover-details">
           <div class="cover-detail-item">
             <span>${escapeHtml(formattedDate)}</span>
-          </div>
-          <div class="cover-detail-item">
-            <span>${escapeHtml(inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "))}</span>
           </div>
         </div>
       </div>
@@ -1306,15 +1379,19 @@ function generateInspectionHTML(
       display: flex;
       flex-direction: column;
       align-items: center;
+      padding: 20px 24px 64px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     .cover-logo-container {
-      margin-bottom: 28px;
+      margin-bottom: 20px;
     }
 
     .cover-logo-img {
-      max-height: 96px;
-      max-width: 280px;
+      max-height: 88px;
+      max-width: 260px;
       width: auto;
       height: auto;
       object-fit: contain;
@@ -1322,34 +1399,67 @@ function generateInspectionHTML(
     }
 
     .cover-property {
-      font-size: 52px;
+      font-size: 36px;
       font-weight: 700;
-      margin-bottom: 12px;
+      margin-top: 10px;
+      margin-bottom: 6px;
       letter-spacing: 0.5px;
+      max-width: 90%;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .cover-property.cover-property-long {
+      white-space: normal;
+      font-size: 28px;
+      text-overflow: unset;
+      overflow: visible;
+    }
+
+    ${coverSubjectImageCss()}
+
+    /* Inspection cover: slightly smaller property photo */
+    .cover-subject-image-wrap {
+      width: 130mm;
+      max-width: 78%;
+      margin: 14px auto 16px;
+      flex-shrink: 0;
+    }
+    .cover-subject-image {
+      width: 100%;
+      height: 72mm;
+      max-height: 72mm;
+      object-fit: cover;
+    }
+
+    .cover-address {
+      font-size: 15px;
+      font-weight: 400;
+      margin-top: 2px;
+      margin-bottom: 10px;
+      opacity: 0.9;
+      letter-spacing: 0.2px;
       max-width: 85%;
-      line-height: 1.15;
+      line-height: 1.35;
+      text-align: center;
     }
 
     .cover-presented-by {
       font-size: 16px;
       font-weight: 400;
-      margin-bottom: 8px;
+      margin-top: 2px;
+      margin-bottom: 18px;
       opacity: 0.9;
       letter-spacing: 0.3px;
     }
 
-    .cover-divider {
-      width: 120px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-
     .cover-title {
-      font-size: 28px;
+      font-size: 30px;
       font-weight: 600;
-      margin-bottom: 12px;
+      margin-top: 4px;
+      margin-bottom: 6px;
       letter-spacing: 0.5px;
       opacity: 0.95;
     }
@@ -1357,7 +1467,7 @@ function generateInspectionHTML(
     .cover-subtitle {
       font-size: 18px;
       font-weight: 400;
-      margin-bottom: 20px;
+      margin-bottom: 4px;
       opacity: 0.9;
     }
 
@@ -1366,6 +1476,12 @@ function generateInspectionHTML(
       gap: 32px;
       font-size: 16px;
       opacity: 0.9;
+      margin-top: 8px;
+    }
+
+    .cover-details-above {
+      margin-top: 0;
+      margin-bottom: 4px;
     }
 
     .cover-detail-item {
@@ -1376,10 +1492,13 @@ function generateInspectionHTML(
 
     .cover-contact {
       position: absolute;
-      bottom: 40px;
-      font-size: 14px;
+      bottom: 28px;
+      left: 24px;
+      right: 24px;
+      font-size: 13px;
       opacity: 0.8;
-      z-index: 1;
+      z-index: 2;
+      text-align: center;
     }
 
     .cover-trademark {
@@ -1531,7 +1650,7 @@ function generateInspectionHTML(
       <div class="info-grid">
         <div class="info-item">
           <div class="info-label">${escapeHtml(locationAddressLabel)}</div>
-          <div class="info-value">${escapeHtml(propertyAddress)}</div>
+          <div class="info-value">${escapeHtml(propertyAddressDisplay)}</div>
         </div>
         <div class="info-item">
           <div class="info-label">Inspection Type</div>

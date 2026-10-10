@@ -10,7 +10,7 @@ import { Plus, Package, Wrench, X, RefreshCw } from "lucide-react";
 interface InspectionQuickActionsProps {
   onAddAsset: () => void;
   onUpdateAsset: () => void;
-  onLogMaintenance: () => void;
+  onLogMaintenance?: () => void;
 }
 
 export function InspectionQuickActions({
@@ -30,8 +30,9 @@ export function InspectionQuickActions({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
+            variant="brand"
             size="icon"
-            className="h-14 w-14 rounded-full shadow-lg hover-elevate active-elevate-2"
+            className="h-14 w-14 rounded-full shadow-none"
             data-testid="button-quick-actions"
           >
             {open ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
@@ -72,6 +73,7 @@ export function InspectionQuickActions({
                 </span>
               </div>
             </Button>
+            {onLogMaintenance && (
             <Button
               variant="ghost"
               className="w-full justify-start gap-3 h-12"
@@ -86,6 +88,7 @@ export function InspectionQuickActions({
                 </span>
               </div>
             </Button>
+            )}
           </div>
         </PopoverContent>
       </Popover>

@@ -319,7 +319,7 @@ export default function KnowledgeBase() {
             </div>
           ) : (
             <div className="overflow-x-auto min-w-0">
-            <Table className="min-w-[560px]">
+            <Table className="min-w-[560px] [&_th]:bg-muted/40 [&_td]:py-3">
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>

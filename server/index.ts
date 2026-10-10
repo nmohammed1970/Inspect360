@@ -65,7 +65,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Use JSON parser for all routes except Stripe webhook which needs raw body
 // Increase limit for transcribe-base64 (base64 audio can be ~35MB for 25MB audio)
 app.use((req, res, next) => {
-  if (req.originalUrl === '/api/webhooks/stripe') {
+  if (req.originalUrl === '/api/webhooks/stripe' || req.originalUrl === '/api/webhooks/reapit') {
     next();
   } else if (req.path === '/api/audio/transcribe-base64' || req.path === '/api/objects/upload-audio-base64') {
     express.json({ limit: '35mb' })(req, res, next);
@@ -269,6 +269,13 @@ app.use((req, res, next) => {
       console.log("✅ Rent finance scheduler initialized (reconcile + reminders, hourly)");
     } catch (error) {
       console.error("❌ Failed to initialize rent finance scheduler:", error);
+    }
+
+    try {
+      const { startReapitWorker } = await import("./reapit/worker");
+      startReapitWorker();
+    } catch (error) {
+      console.error("❌ Failed to initialize Reapit worker:", error);
     }
 
     // Use traditional listen format for better Windows compatibility

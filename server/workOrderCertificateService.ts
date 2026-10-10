@@ -6,6 +6,7 @@ import {
   workOrders,
   maintenanceRequests,
   complianceDocuments,
+  organizations,
   type WorkOrderCertificate,
 } from "@shared/schema";
 import { DEFAULT_COMPLIANCE_DOC_TYPES } from "@shared/complianceDocTypes";
@@ -23,6 +24,8 @@ import { extractTextFromFile } from "./documentProcessor";
 import { ObjectStorageService } from "./objectStorage";
 import { readFile } from "fs/promises";
 import OpenAI from "openai";
+import { getChatModel } from "./aiModels";
+import { isCompanyModuleEnabled } from "@shared/companyModules";
 
 function getOpenAI(): OpenAI {
   if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
@@ -183,7 +186,7 @@ async function runAiExtraction(params: {
     }
     const text = extracted.extractedText.slice(0, 12000);
     const response = await client.chat.completions.create({
-      model: "gpt-4o",
+      model: getChatModel(),
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
@@ -203,7 +206,7 @@ async function runAiExtraction(params: {
   const imageMime = mime.startsWith("image/") ? mime : "image/jpeg";
   const dataUrl = await fileToDataUrl(params.documentUrl, imageMime);
   const response = await client.chat.completions.create({
-    model: "gpt-4o",
+    model: getChatModel(),
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
@@ -323,6 +326,19 @@ export async function confirmWorkOrderCertificate(input: {
     throw httpError(
       "This work order is not linked to a property or block. Attach the maintenance request to a property or block first.",
       400,
+    );
+  }
+
+  const [org] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, input.organizationId));
+
+  // Preserve the WO certificate; do not create a compliance document when Compliance is OFF.
+  if (!isCompanyModuleEnabled(org, "compliance")) {
+    throw httpError(
+      "Compliance module is disabled for this organization. Re-enable it in Settings to add certificates to compliance.",
+      403,
     );
   }
 

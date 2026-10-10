@@ -27,6 +27,14 @@ export interface InspectionResponse {
 
 export interface InspectionDetail extends Inspection {
   templateSnapshotJson?: any;
+  propertyRoomCountsSnapshot?: {
+    bedrooms: number;
+    kitchens: number;
+    bathrooms: number;
+    livingRooms: number;
+    source?: string;
+    capturedAt?: string;
+  } | null;
   property?: any;
   block?: any;
   items?: any[];

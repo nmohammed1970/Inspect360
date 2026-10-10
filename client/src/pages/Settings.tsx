@@ -17,23 +17,27 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
 import { z } from "zod";
 import Team from "./Team";
 import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
+import ReapitIntegrationSettings from "@/components/ReapitIntegrationSettings";
 import SettingsTeamsPanel from "@/components/SettingsTeamsPanel";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useModules } from "@/hooks/use-modules";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { COMPANY_MODULE_META } from "@shared/companyModules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2 } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 const categoryFormSchema = insertInspectionCategorySchema.extend({
   name: z.string().min(1, "Category name is required"),
@@ -42,10 +46,11 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
+type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
+  { id: 'internal-modules', label: 'Internal Modules', icon: SlidersHorizontal },
   { id: 'templates', label: 'Inspection Templates', icon: ClipboardList },
   { id: 'document-types', label: 'Compliance Documents', icon: FileText },
   { id: 'team', label: 'Team Members', icon: Users },
@@ -78,9 +83,14 @@ export default function Settings() {
   const [tenantPortalChatbotEnabled, setTenantPortalChatbotEnabled] = useState(true);
   const [tenantPortalMaintenanceEnabled, setTenantPortalMaintenanceEnabled] = useState(true);
   const [checkInApprovalPeriodDays, setCheckInApprovalPeriodDays] = useState(5);
+  const [rentalsEnabled, setRentalsEnabled] = useState(true);
+  const [tenanciesEnabled, setTenanciesEnabled] = useState(true);
+  const [complianceEnabled, setComplianceEnabled] = useState(true);
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(true);
 
   const { isModuleEnabled } = useModules();
   const isWhiteLabelEnabled = isModuleEnabled("white_label");
+  const { rentalsEnabled: rentalsModuleOn, complianceEnabled: complianceModuleOn, maintenanceEnabled: maintenanceModuleOn } = useCompanyModules();
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -107,8 +117,41 @@ export default function Settings() {
       setTenantPortalChatbotEnabled(organization.tenantPortalChatbotEnabled ?? true);
       setTenantPortalMaintenanceEnabled(organization.tenantPortalMaintenanceEnabled ?? true);
       setCheckInApprovalPeriodDays(organization.checkInApprovalPeriodDays ?? 5);
+      setRentalsEnabled(organization.rentalsEnabled ?? true);
+      setTenanciesEnabled(organization.tenanciesEnabled ?? true);
+      setComplianceEnabled(organization.complianceEnabled ?? true);
+      setMaintenanceEnabled(organization.maintenanceEnabled ?? true);
     }
   }, [organization]);
+
+  const updateCompanyModulesMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.organizationId) return null;
+      const response = await apiRequest("PATCH", `/api/organizations/${user.organizationId}/company-modules`, {
+        // Tenancies OFF always persists Rentals OFF
+        rentalsEnabled: tenanciesEnabled ? rentalsEnabled : false,
+        tenanciesEnabled,
+        complianceEnabled,
+        maintenanceEnabled,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId] });
+      toast({
+        title: "Success",
+        description: "Company modules updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to update company modules",
+      });
+    },
+  });
 
   const updateBrandingMutation = useMutation({
     mutationFn: async () => {
@@ -390,14 +433,11 @@ export default function Settings() {
 
   return (
     <div className={cn("container mx-auto min-w-0 bg-background min-h-screen", pagePad)}>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 md:mb-6">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
-            Settings
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">Manage your organization configuration</p>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-4 md:mb-6"
+        title="Settings"
+        description="Manage your organization configuration"
+      />
 
       <div className="flex flex-col lg:flex-row gap-4 md:gap-6">
         {/* Vertical Sidebar Menu */}
@@ -405,7 +445,13 @@ export default function Settings() {
           <Card className="sticky top-8">
             <CardContent className="p-2">
               <nav className="space-y-1">
-                {settingsMenuItems.map((item) => {
+                {settingsMenuItems
+                  .filter((item) => {
+                    if (item.id === "document-types") return complianceModuleOn;
+                    if (item.id === "late-rent") return rentalsModuleOn;
+                    return true;
+                  })
+                  .map((item) => {
                   const Icon = item.icon;
                   const isActive = activeSection === item.id;
 
@@ -414,7 +460,7 @@ export default function Settings() {
                       <Link
                         key={item.id}
                         href={item.href}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left text-sm font-medium transition-colors text-muted-foreground hover-elevate"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-button text-left text-sm font-medium transition-colors text-muted-foreground hover:bg-muted/60"
                         data-testid={`nav-${item.id}`}
                       >
                         <Icon className="w-4 h-4" />
@@ -427,9 +473,9 @@ export default function Settings() {
                     <button
                       key={item.id}
                       onClick={() => setActiveSection(item.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left text-sm font-medium transition-colors ${isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover-elevate'
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-button text-left text-sm font-medium transition-colors ${isActive
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'text-muted-foreground hover:bg-muted/60 border border-transparent'
                         }`}
                       data-testid={`nav-${item.id}`}
                     >
@@ -505,7 +551,8 @@ export default function Settings() {
                                 maxFileSize={5242880}
                                 onGetUploadParameters={getUploadParameters}
                                 onComplete={handleUploadComplete}
-                                buttonClassName="h-40 w-40 border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50"
+                                buttonVariant="outline"
+                                buttonClassName="h-40 w-40 border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50 shadow-none hover:bg-muted text-muted-foreground font-normal"
                               >
                                 <Upload className="w-10 h-10 text-muted-foreground" />
                                 <span className="text-sm text-muted-foreground">Upload Logo</span>
@@ -624,7 +671,8 @@ export default function Settings() {
                                       return { method: "PUT" as const, url: data.uploadUrl };
                                     }}
                                     onComplete={handleTrademarkUpload}
-                                    buttonClassName="w-full aspect-square border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50"
+                                    buttonVariant="outline"
+                                    buttonClassName="w-full aspect-square border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50 shadow-none hover:bg-muted text-muted-foreground font-normal"
                                   >
                                     <Upload className="w-6 h-6 text-muted-foreground" />
                                     <span className="text-xs text-muted-foreground text-center">Add Badge</span>
@@ -766,6 +814,7 @@ export default function Settings() {
 
                       <div className="border-t border-border pt-6">
                         <Button
+                          variant="brand"
                           onClick={() => updateBrandingMutation.mutate()}
                           disabled={updateBrandingMutation.isPending}
                           data-testid="button-save-branding"
@@ -773,6 +822,90 @@ export default function Settings() {
                           {updateBrandingMutation.isPending ? "Saving..." : "Save Branding Settings"}
                         </Button>
                       </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeSection === 'internal-modules' && (
+            <div className="space-y-6">
+              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg" data-testid="section-company-modules">
+                <CardHeader>
+                  <CardTitle className="text-2xl">Internal Modules</CardTitle>
+                  <CardDescription className="mt-2">
+                    Turn modules off to hide them across the app. Existing records are kept and become available again when re-enabled.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {orgLoading ? (
+                    <div className="text-center py-12 text-muted-foreground">Loading...</div>
+                  ) : (
+                    <>
+                      <div className="space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.tenancies.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.tenancies.description}</p>
+                          </div>
+                          <Switch
+                            checked={tenanciesEnabled}
+                            onCheckedChange={(on) => {
+                              setTenanciesEnabled(on);
+                              if (!on) setRentalsEnabled(false);
+                            }}
+                            data-testid="toggle-module-tenancies"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.rentals.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.rentals.description}</p>
+                            {!tenanciesEnabled && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Enable Tenancies first to turn Rentals on.
+                              </p>
+                            )}
+                          </div>
+                          <Switch
+                            checked={tenanciesEnabled && rentalsEnabled}
+                            onCheckedChange={setRentalsEnabled}
+                            disabled={!tenanciesEnabled}
+                            data-testid="toggle-module-rentals"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.compliance.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.compliance.description}</p>
+                          </div>
+                          <Switch
+                            checked={complianceEnabled}
+                            onCheckedChange={setComplianceEnabled}
+                            data-testid="toggle-module-compliance"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.maintenance.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.maintenance.description}</p>
+                          </div>
+                          <Switch
+                            checked={maintenanceEnabled}
+                            onCheckedChange={setMaintenanceEnabled}
+                            data-testid="toggle-module-maintenance"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        variant="brand"
+                        onClick={() => updateCompanyModulesMutation.mutate()}
+                        disabled={updateCompanyModulesMutation.isPending}
+                        data-testid="button-save-company-modules"
+                      >
+                        {updateCompanyModulesMutation.isPending ? "Saving..." : "Save Module Settings"}
+                      </Button>
                     </>
                   )}
                 </CardContent>
@@ -799,7 +932,7 @@ export default function Settings() {
                     </div>
                     <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                       <DialogTrigger asChild>
-                        <Button className="gap-2" data-testid="button-create-category">
+                        <Button variant="brand" className="gap-2" data-testid="button-create-category">
                           <Plus className="w-4 h-4" />
                           Add Category
                         </Button>
@@ -853,7 +986,7 @@ export default function Settings() {
                               )}
                             />
                             <DialogFooter>
-                              <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-category">
+                              <Button variant="brand" type="submit" disabled={createMutation.isPending} data-testid="button-submit-category">
                                 {createMutation.isPending ? "Creating..." : "Create Category"}
                               </Button>
                             </DialogFooter>
@@ -945,7 +1078,7 @@ export default function Settings() {
                                             )}
                                           />
                                           <DialogFooter>
-                                            <Button type="submit" disabled={updateMutation.isPending} data-testid="button-update-category">
+                                            <Button variant="brand" type="submit" disabled={updateMutation.isPending} data-testid="button-update-category">
                                               {updateMutation.isPending ? "Updating..." : "Update Category"}
                                             </Button>
                                           </DialogFooter>
@@ -987,7 +1120,10 @@ export default function Settings() {
           )}
 
           {activeSection === 'integrations' && (
-            <FixfloIntegrationSettings />
+            <div className="space-y-6">
+              {maintenanceModuleOn && <FixfloIntegrationSettings />}
+              <ReapitIntegrationSettings />
+            </div>
           )}
 
           {activeSection === 'tenant-portal' && (
@@ -1201,6 +1337,7 @@ function TenantPortalConfiguration({
 
           <div className="border-t border-border pt-6">
             <Button
+              variant="brand"
               onClick={() => updateTenantPortalConfigMutation.mutate()}
               disabled={updateTenantPortalConfigMutation.isPending}
               data-testid="button-save-tenant-portal-config"
@@ -1447,7 +1584,7 @@ function ComplianceDocumentsPanel() {
           </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
+              <Button variant="brand" className="gap-2">
                 <Plus className="w-4 h-4" />
                 Upload Document
               </Button>
@@ -1511,6 +1648,7 @@ function ComplianceDocumentsPanel() {
                       <ObjectUploader
                         maxNumberOfFiles={1}
                         maxFileSize={10485760}
+                        buttonVariant="outline"
                         onGetUploadParameters={async () => {
                           const response = await fetch("/api/upload/generate-upload-url", {
                             method: "POST",
@@ -1545,7 +1683,7 @@ function ComplianceDocumentsPanel() {
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button type="submit" disabled={uploadMutation.isPending || uploadedFiles.length === 0}>
+                    <Button variant="brand" type="submit" disabled={uploadMutation.isPending || uploadedFiles.length === 0}>
                       {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
                     </Button>
                   </DialogFooter>
@@ -1592,8 +1730,9 @@ function ComplianceDocumentsPanel() {
                       <Dialog open={editingDoc?.id === doc.id} onOpenChange={(open) => !open && setEditingDoc(null)}>
                         <DialogTrigger asChild>
                           <Button
-                            variant="ghost"
-                            size="sm"
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9"
                             onClick={() => handleEdit(doc)}
                           >
                             <Pencil className="w-4 h-4" />
@@ -1653,7 +1792,7 @@ function ComplianceDocumentsPanel() {
                                 )}
                               />
                               <DialogFooter>
-                                <Button type="submit" disabled={updateMutation.isPending}>
+                                <Button variant="brand" type="submit" disabled={updateMutation.isPending}>
                                   {updateMutation.isPending ? "Updating..." : "Update Document"}
                                 </Button>
                               </DialogFooter>
@@ -1662,8 +1801,9 @@ function ComplianceDocumentsPanel() {
                         </DialogContent>
                       </Dialog>
                       <Button
-                        variant="ghost"
-                        size="sm"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9"
                         asChild
                       >
                         <a href={`/api/compliance/${doc.id}/view`} target="_blank" rel="noopener noreferrer">
@@ -1671,12 +1811,13 @@ function ComplianceDocumentsPanel() {
                         </a>
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="sm"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 text-destructive hover:text-destructive"
                         onClick={() => setDocumentToDelete(doc)}
                         disabled={deleteMutation.isPending}
                       >
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
@@ -1839,7 +1980,7 @@ function LateRentNotificationSettings() {
         ))}
 
         <div className="flex justify-end">
-          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
+          <Button variant="brand" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
             {saveMutation.isPending ? "Saving..." : "Save settings"}
           </Button>
         </div>
@@ -2038,6 +2179,7 @@ function TenantSmsNotificationSettings() {
 
         <div className="flex justify-end">
           <Button
+            variant="brand"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
             data-testid="button-save-sms-templates"

@@ -22,6 +22,7 @@ import {
 } from './storage';
 import { ConflictResolver } from './conflictResolver';
 import { getAPI_URL } from '../api';
+import { inspectionGalleryService } from '../inspectionGallery';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
@@ -576,6 +577,19 @@ export class SyncService {
               });
             }
 
+            // Register synced photos into inspection gallery + assign to this field
+            if (photosToSend.length > 0 && entry.inspectionId && entry.sectionRef && entry.fieldKey) {
+              try {
+                await inspectionGalleryService.register(
+                  entry.inspectionId,
+                  photosToSend.map((objectUrl) => ({ objectUrl })),
+                  { sectionRef: entry.sectionRef, fieldKey: entry.fieldKey },
+                );
+              } catch (galleryError: any) {
+                console.warn('[SyncService] Gallery register after entry sync failed:', galleryError?.message);
+              }
+            }
+
             uploaded++;
             syncSuccess = true;
             this.reportProgress({ completed: uploaded });
@@ -812,6 +826,28 @@ export class SyncService {
       case 'upload_image':
         // Already handled in syncToServer
         break;
+      case 'gallery_register': {
+        const inspectionId = data.inspectionId as string;
+        const images = Array.isArray(data.images) ? data.images : [];
+        const assign = data.assign || null;
+        if (inspectionId && images.length) {
+          await inspectionGalleryService.register(inspectionId, images, assign);
+        }
+        break;
+      }
+      case 'gallery_assign': {
+        const inspectionId = data.inspectionId as string;
+        const imageIds = Array.isArray(data.imageIds) ? data.imageIds : [];
+        if (inspectionId && imageIds.length && data.sectionRef && data.fieldKey) {
+          await inspectionGalleryService.assign(
+            inspectionId,
+            imageIds,
+            data.sectionRef,
+            data.fieldKey,
+          );
+        }
+        break;
+      }
       default:
         console.warn('[SyncService] Unknown queue operation:', item.operation);
     }

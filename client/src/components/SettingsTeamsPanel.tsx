@@ -259,6 +259,7 @@ export default function SettingsTeamsPanel() {
           </p>
         </div>
         <Button 
+          variant="brand"
           onClick={() => setIsCreateDialogOpen(true)} 
           data-testid="button-create-team"
         >
@@ -286,7 +287,7 @@ export default function SettingsTeamsPanel() {
             <p className="text-muted-foreground mb-4">
               Create your first team to manage work order assignments
             </p>
-            <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-create-first-team">
+            <Button variant="brand" onClick={() => setIsCreateDialogOpen(true)} data-testid="button-create-first-team">
               <Plus className="h-4 w-4 mr-2" />
               Create Team
             </Button>
@@ -534,6 +535,7 @@ export default function SettingsTeamsPanel() {
                   Cancel
                 </Button>
                 <Button 
+                  variant="brand"
                   type="submit" 
                   disabled={createMutation.isPending}
                   data-testid="button-submit-create-team"
@@ -731,6 +733,7 @@ export default function SettingsTeamsPanel() {
                   Cancel
                 </Button>
                 <Button 
+                  variant="brand"
                   type="submit" 
                   disabled={updateMutation.isPending}
                   data-testid="button-submit-edit-team"

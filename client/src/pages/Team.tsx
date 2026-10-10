@@ -23,6 +23,9 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { useLocale } from "@/contexts/LocaleContext";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
+import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 /** Username input removed from UI; API still requires username — derive a safe value from email. */
 function defaultUsernameFromEmail(email: string): string {
@@ -428,28 +431,24 @@ export default function Team() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto min-w-0 p-4 md:p-6">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Team Management</h1>
-          <p className="text-sm md:text-base text-muted-foreground">Loading team members...</p>
-        </div>
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
+        <PageHeader title="Team Management" description="Loading team members..." />
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Team Management</h1>
-          <p className="text-sm md:text-base text-muted-foreground">Manage your team members and their profiles</p>
-        </div>
-        <Button onClick={handleOpenCreate} size="lg" data-testid="button-create-team-member">
-          <Plus className="mr-2 h-5 w-5" />
-          Add Team Member
-        </Button>
-      </div>
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+      <PageHeader
+        title="Team Management"
+        description="Manage your team members and their profiles"
+        actions={
+          <Button variant="brand" onClick={handleOpenCreate} data-testid="button-create-team-member">
+            <Plus className="mr-2 h-5 w-5" />
+            Add Team Member
+          </Button>
+        }
+      />
 
       <FiltersSection
         headingId="team-filters-heading"
@@ -744,7 +743,7 @@ export default function Team() {
                   <p className="text-muted-foreground mb-4">
                     Add your first team member to get started
                   </p>
-                  <Button onClick={handleOpenCreate}>
+                  <Button variant="brand" onClick={handleOpenCreate}>
                     <Plus className="mr-2 h-4 w-4" />
                     Add Team Member
                   </Button>
@@ -1209,6 +1208,7 @@ export default function Team() {
               Cancel
             </Button>
             <Button
+              variant="brand"
               onClick={handleSubmit}
               disabled={createMutation.isPending || updateMutation.isPending}
               data-testid="button-submit"

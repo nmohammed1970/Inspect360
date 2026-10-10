@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,13 +31,59 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
+import { PreviewableImage } from "@/components/ImagePreview";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { EmptyTableRow, SectionTable, reportTableClass } from "@/components/data-table";
+import {
+  formatEnumLabel,
+  formatInspectionStatus,
+  formatInspectionType,
+  formatMaintenanceStatus,
+  inspectionStatusBadgeVariant,
+  maintenanceStatusBadgeVariant,
+} from "@shared/inspectionLabels";
+
+function normalizeAssetPhotoUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.pathname.startsWith("/objects/")) {
+        return `${parsed.pathname}${parsed.search}`;
+      }
+      return trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+  if (trimmed.startsWith("/")) return trimmed;
+  if (trimmed.startsWith("objects/")) return `/${trimmed}`;
+  return `/${trimmed.replace(/^\/+/, "")}`;
+}
+
+function isLikelyAssetDocument(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const path = url.split("?")[0].toLowerCase();
+  return path.endsWith(".pdf") || path.includes(".pdf");
+}
+
+function firstAssetImage(photos: unknown): string | null {
+  if (!Array.isArray(photos)) return null;
+  for (const item of photos) {
+    if (typeof item !== "string" || !item.trim()) continue;
+    if (isLikelyAssetDocument(item)) continue;
+    return normalizeAssetPhotoUrl(item);
+  }
+  return null;
+}
 
 function formatDate(value: any): string {
   if (!value) return "";
@@ -47,10 +93,7 @@ function formatDate(value: any): string {
 }
 
 function prettyLabel(value: string | null | undefined): string {
-  if (!value) return "—";
-  return String(value)
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return formatEnumLabel(value);
 }
 
 function isActiveTenant(ta: any): boolean {
@@ -177,56 +220,6 @@ function tenantHref(ta: any): string | null {
   return id ? `/tenants/${id}` : null;
 }
 
-function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="h-24 text-center text-sm text-muted-foreground">
-        {message}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function SectionTable({
-  title,
-  icon: Icon,
-  count,
-  id,
-  children,
-}: {
-  title: string;
-  icon: LucideIcon;
-  count: number;
-  id?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Card id={id} className="glass-card overflow-hidden shadow-sm scroll-mt-4">
-      <CardHeader className="border-b bg-muted/50 py-3.5 px-4 md:px-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <CardTitle className="text-base md:text-lg font-semibold tracking-tight truncate">
-              {title}
-            </CardTitle>
-          </div>
-          <Badge variant="secondary" className="tabular-nums font-medium flex-shrink-0">
-            {count}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0 bg-background min-w-0">
-        <div className="overflow-x-auto">{children}</div>
-      </CardContent>
-    </Card>
-  );
-}
-
-const reportTableClass =
-  "min-w-0 w-full md:min-w-[720px] bg-background [&_thead_tr]:border-b [&_th]:h-11 [&_th]:px-4 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_th]:bg-muted/40 [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:border-b [&_tbody_tr]:border-border/60 [&_tbody_tr]:bg-background [&_tbody_tr:last-child]:border-0";
-
 function searchPropertyId(search: string): string {
   const raw = search.startsWith("?") ? search.slice(1) : search;
   return new URLSearchParams(raw).get("propertyId") || "";
@@ -235,6 +228,7 @@ function searchPropertyId(search: string): string {
 export default function PropertyHistoryReport() {
   const { toast } = useToast();
   const { formatCurrency } = useLocale();
+  const { maintenanceEnabled } = useCompanyModules();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const propertyId = searchPropertyId(search);
@@ -252,11 +246,11 @@ export default function PropertyHistoryReport() {
   });
   const { data: maintenanceRequests = [], isLoading: maintenanceLoading } = useQuery<any[]>({
     queryKey: ["/api/maintenance"],
-    enabled: !!propertyId,
+    enabled: !!propertyId && maintenanceEnabled,
   });
   const { data: workOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/work-orders"],
-    enabled: !!propertyId,
+    enabled: !!propertyId && maintenanceEnabled,
   });
   const { data: assetInventory = [], isLoading: assetsLoading } = useQuery<any[]>({
     queryKey: ["/api/asset-inventory"],
@@ -364,7 +358,7 @@ export default function PropertyHistoryReport() {
     propertiesLoading ||
     (!!propertyId &&
       (inspectionsLoading ||
-        maintenanceLoading ||
+        (maintenanceEnabled && maintenanceLoading) ||
         assetsLoading ||
         complianceLoading ||
         tenantsLoading ||
@@ -439,8 +433,8 @@ export default function PropertyHistoryReport() {
         <Button
           onClick={handleExportPdf}
           disabled={!propertyId || isExportingPdf || isLoading}
-          size="sm"
-          className="sm:size-default self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-property-history-pdf"
         >
           {isExportingPdf ? (
@@ -497,10 +491,14 @@ export default function PropertyHistoryReport() {
               { label: "Inspections", value: propertyInspections.length, target: "section-inspections" },
               { label: "Tenants", value: propertyTenants.length, target: "section-tenants" },
               { label: "Compliance", value: propertyCompliance.length, target: "section-compliance" },
-              { label: "Maintenance", value: propertyMaintenance.length, target: "section-maintenance" },
+              maintenanceEnabled
+                ? { label: "Maintenance", value: propertyMaintenance.length, target: "section-maintenance" }
+                : null,
               { label: "Disputes", value: disputeRows.length, target: "section-disputes" },
               { label: "Assets", value: propertyAssets.length, target: "section-assets" },
-            ].map((card) => (
+            ]
+              .filter((card): card is { label: string; value: number; target: string } => card !== null)
+              .map((card) => (
               <button
                 key={card.target}
                 type="button"
@@ -531,7 +529,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {!selectedProperty ? (
-                  <EmptyRow colSpan={6} message="No property found." />
+                  <EmptyTableRow colSpan={6} message="No property found." />
                 ) : (
                   <TableRow>
                     <TableCell className={textBreak}>
@@ -590,7 +588,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyInspections.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No inspections found." />
+                  <EmptyTableRow colSpan={6} message="No inspections found." />
                 ) : (
                   propertyInspections.map((inspection) => {
                     const point = inspection.completedDate || inspection.scheduledDate || inspection.createdAt;
@@ -602,12 +600,16 @@ export default function PropertyHistoryReport() {
                     return (
                       <TableRow key={inspection.id}>
                         <TableCell>
-                          <TextLink href={reportHref}>{prettyLabel(inspection.type)}</TextLink>
+                          <TextLink href={reportHref}>{formatInspectionType(inspection.type)}</TextLink>
                         </TableCell>
                         <TableCell>
                           <CellStack
                             title={formatDate(inspection.scheduledDate) || "—"}
-                            sub={formatDate(inspection.completedDate) || ""}
+                            sub={
+                              formatDate(inspection.completedDate)
+                                ? `Done: ${formatDate(inspection.completedDate)}`
+                                : ""
+                            }
                             href={reportHref}
                           />
                         </TableCell>
@@ -616,8 +618,11 @@ export default function PropertyHistoryReport() {
                         </TableCell>
                         <TableCell className="text-center">
                           <Link href={reportHref}>
-                            <Badge variant="secondary" className="cursor-pointer">
-                              {prettyLabel(inspection.status)}
+                            <Badge
+                              variant={inspectionStatusBadgeVariant(inspection.status)}
+                              className="cursor-pointer"
+                            >
+                              {formatInspectionStatus(inspection.status)}
                             </Badge>
                           </Link>
                         </TableCell>
@@ -652,7 +657,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyTenants.length === 0 ? (
-                  <EmptyRow colSpan={5} message="No tenant assignments found." />
+                  <EmptyTableRow colSpan={5} message="No tenant assignments found." />
                 ) : (
                   propertyTenants.map((ta) => {
                     const lease = leaseOf(ta);
@@ -709,7 +714,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyCompliance.length === 0 ? (
-                  <EmptyRow colSpan={4} message="No compliance documents found." />
+                  <EmptyTableRow colSpan={4} message="No compliance documents found." />
                 ) : (
                   propertyCompliance.map((doc) => {
                     const expired =
@@ -750,6 +755,7 @@ export default function PropertyHistoryReport() {
             </Table>
           </SectionTable>
 
+          {maintenanceEnabled && (
           <SectionTable title="Maintenance History" icon={Wrench} count={propertyMaintenance.length} id="section-maintenance">
             <Table className={reportTableClass}>
               <TableHeader>
@@ -765,7 +771,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyMaintenance.length === 0 ? (
-                  <EmptyRow colSpan={7} message="No maintenance requests found." />
+                  <EmptyTableRow colSpan={7} message="No maintenance requests found." />
                 ) : (
                   propertyMaintenance.map((req) => {
                     const wo = workOrders.find(
@@ -797,8 +803,11 @@ export default function PropertyHistoryReport() {
                         </TableCell>
                         <TableCell className="text-center">
                           <Link href={href}>
-                            <Badge variant="secondary" className="cursor-pointer">
-                              {prettyLabel(req.status)}
+                            <Badge
+                              variant={maintenanceStatusBadgeVariant(req.status)}
+                              className="cursor-pointer"
+                            >
+                              {formatMaintenanceStatus(req.status)}
                             </Badge>
                           </Link>
                         </TableCell>
@@ -821,6 +830,7 @@ export default function PropertyHistoryReport() {
               </TableBody>
             </Table>
           </SectionTable>
+          )}
 
           <SectionTable title="Dispute History" icon={Scale} count={disputeRows.length} id="section-disputes">
             <Table className={reportTableClass}>
@@ -835,7 +845,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {disputeRows.length === 0 ? (
-                  <EmptyRow colSpan={5} message="No disputes found." />
+                  <EmptyTableRow colSpan={5} message="No disputes found." />
                 ) : (
                   disputeRows.map((row) => {
                     const href = row.reportId ? `/comparisons/${row.reportId}` : null;
@@ -891,14 +901,43 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyAssets.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No assets found." />
+                  <EmptyTableRow colSpan={6} message="No assets found." />
                 ) : (
                   propertyAssets.map((asset) => {
                     const href = `/asset-inventory?assetId=${asset.id}`;
+                    const thumb = firstAssetImage(asset.photos);
+                    const gallery = Array.isArray(asset.photos)
+                      ? asset.photos
+                          .filter((p: unknown): p is string => typeof p === "string" && !!p.trim() && !isLikelyAssetDocument(p))
+                          .map((p: string) => ({
+                            src: normalizeAssetPhotoUrl(p) || p,
+                            alt: asset.name || "Asset",
+                            title: asset.name || "Asset",
+                          }))
+                      : [];
                     return (
                       <TableRow key={asset.id}>
                         <TableCell>
-                          <CellStack title={asset.name || "—"} sub={asset.category || ""} href={href} />
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md border bg-muted">
+                              {thumb ? (
+                                <PreviewableImage
+                                  src={thumb}
+                                  alt={asset.name || "Asset"}
+                                  title={asset.name || "Asset"}
+                                  showHint={false}
+                                  gallery={gallery}
+                                  className="h-full w-full object-cover"
+                                  data-testid={`img-asset-thumb-${asset.id}`}
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Package className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                            </div>
+                            <CellStack title={asset.name || "—"} sub={asset.category || ""} href={href} />
+                          </div>
                         </TableCell>
                         <TableCell>
                           <TextLink href={href}>{asset.location || "—"}</TextLink>

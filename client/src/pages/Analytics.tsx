@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X } from "lucide-react";
+import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, Trash2, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { formatDistanceToNow, format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -22,6 +23,7 @@ import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePane
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
 import { FiltersSection } from "@/components/FiltersSection";
+import { PageHeader } from "@/components/PageHeader";
 
 interface WorkOrderAnalytics {
   total: number;
@@ -142,6 +144,7 @@ export default function Analytics() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>("all");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null);
+  const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
   const [draggingWorkOrderId, setDraggingWorkOrderId] = useState<string | null>(null);
   const [dropTargetColumn, setDropTargetColumn] = useState<keyof typeof statusCategories | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -212,6 +215,25 @@ export default function Analytics() {
     if (workOrder.status === nextStatus) return;
     updateStatusMutation.mutate({ id: workOrderId, status: nextStatus });
   };
+
+  const deleteWorkOrderMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/work-orders/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/analytics/work-orders"] });
+      setWorkOrderToDelete(null);
+      toast({ title: "Work order deleted" });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to delete work order",
+        description: e?.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const updateWorkOrderMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
@@ -478,16 +500,12 @@ export default function Analytics() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
-      {/* Page header + compact team filter */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight" data-testid="heading-analytics">
-            Work Orders
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm md:text-base">
-            Track assignments, status, and performance across maintenance teams
-          </p>
-        </div>
+        <PageHeader
+          className="flex-1"
+          title={<span data-testid="heading-analytics">Work Orders</span>}
+          description="Track assignments, status, and performance across maintenance teams"
+        />
         <FiltersSection
           headingId="wo-team-filters-heading"
           title="Filter by team"
@@ -496,16 +514,18 @@ export default function Analytics() {
           <ScrollArea className="w-full whitespace-nowrap" data-testid="card-team-navigation">
             <div className="flex gap-2 pb-1">
               <Button
-                variant={selectedTeamId === "all" ? "default" : "outline"}
-                size="sm"
+                variant={selectedTeamId === "all" ? "brand" : "outline"}
                 onClick={() => setSelectedTeamId("all")}
-                className="flex-shrink-0 h-8"
+                className="shrink-0 min-h-10"
                 data-testid="button-team-all"
               >
                 All Teams
                 <Badge
-                  variant={selectedTeamId === "all" ? "secondary" : "outline"}
-                  className="ml-2"
+                  variant="secondary"
+                  className={cn(
+                    "ml-1.5 rounded-md tabular-nums",
+                    selectedTeamId === "all" && "bg-white/90 text-foreground border-0",
+                  )}
                 >
                   {getTeamWorkOrderCount("all")}
                 </Badge>
@@ -513,16 +533,18 @@ export default function Analytics() {
               {teams.filter((t) => t.isActive).map((team) => (
                 <Button
                   key={team.id}
-                  variant={selectedTeamId === team.id ? "default" : "outline"}
-                  size="sm"
+                  variant={selectedTeamId === team.id ? "brand" : "outline"}
                   onClick={() => setSelectedTeamId(team.id)}
-                  className="flex-shrink-0 h-8"
+                  className="shrink-0 min-h-10"
                   data-testid={`button-team-${team.id}`}
                 >
                   {team.name}
                   <Badge
                     variant={selectedTeamId === team.id ? "secondary" : "outline"}
-                    className="ml-2"
+                    className={cn(
+                      "ml-1.5 rounded-md tabular-nums",
+                      selectedTeamId === team.id && "bg-white/90 text-foreground border-0",
+                    )}
                   >
                     {getTeamWorkOrderCount(team.id)}
                   </Badge>
@@ -697,6 +719,11 @@ export default function Analytics() {
                         key={wo.id}
                         workOrder={wo}
                         onEdit={openEditDialog}
+                        onDelete={
+                          user?.role === "owner" || user?.role === "clerk"
+                            ? setWorkOrderToDelete
+                            : undefined
+                        }
                         onStatusChange={(status) =>
                           updateStatusMutation.mutate({ id: wo.id, status })
                         }
@@ -1066,6 +1093,20 @@ export default function Analytics() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DeleteConfirmDialog
+        open={!!workOrderToDelete}
+        onOpenChange={(open) => {
+          if (!open) setWorkOrderToDelete(null);
+        }}
+        title="Delete work order?"
+        description="This permanently deletes the work order. The related maintenance request is kept."
+        itemName={workOrderToDelete?.maintenanceRequest?.title}
+        isPending={deleteWorkOrderMutation.isPending}
+        onConfirm={() => {
+          if (workOrderToDelete) deleteWorkOrderMutation.mutate(workOrderToDelete.id);
+        }}
+      />
     </div>
   );
 }
@@ -1073,6 +1114,7 @@ export default function Analytics() {
 interface WorkOrderCardProps {
   workOrder: WorkOrder;
   onEdit: (wo: WorkOrder) => void;
+  onDelete?: (wo: WorkOrder) => void;
   onStatusChange: (status: string) => void;
   locale: any;
   compact?: boolean;
@@ -1084,6 +1126,7 @@ interface WorkOrderCardProps {
 function WorkOrderCard({
   workOrder,
   onEdit,
+  onDelete,
   onStatusChange,
   locale,
   compact = false,
@@ -1121,16 +1164,38 @@ function WorkOrderCard({
             <h4 className={cn("font-semibold leading-snug line-clamp-2", compact ? "text-xs" : "text-sm")}>
               {workOrder.maintenanceRequest.title}
             </h4>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              className="h-7 w-7 flex-shrink-0 cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); onEdit(workOrder); }}
-              onPointerDown={(e) => e.stopPropagation()}
-              data-testid={`button-edit-${workOrder.id}`}
-            >
-              <Edit className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(workOrder);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                data-testid={`button-edit-${workOrder.id}`}
+                title="Edit work order"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </Button>
+              {onDelete && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 cursor-pointer text-destructive hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(workOrder);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  data-testid={`button-delete-${workOrder.id}`}
+                  title="Delete work order"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-1.5 flex-wrap">

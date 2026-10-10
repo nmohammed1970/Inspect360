@@ -34,6 +34,10 @@ export async function setupVite(app: Express, server: Server) {
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+    // Never serve the SPA shell for API/object routes — callers expect JSON.
+    if (url.startsWith("/api/") || url.startsWith("/objects/")) {
+      return res.status(404).json({ message: `API route not found: ${req.method} ${url.split("?")[0]}` });
+    }
 
     try {
       const clientTemplate = path.resolve(

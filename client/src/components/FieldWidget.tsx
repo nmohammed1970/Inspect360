@@ -7,7 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Star, Upload, Calendar, Clock, MapPin, X, Image as ImageIcon, Sparkles, Trash2, Save, Eye, Wrench, ZoomIn, Mic, Square, Loader2, Play } from "lucide-react";
+import { Star, Upload, Calendar, Clock, MapPin, X, Sparkles, Trash2, Save, Eye, Wrench, ZoomIn, Mic, Square, Loader2, Play } from "lucide-react";
+import { GalleryPickDialog } from "@/components/inspection-gallery/GalleryPickDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
@@ -55,6 +56,10 @@ interface FieldWidgetProps {
   isCheckOut?: boolean;
   markedForReview?: boolean;
   sectionName?: string;
+  /** Template sectionRef for gallery assignment (e.g. section_bedrooms/Bedrooms 1). */
+  sectionRef?: string;
+  /** When true, value inputs are non-editable (e.g. property-seeded bedroom count). */
+  disabled?: boolean;
   autoContext?: {
     inspectorName?: string;
     address?: string;
@@ -76,6 +81,8 @@ export function FieldWidget({
   isCheckOut,
   markedForReview,
   sectionName,
+  sectionRef,
+  disabled = false,
   autoContext,
   onChange,
   onMarkedForReviewChange,
@@ -136,6 +143,8 @@ export function FieldWidget({
     audioUrlsRef.current = audioUrls;
   }, [audioUrls]);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [showGalleryPick, setShowGalleryPick] = useState(false);
+  const [galleryBusy, setGalleryBusy] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoUploadProgress, setPhotoUploadProgress] = useState(0);
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
@@ -473,7 +482,22 @@ export function FieldWidget({
     }
   };
 
-  const handlePhotoAdd = (photoUrl: string) => {
+  const syncPhotosToGallery = async (urls: string[]) => {
+    if (!inspectionId || !sectionRef || !urls.length || !navigator.onLine) return;
+    try {
+      await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/register`, {
+        images: urls.map((objectUrl) => ({ objectUrl })),
+        assign: { sectionRef, fieldKey: field.id },
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/inspections", inspectionId, "gallery"],
+      });
+    } catch (e) {
+      console.warn("[FieldWidget] Gallery register/assign failed:", e);
+    }
+  };
+
+  const handlePhotoAdd = (photoUrl: string, opts?: { skipGallerySync?: boolean }) => {
     // Use functional updater to handle concurrent uploads correctly
     setLocalPhotos(prevPhotos => {
       const newPhotos = [...prevPhotos, photoUrl];
@@ -488,6 +512,10 @@ export function FieldWidget({
         if (inspectionId) {
           queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
           queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+        }
+
+        if (!opts?.skipGallerySync) {
+          void syncPhotosToGallery([photoUrl]);
         }
 
         // Trigger AI condition suggestion for Check-Out inspections (after first photo)
@@ -1353,8 +1381,13 @@ export function FieldWidget({
           <Input
             type="number"
             value={localValue || ""}
-            onChange={(e) => handleValueChange(parseFloat(e.target.value) || 0)}
+            onChange={(e) => {
+              if (disabled) return;
+              handleValueChange(parseFloat(e.target.value) || 0);
+            }}
             placeholder={field.placeholder || "Enter number"}
+            disabled={disabled}
+            readOnly={disabled}
             data-testid={`input-number-${field.id}`}
           />
         );
@@ -1603,26 +1636,78 @@ export function FieldWidget({
                 ))}
               </div>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full sm:w-auto min-h-11"
-              onClick={() => setShowPhotoUpload(true)}
-              data-testid={`button-upload-photo-${field.id}`}
-            >
-              <Upload className="w-4 h-4 mr-2 shrink-0" />
-              {localPhotos.length > 0 ? "Add More Photos" : "Upload Photo"}
-            </Button>
-            {showPhotoUpload && (
+            {!disabled && localPhotos.length < 10 && (
               <ModernFilePickerInline
                 onFilesSelected={handlePhotoFilesSelected}
-                maxFiles={10}
+                maxFiles={Math.max(1, 10 - localPhotos.length)}
                 maxFileSize={50 * 1024 * 1024}
                 accept="image/*"
                 multiple={true}
                 isUploading={isUploadingPhoto}
                 uploadProgress={photoUploadProgress}
                 height={300}
+                onChooseFromGallery={
+                  inspectionId && sectionRef
+                    ? () => setShowGalleryPick(true)
+                    : undefined
+                }
+                galleryDisabled={galleryBusy}
+              />
+            )}
+            {inspectionId && sectionRef && (
+              <GalleryPickDialog
+                open={showGalleryPick}
+                onOpenChange={setShowGalleryPick}
+                inspectionId={inspectionId}
+                alreadyUrls={localPhotos}
+                maxSelectable={10}
+                destinationLabel={
+                  sectionName ? `${sectionName} → ${field.label}` : field.label
+                }
+                busy={galleryBusy}
+                onConfirm={async (picked) => {
+                  setGalleryBusy(true);
+                  try {
+                    const urls = picked.map((p) => p.objectUrl);
+                    await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/assign`, {
+                      imageIds: picked.map((p) => p.id),
+                      sectionRef,
+                      fieldKey: field.id,
+                    });
+                    setLocalPhotos((prev) => {
+                      const merged = [...prev];
+                      for (const u of urls) {
+                        if (!merged.includes(u)) merged.push(u);
+                      }
+                      setTimeout(() => {
+                        const composedValue = composeValue(
+                          localValue,
+                          localCondition,
+                          localCleanliness,
+                          audioUrls,
+                        );
+                        onChange(composedValue, localNote || undefined, merged);
+                        queryClient.invalidateQueries({
+                          queryKey: [`/api/inspections/${inspectionId}/entries`],
+                        });
+                        queryClient.invalidateQueries({
+                          queryKey: ["/api/inspections", inspectionId, "gallery"],
+                        });
+                      }, 0);
+                      return merged;
+                    });
+                    setShowGalleryPick(false);
+                    toast({ title: "Photos added from gallery" });
+                  } catch (e: any) {
+                    toast({
+                      title: "Unable to add from gallery",
+                      description: e?.message,
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setGalleryBusy(false);
+                  }
+                }}
               />
             )}
           </div>
@@ -1931,13 +2016,16 @@ export function FieldWidget({
         </div>
       )}
 
-      {/* Log Maintenance Button - only available for photo fields */}
+      {/* Log Maintenance — photo fields (field photos are passed into the maintenance sheet) */}
       {inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array") && (
         <div className="pt-2">
           <Button
             type="button"
             variant="outline"
-            onClick={() => onLogMaintenance(field.label, localPhotos)}
+            onClick={() => {
+              const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
+              onLogMaintenance(field.label, fieldPhotos);
+            }}
             data-testid={`button-log-maintenance-${field.id}`}
             className="w-full"
           >
@@ -1946,6 +2034,7 @@ export function FieldWidget({
           </Button>
           <p className="text-xs text-muted-foreground mt-1">
             Create a maintenance ticket for this item
+            {(localPhotos?.length || photos?.length) ? " (field photos included)" : ""}
           </p>
         </div>
       )}

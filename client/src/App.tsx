@@ -83,6 +83,8 @@ import { Onboarding } from "@/components/Onboarding";
 import { useState, useEffect, useLayoutEffect } from "react";
 import { useNotifications } from "@/hooks/useNotifications";
 import { NotificationPopup } from "@/components/NotificationPopup";
+import { CompanyModuleRoute } from "@/components/CompanyModuleRoute";
+import { isCompanyModuleEnabled } from "@shared/companyModules";
 
 // Redirect field roles (clerk / contractor) away from owner-only areas
 function FieldRoleRedirect({ to }: { to: string }) {
@@ -437,7 +439,9 @@ function AppContent() {
   // Check this BEFORE organization check since tenants may not have organizationId
   if (user && user.role === "tenant") {
     const showChatbot = tenantOrganization?.tenantPortalChatbotEnabled ?? true;
-    const showMaintenance = tenantOrganization?.tenantPortalMaintenanceEnabled ?? true;
+    const showMaintenance =
+      (tenantOrganization?.tenantPortalMaintenanceEnabled ?? true) &&
+      isCompanyModuleEnabled(tenantOrganization, "maintenance");
     const showComparison = tenantOrganization?.tenantPortalComparisonEnabled ?? true;
     const showCommunity = tenantOrganization?.tenantPortalCommunityEnabled ?? true;
 
@@ -530,11 +534,11 @@ function AppContent() {
         <div className="flex h-screen w-full min-w-0">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0 min-w-0">
+            <header className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b bg-card/95 backdrop-blur-sm shrink-0 min-w-0 z-10">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
               <UserProfileMenu />
             </header>
-            <main className="flex-1 overflow-auto bg-background min-w-0">
+            <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
               <Switch>
                 {isFieldStaffRole(user?.role) ? (
                   <>
@@ -560,11 +564,29 @@ function AppContent() {
                     <Route path="/dashboard" component={Dashboard} />
                   </>
                 )}
-                <Route path="/blocks/:id/tenants" component={BlockTenants} />
+                <Route path="/blocks/:id/tenants">
+                  {() => (
+                    <CompanyModuleRoute module="tenancies">
+                      <BlockTenants />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
                 <Route path="/blocks/:id" component={BlockDetail} />
                 <Route path="/blocks" component={Blocks} />
-                <Route path="/properties/:id/tenants" component={PropertyTenants} />
-                <Route path="/tenants/:id" component={TenantDetail} />
+                <Route path="/properties/:id/tenants">
+                  {() => (
+                    <CompanyModuleRoute module="tenancies">
+                      <PropertyTenants />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/tenants/:id">
+                  {() => (
+                    <CompanyModuleRoute module="tenancies">
+                      <TenantDetail />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
                 <Route path="/properties/:id" component={PropertyDetail} />
                 <Route path="/properties" component={Properties} />
                 <Route path="/credits" component={Credits} />
@@ -574,16 +596,52 @@ function AppContent() {
                 <Route path="/inspections/:id/review" component={InspectionReview} />
                 <Route path="/inspections/:id/report" component={InspectionReport} />
                 <Route path="/inspections/:id" component={InspectionDetail} />
-                <Route path="/compliance" component={Compliance} />
-                <Route path="/maintenance/:id" component={Maintenance} />
-                <Route path="/maintenance" component={Maintenance} />
-                <Route path="/analytics" component={Analytics} />
+                <Route path="/compliance">
+                  {() => (
+                    <CompanyModuleRoute module="compliance">
+                      <Compliance />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance/:id">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <Maintenance />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <Maintenance />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/analytics">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <Analytics />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
                 <Route path="/reports/inspections" component={InspectionsReport} />
                 <Route path="/reports/blocks" component={BlocksReport} />
                 <Route path="/reports/properties" component={PropertiesReport} />
-                <Route path="/reports/tenants" component={TenantsReport} />
+                <Route path="/reports/tenants">
+                  {() => (
+                    <CompanyModuleRoute module="tenancies">
+                      <TenantsReport />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
                 <Route path="/reports/inventory" component={InventoryReport} />
-                <Route path="/reports/compliance" component={ComplianceReport} />
+                <Route path="/reports/compliance">
+                  {() => (
+                    <CompanyModuleRoute module="compliance">
+                      <ComplianceReport />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
                 <Route path="/reports/portfolio" component={PortfolioReport} />
                 <Route path="/reports/property-history" component={PropertyHistoryReport} />
                 <Route path="/reports" component={Reports} />

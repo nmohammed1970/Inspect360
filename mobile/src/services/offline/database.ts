@@ -36,8 +36,14 @@ export interface InspectionEntryRecord {
 
 export interface SyncQueueRecord {
   id: string;
-  operation: 'create_entry' | 'update_entry' | 'upload_image' | 'delete_entry';
-  entityType: 'entry' | 'image';
+  operation:
+    | 'create_entry'
+    | 'update_entry'
+    | 'upload_image'
+    | 'delete_entry'
+    | 'gallery_register'
+    | 'gallery_assign';
+  entityType: 'entry' | 'image' | 'gallery';
   entityId: string;
   data: string; // JSON string of operation data
   retryCount: number;

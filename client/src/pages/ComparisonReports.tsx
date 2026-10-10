@@ -25,7 +25,11 @@ import { format } from "date-fns";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 interface ComparisonReport {
   id: string;
@@ -275,19 +279,14 @@ export default function ComparisonReports() {
   };
 
   return (
-    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6" data-testid="page-comparison-reports">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="heading-comparison-reports">
-            Comparison Reports
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-1 md:mt-2">
-            AI-powered check-in vs check-out analysis with cost estimation and signatures
-          </p>
-        </div>
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)} data-testid="page-comparison-reports">
+      <PageHeader
+        title={<span data-testid="heading-comparison-reports">Comparison Reports</span>}
+        description="AI-powered check-in vs check-out analysis with cost estimation and signatures"
+        actions={
         <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
           <DialogTrigger asChild>
-            <Button className="w-full sm:w-auto shrink-0" data-testid="button-generate-report">
+            <Button variant="brand" className="w-full sm:w-auto shrink-0" data-testid="button-generate-report">
               <Plus className="w-4 h-4 mr-2" />
               Generate Report
             </Button>
@@ -365,6 +364,7 @@ export default function ComparisonReports() {
               )}
 
               <Button
+                variant="brand"
                 className="w-full"
                 onClick={() => generateReportMutation.mutate()}
                 disabled={!selectedPropertyId || !selectedCheckInId || !selectedCheckOutId || generateReportMutation.isPending}
@@ -375,8 +375,8 @@ export default function ComparisonReports() {
             </div>
           </DialogContent>
         </Dialog>
-
-      </div>
+        }
+      />
 
       {/* Loading Dialog for Report Generation */}
       <Dialog 
@@ -447,7 +447,7 @@ export default function ComparisonReports() {
             <p className="text-muted-foreground text-center max-w-md mb-4">
               Generate comparison reports to analyze check-in vs check-out inspections with AI-powered cost estimation.
             </p>
-            <Button onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
+            <Button variant="brand" onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
               <Plus className="w-4 h-4 mr-2" />
               Generate Your First Report
             </Button>

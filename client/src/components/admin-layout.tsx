@@ -54,7 +54,7 @@ export function AdminLayout({ children, breadcrumbs }: AdminLayoutProps) {
       <div className="flex h-screen w-full min-w-0">
         <AdminSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0">
+          <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card/95 backdrop-blur-sm shrink-0">
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <SidebarTrigger data-testid="button-admin-sidebar-toggle" className="shrink-0" />
               <Breadcrumb className="min-w-0 overflow-hidden">
@@ -80,7 +80,7 @@ export function AdminLayout({ children, breadcrumbs }: AdminLayoutProps) {
             </div>
             <AdminProfileMenu />
           </header>
-          <main className="flex-1 overflow-auto bg-background min-w-0">
+          <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
             {children}
           </main>
         </div>

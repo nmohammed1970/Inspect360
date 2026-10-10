@@ -25,6 +25,15 @@ import {
 } from "lucide-react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
+import { tabsListScroll } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import {
+  formatEnumLabel,
+  formatInspectionStatus,
+  formatMaintenanceStatus,
+  inspectionStatusBadgeVariant,
+  maintenanceStatusBadgeVariant,
+} from "@shared/inspectionLabels";
 
 interface TenantDetails {
   id: string;
@@ -98,6 +107,7 @@ export default function TenantDetail() {
   const [, params] = useRoute("/tenants/:id");
   const tenantId = params?.id;
   const locale = useLocale();
+  const { maintenanceEnabled } = useCompanyModules();
   const [activeTab, setActiveTab] = useState("overview");
 
   const { data: tenant, isLoading: tenantLoading } = useQuery<TenantDetails>({
@@ -137,7 +147,7 @@ export default function TenantDetail() {
       if (!res.ok) throw new Error("Failed to fetch maintenance requests");
       return res.json();
     },
-    enabled: !!tenantId,
+    enabled: !!tenantId && maintenanceEnabled,
   });
 
   const { data: disputes = [], isLoading: disputesLoading } = useQuery<TenantDispute[]>({
@@ -166,22 +176,40 @@ export default function TenantDetail() {
   };
 
   const getStatusBadge = (status: string) => {
-    const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
-      active: { variant: "default", label: "Active" },
-      current: { variant: "default", label: "Current" },
+    if (status === "scheduled" || status === "draft" || status === "reviewed" || status === "cancelled") {
+      return (
+        <Badge variant={inspectionStatusBadgeVariant(status)}>
+          {formatInspectionStatus(status)}
+        </Badge>
+      );
+    }
+    if (status === "open" || status === "closed") {
+      return (
+        <Badge variant={maintenanceStatusBadgeVariant(status)}>
+          {formatMaintenanceStatus(status)}
+        </Badge>
+      );
+    }
+    if (status === "in_progress" || status === "completed") {
+      // Shared by inspections and maintenance — same wording/variants
+      return (
+        <Badge variant={inspectionStatusBadgeVariant(status)}>
+          {formatInspectionStatus(status)}
+        </Badge>
+      );
+    }
+    const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline" | "success"; label: string }> = {
+      active: { variant: "success", label: "Active" },
+      current: { variant: "success", label: "Current" },
       notice_served: { variant: "secondary", label: "Notice Served" },
       ended: { variant: "outline", label: "Ended" },
-      completed: { variant: "outline", label: "Completed" },
-      scheduled: { variant: "secondary", label: "Scheduled" },
-      in_progress: { variant: "default", label: "In Progress" },
-      open: { variant: "default", label: "Open" },
       resolved: { variant: "outline", label: "Resolved" },
       disputed: { variant: "destructive", label: "Disputed" },
       pending: { variant: "secondary", label: "Pending" },
       paid: { variant: "outline", label: "Paid" },
       overdue: { variant: "destructive", label: "Overdue" },
     };
-    const config = statusConfig[status] || { variant: "secondary", label: status };
+    const config = statusConfig[status] || { variant: "secondary" as const, label: formatEnumLabel(status) };
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
@@ -314,26 +342,28 @@ export default function TenantDetail() {
 
         <div className="lg:col-span-3">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid grid-cols-5 w-full">
-              <TabsTrigger value="overview" data-testid="tab-overview">
-                <User className="w-4 h-4 mr-2" />
-                Overview
+            <TabsList className={tabsListScroll}>
+              <TabsTrigger value="overview" data-testid="tab-overview" className="shrink-0 gap-1.5">
+                <User className="w-4 h-4 shrink-0" />
+                <span>Overview</span>
               </TabsTrigger>
-              <TabsTrigger value="history" data-testid="tab-history">
-                <Clock className="w-4 h-4 mr-2" />
-                History
+              <TabsTrigger value="history" data-testid="tab-history" className="shrink-0 gap-1.5">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>History</span>
               </TabsTrigger>
-              <TabsTrigger value="inspections" data-testid="tab-inspections">
-                <ClipboardCheck className="w-4 h-4 mr-2" />
-                Inspections
+              <TabsTrigger value="inspections" data-testid="tab-inspections" className="shrink-0 gap-1.5">
+                <ClipboardCheck className="w-4 h-4 shrink-0" />
+                <span>Inspections</span>
               </TabsTrigger>
-              <TabsTrigger value="maintenance" data-testid="tab-maintenance">
-                <Wrench className="w-4 h-4 mr-2" />
-                Maintenance
+              {maintenanceEnabled && (
+              <TabsTrigger value="maintenance" data-testid="tab-maintenance" className="shrink-0 gap-1.5">
+                <Wrench className="w-4 h-4 shrink-0" />
+                <span>Maintenance</span>
               </TabsTrigger>
-              <TabsTrigger value="disputes" data-testid="tab-disputes">
-                <AlertTriangle className="w-4 h-4 mr-2" />
-                Disputes
+              )}
+              <TabsTrigger value="disputes" data-testid="tab-disputes" className="shrink-0 gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>Disputes</span>
               </TabsTrigger>
             </TabsList>
 
@@ -542,6 +572,7 @@ export default function TenantDetail() {
               </Card>
             </TabsContent>
 
+            {maintenanceEnabled && (
             <TabsContent value="maintenance" className="mt-4">
               <Card>
                 <CardHeader>
@@ -589,6 +620,7 @@ export default function TenantDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+            )}
 
             <TabsContent value="disputes" className="mt-4">
               <Card>

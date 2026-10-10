@@ -25,6 +25,7 @@ import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 import { isLockedAppPath } from "@shared/entitlements";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { notifyEntitlementLock } from "@/lib/queryClient";
+import { isCompanyModuleEnabled } from "@shared/companyModules";
 
 export function TenantSidebar() {
   const { user } = useAuth();
@@ -60,19 +61,25 @@ export function TenantSidebar() {
       title: "AI Maintenance Help",
       url: "/tenant/maintenance",
       icon: MessageSquare,
-      enabled: organization?.tenantPortalMaintenanceEnabled ?? true,
+      enabled:
+        (organization?.tenantPortalMaintenanceEnabled ?? true) &&
+        isCompanyModuleEnabled(organization, "maintenance"),
     },
     {
       title: "Log a Maintenance Request",
       url: "/tenant/log-request",
       icon: ClipboardList,
-      enabled: organization?.tenantPortalMaintenanceEnabled ?? true,
+      enabled:
+        (organization?.tenantPortalMaintenanceEnabled ?? true) &&
+        isCompanyModuleEnabled(organization, "maintenance"),
     },
     {
       title: "My Requests",
       url: "/tenant/requests",
       icon: FileText,
-      enabled: organization?.tenantPortalMaintenanceEnabled ?? true,
+      enabled:
+        (organization?.tenantPortalMaintenanceEnabled ?? true) &&
+        isCompanyModuleEnabled(organization, "maintenance"),
     },
     {
       title: "Comparison Reports",
