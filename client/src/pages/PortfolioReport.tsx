@@ -26,14 +26,31 @@ import {
   Wrench,
   CalendarClock,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
-import { pagePad, textBreak } from "@/lib/responsive";
+import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import {
+  CellStack,
+  EmptyTableRow,
+  SectionTable,
+  reportTableClass,
+  textBreak,
+} from "@/components/data-table";
+import {
+  formatEnumLabel,
+  formatInspectionStatus,
+  formatInspectionType,
+  formatMaintenanceStatus,
+  formatOccupancyStatus,
+  inspectionStatusBadgeVariant,
+  maintenanceStatusBadgeVariant,
+  occupancyBadgeVariant,
+  activeInactiveBadgeVariant,
+} from "@shared/inspectionLabels";
 
 function formatDate(value: any): string {
   if (!value) return "";
@@ -55,95 +72,6 @@ function formatMoneyValue(
   if (Number.isNaN(num)) return "—";
   return formatCurrency(num, false);
 }
-
-function CellStack({
-  title,
-  sub,
-  href,
-  subHref,
-}: {
-  title: string;
-  sub?: string | null;
-  href?: string | null;
-  subHref?: string | null;
-}) {
-  const titleNode = href ? (
-    <Link href={href}>
-      <span className="font-medium text-sm text-primary hover:underline cursor-pointer leading-snug">
-        {title || "—"}
-      </span>
-    </Link>
-  ) : (
-    <div className="font-medium text-sm text-foreground leading-snug">{title || "—"}</div>
-  );
-
-  const subNode = sub ? (
-    subHref ? (
-      <Link href={subHref}>
-        <div className="text-xs text-primary/80 hover:underline cursor-pointer leading-snug line-clamp-2">
-          {sub}
-        </div>
-      </Link>
-    ) : (
-      <div className="text-xs text-muted-foreground leading-snug line-clamp-2">{sub}</div>
-    )
-  ) : null;
-
-  return (
-    <div className="min-w-0 space-y-0.5">
-      {titleNode}
-      {subNode}
-    </div>
-  );
-}
-
-function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="h-24 text-center text-sm text-muted-foreground">
-        {message}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function SectionTable({
-  title,
-  icon: Icon,
-  count,
-  children,
-}: {
-  title: string;
-  icon: LucideIcon;
-  count: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="glass-card overflow-hidden shadow-sm">
-      <CardHeader className="border-b bg-muted/50 py-3.5 px-4 md:px-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <CardTitle className="text-base md:text-lg font-semibold tracking-tight truncate">
-              {title}
-            </CardTitle>
-          </div>
-          <Badge variant="secondary" className="tabular-nums font-medium flex-shrink-0">
-            {count}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0 bg-background min-w-0">
-        <div className="overflow-x-auto">{children}</div>
-      </CardContent>
-    </Card>
-  );
-}
-
-const reportTableClass =
-  "min-w-0 w-full md:min-w-[720px] bg-background [&_thead_tr]:border-b [&_th]:h-11 [&_th]:px-4 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_th]:bg-muted/40 [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:border-b [&_tbody_tr]:border-border/60 [&_tbody_tr]:bg-background [&_tbody_tr:last-child]:border-0";
 
 export default function PortfolioReport() {
   const { toast } = useToast();
@@ -824,8 +752,7 @@ export default function PortfolioReport() {
             onClick={handleExportExcel}
             disabled={exporting || isLoading}
             variant="outline"
-            size="sm"
-            className="sm:size-default"
+            className="self-start sm:self-auto min-h-10"
             data-testid="button-export-portfolio-data"
           >
             {isExportingExcel ? (
@@ -843,8 +770,8 @@ export default function PortfolioReport() {
           <Button
             onClick={handleExportPdf}
             disabled={exporting || isLoading}
-            size="sm"
-            className="sm:size-default"
+            variant="brand"
+            className="self-start sm:self-auto"
             data-testid="button-export-portfolio-pdf"
           >
             {isExportingPdf ? (
@@ -949,7 +876,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {blocksAndPropertiesRows.length === 0 ? (
-                  <EmptyRow colSpan={9} message="No blocks or properties found." />
+                  <EmptyTableRow colSpan={9} message="No blocks or properties found." />
                 ) : (
                   blocksAndPropertiesRows.map((row) => (
                     <TableRow key={row.key}>
@@ -978,8 +905,8 @@ export default function PortfolioReport() {
                         {row.status === "—" ? (
                           "—"
                         ) : (
-                          <Badge variant={row.status === "Occupied" ? "default" : "secondary"}>
-                            {row.status}
+                          <Badge variant={occupancyBadgeVariant(row.status)}>
+                            {formatOccupancyStatus(row.status)}
                           </Badge>
                         )}
                       </TableCell>
@@ -1010,7 +937,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {inspectionRows.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No inspections found." />
+                  <EmptyTableRow colSpan={6} message="No inspections found." />
                 ) : (
                   inspectionRows.map((row) => (
                     <TableRow key={row.id}>
@@ -1033,9 +960,13 @@ export default function PortfolioReport() {
                           href={row.propertyId ? `/properties/${row.propertyId}` : null}
                         />
                       </TableCell>
-                      <TableCell className="text-center hidden sm:table-cell">{row.type}</TableCell>
+                      <TableCell className="text-center hidden sm:table-cell">
+                        {formatInspectionType(row.type)}
+                      </TableCell>
                       <TableCell className="text-center">
-                        <Badge variant="secondary">{row.status}</Badge>
+                        <Badge variant={inspectionStatusBadgeVariant(row.status)}>
+                          {formatInspectionStatus(row.status)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-center hidden md:table-cell">
                         <CellStack
@@ -1067,7 +998,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {maintenanceRows.length === 0 ? (
-                  <EmptyRow colSpan={7} message="No maintenance requests found." />
+                  <EmptyTableRow colSpan={7} message="No maintenance requests found." />
                 ) : (
                   maintenanceRows.map((row) => (
                     <TableRow key={row.id}>
@@ -1094,19 +1025,13 @@ export default function PortfolioReport() {
                         <CellStack title={row.title} href={`/maintenance/${row.id}`} />
                       </TableCell>
                       <TableCell className="text-center">
-                        <Badge
-                          variant={
-                            row.status === "completed"
-                              ? "default"
-                              : row.status === "open"
-                                ? "outline"
-                                : "secondary"
-                          }
-                        >
-                          {row.status}
+                        <Badge variant={maintenanceStatusBadgeVariant(row.status)}>
+                          {formatMaintenanceStatus(row.status)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center hidden md:table-cell">{row.priority}</TableCell>
+                      <TableCell className="text-center hidden md:table-cell">
+                        {formatEnumLabel(row.priority)}
+                      </TableCell>
                       <TableCell className={cn("hidden lg:table-cell", textBreak)}>
                         <CellStack
                           title={row.reportedBy}
@@ -1136,7 +1061,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {assetRows.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No assets found." />
+                  <EmptyTableRow colSpan={6} message="No assets found." />
                 ) : (
                   assetRows.map((row) => (
                     <TableRow key={row.id}>
@@ -1182,7 +1107,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {complianceRows.length === 0 ? (
-                  <EmptyRow colSpan={5} message="No compliance documents found." />
+                  <EmptyTableRow colSpan={5} message="No compliance documents found." />
                 ) : (
                   complianceRows.map((row) => (
                     <TableRow key={row.id}>
@@ -1235,7 +1160,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {tenantRows.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No tenant assignments found." />
+                  <EmptyTableRow colSpan={6} message="No tenant assignments found." />
                 ) : (
                   tenantRows.map((row) => (
                     <TableRow key={row.id}>
@@ -1263,8 +1188,8 @@ export default function PortfolioReport() {
                       <TableCell className="text-right tabular-nums hidden sm:table-cell">{row.rent}</TableCell>
                       <TableCell className="text-right tabular-nums hidden lg:table-cell">{row.deposit}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={row.status === "active" ? "default" : "secondary"}>
-                          {row.status}
+                        <Badge variant={activeInactiveBadgeVariant(row.status)}>
+                          {formatEnumLabel(row.status)}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -1288,7 +1213,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {atRiskRows.length === 0 ? (
-                  <EmptyRow colSpan={5} message="No at-risk items found." />
+                  <EmptyTableRow colSpan={5} message="No at-risk items found." />
                 ) : (
                   atRiskRows.map((row) => (
                     <TableRow key={row.key}>
@@ -1311,10 +1236,12 @@ export default function PortfolioReport() {
                           variant={
                             String(row.status).toLowerCase() === "expired"
                               ? "destructive"
-                              : "secondary"
+                              : String(row.status).toLowerCase() === "in_progress"
+                                ? "warning"
+                                : "secondary"
                           }
                         >
-                          {row.status}
+                          {formatEnumLabel(String(row.status))}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-center hidden md:table-cell">
@@ -1340,7 +1267,7 @@ export default function PortfolioReport() {
               </TableHeader>
               <TableBody>
                 {upcomingRows.length === 0 ? (
-                  <EmptyRow colSpan={4} message="No upcoming items found." />
+                  <EmptyTableRow colSpan={4} message="No upcoming items found." />
                 ) : (
                   upcomingRows.map((row) => (
                     <TableRow key={row.key}>

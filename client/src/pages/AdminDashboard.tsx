@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { reportTableClass } from "@/components/data-table";
 import { pagePad, textBreak, textTruncate, formGrid2, tabsListScroll, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Textarea } from "@/components/ui/textarea";
@@ -679,7 +680,7 @@ export default function AdminDashboard() {
               <p>No instances match your search.</p>
               </div>
             ) : (
-            <Table className="min-w-[960px]">
+            <Table className={cn(reportTableClass, "min-w-[960px]")}>
               <TableHeader>
                 <TableRow className="bg-muted/40">
                   <TableHead>Organization</TableHead>
@@ -1002,7 +1003,7 @@ export default function AdminDashboard() {
                   <div className="p-6 text-center text-muted-foreground text-sm">No ledger entries yet.</div>
                 ) : (
                   <div className="max-h-56 overflow-x-auto overflow-y-auto min-w-0">
-                    <Table className="min-w-[480px]">
+                    <Table className={cn(reportTableClass, "min-w-[480px]")}>
                       <TableHeader>
                         <TableRow>
                           <TableHead>When</TableHead>

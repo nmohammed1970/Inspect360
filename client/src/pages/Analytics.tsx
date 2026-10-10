@@ -23,6 +23,7 @@ import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePane
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
 import { FiltersSection } from "@/components/FiltersSection";
+import { PageHeader } from "@/components/PageHeader";
 
 interface WorkOrderAnalytics {
   total: number;
@@ -499,16 +500,12 @@ export default function Analytics() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
-      {/* Page header + compact team filter */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight" data-testid="heading-analytics">
-            Work Orders
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm md:text-base">
-            Track assignments, status, and performance across maintenance teams
-          </p>
-        </div>
+        <PageHeader
+          className="flex-1"
+          title={<span data-testid="heading-analytics">Work Orders</span>}
+          description="Track assignments, status, and performance across maintenance teams"
+        />
         <FiltersSection
           headingId="wo-team-filters-heading"
           title="Filter by team"
@@ -517,16 +514,18 @@ export default function Analytics() {
           <ScrollArea className="w-full whitespace-nowrap" data-testid="card-team-navigation">
             <div className="flex gap-2 pb-1">
               <Button
-                variant={selectedTeamId === "all" ? "default" : "outline"}
-                size="sm"
+                variant={selectedTeamId === "all" ? "brand" : "outline"}
                 onClick={() => setSelectedTeamId("all")}
-                className="flex-shrink-0 h-8"
+                className="shrink-0 min-h-10"
                 data-testid="button-team-all"
               >
                 All Teams
                 <Badge
-                  variant={selectedTeamId === "all" ? "secondary" : "outline"}
-                  className="ml-2"
+                  variant="secondary"
+                  className={cn(
+                    "ml-1.5 rounded-md tabular-nums",
+                    selectedTeamId === "all" && "bg-white/90 text-foreground border-0",
+                  )}
                 >
                   {getTeamWorkOrderCount("all")}
                 </Badge>
@@ -534,16 +533,18 @@ export default function Analytics() {
               {teams.filter((t) => t.isActive).map((team) => (
                 <Button
                   key={team.id}
-                  variant={selectedTeamId === team.id ? "default" : "outline"}
-                  size="sm"
+                  variant={selectedTeamId === team.id ? "brand" : "outline"}
                   onClick={() => setSelectedTeamId(team.id)}
-                  className="flex-shrink-0 h-8"
+                  className="shrink-0 min-h-10"
                   data-testid={`button-team-${team.id}`}
                 >
                   {team.name}
                   <Badge
                     variant={selectedTeamId === team.id ? "secondary" : "outline"}
-                    className="ml-2"
+                    className={cn(
+                      "ml-1.5 rounded-md tabular-nums",
+                      selectedTeamId === team.id && "bg-white/90 text-foreground border-0",
+                    )}
                   >
                     {getTeamWorkOrderCount(team.id)}
                   </Badge>

@@ -542,7 +542,7 @@ export default function ComparisonReportDetail() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <Button
-            variant="outline"
+            variant="brand"
             onClick={handleDownloadPdf}
             disabled={isDownloadingPdf}
             data-testid="button-download-pdf"

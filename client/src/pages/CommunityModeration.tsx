@@ -31,6 +31,7 @@ import { format } from "date-fns";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, dialogFooterSticky, cardGrid } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 interface Block {
   id: string;
@@ -696,7 +697,7 @@ export default function CommunityModeration() {
               <p className="text-xs md:text-sm text-muted-foreground truncate">{currentGroup.blockName}</p>
             </div>
           </div>
-          <Button onClick={() => setShowCreateThread(true)} className="w-full sm:w-auto shrink-0" data-testid="button-new-thread">
+          <Button variant="brand" onClick={() => setShowCreateThread(true)} className="w-full sm:w-auto shrink-0" data-testid="button-new-thread">
             <Plus className="h-4 w-4 mr-2" />
             New Thread
           </Button>
@@ -820,28 +821,35 @@ export default function CommunityModeration() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
+      <PageHeader
+        title={
+          <span className="inline-flex items-center gap-2" data-testid="text-page-title">
             <Shield className="h-5 w-5 md:h-6 md:w-6 text-primary shrink-0" />
             <span className="truncate">Community Moderation</span>
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">Manage community groups and moderate content</p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Button variant="outline" onClick={() => setShowCreateGroup(true)} className="w-full sm:w-auto" data-testid="button-create-group">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Group
-          </Button>
-          <Button onClick={() => {
-            setRulesText(currentRules?.rulesText || "");
-            setShowRulesEditor(true);
-          }} className="w-full sm:w-auto" data-testid="button-edit-rules">
-            <Settings className="h-4 w-4 mr-2" />
-            Edit Community Rules
-          </Button>
-        </div>
-      </div>
+          </span>
+        }
+        description="Manage community groups and moderate content"
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setShowCreateGroup(true)} className="w-full sm:w-auto min-h-10" data-testid="button-create-group">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Group
+            </Button>
+            <Button
+              variant="brand"
+              onClick={() => {
+                setRulesText(currentRules?.rulesText || "");
+                setShowRulesEditor(true);
+              }}
+              className="w-full sm:w-auto"
+              data-testid="button-edit-rules"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Edit Community Rules
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <Card>
@@ -910,7 +918,7 @@ export default function CommunityModeration() {
               <CardContent className="pt-6 text-center text-muted-foreground">
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No community groups have been created yet.</p>
-                <Button className="mt-4" onClick={() => setShowCreateGroup(true)} data-testid="button-create-first-group">
+                <Button variant="brand" className="mt-4" onClick={() => setShowCreateGroup(true)} data-testid="button-create-first-group">
                   <Plus className="h-4 w-4 mr-2" />
                   Create First Group
                 </Button>

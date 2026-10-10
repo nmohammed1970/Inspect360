@@ -30,8 +30,9 @@ export function InspectionQuickActions({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
+            variant="brand"
             size="icon"
-            className="h-14 w-14 rounded-full shadow-lg hover-elevate active-elevate-2"
+            className="h-14 w-14 rounded-full shadow-none"
             data-testid="button-quick-actions"
           >
             {open ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}

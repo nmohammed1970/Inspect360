@@ -270,7 +270,7 @@ function ImportTab({ entity }: { entity: EntityType }) {
                 <Badge variant="secondary">{validation.totalRows} Total Rows</Badge>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant="default" className="bg-green-600">
+                <Badge variant="success">
                   <CheckCircle className="h-3 w-3 mr-1" />
                   {validation.validRows} Valid
                 </Badge>
@@ -383,7 +383,7 @@ function ImportTab({ entity }: { entity: EntityType }) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-4">
-              <Badge variant="default" className="bg-green-600">
+              <Badge variant="success">
                 <CheckCircle className="h-3 w-3 mr-1" />
                 {importResult.imported} Imported
               </Badge>

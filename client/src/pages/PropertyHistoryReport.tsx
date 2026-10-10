@@ -31,7 +31,6 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +39,15 @@ import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import { PreviewableImage } from "@/components/ImagePreview";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { EmptyTableRow, SectionTable, reportTableClass } from "@/components/data-table";
+import {
+  formatEnumLabel,
+  formatInspectionStatus,
+  formatInspectionType,
+  formatMaintenanceStatus,
+  inspectionStatusBadgeVariant,
+  maintenanceStatusBadgeVariant,
+} from "@shared/inspectionLabels";
 
 function normalizeAssetPhotoUrl(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -85,10 +93,7 @@ function formatDate(value: any): string {
 }
 
 function prettyLabel(value: string | null | undefined): string {
-  if (!value) return "—";
-  return String(value)
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return formatEnumLabel(value);
 }
 
 function isActiveTenant(ta: any): boolean {
@@ -214,56 +219,6 @@ function tenantHref(ta: any): string | null {
   const id = ta?.tenantId || ta?.user?.id || ta?.userId;
   return id ? `/tenants/${id}` : null;
 }
-
-function EmptyRow({ colSpan, message }: { colSpan: number; message: string }) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="h-24 text-center text-sm text-muted-foreground">
-        {message}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function SectionTable({
-  title,
-  icon: Icon,
-  count,
-  id,
-  children,
-}: {
-  title: string;
-  icon: LucideIcon;
-  count: number;
-  id?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Card id={id} className="glass-card overflow-hidden shadow-sm scroll-mt-4">
-      <CardHeader className="border-b bg-muted/50 py-3.5 px-4 md:px-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-              <Icon className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <CardTitle className="text-base md:text-lg font-semibold tracking-tight truncate">
-              {title}
-            </CardTitle>
-          </div>
-          <Badge variant="secondary" className="tabular-nums font-medium flex-shrink-0">
-            {count}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0 bg-background min-w-0">
-        <div className="overflow-x-auto">{children}</div>
-      </CardContent>
-    </Card>
-  );
-}
-
-const reportTableClass =
-  "min-w-0 w-full md:min-w-[720px] bg-background [&_thead_tr]:border-b [&_th]:h-11 [&_th]:px-4 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_th]:bg-muted/40 [&_td]:px-4 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:border-b [&_tbody_tr]:border-border/60 [&_tbody_tr]:bg-background [&_tbody_tr:last-child]:border-0";
 
 function searchPropertyId(search: string): string {
   const raw = search.startsWith("?") ? search.slice(1) : search;
@@ -478,8 +433,8 @@ export default function PropertyHistoryReport() {
         <Button
           onClick={handleExportPdf}
           disabled={!propertyId || isExportingPdf || isLoading}
-          size="sm"
-          className="sm:size-default self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-property-history-pdf"
         >
           {isExportingPdf ? (
@@ -574,7 +529,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {!selectedProperty ? (
-                  <EmptyRow colSpan={6} message="No property found." />
+                  <EmptyTableRow colSpan={6} message="No property found." />
                 ) : (
                   <TableRow>
                     <TableCell className={textBreak}>
@@ -633,7 +588,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyInspections.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No inspections found." />
+                  <EmptyTableRow colSpan={6} message="No inspections found." />
                 ) : (
                   propertyInspections.map((inspection) => {
                     const point = inspection.completedDate || inspection.scheduledDate || inspection.createdAt;
@@ -645,12 +600,16 @@ export default function PropertyHistoryReport() {
                     return (
                       <TableRow key={inspection.id}>
                         <TableCell>
-                          <TextLink href={reportHref}>{prettyLabel(inspection.type)}</TextLink>
+                          <TextLink href={reportHref}>{formatInspectionType(inspection.type)}</TextLink>
                         </TableCell>
                         <TableCell>
                           <CellStack
                             title={formatDate(inspection.scheduledDate) || "—"}
-                            sub={formatDate(inspection.completedDate) || ""}
+                            sub={
+                              formatDate(inspection.completedDate)
+                                ? `Done: ${formatDate(inspection.completedDate)}`
+                                : ""
+                            }
                             href={reportHref}
                           />
                         </TableCell>
@@ -659,8 +618,11 @@ export default function PropertyHistoryReport() {
                         </TableCell>
                         <TableCell className="text-center">
                           <Link href={reportHref}>
-                            <Badge variant="secondary" className="cursor-pointer">
-                              {prettyLabel(inspection.status)}
+                            <Badge
+                              variant={inspectionStatusBadgeVariant(inspection.status)}
+                              className="cursor-pointer"
+                            >
+                              {formatInspectionStatus(inspection.status)}
                             </Badge>
                           </Link>
                         </TableCell>
@@ -695,7 +657,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyTenants.length === 0 ? (
-                  <EmptyRow colSpan={5} message="No tenant assignments found." />
+                  <EmptyTableRow colSpan={5} message="No tenant assignments found." />
                 ) : (
                   propertyTenants.map((ta) => {
                     const lease = leaseOf(ta);
@@ -752,7 +714,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyCompliance.length === 0 ? (
-                  <EmptyRow colSpan={4} message="No compliance documents found." />
+                  <EmptyTableRow colSpan={4} message="No compliance documents found." />
                 ) : (
                   propertyCompliance.map((doc) => {
                     const expired =
@@ -809,7 +771,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyMaintenance.length === 0 ? (
-                  <EmptyRow colSpan={7} message="No maintenance requests found." />
+                  <EmptyTableRow colSpan={7} message="No maintenance requests found." />
                 ) : (
                   propertyMaintenance.map((req) => {
                     const wo = workOrders.find(
@@ -841,8 +803,11 @@ export default function PropertyHistoryReport() {
                         </TableCell>
                         <TableCell className="text-center">
                           <Link href={href}>
-                            <Badge variant="secondary" className="cursor-pointer">
-                              {prettyLabel(req.status)}
+                            <Badge
+                              variant={maintenanceStatusBadgeVariant(req.status)}
+                              className="cursor-pointer"
+                            >
+                              {formatMaintenanceStatus(req.status)}
                             </Badge>
                           </Link>
                         </TableCell>
@@ -880,7 +845,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {disputeRows.length === 0 ? (
-                  <EmptyRow colSpan={5} message="No disputes found." />
+                  <EmptyTableRow colSpan={5} message="No disputes found." />
                 ) : (
                   disputeRows.map((row) => {
                     const href = row.reportId ? `/comparisons/${row.reportId}` : null;
@@ -936,7 +901,7 @@ export default function PropertyHistoryReport() {
               </TableHeader>
               <TableBody>
                 {propertyAssets.length === 0 ? (
-                  <EmptyRow colSpan={6} message="No assets found." />
+                  <EmptyTableRow colSpan={6} message="No assets found." />
                 ) : (
                   propertyAssets.map((asset) => {
                     const href = `/asset-inventory?assetId=${asset.id}`;

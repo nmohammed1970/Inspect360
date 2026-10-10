@@ -29,6 +29,7 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { reportTableClass } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 
 export default function BlocksReport() {
@@ -155,8 +156,8 @@ export default function BlocksReport() {
         <Button
           onClick={handleExportPDF}
           disabled={isExporting || filteredBlocks.length === 0}
-          size="sm"
-          className="sm:size-lg self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
@@ -177,7 +178,7 @@ export default function BlocksReport() {
 
       <FiltersSection headingId="blocks-report-filters-heading">
         <div className="hidden md:block">
-<div className="space-y-2">
+          <div className="space-y-2">
             <Label>Search Blocks</Label>
             <Input
               placeholder="Search by name, address, or postcode..."
@@ -241,7 +242,7 @@ export default function BlocksReport() {
       </div>
 
       {/* Blocks Table */}
-      <Card className="glass-card">
+      <Card className="clean-card overflow-hidden shadow-card">
         <CardHeader>
           <CardTitle>Block Details</CardTitle>
           <CardDescription>
@@ -263,7 +264,7 @@ export default function BlocksReport() {
           ) : (
             <div className="overflow-x-auto -mx-4 sm:mx-0">
               <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                <Table>
+                <Table className={reportTableClass}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[150px]">Block Name</TableHead>

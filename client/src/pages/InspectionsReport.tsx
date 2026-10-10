@@ -38,6 +38,12 @@ import { FiltersSection } from "@/components/FiltersSection";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { reportTableClass } from "@/components/data-table";
+import {
+  formatInspectionStatus,
+  formatInspectionType,
+  inspectionStatusBadgeVariant,
+} from "@shared/inspectionLabels";
 import { cn } from "@/lib/utils";
 
 export default function InspectionsReport() {
@@ -146,17 +152,11 @@ export default function InspectionsReport() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { variant: any; label: string }> = {
-      scheduled: { variant: "secondary", label: "Scheduled" },
-      in_progress: { variant: "default", label: "In Progress" },
-      completed: { variant: "default", label: "Completed" },
-      cancelled: { variant: "destructive", label: "Cancelled" },
-    };
-
-    const config = statusMap[status] || { variant: "secondary", label: status };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
+  const getStatusBadge = (status: string) => (
+    <Badge variant={inspectionStatusBadgeVariant(status)}>
+      {formatInspectionStatus(status)}
+    </Badge>
+  );
 
   return (
     <div className={cn("container mx-auto min-w-0", pagePad, "space-y-4 md:space-y-6")}>
@@ -185,8 +185,8 @@ export default function InspectionsReport() {
         <Button
           onClick={handleExportPDF}
           disabled={isExporting || filteredInspections.length === 0}
-          size="sm"
-          className="sm:size-lg self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
@@ -471,27 +471,27 @@ export default function InspectionsReport() {
       </div>
 
       {/* Inspections Table */}
-      <Card className="glass-card">
+      <Card className="clean-card overflow-hidden shadow-card">
         <CardHeader>
           <CardTitle>Inspection Records</CardTitle>
           <CardDescription>
             Showing {filteredInspections.length} inspection{filteredInspections.length !== 1 ? 's' : ''}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0 sm:p-6">
           {inspectionsLoading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center py-12 px-4">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : filteredInspections.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="text-center py-12 px-4">
               <ClipboardCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <p className="text-muted-foreground">No inspections found matching your filters</p>
             </div>
           ) : (
-            <div className="overflow-x-auto -mx-4 sm:mx-0">
-              <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                <Table>
+            <div className="overflow-x-auto">
+              <div className="inline-block min-w-full align-middle">
+                <Table className={reportTableClass}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[100px]">Date</TableHead>
@@ -526,8 +526,8 @@ export default function InspectionsReport() {
                               <span className="text-sm">Unknown Property</span>
                             )}
                           </TableCell>
-                          <TableCell className="capitalize hidden sm:table-cell">
-                            <span className="text-sm">{inspection.type?.replace('-', ' ') || "N/A"}</span>
+                          <TableCell className="hidden sm:table-cell">
+                            <span className="text-sm">{formatInspectionType(inspection.type)}</span>
                           </TableCell>
                           <TableCell className="hidden md:table-cell">
                             <span className="text-sm">{inspection.inspector || "Unassigned"}</span>

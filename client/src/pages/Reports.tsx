@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { pagePad, cardGridComfortable } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import {
   FileText,
   Building2,
@@ -95,14 +96,10 @@ export default function Reports() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Reports</h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            Generate detailed reports and export to PDF
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Reports"
+        description="Generate detailed reports and export to PDF"
+      />
 
       <div className={cardGridComfortable}>
         {reportCards
@@ -115,7 +112,7 @@ export default function Reports() {
           const Icon = report.icon;
           const cardContent = (
             <Card
-              className={`glass-card transition-all h-full ${report.available ? "hover-elevate cursor-pointer" : "opacity-60"}`}
+              className={`clean-card transition-all h-full ${report.available ? "hover-elevate cursor-pointer" : "opacity-60"}`}
               data-testid={`card-report-${report.title.toLowerCase().replace(/\s+/g, "-")}`}
             >
               <CardHeader className="p-4 md:p-6">

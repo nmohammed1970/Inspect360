@@ -534,11 +534,11 @@ function AppContent() {
         <div className="flex h-screen w-full min-w-0">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0 min-w-0">
+            <header className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b bg-card/95 backdrop-blur-sm shrink-0 min-w-0 z-10">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
               <UserProfileMenu />
             </header>
-            <main className="flex-1 overflow-auto bg-background min-w-0">
+            <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
               <Switch>
                 {isFieldStaffRole(user?.role) ? (
                   <>

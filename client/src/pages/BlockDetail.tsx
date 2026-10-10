@@ -105,7 +105,6 @@ export default function BlockDetail() {
   const [, params] = useRoute("/blocks/:id");
   const blockId = params?.id;
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [blockImageDialogOpen, setBlockImageDialogOpen] = useState(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
   const { toast } = useToast();
   const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
@@ -140,7 +139,6 @@ export default function BlockDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/blocks", blockId] });
       queryClient.invalidateQueries({ queryKey: ["/api/blocks"] });
-      setBlockImageDialogOpen(false);
       toast({
         title: "Success",
         description: "Block photo updated successfully",
@@ -154,6 +152,35 @@ export default function BlockDetail() {
       });
     },
   });
+
+  const getBlockImageUploadParameters = async () => {
+    const response = await fetch("/api/objects/upload", {
+      method: "POST",
+      credentials: "include",
+    });
+    const { uploadURL } = await response.json();
+    return {
+      method: "PUT" as const,
+      url: uploadURL,
+    };
+  };
+
+  const handleBlockImageUploadComplete = (result: {
+    successful: Array<{ uploadURL?: string }>;
+  }) => {
+    if (!result.successful?.length) return;
+    let fileUrl = result.successful[0].uploadURL;
+    if (!fileUrl) return;
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      try {
+        const urlObj = new URL(fileUrl);
+        fileUrl = `/objects${urlObj.pathname}`;
+      } catch {
+        fileUrl = `/objects/${fileUrl}`;
+      }
+    }
+    updateBlockImage.mutate(fileUrl);
+  };
 
   const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
     queryKey: ["/api/blocks", blockId, "properties"],
@@ -257,7 +284,7 @@ export default function BlockDetail() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'valid':
-        return <Badge className="bg-green-600"><CheckCircle2 className="h-3 w-3 mr-1" />Valid</Badge>;
+        return <Badge variant="success"><CheckCircle2 className="h-3 w-3 mr-1" />Valid</Badge>;
       case 'expiring':
         return <Badge variant="secondary" className="text-yellow-600"><Clock className="h-3 w-3 mr-1" />Expiring Soon</Badge>;
       case 'expired':
@@ -318,7 +345,7 @@ export default function BlockDetail() {
           </div>
         </div>
 
-        {/* Block Image and Map Section */}
+        {/* Block Image and Map Section — opens media picker directly */}
         <div className={formGrid2}>
           <Card className="overflow-hidden">
             {block.imageUrl ? (
@@ -330,28 +357,37 @@ export default function BlockDetail() {
                   className="w-full h-full object-cover"
                   data-testid="img-block"
                 />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="absolute bottom-2 left-2"
-                  onClick={() => setBlockImageDialogOpen(true)}
-                  data-testid="button-change-block-image"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Change Photo
-                </Button>
+                <div className="absolute bottom-2 left-2 z-10">
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    maxFileSize={10 * 1024 * 1024}
+                    buttonVariant="secondary"
+                    buttonClassName="h-9 px-3"
+                    onGetUploadParameters={getBlockImageUploadParameters}
+                    onComplete={handleBlockImageUploadComplete}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Change Photo
+                  </ObjectUploader>
+                </div>
               </div>
             ) : (
               <div
-                className="aspect-video bg-muted flex items-center justify-center cursor-pointer hover-elevate"
-                onClick={() => setBlockImageDialogOpen(true)}
+                className="aspect-video bg-muted [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
                 data-testid="button-upload-block-image"
               >
-                <div className="text-center text-muted-foreground">
-                  <Upload className="h-16 w-16 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-medium">Upload Block Photo</p>
-                  <p className="text-xs">Click to add an image</p>
-                </div>
+                <ObjectUploader
+                  maxNumberOfFiles={1}
+                  maxFileSize={10 * 1024 * 1024}
+                  buttonVariant="ghost"
+                  buttonClassName="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-muted/80"
+                  onGetUploadParameters={getBlockImageUploadParameters}
+                  onComplete={handleBlockImageUploadComplete}
+                >
+                  <Upload className="h-16 w-16 opacity-50" />
+                  <span className="text-sm font-medium">Upload Block Photo</span>
+                  <span className="text-xs font-normal">Click to add an image</span>
+                </ObjectUploader>
               </div>
             )}
           </Card>
@@ -365,53 +401,6 @@ export default function BlockDetail() {
             />
           </Card>
         </div>
-
-        <Dialog open={blockImageDialogOpen} onOpenChange={setBlockImageDialogOpen}>
-          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-            <DialogHeader>
-              <DialogTitle>Upload Block Photo</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Upload an image of the block (exterior or common areas) to display on this page.
-              </p>
-              <ObjectUploader
-                maxNumberOfFiles={1}
-                maxFileSize={10 * 1024 * 1024}
-                onGetUploadParameters={async () => {
-                  const response = await fetch("/api/objects/upload", {
-                    method: "POST",
-                    credentials: "include",
-                  });
-                  const { uploadURL } = await response.json();
-                  return {
-                    method: "PUT" as const,
-                    url: uploadURL,
-                  };
-                }}
-                onComplete={async (result) => {
-                  if (result.successful && result.successful.length > 0) {
-                    let fileUrl = result.successful[0].uploadURL;
-                    if (fileUrl) {
-                      if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
-                        try {
-                          const urlObj = new URL(fileUrl);
-                          fileUrl = `/objects${urlObj.pathname}`;
-                        } catch {
-                          fileUrl = `/objects/${fileUrl}`;
-                        }
-                      }
-                      updateBlockImage.mutate(fileUrl);
-                    }
-                  }
-                }}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Select Block Photo
-              </ObjectUploader>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {/* Block summary — same pattern as Property detail */}

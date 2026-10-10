@@ -372,7 +372,7 @@ export default function FixfloIntegrationSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
+              <Table className="[&_th]:bg-muted/40 [&_td]:py-3">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Property</TableHead>
@@ -435,7 +435,7 @@ export default function FixfloIntegrationSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
+              <Table className="[&_th]:bg-muted/40 [&_td]:py-3">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Entity Type</TableHead>

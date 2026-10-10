@@ -6404,6 +6404,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const applied = applyPropertyCountsToTemplateSnapshot(
             templateSnapshotJson as any,
             counts,
+            { propertyType: (property as any).propertyType },
           );
           templateSnapshotJson = applied.structure as any;
           seedEntries = applied.seedEntries;

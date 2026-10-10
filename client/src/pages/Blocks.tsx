@@ -26,6 +26,7 @@ import type { Tag } from "@shared/schema";
 import { Tag as TagIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, cardGridComfortable } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 function getBlockDeleteReason(block: Block): string | null {
@@ -321,17 +322,16 @@ export default function Blocks() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      {/* Modern Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">Blocks & Buildings</h1>
-          <p className="text-sm md:text-base text-muted-foreground">Manage your property complexes and building blocks</p>
-        </div>
-        <Button onClick={handleOpenCreate} size="lg" className="transition-smooth" data-testid="button-create-block">
-          <Plus className="mr-2 h-5 w-5" />
-          New Block
-        </Button>
-      </div>
+      <PageHeader
+        title="Blocks & Buildings"
+        description="Manage your property complexes and building blocks"
+        actions={
+          <Button variant="brand" onClick={handleOpenCreate} data-testid="button-create-block">
+            <Plus className="mr-2 h-5 w-5" />
+            New Block
+          </Button>
+        }
+      />
 
       {blocks.length > 0 && (
         <FiltersSection headingId="blocks-filters-heading">
@@ -413,7 +413,7 @@ export default function Blocks() {
           </div>
         </div>
       ) : blocks.length === 0 ? (
-        <Card className="glass-card-strong">
+        <Card className="clean-card">
           <CardContent className="flex flex-col items-center justify-center py-16 md:py-24">
             <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
               <Building className="h-10 w-10 text-primary" />
@@ -429,7 +429,7 @@ export default function Blocks() {
           </CardContent>
         </Card>
       ) : filteredBlocks.length === 0 ? (
-        <Card className="glass-card">
+        <Card className="clean-card">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Search className="h-8 w-8 text-muted-foreground" />
@@ -446,7 +446,7 @@ export default function Blocks() {
       ) : (
         <div className={cardGridComfortable}>
           {filteredBlocks.map((block) => (
-            <Card key={block.id} data-testid={`card-block-${block.id}`} className="glass-card card-hover-lift overflow-hidden flex h-full flex-col">
+            <Card key={block.id} data-testid={`card-block-${block.id}`} className="clean-card card-hover-lift overflow-hidden flex h-full flex-col">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/blocks/${block.id}`} className="flex-1 min-w-0">

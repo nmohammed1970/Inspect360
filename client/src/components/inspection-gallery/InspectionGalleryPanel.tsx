@@ -20,7 +20,7 @@ import {
 import { AssignDestinationDialog } from "./AssignDestinationDialog";
 import { runGalleryUploads } from "./uploadGalleryFiles";
 import type { GalleryImage, PhotoDestination, UploadJob } from "./types";
-import { Camera, ImagePlus, Loader2, Trash2, Upload } from "lucide-react";
+import { Camera, ImagePlus, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   GALLERY_FIELD_PHOTO_MAX,
@@ -293,10 +293,11 @@ export function InspectionGalleryPanel({
   return (
     <div className="space-y-4 min-w-0" data-testid="inspection-gallery-panel">
       <div className="flex flex-wrap items-center gap-2 justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Inspection Gallery</h2>
+        <div className="min-w-0 space-y-0.5">
+          <h2 className="text-lg font-semibold tracking-tight font-heading">Inspection Gallery</h2>
           <p className="text-sm text-muted-foreground">
             {images.length} photo{images.length === 1 ? "" : "s"}
+            {filter !== "all" ? ` · showing ${filtered.length}` : ""}
           </p>
         </div>
         {canEdit && (
@@ -313,12 +314,13 @@ export function InspectionGalleryPanel({
             </Button>
             <Button
               type="button"
+              variant="outline"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               data-testid="gallery-upload-button"
             >
-              <Upload className="h-4 w-4 mr-1.5" />
+              <ImagePlus className="h-4 w-4 mr-1.5" />
               Add Photos
             </Button>
           </div>
@@ -349,7 +351,7 @@ export function InspectionGalleryPanel({
       />
 
       {(uploading || uploadJobs.length > 0) && (
-        <div className="rounded-lg border p-3 space-y-2">
+        <div className="rounded-card border bg-card p-3 space-y-2 shadow-card">
           <div className="flex justify-between text-sm">
             <span>
               {uploading ? "Uploading…" : "Upload finished"}{" "}
@@ -365,7 +367,7 @@ export function InspectionGalleryPanel({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {(["all", "unassigned", "assigned"] as FilterKey[]).map((key) => (
           <Button
             key={key}
@@ -386,12 +388,13 @@ export function InspectionGalleryPanel({
       </div>
 
       {selected.size > 0 && canEdit && (
-        <div className="sticky top-0 z-10 flex flex-col gap-2 rounded-lg border bg-background p-3 shadow-sm">
+        <div className="sticky top-0 z-10 flex flex-col gap-2 rounded-card border bg-card/95 backdrop-blur-sm p-3 shadow-card">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">{selected.size} selected</span>
+            <Badge variant="secondary" className="font-medium">{selected.size} selected</Badge>
             <Button
               type="button"
               size="sm"
+              variant="brand"
               disabled={selected.size > GALLERY_FIELD_PHOTO_MAX}
               onClick={() => setAssignOpen(true)}
               data-testid="gallery-assign-open"

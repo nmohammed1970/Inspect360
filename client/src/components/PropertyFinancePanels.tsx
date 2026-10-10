@@ -1352,7 +1352,7 @@ export function PropertyRentCollectionPanel({ propertyId }: { propertyId: string
           </p>
         ) : (
           <div className="overflow-x-auto -mx-1 px-1 min-w-0">
-            <Table>
+            <Table className="[&_th]:bg-muted/40 [&_td]:py-3">
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[8rem]">Tenant</TableHead>

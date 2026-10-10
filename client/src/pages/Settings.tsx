@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2 } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 const categoryFormSchema = insertInspectionCategorySchema.extend({
   name: z.string().min(1, "Category name is required"),
@@ -432,14 +433,11 @@ export default function Settings() {
 
   return (
     <div className={cn("container mx-auto min-w-0 bg-background min-h-screen", pagePad)}>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 md:mb-6">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
-            Settings
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">Manage your organization configuration</p>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-4 md:mb-6"
+        title="Settings"
+        description="Manage your organization configuration"
+      />
 
       <div className="flex flex-col lg:flex-row gap-4 md:gap-6">
         {/* Vertical Sidebar Menu */}
@@ -462,7 +460,7 @@ export default function Settings() {
                       <Link
                         key={item.id}
                         href={item.href}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left text-sm font-medium transition-colors text-muted-foreground hover-elevate"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-button text-left text-sm font-medium transition-colors text-muted-foreground hover:bg-muted/60"
                         data-testid={`nav-${item.id}`}
                       >
                         <Icon className="w-4 h-4" />
@@ -475,9 +473,9 @@ export default function Settings() {
                     <button
                       key={item.id}
                       onClick={() => setActiveSection(item.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left text-sm font-medium transition-colors ${isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover-elevate'
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-button text-left text-sm font-medium transition-colors ${isActive
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'text-muted-foreground hover:bg-muted/60 border border-transparent'
                         }`}
                       data-testid={`nav-${item.id}`}
                     >
@@ -553,7 +551,8 @@ export default function Settings() {
                                 maxFileSize={5242880}
                                 onGetUploadParameters={getUploadParameters}
                                 onComplete={handleUploadComplete}
-                                buttonClassName="h-40 w-40 border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50"
+                                buttonVariant="outline"
+                                buttonClassName="h-40 w-40 border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50 shadow-none hover:bg-muted text-muted-foreground font-normal"
                               >
                                 <Upload className="w-10 h-10 text-muted-foreground" />
                                 <span className="text-sm text-muted-foreground">Upload Logo</span>
@@ -672,7 +671,8 @@ export default function Settings() {
                                       return { method: "PUT" as const, url: data.uploadUrl };
                                     }}
                                     onComplete={handleTrademarkUpload}
-                                    buttonClassName="w-full aspect-square border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50"
+                                    buttonVariant="outline"
+                                    buttonClassName="w-full aspect-square border-2 border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2 bg-muted/50 shadow-none hover:bg-muted text-muted-foreground font-normal"
                                   >
                                     <Upload className="w-6 h-6 text-muted-foreground" />
                                     <span className="text-xs text-muted-foreground text-center">Add Badge</span>
@@ -814,6 +814,7 @@ export default function Settings() {
 
                       <div className="border-t border-border pt-6">
                         <Button
+                          variant="brand"
                           onClick={() => updateBrandingMutation.mutate()}
                           disabled={updateBrandingMutation.isPending}
                           data-testid="button-save-branding"
@@ -898,6 +899,7 @@ export default function Settings() {
                         </div>
                       </div>
                       <Button
+                        variant="brand"
                         onClick={() => updateCompanyModulesMutation.mutate()}
                         disabled={updateCompanyModulesMutation.isPending}
                         data-testid="button-save-company-modules"
@@ -930,7 +932,7 @@ export default function Settings() {
                     </div>
                     <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                       <DialogTrigger asChild>
-                        <Button className="gap-2" data-testid="button-create-category">
+                        <Button variant="brand" className="gap-2" data-testid="button-create-category">
                           <Plus className="w-4 h-4" />
                           Add Category
                         </Button>
@@ -984,7 +986,7 @@ export default function Settings() {
                               )}
                             />
                             <DialogFooter>
-                              <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-category">
+                              <Button variant="brand" type="submit" disabled={createMutation.isPending} data-testid="button-submit-category">
                                 {createMutation.isPending ? "Creating..." : "Create Category"}
                               </Button>
                             </DialogFooter>
@@ -1076,7 +1078,7 @@ export default function Settings() {
                                             )}
                                           />
                                           <DialogFooter>
-                                            <Button type="submit" disabled={updateMutation.isPending} data-testid="button-update-category">
+                                            <Button variant="brand" type="submit" disabled={updateMutation.isPending} data-testid="button-update-category">
                                               {updateMutation.isPending ? "Updating..." : "Update Category"}
                                             </Button>
                                           </DialogFooter>
@@ -1335,6 +1337,7 @@ function TenantPortalConfiguration({
 
           <div className="border-t border-border pt-6">
             <Button
+              variant="brand"
               onClick={() => updateTenantPortalConfigMutation.mutate()}
               disabled={updateTenantPortalConfigMutation.isPending}
               data-testid="button-save-tenant-portal-config"
@@ -1581,7 +1584,7 @@ function ComplianceDocumentsPanel() {
           </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
+              <Button variant="brand" className="gap-2">
                 <Plus className="w-4 h-4" />
                 Upload Document
               </Button>
@@ -1645,6 +1648,7 @@ function ComplianceDocumentsPanel() {
                       <ObjectUploader
                         maxNumberOfFiles={1}
                         maxFileSize={10485760}
+                        buttonVariant="outline"
                         onGetUploadParameters={async () => {
                           const response = await fetch("/api/upload/generate-upload-url", {
                             method: "POST",
@@ -1679,7 +1683,7 @@ function ComplianceDocumentsPanel() {
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button type="submit" disabled={uploadMutation.isPending || uploadedFiles.length === 0}>
+                    <Button variant="brand" type="submit" disabled={uploadMutation.isPending || uploadedFiles.length === 0}>
                       {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
                     </Button>
                   </DialogFooter>
@@ -1726,8 +1730,9 @@ function ComplianceDocumentsPanel() {
                       <Dialog open={editingDoc?.id === doc.id} onOpenChange={(open) => !open && setEditingDoc(null)}>
                         <DialogTrigger asChild>
                           <Button
-                            variant="ghost"
-                            size="sm"
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9"
                             onClick={() => handleEdit(doc)}
                           >
                             <Pencil className="w-4 h-4" />
@@ -1787,7 +1792,7 @@ function ComplianceDocumentsPanel() {
                                 )}
                               />
                               <DialogFooter>
-                                <Button type="submit" disabled={updateMutation.isPending}>
+                                <Button variant="brand" type="submit" disabled={updateMutation.isPending}>
                                   {updateMutation.isPending ? "Updating..." : "Update Document"}
                                 </Button>
                               </DialogFooter>
@@ -1796,8 +1801,9 @@ function ComplianceDocumentsPanel() {
                         </DialogContent>
                       </Dialog>
                       <Button
-                        variant="ghost"
-                        size="sm"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9"
                         asChild
                       >
                         <a href={`/api/compliance/${doc.id}/view`} target="_blank" rel="noopener noreferrer">
@@ -1805,12 +1811,13 @@ function ComplianceDocumentsPanel() {
                         </a>
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="sm"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 text-destructive hover:text-destructive"
                         onClick={() => setDocumentToDelete(doc)}
                         disabled={deleteMutation.isPending}
                       >
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
@@ -1973,7 +1980,7 @@ function LateRentNotificationSettings() {
         ))}
 
         <div className="flex justify-end">
-          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
+          <Button variant="brand" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
             {saveMutation.isPending ? "Saving..." : "Save settings"}
           </Button>
         </div>
@@ -2172,6 +2179,7 @@ function TenantSmsNotificationSettings() {
 
         <div className="flex justify-end">
           <Button
+            variant="brand"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
             data-testid="button-save-sms-templates"

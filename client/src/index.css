@@ -55,6 +55,10 @@
   /* Primary action — Signal Teal #04C6BD (not body text) */
   --primary: 177 96% 40%;
   --primary-foreground: 0 0% 100%;
+  --primary-hover: 177 96% 36%;
+  --primary-active: 177 90% 32%;
+  --brand-teal-bright: #2DE0C5;
+  --brand-teal-deep: #009688;
 
   /* Secondary — System Mist */
   --secondary: 190 27% 96%;
@@ -97,6 +101,9 @@
 
   /* Border Radius — softly rounded digital layouts */
   --radius: 0.5rem; /* 8px */
+  --radius-button: 0.6875rem; /* 11px — Gallery CTA reference */
+  --radius-card: 0.75rem; /* 12px */
+  --radius-input: 0.5rem; /* 8px */
 
   /* Soft Shadows */
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.02);
@@ -107,6 +114,12 @@
   --shadow-lg: 0 8px 20px -4px rgb(0 0 0 / 0.10), 0 4px 8px -4px rgb(0 0 0 / 0.05);
   --shadow-xl: 0 12px 28px -6px rgb(0 0 0 / 0.12), 0 6px 12px -6px rgb(0 0 0 / 0.06);
   --shadow-2xl: 0 20px 40px -8px rgb(0 0 0 / 0.14), 0 8px 16px -8px rgb(0 0 0 / 0.07);
+  --shadow-card: 0 2px 8px 0 rgb(1 55 101 / 0.06);
+  --shadow-card-hover: 0 8px 20px -4px rgb(1 55 101 / 0.10);
+  --shadow-dialog: 0 16px 40px -8px rgb(1 55 101 / 0.16);
+  --shadow-brand-cta: none;
+  --shadow-brand-cta-hover: none;
+  --shadow-brand-cta-active: none;
 
   --tracking-normal: 0em;
   --spacing: 0.25rem;
@@ -168,6 +181,10 @@
 
   --primary: 177 96% 42%;
   --primary-foreground: 0 0% 100%;
+  --primary-hover: 177 96% 38%;
+  --primary-active: 177 90% 34%;
+  --brand-teal-bright: #2DE0C5;
+  --brand-teal-deep: #009688;
 
   --secondary: 207 40% 16%;
   --secondary-foreground: 190 27% 96%;
@@ -337,7 +354,8 @@
 
   /* Clean Card System (replaces glassmorphic) */
   .clean-card {
-    @apply bg-card border border-card-border shadow-sm rounded-xl;
+    @apply bg-card border border-card-border rounded-xl;
+    box-shadow: var(--shadow-card);
   }
 
   .clean-card-hover {
@@ -345,7 +363,25 @@
   }
 
   .clean-card-hover:hover {
-    @apply shadow-md -translate-y-0.5;
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-2px);
+  }
+
+  /* Legacy aliases — pages still reference glass-card / card-hover-lift */
+  .glass-card,
+  .glass-card-strong {
+    @apply clean-card;
+  }
+
+  .card-hover-lift {
+    @apply clean-card-hover;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .clean-card-hover:hover,
+    .card-hover-lift:hover {
+      transform: none;
+    }
   }
 
   /* Modern Transitions */

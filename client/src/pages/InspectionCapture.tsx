@@ -18,10 +18,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import { pagePad } from "@/lib/responsive";
 import type { Inspection } from "@shared/schema";
 import { FieldWidget } from "@/components/FieldWidget";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
@@ -33,6 +35,8 @@ import { formatSignerDisplayName, isTenantSignatureField } from "@shared/signatu
 import {
   applyPropertyCountsToTemplateSnapshot,
   isBedroomCountField,
+  isPropertyTypeField,
+  matchPropertyTypeToOption,
   parseRepeatableCountValue,
   repeatableCountsFromPropertyLayout,
   type PropertyRoomCountsSnapshot,
@@ -882,6 +886,82 @@ export default function InspectionCapture() {
     });
   }, [property?.address, sections, existingEntries, id, isOnline, updateEntry]);
 
+  // Auto-populate Property Type from the property record when the field is empty
+  const propertyTypePopulatedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!property?.propertyType || !sections.length || !id) return;
+    if (propertyTypePopulatedRef.current) return;
+
+    const generalInfoSection = sections.find(
+      (section) =>
+        section.title?.toLowerCase().includes("general") ||
+        section.id?.toLowerCase().includes("general"),
+    );
+    if (!generalInfoSection) return;
+
+    const propertyTypeField = generalInfoSection.fields.find((field) =>
+      isPropertyTypeField(field),
+    );
+    if (!propertyTypeField) return;
+
+    const matched = matchPropertyTypeToOption(
+      property.propertyType,
+      propertyTypeField.options,
+    );
+    if (!matched) {
+      propertyTypePopulatedRef.current = true;
+      return;
+    }
+
+    const entryKey = `${generalInfoSection.id}-${propertyTypeField.id}`;
+    const hasExistingEntry = existingEntries.some(
+      (entry: any) =>
+        entry.sectionRef === generalInfoSection.id &&
+        entry.fieldKey === propertyTypeField.id &&
+        entry.valueJson != null &&
+        entry.valueJson !== "",
+    );
+    if (hasExistingEntry) {
+      propertyTypePopulatedRef.current = true;
+      return;
+    }
+
+    setEntries((prev) => {
+      const existingEntry = prev[entryKey];
+      if (existingEntry?.valueJson != null && existingEntry.valueJson !== "") {
+        propertyTypePopulatedRef.current = true;
+        return prev;
+      }
+
+      const entry: InspectionEntry = {
+        sectionRef: generalInfoSection.id,
+        fieldKey: propertyTypeField.id,
+        fieldType: (propertyTypeField.type as any) || "select",
+        valueJson: matched,
+      };
+      propertyTypePopulatedRef.current = true;
+
+      if (isOnline) {
+        updateEntry.mutate(entry);
+      } else {
+        offlineQueue.enqueue({
+          inspectionId: id,
+          sectionRef: generalInfoSection.id,
+          fieldKey: propertyTypeField.id,
+          fieldType: propertyTypeField.type || "select",
+          valueJson: matched,
+        });
+        setPendingCount(offlineQueue.getPendingCount());
+      }
+
+      return {
+        ...prev,
+        [entryKey]: entry,
+      };
+    });
+  }, [property?.propertyType, sections, existingEntries, id, isOnline, updateEntry]);
+
   useEffect(() => {
     // Property-seeded inspections freeze room counts; do not resync from General.
     if (roomsLockedFromProperty) return;
@@ -1436,11 +1516,11 @@ export default function InspectionCapture() {
   }
 
   return (
-    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-4 sm:space-y-6 min-w-0">
+    <div className={cn("container mx-auto min-w-0 space-y-4 sm:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 min-w-0">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2 break-words" data-testid="text-inspection-title">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight font-heading mb-1 sm:mb-2 break-words" data-testid="text-inspection-title">
             Inspection Capture
           </h1>
           <p className="text-xs sm:text-sm md:text-base text-muted-foreground">
@@ -1450,9 +1530,9 @@ export default function InspectionCapture() {
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
           {/* Online/Offline status */}
           <Badge
-            variant={isOnline ? "default" : "secondary"}
+            variant={isOnline ? "success" : "secondary"}
             data-testid="badge-online-status"
-            className="gap-2 text-xs sm:text-sm"
+            className="gap-2 text-xs sm:text-sm rounded-button"
           >
             {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {isOnline ? "Online" : "Offline"}
@@ -1492,15 +1572,15 @@ export default function InspectionCapture() {
               <span className="sm:hidden">Analysing</span>
             </Button>
           ) : aiAnalysisStatus?.status === "completed" ? (
-            <Badge variant="default" className="bg-green-600 text-xs sm:text-sm" data-testid="badge-ai-complete">
+            <Badge variant="success" className="text-xs sm:text-sm" data-testid="badge-ai-complete">
               <CheckCircle2 className="w-3 h-3 mr-1" />
               <span className="hidden sm:inline">AI Analysis Complete</span>
               <span className="sm:hidden">AI Done</span>
             </Badge>
           ) : (
             <Button
-              variant="default"
-              className="bg-primary hover:bg-primary/90 text-xs sm:text-sm h-7 sm:h-8 md:h-9"
+              variant="brand"
+              className="text-xs sm:text-sm min-h-9"
               onClick={() => startAIAnalysis.mutate()}
               disabled={startAIAnalysis.isPending || !isOnline}
               data-testid="button-analyze-report"
@@ -1513,11 +1593,12 @@ export default function InspectionCapture() {
           )}
 
           <Button
+            variant="brand"
             onClick={() => setShowCompleteDialog(true)}
             disabled={completeInspection.isPending || completingAction !== null || sendingToTenantAction !== null}
             data-testid="button-complete-inspection"
             size="sm"
-            className="text-xs sm:text-sm h-7 sm:h-8 md:h-9"
+            className="text-xs sm:text-sm min-h-9"
           >
             <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
             <span className="hidden sm:inline">
@@ -1760,37 +1841,47 @@ export default function InspectionCapture() {
       {/* Section navigation + Gallery (pinned right) */}
       <div className="flex items-center gap-2 min-w-0 pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
         <div className="flex-1 min-w-0 overflow-x-auto flex items-center gap-2">
-          {sections.map((section, index) => (
+          {sections.map((section, index) => {
+            const isActive = captureMode === "sections" && index === currentSectionIndex;
+            return (
             <Button
               key={section.id}
-              variant={
-                captureMode === "sections" && index === currentSectionIndex
-                  ? "default"
-                  : "outline"
-              }
+              variant={isActive ? "brand" : "outline"}
               size="sm"
               onClick={() => {
                 setCaptureMode("sections");
                 setCurrentSectionIndex(index);
               }}
               data-testid={`button-section-${index}`}
-              className="text-xs sm:text-sm whitespace-nowrap shrink-0 min-h-11 px-3"
+              className={cn(
+                "text-xs sm:text-sm whitespace-nowrap shrink-0 min-h-11 px-3",
+                !isActive && "bg-card",
+              )}
             >
               {section.title}
             </Button>
-          ))}
+            );
+          })}
         </div>
         <Button
           type="button"
-          size="sm"
-          variant={captureMode === "gallery" ? "default" : "outline"}
+          variant="brand"
+          size="default"
           onClick={() => setCaptureMode("gallery")}
           data-testid="button-mode-gallery"
-          className="shrink-0 min-h-11 gap-2 shadow-sm border-primary/30"
           title="Inspection photo gallery"
+          aria-pressed={captureMode === "gallery"}
+          className={cn(
+            "group shrink-0 min-h-11 gap-2.5 pl-1.5 pr-3 py-1.5",
+            captureMode === "gallery" &&
+              "from-[#00A89A] via-[#009688] to-[#007F74]",
+          )}
         >
-          <Images className="w-4 h-4 shrink-0" />
-          <span className="font-semibold">Gallery</span>
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-[9px] bg-white/20 ring-1 ring-white/25 shrink-0">
+            <Images className="h-4 w-4 text-white" aria-hidden />
+          </span>
+          <span className="tracking-wide">Gallery</span>
+          <ArrowRight className="h-4 w-4 text-white/95 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
         </Button>
       </div>
 
@@ -2099,6 +2190,7 @@ export default function InspectionCapture() {
           Previous
         </Button>
         <Button
+          variant="brand"
           className="min-h-11 flex-1 sm:flex-none"
           onClick={goToNextSection}
           disabled={currentSectionIndex === sections.length - 1}

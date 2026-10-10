@@ -22,6 +22,10 @@ import {
 } from "@/components/MaintenanceAiAnalysisView";
 import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 import {
+  formatMaintenanceStatus,
+  maintenanceStatusBadgeVariant,
+} from "@shared/inspectionLabels";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -74,6 +78,7 @@ import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePane
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
   property?: { name: string; address: string };
@@ -784,16 +789,14 @@ export default function Maintenance() {
     return <Badge variant={config.variant} data-testid={`badge-priority-${priority}`}>{config.label}</Badge>;
   };
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: "default" | "secondary" | "outline"; label: string }> = {
-      open: { variant: "outline", label: "Open" },
-      in_progress: { variant: "default", label: "In Progress" },
-      completed: { variant: "secondary", label: "Completed" },
-      closed: { variant: "secondary", label: "Closed" },
-    };
-    const config = variants[status] || variants.open;
-    return <Badge variant={config.variant} data-testid={`badge-status-${status}`}>{config.label}</Badge>;
-  };
+  const getStatusBadge = (status: string) => (
+    <Badge
+      variant={maintenanceStatusBadgeVariant(status)}
+      data-testid={`badge-status-${status}`}
+    >
+      {formatMaintenanceStatus(status)}
+    </Badge>
+  );
 
   // Location / tenant scope (used for summary + list)
   let scopedRequests = requests;
@@ -837,21 +840,17 @@ export default function Maintenance() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight" data-testid="heading-maintenance">
-            Maintenance
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-1">
-            {user?.role === "tenant"
-              ? "Submit and track your maintenance requests"
-              : "Manage requests, filters, and contractor work orders"}
-          </p>
-        </div>
-        <Dialog open={isCreateOpen} onOpenChange={handleDialogChange}>
+      <PageHeader
+        title={<span data-testid="heading-maintenance">Maintenance</span>}
+        description={
+          user?.role === "tenant"
+            ? "Submit and track your maintenance requests"
+            : "Manage requests, filters, and contractor work orders"
+        }
+        actions={
+          <Dialog open={isCreateOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
-            <Button data-testid="button-create-request" size="sm" className="text-xs md:text-sm h-9 md:h-10 px-3 md:px-4 w-full sm:w-auto shrink-0">
+            <Button variant="brand" data-testid="button-create-request" className="w-full sm:w-auto shrink-0">
               <Plus className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5" />
               <span className="hidden sm:inline">New Request</span>
               <span className="sm:hidden">New</span>
@@ -1365,7 +1364,8 @@ export default function Maintenance() {
             )}
           </DialogContent>
         </Dialog>
-      </div>
+        }
+      />
 
       {/* Tabs for Requests and Work Orders */}
       <Tabs

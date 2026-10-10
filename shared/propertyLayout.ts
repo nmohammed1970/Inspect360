@@ -53,6 +53,7 @@ export type TemplateSectionLike = {
     key?: string;
     label?: string;
     type?: string;
+    options?: string[];
   }>;
 };
 
@@ -217,6 +218,70 @@ export function isBedroomCountField(field: {
   );
 }
 
+export function isPropertyTypeField(field: {
+  id?: string;
+  key?: string;
+  label?: string;
+} | null | undefined): boolean {
+  if (!field) return false;
+  const label = (field.label || "").toLowerCase();
+  const id = (field.id || "").toLowerCase();
+  const key = (field.key || "").toLowerCase();
+  return (
+    (label.includes("property") && label.includes("type")) ||
+    id.includes("property_type") ||
+    key.includes("property_type")
+  );
+}
+
+/** Map stored property.propertyType (slug) onto a template select option label. */
+export function matchPropertyTypeToOption(
+  propertyType: string | null | undefined,
+  options: string[] | null | undefined,
+): string | null {
+  if (!propertyType || !options?.length) return null;
+  const raw = String(propertyType).trim();
+  if (!raw) return null;
+
+  const exact = options.find((o) => o === raw);
+  if (exact) return exact;
+
+  const lower = raw.toLowerCase();
+  const ci = options.find((o) => o.toLowerCase() === lower);
+  if (ci) return ci;
+
+  const slug = lower.replace(/[\s_]+/g, "-");
+  const slugMatch = options.find((o) => o.toLowerCase().replace(/[\s_]+/g, "-") === slug);
+  if (slugMatch) return slugMatch;
+
+  const aliases: Record<string, string[]> = {
+    apartment: ["apartment", "flat", "unit"],
+    flat: ["apartment", "flat", "unit"],
+    unit: ["unit", "apartment", "flat"],
+    house: ["house"],
+    studio: ["studio"],
+    townhouse: ["townhouse"],
+    bungalow: ["house", "bungalow", "other"],
+    detached: ["house", "detached", "other"],
+    "semi-detached": ["house", "semi-detached", "other"],
+    terraced: ["house", "terraced", "other"],
+    maisonette: ["maisonette", "house", "other"],
+    penthouse: ["apartment", "penthouse", "other"],
+    duplex: ["apartment", "duplex", "other"],
+    commercial: ["commercial", "other"],
+    other: ["other"],
+  };
+
+  const preferred = aliases[slug] || [slug];
+  for (const candidate of preferred) {
+    const hit = options.find((o) => o.toLowerCase().replace(/[\s_]+/g, "-") === candidate);
+    if (hit) return hit;
+  }
+
+  const other = options.find((o) => o.toLowerCase() === "other");
+  return other || null;
+}
+
 function findBedroomCountField(sections: TemplateSectionLike[]) {
   const general = sections.find(
     (s) =>
@@ -229,6 +294,20 @@ function findBedroomCountField(sections: TemplateSectionLike[]) {
   return { section: general, field };
 }
 
+function findPropertyTypeField(sections: TemplateSectionLike[]) {
+  const general = sections.find(
+    (s) =>
+      (s.title || "").toLowerCase().includes("general") ||
+      (s.id || "").toLowerCase().includes("general"),
+  );
+  const searchSections = general ? [general, ...sections.filter((s) => s !== general)] : sections;
+  for (const section of searchSections) {
+    const field = section.fields?.find((f) => isPropertyTypeField(f));
+    if (field) return { section, field };
+  }
+  return null;
+}
+
 /**
  * Clone template structure, force Kitchen/Living repeatable when applying counts,
  * and produce seed inspection_entries for repeatable counts + General bedroom field.
@@ -236,6 +315,7 @@ function findBedroomCountField(sections: TemplateSectionLike[]) {
 export function applyPropertyCountsToTemplateSnapshot(
   structure: TemplateStructureLike | null | undefined,
   countsInput: Partial<PropertyRoomCounts>,
+  extras?: { propertyType?: string | null },
 ): {
   structure: TemplateStructureLike;
   seedEntries: SeedInspectionEntry[];
@@ -281,6 +361,22 @@ export function applyPropertyCountsToTemplateSnapshot(
       fieldType: bedroomField.field.type || "number",
       valueJson: { value: counts.bedrooms },
     });
+  }
+
+  const propertyTypeField = findPropertyTypeField(sections);
+  if (propertyTypeField && extras?.propertyType) {
+    const matched = matchPropertyTypeToOption(
+      extras.propertyType,
+      propertyTypeField.field.options,
+    );
+    if (matched) {
+      seedEntries.push({
+        sectionRef: propertyTypeField.section.id,
+        fieldKey: propertyTypeField.field.id || propertyTypeField.field.key || "",
+        fieldType: propertyTypeField.field.type || "select",
+        valueJson: matched,
+      });
+    }
   }
 
   return { structure: structureClone, seedEntries, counts, sectionMap };

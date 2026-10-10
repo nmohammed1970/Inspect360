@@ -9,6 +9,17 @@ export default {
         lg: ".5625rem", /* 9px */
         md: ".375rem", /* 6px */
         sm: ".1875rem", /* 3px */
+        button: "var(--radius-button)", /* 11px */
+        card: "var(--radius-card)", /* 12px */
+        input: "var(--radius-input)", /* 8px */
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        "card-hover": "var(--shadow-card-hover)",
+        dialog: "var(--shadow-dialog)",
+        "brand-cta": "var(--shadow-brand-cta)",
+        "brand-cta-hover": "var(--shadow-brand-cta-hover)",
+        "brand-cta-active": "var(--shadow-brand-cta-active)",
       },
       colors: {
         // Flat / base colors (regular buttons)

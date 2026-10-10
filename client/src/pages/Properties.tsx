@@ -16,6 +16,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { CardQuickActions } from "@/components/CardQuickActions";
 import type { CardQuickAction } from "@/components/CardQuickActions";
 import { PropertyFormDialog } from "@/components/PropertyFormDialog";
+import { PageHeader } from "@/components/PageHeader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { pagePad, cardGrid } from "@/lib/responsive";
@@ -202,40 +203,35 @@ export default function Properties() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      {urlBlockId && selectedBlock && (
-        <Link href={`/blocks/${urlBlockId}`}>
-          <Button variant="ghost" className="mb-4" data-testid="button-back-to-block">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to {selectedBlock.name}
+      <PageHeader
+        leading={
+          urlBlockId && selectedBlock ? (
+            <Link href={`/blocks/${urlBlockId}`}>
+              <Button variant="ghost" size="sm" data-testid="button-back-to-block">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to {selectedBlock.name}
+              </Button>
+            </Link>
+          ) : undefined
+        }
+        title={urlBlockId && selectedBlock ? `${selectedBlock.name} - Properties` : "Properties"}
+        description={
+          urlBlockId && selectedBlock
+            ? `Properties in ${selectedBlock.name}`
+            : "Manage your building portfolio"
+        }
+        actions={
+          <Button
+            variant="brand"
+            data-testid="button-create-property"
+            onClick={handleOpenCreate}
+          >
+            <Plus className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
+            <span className="hidden sm:inline">Add Property</span>
+            <span className="sm:hidden">Add</span>
           </Button>
-        </Link>
-      )}
-      
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold">
-            {urlBlockId && selectedBlock ? `${selectedBlock.name} - Properties` : "Properties"}
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            {urlBlockId && selectedBlock 
-              ? `Properties in ${selectedBlock.name}` 
-              : "Manage your building portfolio"
-            }
-          </p>
-        </div>
-
-        <Button
-          style={{ backgroundColor: "#00D2BD" }}
-          className="hover:opacity-90 text-xs md:text-sm h-8 md:h-10 px-2 md:px-4"
-          data-testid="button-create-property"
-          onClick={handleOpenCreate}
-          size="sm"
-        >
-          <Plus className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
-          <span className="hidden sm:inline">Add Property</span>
-          <span className="sm:hidden">Add</span>
-        </Button>
-      </div>
+        }
+      />
 
       <PropertyFormDialog
         open={dialogOpen}

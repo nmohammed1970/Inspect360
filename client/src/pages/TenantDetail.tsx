@@ -27,6 +27,13 @@ import { format, differenceInDays, isPast } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
 import { tabsListScroll } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import {
+  formatEnumLabel,
+  formatInspectionStatus,
+  formatMaintenanceStatus,
+  inspectionStatusBadgeVariant,
+  maintenanceStatusBadgeVariant,
+} from "@shared/inspectionLabels";
 
 interface TenantDetails {
   id: string;
@@ -169,22 +176,40 @@ export default function TenantDetail() {
   };
 
   const getStatusBadge = (status: string) => {
-    const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
-      active: { variant: "default", label: "Active" },
-      current: { variant: "default", label: "Current" },
+    if (status === "scheduled" || status === "draft" || status === "reviewed" || status === "cancelled") {
+      return (
+        <Badge variant={inspectionStatusBadgeVariant(status)}>
+          {formatInspectionStatus(status)}
+        </Badge>
+      );
+    }
+    if (status === "open" || status === "closed") {
+      return (
+        <Badge variant={maintenanceStatusBadgeVariant(status)}>
+          {formatMaintenanceStatus(status)}
+        </Badge>
+      );
+    }
+    if (status === "in_progress" || status === "completed") {
+      // Shared by inspections and maintenance — same wording/variants
+      return (
+        <Badge variant={inspectionStatusBadgeVariant(status)}>
+          {formatInspectionStatus(status)}
+        </Badge>
+      );
+    }
+    const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline" | "success"; label: string }> = {
+      active: { variant: "success", label: "Active" },
+      current: { variant: "success", label: "Current" },
       notice_served: { variant: "secondary", label: "Notice Served" },
       ended: { variant: "outline", label: "Ended" },
-      completed: { variant: "outline", label: "Completed" },
-      scheduled: { variant: "secondary", label: "Scheduled" },
-      in_progress: { variant: "default", label: "In Progress" },
-      open: { variant: "default", label: "Open" },
       resolved: { variant: "outline", label: "Resolved" },
       disputed: { variant: "destructive", label: "Disputed" },
       pending: { variant: "secondary", label: "Pending" },
       paid: { variant: "outline", label: "Paid" },
       overdue: { variant: "destructive", label: "Overdue" },
     };
-    const config = statusConfig[status] || { variant: "secondary", label: status };
+    const config = statusConfig[status] || { variant: "secondary" as const, label: formatEnumLabel(status) };
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 

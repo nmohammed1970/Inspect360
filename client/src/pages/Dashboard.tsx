@@ -40,6 +40,8 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 
 function formatInclusiveUtcDate(iso: string | null | undefined): string {
@@ -473,15 +475,15 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="container mx-auto min-w-0 p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header Section */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold" data-testid="text-dashboard-title">
+          <div className="min-w-0 flex-1 space-y-1">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight font-heading" data-testid="text-dashboard-title">
               Operations Dashboard
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm md:text-base text-muted-foreground">
               Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
             </p>
           </div>
@@ -638,7 +640,7 @@ export default function Dashboard() {
               <Button
                 onClick={handleExportDashboardPDF}
                 disabled={isExportingPDF}
-                variant="default"
+                variant="brand"
                 className="ml-auto"
                 data-testid="button-export-dashboard-pdf"
               >
@@ -754,7 +756,7 @@ export default function Dashboard() {
               <Button
                 onClick={handleExportDashboardPDF}
                 disabled={isExportingPDF}
-                variant="default"
+                variant="brand"
                 className="flex-1"
                 data-testid="button-export-dashboard-pdf-mobile"
               >

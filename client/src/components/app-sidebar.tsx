@@ -220,13 +220,17 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       data-active={isActive}
-                      className={!organization?.brandingPrimaryColor ? "data-[active=true]:bg-sidebar-accent" : ""}
+                      className={
+                        !organization?.brandingPrimaryColor
+                          ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
+                          : "gap-2.5"
+                      }
                       style={getActiveStyle(isActive)}
                       data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       <Link href={item.url} onClick={handleClick} className={itemLocked ? "opacity-50" : undefined}>
                         <item.icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{item.title}</span>
+                        <span className="truncate font-medium">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -253,13 +257,17 @@ export function AppSidebar() {
                       <SidebarMenuButton
                         asChild
                         data-active={isActive}
-                        className={!organization?.brandingPrimaryColor ? "data-[active=true]:bg-sidebar-accent" : ""}
+                        className={
+                          !organization?.brandingPrimaryColor
+                            ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
+                            : "gap-2.5"
+                        }
                         style={getActiveStyle(isActive)}
                         data-testid="link-settings"
                       >
                         <Link href="/settings" onClick={handleClick}>
                           <Settings className="w-4 h-4" />
-                          <span>Settings</span>
+                          <span className="font-medium">Settings</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

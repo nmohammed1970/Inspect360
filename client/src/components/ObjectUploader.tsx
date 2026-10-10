@@ -52,7 +52,7 @@ export function ObjectUploader({
   onModalOpen,
   onModalClose,
   buttonClassName,
-  buttonVariant,
+  buttonVariant = "outline",
   children,
 }: ObjectUploaderProps) {
   const [showModal, setShowModal] = useState(false);

@@ -35,6 +35,8 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { reportTableClass } from "@/components/data-table";
+import { occupancyBadgeVariant } from "@shared/inspectionLabels";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
@@ -203,8 +205,8 @@ export default function PropertiesReport() {
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredProperties.length === 0}
-          size="sm"
-          className="sm:size-default self-start sm:self-auto"
+          className="self-start sm:self-auto"
+          variant="brand"
           data-testid="button-export-pdf"
         >
           {isExporting ? (
@@ -389,7 +391,7 @@ export default function PropertiesReport() {
           ) : (
             <div className="border rounded-lg overflow-x-auto -mx-4 sm:mx-0">
               <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                <Table>
+                <Table className={reportTableClass}>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[120px]">Block</TableHead>
@@ -433,7 +435,10 @@ export default function PropertiesReport() {
                           <span className="text-sm">{property.address}</span>
                         </TableCell>
                         <TableCell data-testid={`badge-status-${property.id}`}>
-                          <Badge variant={property.isOccupied ? "default" : "secondary"} className="text-xs">
+                          <Badge
+                            variant={occupancyBadgeVariant(property.isOccupied ? "Occupied" : "Vacant")}
+                            className="text-xs"
+                          >
                             {property.isOccupied ? "Occupied" : "Vacant"}
                           </Badge>
                         </TableCell>

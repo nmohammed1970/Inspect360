@@ -37,7 +37,7 @@ export function FiltersSection({
         <div className="h-px flex-1 bg-border" />
         {headingEnd}
       </div>
-      <div className={cn("rounded-xl border bg-card px-3 py-3 shadow-sm", contentClassName)}>
+      <div className={cn("rounded-card border bg-card px-3 py-3 shadow-card", contentClassName)}>
         {children}
       </div>
     </section>

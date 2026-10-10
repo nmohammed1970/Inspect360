@@ -205,7 +205,7 @@ export default function AdminTeam() {
           </CardHeader>
           <CardContent className="p-0 min-w-0">
             <div className="overflow-x-auto min-w-0">
-            <Table className="min-w-[320px]">
+            <Table className="min-w-[320px] [&_th]:bg-muted/40 [&_td]:py-3">
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>

@@ -162,7 +162,7 @@ export default function AdminCreditRequests() {
         </Card>
       ) : (
         <div className="overflow-x-auto rounded-md border min-w-0">
-          <Table className="min-w-[720px]">
+          <Table className="min-w-[720px] [&_th]:bg-muted/40 [&_td]:py-3">
             <TableHeader>
               <TableRow>
                 <TableHead>Organization</TableHead>

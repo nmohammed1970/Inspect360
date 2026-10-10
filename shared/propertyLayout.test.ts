@@ -5,6 +5,8 @@ import {
   formatRoomCountsSummary,
   isAllowedFloorPlanMime,
   isBedroomCountField,
+  isPropertyTypeField,
+  matchPropertyTypeToOption,
   matchTemplateSectionsToRoomTypes,
   normalizeAiLayoutResult,
   parseRepeatableCountValue,
@@ -53,6 +55,13 @@ assert.equal(isAllowedFloorPlanMime("application/exe"), false);
 const sections = [
   { id: "section_general", title: "General Information", fields: [
     { id: "field_num_bedrooms", key: "num_bedrooms", label: "Number of Bedrooms", type: "number" },
+    {
+      id: "field_property_type",
+      key: "field_property_type",
+      label: "Property Type",
+      type: "select",
+      options: ["House", "Apartment", "Townhouse", "Unit", "Studio", "Other"],
+    },
   ]},
   { id: "section_living", title: "Living Room" },
   { id: "section_kitchen", title: "Kitchen" },
@@ -69,6 +78,7 @@ assert.equal(map.livingRooms?.id, "section_living");
 const applied = applyPropertyCountsToTemplateSnapshot(
   { sections },
   { bedrooms: 3, kitchens: 2, bathrooms: 2, livingRooms: 1 },
+  { propertyType: "apartment" },
 );
 assert.equal(applied.counts.bedrooms, 3);
 assert.equal(
@@ -89,12 +99,27 @@ assert.ok(
     (e) => e.fieldKey === "field_num_bedrooms",
   ),
 );
+assert.ok(
+  applied.seedEntries.some(
+    (e) => e.fieldKey === "field_property_type" && e.valueJson === "Apartment",
+  ),
+);
 
 assert.match(formatRoomCountsSummary(applied.counts), /3 Bedrooms/);
 
 assert.equal(isBedroomCountField({ label: "Number of Bedrooms", id: "x" }), true);
 assert.equal(isBedroomCountField({ id: "field_num_bedrooms" }), true);
 assert.equal(isBedroomCountField({ label: "Condition", id: "field_cond" }), false);
+assert.equal(isPropertyTypeField({ label: "Property Type", id: "x" }), true);
+assert.equal(isPropertyTypeField({ id: "field_checkin_property_type" }), true);
+assert.equal(
+  matchPropertyTypeToOption("house", ["House", "Apartment", "Other"]),
+  "House",
+);
+assert.equal(
+  matchPropertyTypeToOption("flat", ["House", "Apartment", "Unit", "Other"]),
+  "Apartment",
+);
 
 const fromLayout = repeatableCountsFromPropertyLayout(
   { sections },

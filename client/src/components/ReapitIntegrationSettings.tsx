@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatEnumLabel } from "@shared/inspectionLabels";
 
 type ReapitConnectionStatus = {
   status: string;
@@ -149,6 +150,7 @@ export default function ReapitIntegrationSettings() {
               <div className="flex flex-wrap gap-2">
                 {!connected && (
                   <Button
+                    variant="brand"
                     onClick={() => connectMutation.mutate()}
                     disabled={connectMutation.isPending || !data?.configured}
                     data-testid="button-reapit-connect"
@@ -158,6 +160,7 @@ export default function ReapitIntegrationSettings() {
                 )}
                 {connected && (
                   <Button
+                    variant="brand"
                     onClick={() => syncMutation.mutate()}
                     disabled={syncMutation.isPending}
                     data-testid="button-reapit-sync"
@@ -179,7 +182,7 @@ export default function ReapitIntegrationSettings() {
               </div>
             )}
             {runs.length > 0 && (
-              <Table>
+              <Table className="[&_th]:bg-muted/40 [&_td]:py-3">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Type</TableHead>
@@ -191,8 +194,8 @@ export default function ReapitIntegrationSettings() {
                 <TableBody>
                   {runs.slice(0, 8).map((run) => (
                     <TableRow key={run.id}>
-                      <TableCell>{run.type}</TableCell>
-                      <TableCell>{run.status}</TableCell>
+                      <TableCell>{formatEnumLabel(run.type)}</TableCell>
+                      <TableCell>{formatEnumLabel(run.status)}</TableCell>
                       <TableCell>
                         {run.finishedAt || run.startedAt || run.createdAt
                           ? new Date(run.finishedAt || run.startedAt || run.createdAt || "").toLocaleString()
