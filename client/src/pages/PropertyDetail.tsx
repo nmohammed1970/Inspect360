@@ -48,18 +48,15 @@ import {
   Banknote,
   Receipt,
 } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { AddressInput } from "@/components/AddressInput";
+import { PropertyFormDialog } from "@/components/PropertyFormDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { MapPreview } from "@/components/MapPreview";
 import AddTenantDialog from "@/components/AddTenantDialog";
-import { PropertyLayoutFields, type PropertyLayoutValue } from "@/components/PropertyLayoutFields";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll } from "@/lib/responsive";
-import { formatRoomCountsSummary } from "@shared/propertyLayout";
 
 interface Property {
   id: string;
@@ -199,12 +196,8 @@ export default function PropertyDetail() {
   })();
   const [activeTab, setActiveTab] = useState(resolvedTab);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editAddress, setEditAddress] = useState("");
-  const [editNotes, setEditNotes] = useState("");
   const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
-  const [propertyImageDialogOpen, setPropertyImageDialogOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
   const canSeeReapitSource = user?.role === "owner" || user?.role === "clerk";
@@ -220,7 +213,6 @@ export default function PropertyDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
-      setPropertyImageDialogOpen(false);
       toast({
         title: "Success",
         description: "Property image updated successfully",
@@ -234,6 +226,35 @@ export default function PropertyDetail() {
       });
     },
   });
+
+  const getPropertyImageUploadParameters = async () => {
+    const response = await fetch("/api/objects/upload", {
+      method: "POST",
+      credentials: "include",
+    });
+    const { uploadURL } = await response.json();
+    return {
+      method: "PUT" as const,
+      url: uploadURL,
+    };
+  };
+
+  const handlePropertyImageUploadComplete = (result: {
+    successful: Array<{ uploadURL?: string }>;
+  }) => {
+    if (!result.successful?.length) return;
+    let fileUrl = result.successful[0].uploadURL;
+    if (!fileUrl) return;
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      try {
+        const urlObj = new URL(fileUrl);
+        fileUrl = `/objects${urlObj.pathname}`;
+      } catch {
+        fileUrl = `/objects/${fileUrl}`;
+      }
+    }
+    updatePropertyImage.mutate(fileUrl);
+  };
 
   const { data: property, isLoading: propertyLoading } = useQuery<Property>({
     queryKey: ["/api/properties", propertyId],
@@ -348,54 +369,6 @@ export default function PropertyDetail() {
   });
 
 
-  const updatePropertyMutation = useMutation({
-    mutationFn: async (data: { name: string; address: string; notes?: string }) => {
-      return await apiRequest("PATCH", `/api/properties/${propertyId}`, data);
-    },
-    onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ["/api/properties", propertyId] });
-      await queryClient.refetchQueries({ queryKey: ["/api/properties"] });
-      toast({
-        title: "Success",
-        description: "Property updated successfully",
-      });
-      setEditDialogOpen(false);
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update property",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleOpenEditDialog = () => {
-    if (property) {
-      setEditName(property.name);
-      setEditAddress(property.address);
-      setEditNotes(property.notes || "");
-      setEditDialogOpen(true);
-    }
-  };
-
-  const handleEditSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editName || !editAddress) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      });
-      return;
-    }
-    updatePropertyMutation.mutate({
-      name: editName,
-      address: editAddress,
-      notes: editNotes || undefined,
-    });
-  };
-
   if (propertyLoading) {
     return (
       <div className={cn("container mx-auto min-w-0", pagePad)}>
@@ -470,7 +443,7 @@ export default function PropertyDetail() {
             </Link>
             <Button
               variant="outline"
-              onClick={handleOpenEditDialog}
+              onClick={() => setEditDialogOpen(true)}
               data-testid="button-edit-property"
             >
               <Pencil className="h-4 w-4 mr-2" />
@@ -481,7 +454,7 @@ export default function PropertyDetail() {
 
         {/* Property Image and Map Section */}
         <div className={formGrid2}>
-          {/* Property Image with Upload */}
+          {/* Property Image with Upload — opens media picker directly */}
           <Card className="overflow-hidden">
             {property.imageUrl ? (
               <div className="relative aspect-video">
@@ -492,28 +465,37 @@ export default function PropertyDetail() {
                   className="w-full h-full object-cover"
                   data-testid="img-property"
                 />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="absolute bottom-2 right-2"
-                  onClick={() => setPropertyImageDialogOpen(true)}
-                  data-testid="button-change-property-image"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Change Photo
-                </Button>
+                <div className="absolute bottom-2 right-2 z-10">
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    maxFileSize={10 * 1024 * 1024}
+                    buttonVariant="secondary"
+                    buttonClassName="h-9 px-3"
+                    onGetUploadParameters={getPropertyImageUploadParameters}
+                    onComplete={handlePropertyImageUploadComplete}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Change Photo
+                  </ObjectUploader>
+                </div>
               </div>
             ) : (
               <div
-                className="aspect-video bg-muted flex items-center justify-center cursor-pointer hover-elevate"
-                onClick={() => setPropertyImageDialogOpen(true)}
+                className="aspect-video bg-muted [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
                 data-testid="button-upload-property-image"
               >
-                <div className="text-center text-muted-foreground">
-                  <Upload className="h-16 w-16 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-medium">Upload Property Photo</p>
-                  <p className="text-xs">Click to add an image</p>
-                </div>
+                <ObjectUploader
+                  maxNumberOfFiles={1}
+                  maxFileSize={10 * 1024 * 1024}
+                  buttonVariant="ghost"
+                  buttonClassName="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-muted/80"
+                  onGetUploadParameters={getPropertyImageUploadParameters}
+                  onComplete={handlePropertyImageUploadComplete}
+                >
+                  <Upload className="h-16 w-16 opacity-50" />
+                  <span className="text-sm font-medium">Upload Property Photo</span>
+                  <span className="text-xs font-normal">Click to add an image</span>
+                </ObjectUploader>
               </div>
             )}
           </Card>
@@ -529,54 +511,6 @@ export default function PropertyDetail() {
           </Card>
         </div>
 
-        {/* Property Image Upload Dialog */}
-        <Dialog open={propertyImageDialogOpen} onOpenChange={setPropertyImageDialogOpen}>
-          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-            <DialogHeader>
-              <DialogTitle>Upload Property Photo</DialogTitle>
-              <DialogDescription>
-                Upload an image of the property to display on the property page.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <ObjectUploader
-                maxNumberOfFiles={1}
-                maxFileSize={10 * 1024 * 1024}
-                onGetUploadParameters={async () => {
-                  const response = await fetch('/api/objects/upload', {
-                    method: 'POST',
-                    credentials: 'include',
-                  });
-                  const { uploadURL } = await response.json();
-                  return {
-                    method: 'PUT' as const,
-                    url: uploadURL,
-                  };
-                }}
-                onComplete={async (result) => {
-                  if (result.successful && result.successful.length > 0) {
-                    let fileUrl = result.successful[0].uploadURL;
-                    if (fileUrl) {
-                      if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-                        try {
-                          const urlObj = new URL(fileUrl);
-                          fileUrl = `/objects${urlObj.pathname}`;
-                        } catch {
-                          fileUrl = `/objects/${fileUrl}`;
-                        }
-                      }
-                      updatePropertyImage.mutate(fileUrl);
-                    }
-                  }
-                }}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Select Property Photo
-              </ObjectUploader>
-            </div>
-          </DialogContent>
-        </Dialog>
-
         {property.notes && (
           <Card>
             <CardContent className="pt-6">
@@ -584,64 +518,6 @@ export default function PropertyDetail() {
             </CardContent>
           </Card>
         )}
-
-        <Card data-testid="card-property-layout">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Property Layout</CardTitle>
-            <CardDescription>
-              {formatRoomCountsSummary({
-                bedrooms: property.bedrooms ?? 1,
-                kitchens: property.kitchens ?? 1,
-                bathrooms: property.bathrooms ?? 1,
-                livingRooms: property.livingRooms ?? 1,
-              })}
-              . Used automatically for new inspections.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PropertyLayoutFields
-              propertyId={propertyId}
-              value={{
-                bedrooms: property.bedrooms ?? 1,
-                kitchens: property.kitchens ?? 1,
-                bathrooms: property.bathrooms ?? 1,
-                livingRooms: property.livingRooms ?? 1,
-                floorPlanUrl: property.floorPlanUrl ?? null,
-                floorPlanMimeType: property.floorPlanMimeType ?? null,
-                floorPlanFileName: property.floorPlanFileName ?? null,
-                floorPlanAnalysisStatus: (property.floorPlanAnalysisStatus as any) ?? "none",
-                floorPlanAnalysisJson: property.floorPlanAnalysisJson ?? null,
-              }}
-              onChange={async (next: PropertyLayoutValue) => {
-                const countsChanged =
-                  next.bedrooms !== (property.bedrooms ?? 1) ||
-                  next.kitchens !== (property.kitchens ?? 1) ||
-                  next.bathrooms !== (property.bathrooms ?? 1) ||
-                  next.livingRooms !== (property.livingRooms ?? 1);
-                if (!countsChanged) {
-                  queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
-                  return;
-                }
-                try {
-                  await apiRequest("PATCH", `/api/properties/${propertyId}`, {
-                    bedrooms: next.bedrooms,
-                    kitchens: next.kitchens,
-                    bathrooms: next.bathrooms,
-                    livingRooms: next.livingRooms,
-                  });
-                  queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
-                  queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-                } catch (e: any) {
-                  toast({
-                    title: "Unable to save layout",
-                    description: e?.message || "Please try again.",
-                    variant: "destructive",
-                  });
-                }
-              }}
-            />
-          </CardContent>
-        </Card>
       </div>
 
       {/* Stats Overview */}
@@ -686,16 +562,18 @@ export default function PropertyDetail() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
-              <Wrench className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.maintenanceRequests}</div>
-              <p className="text-xs text-muted-foreground">Open requests</p>
-            </CardContent>
-          </Card>
+          {maintenanceEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
+                <Wrench className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.maintenanceRequests}</div>
+                <p className="text-xs text-muted-foreground">Open requests</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -1153,55 +1031,11 @@ export default function PropertyDetail() {
           <PropertyExpensesPanel propertyId={propertyId!} />
         </TabsContent>
       </Tabs>
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-          <DialogHeader>
-            <DialogTitle>Edit Property</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleEditSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="edit-name" required>Property Name</Label>
-              <Input
-                id="edit-name"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="e.g., Flat 12, Unit 5B"
-                data-testid="input-edit-property-name"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-address" required>Address</Label>
-              <AddressInput
-                id="edit-address"
-                value={editAddress}
-                onChange={setEditAddress}
-                placeholder="123 Main St, City, State ZIP"
-                data-testid="input-edit-property-address"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-notes">Notes</Label>
-              <Textarea
-                id="edit-notes"
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                placeholder="Additional notes about this property..."
-                data-testid="input-edit-property-notes"
-              />
-            </div>
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={updatePropertyMutation.isPending}
-              data-testid="button-submit-edit-property"
-            >
-              {updatePropertyMutation.isPending ? "Updating..." : "Update Property"}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <PropertyFormDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        property={property}
+      />
 
       {/* Inventory Item Details Dialog */}
       <Dialog open={inventoryDialogOpen} onOpenChange={setInventoryDialogOpen}>
