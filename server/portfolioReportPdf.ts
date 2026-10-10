@@ -242,7 +242,7 @@ export async function generatePortfolioReportHTML(params: {
       stackedCell(block?.name || "—", property?.name || ""),
       stackedCell(doc.documentType || "", (doc as any).documentName || ""),
       stackedCell(
-        formatDate((doc as any).issueDate) || "—",
+        formatDate(doc.createdAt) || "—",
         formatDate(doc.expiryDate) ? `Expires: ${formatDate(doc.expiryDate)}` : ""
       ),
       statusBadge(status, badge),

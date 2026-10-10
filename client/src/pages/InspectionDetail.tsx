@@ -35,12 +35,14 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, textBreak } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const locale = useLocale();
   const [, setLocation] = useLocation();
+  const { tenanciesEnabled } = useCompanyModules();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);

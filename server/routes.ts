@@ -18,6 +18,13 @@ import {
 } from "./workOrderAccess";
 import { getUncachableStripeClient, getStripeSecretKey } from "./stripeClient";
 import { isHeicOrHeifBuffer, toOpenAIImageDataUrl } from "./imageForAi";
+import {
+  getChatMiniModel,
+  getChatModel,
+  getImageModel,
+  getInspectionModel,
+  getWhisperModel,
+} from "./aiModels";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -371,7 +378,8 @@ function detectImageMimeType(buffer: Buffer): string {
     Array.from(buffer.slice(0, 8)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
   return 'image/jpeg';
 }
-import { setupAuth, isAuthenticated, requireRole, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
+import { setupAuth, isAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
+import { isCompanyModuleEnabled, normalizeCompanyModuleFlags } from "@shared/companyModules";
 import { validateNewPassword } from "@shared/passwordPolicy";
 import { INSPECTION_NOTE_STRUCTURE_PROMPT, formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 
@@ -657,7 +665,7 @@ Style: Modern, clean, gradient colors using teal (#3B7A8C) and cyan (#00D5CC) ac
 
     // Generate image using DALL-E 3
     const response = await client.images.generate({
-      model: "dall-e-3",
+      model: getImageModel(),
       prompt: prompt,
       n: 1,
       size: "1792x1024",
@@ -942,7 +950,7 @@ Be thorough but concise, specific, and objective about "${inspectionPointTitle}"
 
       // Call OpenAI Vision API
       const response = await getOpenAI().responses.create({
-        model: "gpt-5",
+        model: getInspectionModel(),
         input: [{ role: "user", content: normalizeApiContent(content) }],
         max_output_tokens: 10000,
       });
@@ -1628,6 +1636,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      if (user.organizationId) {
+        return res.status(400).json({
+          message: "Your account is already linked to an organization.",
+        });
+      }
+
       const { billingNowUtc } = await import("@shared/billingClock");
       const { addDaysUtc } = await import("@shared/entitlements");
       const { recordEntitlementEvent, getDefaultTrialDays } = await import("./entitlementService");
@@ -1645,7 +1659,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Update user with organization ID and set role to owner (preserving all existing fields)
-      await storage.upsertUser({
+      const updatedUser = await storage.upsertUser({
         ...user,
         organizationId: organization.id,
         role: "owner",
@@ -1766,6 +1780,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Notify platform admins (non-blocking; org create success does not depend on email)
+      try {
+        const { notifyAdminsOfOrganizationSignup } = await import("./organizationSignupNotification");
+        void notifyAdminsOfOrganizationSignup({
+          organization,
+          user: updatedUser,
+          source: "organization_setup",
+        }).catch((err: any) => {
+          console.error("[OrgSignupNotify]", err?.message || err);
+        });
+      } catch (notifyImportError: any) {
+        console.error("[OrgSignupNotify] Failed to start notification:", notifyImportError?.message || notifyImportError);
+      }
+
       res.json(organization);
     } catch (error) {
       console.error("Error creating organization:", error);
@@ -1873,6 +1901,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating tenant portal configuration:", error);
       res.status(500).json({ message: "Failed to update tenant portal configuration" });
+    }
+  });
+
+  // Company module on/off (Settings → Internal Modules)
+  app.patch("/api/organizations/:id/company-modules", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const organizationId = req.params.id;
+
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId || user.organizationId !== organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = req.body;
+      // Tenancies OFF forces Rentals OFF (rent is tied to tenant assignments).
+      const normalized = normalizeCompanyModuleFlags({
+        rentalsEnabled: typeof rentalsEnabled === "boolean" ? rentalsEnabled : undefined,
+        tenanciesEnabled: typeof tenanciesEnabled === "boolean" ? tenanciesEnabled : undefined,
+        complianceEnabled: typeof complianceEnabled === "boolean" ? complianceEnabled : undefined,
+        maintenanceEnabled: typeof maintenanceEnabled === "boolean" ? maintenanceEnabled : undefined,
+      });
+
+      const organization = await storage.updateOrganization(organizationId, normalized);
+
+      res.json(organization);
+    } catch (error) {
+      console.error("Error updating company modules:", error);
+      res.status(500).json({ message: "Failed to update company modules" });
     }
   });
 
@@ -4900,7 +4957,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { name, address, propertyType, blockId } = validation.data;
+      const {
+        name,
+        address,
+        propertyType,
+        blockId,
+        bedrooms,
+        kitchens,
+        bathrooms,
+        livingRooms,
+        floorPlanUrl,
+        floorPlanMimeType,
+        floorPlanFileName,
+      } = validation.data;
+
+      const { parseRoomCounts } = await import("@shared/propertyLayout");
+      const counts = parseRoomCounts({ bedrooms, kitchens, bathrooms, livingRooms });
 
       const property = await storage.createProperty({
         organizationId: user.organizationId,
@@ -4908,7 +4980,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         address,
         propertyType: propertyType || null,
         blockId: blockId || null,
-      });
+        bedrooms: counts.bedrooms,
+        kitchens: counts.kitchens,
+        bathrooms: counts.bathrooms,
+        livingRooms: counts.livingRooms,
+        floorPlanUrl: floorPlanUrl || null,
+        floorPlanMimeType: floorPlanMimeType || null,
+        floorPlanFileName: floorPlanFileName || null,
+        floorPlanUploadedAt: floorPlanUrl ? new Date() : null,
+        floorPlanAnalysisStatus: "none",
+      } as any);
 
       res.json(property);
     } catch (error) {
@@ -4968,13 +5049,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/properties/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/properties/:id", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const property = await storage.getProperty(id);
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
 
+      const property = await storage.getProperty(id);
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
+      }
+      if (property.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       res.json(property);
@@ -5038,6 +5126,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (updates.notes !== undefined) {
         updateData.notes = updates.notes;
       }
+      if (updates.bedrooms !== undefined) updateData.bedrooms = updates.bedrooms;
+      if (updates.kitchens !== undefined) updateData.kitchens = updates.kitchens;
+      if (updates.bathrooms !== undefined) updateData.bathrooms = updates.bathrooms;
+      if (updates.livingRooms !== undefined) updateData.livingRooms = updates.livingRooms;
+      if (updates.floorPlanUrl !== undefined) {
+        updateData.floorPlanUrl = updates.floorPlanUrl;
+        if (updates.floorPlanUrl) {
+          updateData.floorPlanUploadedAt = new Date();
+        } else {
+          updateData.floorPlanUploadedAt = null;
+          updateData.floorPlanAnalysisStatus = "none";
+          updateData.floorPlanAnalysisJson = null;
+          updateData.floorPlanAnalysedAt = null;
+        }
+      }
+      if (updates.floorPlanMimeType !== undefined) {
+        updateData.floorPlanMimeType = updates.floorPlanMimeType;
+      }
+      if (updates.floorPlanFileName !== undefined) {
+        updateData.floorPlanFileName = updates.floorPlanFileName;
+      }
 
       const property = await storage.updateProperty(req.params.id, updateData);
       console.log("[Properties] PATCH saved property:", {
@@ -5049,6 +5158,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error updating property:", error);
       res.status(500).json({ error: "Failed to update property" });
+    }
+  });
+
+  // Analyse a floor plan object before a property exists (create-modal upload)
+  app.post("/api/floor-plan/analyse", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { analyseFloorPlanObject } = await import("./propertyFloorPlanService");
+      const result = await analyseFloorPlanObject({
+        documentUrl: req.body?.documentUrl,
+        mimeType: req.body?.mimeType,
+        fileName: req.body?.fileName,
+      });
+      res.json({
+        status: "complete",
+        suggestion: result.suggestion,
+        analysis: result.analysisJson,
+        bedrooms: result.suggestion.bedrooms,
+        kitchens: result.suggestion.kitchens,
+        bathrooms: result.suggestion.bathrooms,
+        livingRooms: result.suggestion.livingRooms,
+      });
+    } catch (error: any) {
+      console.error("Error analysing floor plan upload:", error);
+      const status = error?.status || 500;
+      res.status(status).json({
+        status: "failed",
+        message: error?.message || "Failed to analyse floor plan",
+      });
+    }
+  });
+
+  // Attach / replace property floor plan (file already uploaded via ObjectUploader)
+  app.post("/api/properties/:id/floor-plan", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { attachFloorPlan } = await import("./propertyFloorPlanService");
+      const property = await attachFloorPlan({
+        propertyId: req.params.id,
+        organizationId: user.organizationId,
+        documentUrl: req.body?.documentUrl,
+        fileName: req.body?.fileName,
+        mimeType: req.body?.mimeType,
+      });
+      res.json(property);
+    } catch (error: any) {
+      console.error("Error attaching floor plan:", error);
+      const status = error?.status || 500;
+      res.status(status).json({ message: error?.message || "Failed to attach floor plan" });
+    }
+  });
+
+  app.delete("/api/properties/:id/floor-plan", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { removeFloorPlan } = await import("./propertyFloorPlanService");
+      const property = await removeFloorPlan({
+        propertyId: req.params.id,
+        organizationId: user.organizationId,
+      });
+      res.json(property);
+    } catch (error: any) {
+      console.error("Error removing floor plan:", error);
+      const status = error?.status || 500;
+      res.status(status).json({ message: error?.message || "Failed to remove floor plan" });
+    }
+  });
+
+  app.post("/api/properties/:id/floor-plan/analyse", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { analyseFloorPlan } = await import("./propertyFloorPlanService");
+      const property = await analyseFloorPlan({
+        propertyId: req.params.id,
+        organizationId: user.organizationId,
+      });
+      res.json(property);
+    } catch (error: any) {
+      console.error("Error analysing floor plan:", error);
+      const status = error?.status || 500;
+      res.status(status).json({ message: error?.message || "Failed to analyse floor plan" });
+    }
+  });
+
+  app.get("/api/properties/:id/floor-plan/analysis", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const property = await storage.getProperty(req.params.id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      res.json({
+        status: property.floorPlanAnalysisStatus ?? "none",
+        analysis: property.floorPlanAnalysisJson ?? null,
+        analysedAt: property.floorPlanAnalysedAt ?? null,
+        floorPlanUrl: property.floorPlanUrl ?? null,
+        floorPlanFileName: property.floorPlanFileName ?? null,
+        floorPlanMimeType: property.floorPlanMimeType ?? null,
+      });
+    } catch (error) {
+      console.error("Error fetching floor plan analysis:", error);
+      res.status(500).json({ message: "Failed to fetch analysis" });
     }
   });
 
@@ -5190,7 +5416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get property tenants
-  app.get("/api/properties/:id/tenants", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/tenants", isAuthenticated, requireCompanyModule("tenancies"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -5302,7 +5528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get property compliance documents
-  app.get("/api/properties/:id/compliance", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/compliance", isAuthenticated, requireCompanyModule("compliance"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -5356,7 +5582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get property annual compliance report
-  app.get("/api/properties/:id/compliance-report", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/compliance-report", isAuthenticated, requireCompanyModule("compliance"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -5474,7 +5700,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get property maintenance requests
-  app.get("/api/properties/:id/maintenance", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/maintenance", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -5536,7 +5762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return property;
   }
 
-  app.get("/api/properties/:id/deposits", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/deposits", isAuthenticated, requireCompanyModule("rentals"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5551,7 +5777,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/properties/:id/deposits", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/properties/:id/deposits", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5586,7 +5812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.patch("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5619,7 +5845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/properties/:propertyId/deposits/:depositId", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5635,7 +5861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/properties/:id/expenses", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/expenses", isAuthenticated, requireCompanyModule("rentals"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5650,7 +5876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/properties/:id/expenses", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/properties/:id/expenses", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5755,7 +5981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.patch("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5779,7 +6005,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/properties/:propertyId/expenses/:expenseId", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5796,7 +6022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   /** Read-only list — never generates periods. */
-  app.get("/api/properties/:id/rent-periods", isAuthenticated, async (req: any, res) => {
+  app.get("/api/properties/:id/rent-periods", isAuthenticated, requireCompanyModule("rentals"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5811,7 +6037,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/properties/:propertyId/rent-periods/:periodId", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.patch("/api/properties/:propertyId/rent-periods/:periodId", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5832,7 +6058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/properties/:propertyId/rent-periods/:periodId/send-reminder", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/properties/:propertyId/rent-periods/:periodId/send-reminder", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5849,7 +6075,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/organization/rent-settings", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.get("/api/organization/rent-settings", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5861,7 +6087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/organization/rent-settings", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.patch("/api/organization/rent-settings", isAuthenticated, requireCompanyModule("rentals"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ message: "No organization found" });
@@ -5997,9 +6223,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== PROPERTY BY BLOCK ROUTES ====================
 
   // Get properties by block
-  app.get("/api/blocks/:blockId/properties", isAuthenticated, async (req, res) => {
+  app.get("/api/blocks/:blockId/properties", isAuthenticated, async (req: any, res) => {
     try {
       const { blockId } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+
+      const block = await storage.getBlock(blockId);
+      if (!block) {
+        return res.status(404).json({ message: "Block not found" });
+      }
+      if (block.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
       const properties = await storage.getPropertiesByBlock(blockId);
       res.json(properties);
     } catch (error) {
@@ -6135,6 +6374,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateVersion = template.version;
       }
 
+      // Property = source of truth for room counts on NEW property inspections
+      let propertyRoomCountsSnapshot: any = null;
+      let seedEntries: Array<{
+        sectionRef: string;
+        fieldKey: string;
+        fieldType: string;
+        valueJson: unknown;
+      }> = [];
+
+      if (propertyId) {
+        const property = await storage.getProperty(propertyId);
+        if (!property || property.organizationId !== currentUser.organizationId) {
+          return res.status(404).json({ message: "Property not found or access denied" });
+        }
+        const {
+          applyPropertyCountsToTemplateSnapshot,
+          buildPropertyRoomCountsSnapshot,
+          parseRoomCounts,
+        } = await import("@shared/propertyLayout");
+        const counts = parseRoomCounts({
+          bedrooms: property.bedrooms,
+          kitchens: property.kitchens,
+          bathrooms: property.bathrooms,
+          livingRooms: property.livingRooms,
+        });
+        propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(counts);
+        if (templateSnapshotJson) {
+          const applied = applyPropertyCountsToTemplateSnapshot(
+            templateSnapshotJson as any,
+            counts,
+          );
+          templateSnapshotJson = applied.structure as any;
+          seedEntries = applied.seedEntries;
+        }
+      }
+
       const inspection = await storage.createInspection({
         organizationId: currentUser.organizationId,
         propertyId: propertyId || null,
@@ -6146,7 +6421,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateId: finalTemplateId || null,
         templateVersion,
         templateSnapshotJson: templateSnapshotJson as any,
-      });
+        propertyRoomCountsSnapshot: propertyRoomCountsSnapshot as any,
+      } as any);
+
+      for (const seed of seedEntries) {
+        try {
+          const fieldType = (seed.fieldType || "number") as any;
+          await storage.createInspectionEntry({
+            inspectionId: inspection.id,
+            sectionRef: seed.sectionRef,
+            fieldKey: seed.fieldKey,
+            fieldType,
+            valueJson: seed.valueJson as any,
+          });
+        } catch (seedErr) {
+          console.error("[Create Inspection] Failed to seed room count entry:", seed.fieldKey, seedErr);
+        }
+      }
 
       res.json(inspection);
     } catch (error) {
@@ -6959,6 +7250,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Inspection Image Gallery ─────────────────────────────────────────────
+  app.get("/api/inspections/:inspectionId/gallery", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { listGallery } = await import("./inspectionGalleryService");
+      const images = await listGallery(req.params.inspectionId, user);
+      res.json({ images });
+    } catch (error: any) {
+      console.error("Error listing gallery:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to load gallery" });
+    }
+  });
+
+  app.get("/api/inspections/:inspectionId/gallery/destinations", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { listDestinations } = await import("./inspectionGalleryService");
+      const destinations = await listDestinations(req.params.inspectionId, user);
+      res.json({ destinations });
+    } catch (error: any) {
+      console.error("Error listing gallery destinations:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to load destinations" });
+    }
+  });
+
+  app.post("/api/inspections/:inspectionId/gallery/register", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { registerGalleryImages } = await import("./inspectionGalleryService");
+      const images = await registerGalleryImages(
+        req.params.inspectionId,
+        user,
+        Array.isArray(req.body?.images) ? req.body.images : [],
+        req.body?.assign || null,
+      );
+      res.json({ images });
+    } catch (error: any) {
+      console.error("Error registering gallery images:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to register images" });
+    }
+  });
+
+  app.post("/api/inspections/:inspectionId/gallery/assign", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { assignGalleryImages } = await import("./inspectionGalleryService");
+      const images = await assignGalleryImages(
+        req.params.inspectionId,
+        user,
+        Array.isArray(req.body?.imageIds) ? req.body.imageIds : [],
+        String(req.body?.sectionRef || ""),
+        String(req.body?.fieldKey || ""),
+      );
+      res.json({ images });
+    } catch (error: any) {
+      console.error("Error assigning gallery images:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to assign images" });
+    }
+  });
+
+  app.post("/api/inspections/:inspectionId/gallery/unassign", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { unassignGalleryImages } = await import("./inspectionGalleryService");
+      const images = await unassignGalleryImages(
+        req.params.inspectionId,
+        user,
+        Array.isArray(req.body?.items) ? req.body.items : [],
+      );
+      res.json({ images });
+    } catch (error: any) {
+      console.error("Error unassigning gallery images:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to unassign images" });
+    }
+  });
+
+  app.post("/api/inspections/:inspectionId/gallery/move", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { moveGalleryImages } = await import("./inspectionGalleryService");
+      const images = await moveGalleryImages(
+        req.params.inspectionId,
+        user,
+        Array.isArray(req.body?.imageIds) ? req.body.imageIds : [],
+        {
+          sectionRef: String(req.body?.from?.sectionRef || ""),
+          fieldKey: String(req.body?.from?.fieldKey || ""),
+        },
+        {
+          sectionRef: String(req.body?.to?.sectionRef || ""),
+          fieldKey: String(req.body?.to?.fieldKey || ""),
+        },
+      );
+      res.json({ images });
+    } catch (error: any) {
+      console.error("Error moving gallery images:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to move images" });
+    }
+  });
+
+  app.delete("/api/inspections/:inspectionId/gallery/:imageId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { deleteGalleryImages } = await import("./inspectionGalleryService");
+      const result = await deleteGalleryImages(req.params.inspectionId, user, [req.params.imageId]);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error deleting gallery image:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to delete image" });
+    }
+  });
+
+  app.post("/api/inspections/:inspectionId/gallery/delete", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(403).json({ message: "User not found" });
+      const { deleteGalleryImages } = await import("./inspectionGalleryService");
+      const result = await deleteGalleryImages(
+        req.params.inspectionId,
+        user,
+        Array.isArray(req.body?.imageIds) ? req.body.imageIds : [],
+      );
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error bulk-deleting gallery images:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to delete images" });
+    }
+  });
+
   // Generate PDF report for inspection
   app.get("/api/inspections/:id/pdf", isAuthenticated, async (req: any, res) => {
     try {
@@ -7075,7 +7502,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...e,
         note: e.note ?? undefined
       }));
-      const pdfBuffer = await generateInspectionPDF(fullInspection as any, entriesForPDF as any, baseUrl, branding, maintenanceRequests, reportConfig);
+      const pdfBuffer = await generateInspectionPDF(
+        fullInspection as any,
+        entriesForPDF as any,
+        baseUrl,
+        branding,
+        maintenanceRequests,
+        reportConfig,
+        { includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies") },
+      );
 
       // Set headers for PDF download: Location_Date_InspectorName.pdf
       const locationName = property?.name || block?.name || "inspection";
@@ -7260,12 +7695,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Optionally send check-in/check-out to tenant for signature review
           if (req.body.sendToTenantForReview && ownerOrgId) {
             try {
-              await requestTenantInspectionReview({
-                inspectionId: id,
-                inspection,
-                organizationId: ownerOrgId,
-                propertyName,
-              });
+              const orgForModules = await storage.getOrganization(ownerOrgId);
+              if (isCompanyModuleEnabled(orgForModules, "tenancies")) {
+                await requestTenantInspectionReview({
+                  inspectionId: id,
+                  inspection,
+                  organizationId: ownerOrgId,
+                  propertyName,
+                });
+              }
             } catch (approvalError) {
               console.error('Failed to request tenant inspection review:', approvalError);
             }
@@ -7435,12 +7873,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Optionally send check-in/check-out to tenant for signature review
           if (req.body.sendToTenantForReview && ownerOrgId) {
             try {
-              await requestTenantInspectionReview({
-                inspectionId: id,
-                inspection,
-                organizationId: ownerOrgId,
-                propertyName,
-              });
+              const orgForModules = await storage.getOrganization(ownerOrgId);
+              if (isCompanyModuleEnabled(orgForModules, "tenancies")) {
+                await requestTenantInspectionReview({
+                  inspectionId: id,
+                  inspection,
+                  organizationId: ownerOrgId,
+                  propertyName,
+                });
+              }
             } catch (approvalError) {
               console.error('Failed to request tenant inspection review:', approvalError);
             }
@@ -7589,12 +8030,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Optionally send check-in/check-out to tenant for signature review
           if (req.body.sendToTenantForReview && organizationId) {
             try {
-              await requestTenantInspectionReview({
-                inspectionId: id,
-                inspection,
-                organizationId,
-                propertyName,
-              });
+              const orgForModules = await storage.getOrganization(organizationId);
+              if (isCompanyModuleEnabled(orgForModules, "tenancies")) {
+                await requestTenantInspectionReview({
+                  inspectionId: id,
+                  inspection,
+                  organizationId,
+                  propertyName,
+                });
+              }
             } catch (approvalError) {
               console.error('Failed to request tenant inspection review:', approvalError);
             }
@@ -7986,7 +8430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Call OpenAI Vision API using Responses API
       const response = await getOpenAI().responses.create({
-        model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+        model: getInspectionModel(),
         input: [
           {
             role: "user",
@@ -8252,7 +8696,7 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
           // Set max_output_tokens to 10000 to allow for very detailed analysis
           response = await Promise.race([
             getOpenAI().responses.create({
-              model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+              model: getInspectionModel(),
               input: [
                 {
                   role: "user",
@@ -8603,7 +9047,7 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
 
       // Call OpenAI Vision API for condition/cleanliness analysis
       const response = await getOpenAI().responses.create({
-        model: "gpt-5",
+        model: getInspectionModel(),
         input: [
           {
             role: "user",
@@ -9026,7 +9470,7 @@ LIABILITY: [tenant/landlord/shared]`;
                 });
 
                 const visionResponse = await getOpenAI().responses.create({
-                  model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+                  model: getInspectionModel(),
                   input: [{ role: "user", content: normalizeApiContent(imageContent) }],
                   max_output_tokens: 800,
                 });
@@ -9544,7 +9988,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
                   // Call OpenAI Vision API
                   const response = await getOpenAI().responses.create({
-                    model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+                    model: getInspectionModel(),
                     input: [
                       {
                         role: "user",
@@ -9597,7 +10041,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 }`;
 
                         const notesResponse = await getOpenAI().responses.create({
-                          model: "gpt-5",
+                          model: getInspectionModel(),
                           input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
                           max_output_tokens: 400,
                         });
@@ -9681,7 +10125,7 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 }`;
 
                     const response = await getOpenAI().responses.create({
-                      model: "gpt-4o",
+                      model: getChatModel(),
                       input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: prompt }]) }],
                       max_output_tokens: 800,
                     });
@@ -10087,7 +10531,7 @@ Now provide your comparison analysis:`;
 
             console.log(`[ComparisonReport] Making AI call for notes comparison with model gpt-4o...`);
             const notesResponse = await getOpenAI().responses.create({
-              model: "gpt-4o",
+              model: getChatModel(),
               input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
               max_output_tokens: 400,
             });
@@ -10126,7 +10570,7 @@ Respond with ONLY this JSON (no other text):
 {"notes_comparison": "• Point 1\n• Point 2\n..."}`;
 
                 const retryResponse = await getOpenAI().responses.create({
-                  model: "gpt-4o",
+                  model: getChatModel(),
                   input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: retryPrompt }]) }],
                   max_output_tokens: 500,
                 });
@@ -10205,7 +10649,7 @@ Respond with ONLY this JSON (no other text):
 {"notes_comparison": "• Point 1\n• Point 2\n..."}`;
 
                   const retryResponse = await getOpenAI().responses.create({
-                    model: "gpt-4o",
+                    model: getChatModel(),
                     input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: retryPrompt }]) }],
                     max_output_tokens: 500,
                   });
@@ -10297,7 +10741,7 @@ CHECK-OUT: ${aiComparison.checkOutNote.substring(0, 600)}
 Write how the condition changed. JSON only: {"notes_comparison": "comparison text here"}`;
 
                 const finalResponse = await getOpenAI().responses.create({
-                  model: "gpt-4o",
+                  model: getChatModel(),
                   input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: finalPrompt }]) }],
                   max_output_tokens: 400,
                 });
@@ -10755,6 +11199,15 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
       console.log('[PDF Generation] Using baseUrl:', baseUrl, 'for', items.length, 'items');
 
+      let propertyCoverImageHtml = "";
+      try {
+        const { resolveReportImageToDataUrl, renderCoverSubjectImageHtml } = await import("./reportPdfShared");
+        const propertyCoverDataUrl = await resolveReportImageToDataUrl(property?.imageUrl, baseUrl);
+        propertyCoverImageHtml = renderCoverSubjectImageHtml(propertyCoverDataUrl, "Property");
+      } catch (coverError) {
+        console.warn("[PDF] Comparison cover image failed; continuing without it:", coverError);
+      }
+
       // Generate HTML for the comparison report (photos will be converted to absolute URLs in HTML generation)
       const html = generateComparisonReportHTML(
         report,
@@ -10765,7 +11218,9 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         checkOutInspection,
         comments.filter((c: any) => !c.isInternal), // Only public comments in PDF
         branding,
-        baseUrl
+        baseUrl,
+        { includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies") },
+        propertyCoverImageHtml,
       );
 
       let browser;
@@ -12208,6 +12663,17 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
           };
 
           const comments = await storage.getComparisonComments(id);
+          let propertyCoverImageHtml = "";
+          try {
+            const protocol = req.protocol;
+            const host = req.get("host");
+            const emailPdfBaseUrl = `${protocol}://${host}`;
+            const { resolveReportImageToDataUrl, renderCoverSubjectImageHtml } = await import("./reportPdfShared");
+            const propertyCoverDataUrl = await resolveReportImageToDataUrl(property?.imageUrl, emailPdfBaseUrl);
+            propertyCoverImageHtml = renderCoverSubjectImageHtml(propertyCoverDataUrl, "Property");
+          } catch (coverError) {
+            console.warn("[PDF] Comparison email cover image failed; continuing without it:", coverError);
+          }
           const html = generateComparisonReportHTML(
             report,
             items,
@@ -12216,7 +12682,10 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
             checkInInspection,
             checkOutInspection,
             comments.filter((c: any) => !c.isInternal),
-            branding
+            branding,
+            undefined,
+            { includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies") },
+            propertyCoverImageHtml,
           );
 
           const browser = await launchPuppeteerBrowser();
@@ -12302,8 +12771,11 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     checkOutInspection: any,
     comments: any[],
     branding?: ReportBrandingInfo,
-    baseUrl?: string
+    baseUrl?: string,
+    options?: { includeTenantSurfaces?: boolean },
+    propertyCoverImageHtml = "",
   ) {
+    const includeTenantSurfaces = options?.includeTenantSurfaces !== false;
     const escapeHtml = (str: string) => {
       if (!str) return '';
       return String(str)
@@ -12363,8 +12835,21 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : '';
-    // Always show company name, below logo if logo exists
-    const companyNameHtml = `<div class="cover-company-name">${escapeHtml(companyName)}</div>`;
+    const presentedByHtml = companyName
+      ? `<div class="cover-presented-by">Presented by: ${escapeHtml(companyName)}</div>`
+      : '';
+    const propertyName = property?.name || property?.unitNumber || "Property";
+    const propertyNameLong = String(propertyName).length > 36;
+    const rawPropertyAddress = property?.address || "";
+    const propertyAddress =
+      typeof rawPropertyAddress === "string"
+        ? rawPropertyAddress.trim()
+        : rawPropertyAddress && typeof rawPropertyAddress === "object"
+          ? [rawPropertyAddress.street, rawPropertyAddress.city, rawPropertyAddress.state, rawPropertyAddress.postalCode, rawPropertyAddress.country]
+              .filter((part: unknown): part is string => typeof part === "string" && part.trim().length > 0)
+              .join(", ")
+          : "";
+    const coverDate = format(new Date(report.createdAt), "PPP");
     const contactParts: string[] = [];
     if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
     if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
@@ -12536,11 +13021,11 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       }
     };
 
-    // Signature section
+    // Signature section (tenant block omitted when tenancies module is off)
     const signatureHtml = `
       <div style="page-break-before: always;">
         <h2 style="font-size: 20px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">Electronic Signatures</h2>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;">
+        <div style="display: grid; grid-template-columns: ${includeTenantSurfaces ? "repeat(2, 1fr)" : "1fr"}; gap: 24px;">
           <div style="padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
             <div style="font-weight: 600; margin-bottom: 12px; font-size: 14px;">Operator Signature</div>
             ${renderSignature(report.operatorSignature)}
@@ -12550,6 +13035,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
               </div>
             ` : ''}
           </div>
+          ${includeTenantSurfaces ? `
           <div style="padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
             <div style="font-weight: 600; margin-bottom: 12px; font-size: 14px;">Tenant Signature</div>
             ${renderSignature(report.tenantSignature)}
@@ -12559,6 +13045,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
               </div>
             ` : ''}
           </div>
+          ` : ""}
         </div>
         <div style="margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 6px; font-size: 11px; color: #666; text-align: center;">
           Electronic signatures on this document are legally binding under the Electronic Signatures in Global and National Commerce Act (E-SIGN Act).
@@ -12609,49 +13096,110 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       display: flex;
       flex-direction: column;
       align-items: center;
+      padding: 20px 24px 64px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
-    .cover-logo-container { 
-      margin-bottom: 32px; 
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
+    .cover-logo-container {
+      margin-bottom: 20px;
     }
     .cover-logo-img {
-      max-height: 120px;
-      max-width: 320px;
+      max-height: 88px;
+      max-width: 260px;
       width: auto;
       height: auto;
       object-fit: contain;
       filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
     }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    .cover-subject-image-wrap {
+      margin: 14px auto 16px;
+      width: 130mm;
+      max-width: 78%;
+      position: relative;
+      z-index: 1;
+      flex-shrink: 0;
     }
-    .cover-company-name {
-      font-size: 24px;
+    .cover-subject-image {
+      width: 100%;
+      height: 72mm;
+      max-height: 72mm;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      display: block;
+    }
+    .cover-title {
+      font-size: 30px;
       font-weight: 600;
+      margin-top: 4px;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
       opacity: 0.95;
     }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
+    .cover-details {
+      display: flex;
+      gap: 32px;
+      font-size: 16px;
+      opacity: 0.9;
+      margin-top: 8px;
     }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-subtitle { font-size: 18px; opacity: 0.9; margin-bottom: 8px; }
-    .cover-date { font-size: 14px; opacity: 0.8; margin-top: 16px; }
+    .cover-details-above {
+      margin-top: 0;
+      margin-bottom: 4px;
+    }
+    .cover-detail-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .cover-property {
+      font-size: 36px;
+      font-weight: 700;
+      margin-top: 10px;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+      max-width: 90%;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cover-property.cover-property-long {
+      white-space: normal;
+      font-size: 28px;
+      text-overflow: unset;
+      overflow: visible;
+    }
+    .cover-address {
+      font-size: 15px;
+      font-weight: 400;
+      margin-top: 2px;
+      margin-bottom: 10px;
+      opacity: 0.9;
+      letter-spacing: 0.2px;
+      max-width: 85%;
+      line-height: 1.35;
+      text-align: center;
+    }
+    .cover-presented-by {
+      font-size: 16px;
+      font-weight: 400;
+      margin-top: 2px;
+      margin-bottom: 18px;
+      opacity: 0.9;
+      letter-spacing: 0.3px;
+    }
     .cover-contact {
       position: absolute;
-      bottom: 32px;
+      bottom: 28px;
+      left: 24px;
+      right: 24px;
       font-size: 13px;
       opacity: 0.8;
-      z-index: 1;
+      z-index: 2;
+      text-align: center;
     }
     /* Content area - Landscape optimized */
     .content { padding: 28px 36px; }
@@ -12680,15 +13228,22 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 <body>
   <div class="cover-page">
     <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
+      ${logoHtml ? `<div class="cover-logo-container">${logoHtml}</div>` : ''}
       <div class="cover-title">Comparison Report</div>
-      <div class="cover-subtitle">${escapeHtml(property?.name || property?.unitNumber || 'Property')}</div>
-      <div class="cover-subtitle">${escapeHtml(block?.name || '')}</div>
-      <div class="cover-date">Generated on ${format(new Date(report.createdAt), "MMMM d, yyyy 'at' h:mm a")}</div>
+      <div class="cover-details cover-details-above">
+        <div class="cover-detail-item">
+          <span>Check-In vs Check-Out</span>
+        </div>
+      </div>
+      <div class="cover-property${propertyNameLong ? " cover-property-long" : ""}">${escapeHtml(propertyName)}</div>
+      ${propertyCoverImageHtml}
+      ${propertyAddress ? `<div class="cover-address">${escapeHtml(propertyAddress)}</div>` : ''}
+      ${presentedByHtml}
+      <div class="cover-details">
+        <div class="cover-detail-item">
+          <span>${escapeHtml(coverDate)}</span>
+        </div>
+      </div>
     </div>
     ${contactInfoHtml}
   </div>
@@ -12782,7 +13337,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
   // ==================== COMPLIANCE ROUTES ====================
 
-  app.post("/api/compliance", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.post("/api/compliance", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -12843,7 +13398,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     }
   });
 
-  app.get("/api/compliance", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.get("/api/compliance", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -12859,7 +13414,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   });
 
   // Download compliance document (serves file with proper headers for download)
-  app.get("/api/compliance/:id/view", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.get("/api/compliance/:id/view", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -13036,7 +13591,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     }
   });
 
-  app.get("/api/compliance/expiring", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.get("/api/compliance/expiring", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -13052,7 +13607,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     }
   });
 
-  app.patch("/api/compliance/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.patch("/api/compliance/:id", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -13102,7 +13657,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   // ==================== MAINTENANCE ROUTES ====================
 
   // AI analyze maintenance image for fix suggestions
-  app.post("/api/maintenance/analyze-image", isAuthenticated, async (req: any, res) => {
+  app.post("/api/maintenance/analyze-image", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       // Validate request body
       const validation = analyzeMaintenanceImageSchema.safeParse(req.body);
@@ -13268,7 +13823,7 @@ ${optionalNotes || "No details provided."}`;
 
       try {
         const analysisCompletion = await openaiClient.chat.completions.create({
-          model: "gpt-4o",
+          model: getChatModel(),
           messages: [
             {
               role: "system",
@@ -13332,7 +13887,7 @@ ${optionalNotes || "No details provided."}`;
       res.json({
         suggestedFixes,
         analysis: {
-          model: "gpt-4o",
+          model: getChatModel(),
           timestamp: new Date().toISOString()
         },
         creditBalance: updatedBalance.total, // Using creditBalance instead of legacy creditsRemaining
@@ -13362,7 +13917,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/maintenance", isAuthenticated, async (req: any, res) => {
+  app.post("/api/maintenance", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
 
@@ -13442,7 +13997,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Quick-add maintenance request from inspection (with offline support)
-  app.post("/api/maintenance/quick", isAuthenticated, async (req: any, res) => {
+  app.post("/api/maintenance/quick", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
 
@@ -13535,7 +14090,7 @@ ${optionalNotes || "No details provided."}`;
   
   // Get single maintenance request by ID - comes AFTER /tags route but BEFORE /maintenance route
   console.log('[Routes] About to register GET /api/maintenance/:id route');
-  app.get("/api/maintenance/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     console.log(`[GET /api/maintenance/:id] Route handler called! URL: ${req.originalUrl}, ID param: ${req.params.id}`);
     
     // IMPORTANT: Check if this is actually a /tags route - Express will match /api/maintenance/:id
@@ -13582,7 +14137,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get all maintenance requests - MUST come AFTER /api/maintenance/:id route
-  app.get("/api/maintenance", isAuthenticated, async (req: any, res) => {
+  app.get("/api/maintenance", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -13597,7 +14152,28 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.patch("/api/maintenance/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const existingRequest = await storage.getMaintenanceRequest(id);
+      if (!existingRequest || existingRequest.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Maintenance request not found" });
+      }
+
+      await storage.deleteMaintenanceRequest(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting maintenance request:", error);
+      res.status(500).json({ message: "Failed to delete maintenance request" });
+    }
+  });
+
+  app.patch("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
@@ -13905,7 +14481,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get block compliance documents
-  app.get("/api/blocks/:id/compliance", isAuthenticated, async (req: any, res) => {
+  app.get("/api/blocks/:id/compliance", isAuthenticated, requireCompanyModule("compliance"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -13959,7 +14535,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get block annual compliance report
-  app.get("/api/blocks/:id/compliance-report", isAuthenticated, async (req: any, res) => {
+  app.get("/api/blocks/:id/compliance-report", isAuthenticated, requireCompanyModule("compliance"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -14163,7 +14739,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get tenant information for a block
-  app.get("/api/blocks/:blockId/tenants", isAuthenticated, async (req: any, res) => {
+  app.get("/api/blocks/:blockId/tenants", isAuthenticated, requireCompanyModule("tenancies"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14402,7 +14978,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get all tenant assignments for organization
-  app.get("/api/tenant-assignments", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenant-assignments", isAuthenticated, requireCompanyModule("tenancies"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14418,7 +14994,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/tenant-assignments", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/tenant-assignments", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14550,7 +15126,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.put("/api/tenant-assignments/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.put("/api/tenant-assignments/:id", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14653,7 +15229,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.delete("/api/tenant-assignments/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/tenant-assignments/:id", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14676,7 +15252,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get tags for a tenant assignment
-  app.get("/api/tenant-assignments/:id/tags", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenant-assignments/:id/tags", isAuthenticated, requireCompanyModule("tenancies"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14699,7 +15275,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Update tags for a tenant assignment
-  app.put("/api/tenant-assignments/:id/tags", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.put("/api/tenant-assignments/:id/tags", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14727,7 +15303,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Send portal credentials to tenant
-  app.post("/api/tenant-assignments/:id/send-password", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/tenant-assignments/:id/send-password", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14882,7 +15458,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get attachments for a tenant assignment
-  app.get("/api/tenant-assignments/:id/attachments", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenant-assignments/:id/attachments", isAuthenticated, requireCompanyModule("tenancies"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14905,7 +15481,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Upload tenancy attachment
-  app.post("/api/tenancy-attachments", isAuthenticated, requireRole("owner", "clerk"), upload.single('file'), async (req: any, res) => {
+  app.post("/api/tenancy-attachments", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), upload.single('file'), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -14973,7 +15549,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Delete tenancy attachment
-  app.delete("/api/tenancy-attachments/:id", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/tenancy-attachments/:id", isAuthenticated, requireCompanyModule("tenancies"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15687,7 +16263,7 @@ ${optionalNotes || "No details provided."}`;
     return identity;
   }
 
-  app.post("/api/work-orders", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15851,7 +16427,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.get("/api/work-orders", isAuthenticated, async (req: any, res) => {
+  app.get("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15884,7 +16460,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.get("/api/work-orders/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15908,7 +16484,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.patch("/api/work-orders/:id/status", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/work-orders/:id/status", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15944,7 +16520,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireRole("owner", "contractor"), async (req: any, res) => {
+  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -15970,7 +16546,25 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.patch("/api/work-orders/:id", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.delete("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ error: "No organization found" });
+      }
+      const wo = await storage.getWorkOrder(req.params.id);
+      if (!wo || wo.organizationId !== user.organizationId) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+      await storage.deleteWorkOrder(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting work order:", error);
+      res.status(500).json({ error: "Failed to delete work order" });
+    }
+  });
+
+  app.patch("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -16007,7 +16601,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -16024,7 +16618,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -16049,7 +16643,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -16071,7 +16665,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -16128,7 +16722,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.get("/api/work-orders/:workOrderId/logs", isAuthenticated, async (req: any, res) => {
+  app.get("/api/work-orders/:workOrderId/logs", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -16154,7 +16748,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get work order analytics
-  app.get("/api/analytics/work-orders", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+  app.get("/api/analytics/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -16473,7 +17067,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Add tag to compliance document
-  app.post("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.post("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       await storage.addTagToComplianceDocument(req.params.complianceId, req.params.tagId);
       res.json({ success: true });
@@ -16484,7 +17078,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Remove tag from compliance document
-  app.delete("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.delete("/api/compliance/:complianceId/tags/:tagId", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       await storage.removeTagFromComplianceDocument(req.params.complianceId, req.params.tagId);
       res.json({ success: true });
@@ -16495,7 +17089,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get tags for compliance document
-  app.get("/api/compliance/:complianceId/tags", isAuthenticated, async (req: any, res) => {
+  app.get("/api/compliance/:complianceId/tags", isAuthenticated, requireCompanyModule("compliance"), async (req: any, res) => {
     try {
       const tags = await storage.getTagsForComplianceDocument(req.params.complianceId);
       res.json(tags);
@@ -16508,7 +17102,7 @@ ${optionalNotes || "No details provided."}`;
   // ==================== COMPLIANCE DOCUMENT TYPES ====================
 
   // Get all document types for organization
-  app.get("/api/compliance/document-types", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.get("/api/compliance/document-types", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -16524,7 +17118,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Create new document type
-  app.post("/api/compliance/document-types", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.post("/api/compliance/document-types", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -16553,7 +17147,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Update document type
-  app.patch("/api/compliance/document-types/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.patch("/api/compliance/document-types/:id", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -16590,7 +17184,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Delete document type
-  app.delete("/api/compliance/document-types/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+  app.delete("/api/compliance/document-types/:id", isAuthenticated, requireCompanyModule("compliance"), requireRole("owner", "compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -16647,7 +17241,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Add tag to maintenance request
-  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       await storage.addTagToMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -16658,7 +17252,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Remove tag from maintenance request
-  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.delete("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
     try {
       await storage.removeTagFromMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -16669,7 +17263,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get tags for maintenance request
-  app.get("/api/maintenance/:requestId/tags", isAuthenticated, async (req: any, res) => {
+  app.get("/api/maintenance/:requestId/tags", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const tags = await storage.getTagsForMaintenanceRequest(req.params.requestId);
       res.json(tags);
@@ -16745,6 +17339,11 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const orgId = user.organizationId;
+      const organization = await storage.getOrganization(orgId);
+      const complianceModuleOn = isCompanyModuleEnabled(organization, "compliance");
+      const rentalsModuleOn = isCompanyModuleEnabled(organization, "rentals");
+      const tenanciesModuleOn = isCompanyModuleEnabled(organization, "tenancies");
+      const maintenanceModuleOn = isCompanyModuleEnabled(organization, "maintenance");
 
       // Get filter parameters
       const filterBlockId = req.query.blockId as string | undefined;
@@ -16763,9 +17362,9 @@ ${optionalNotes || "No details provided."}`;
         storage.getPropertiesByOrganization(orgId),
         storage.getBlocksByOrganization(orgId),
         storage.getInspectionsByOrganization(orgId),
-        storage.getComplianceDocuments(orgId),
-        storage.getMaintenanceByOrganization(orgId),
-        storage.getTenantAssignmentsByOrganization(orgId),
+        complianceModuleOn ? storage.getComplianceDocuments(orgId) : Promise.resolve([]),
+        maintenanceModuleOn ? storage.getMaintenanceByOrganization(orgId) : Promise.resolve([]),
+        tenanciesModuleOn ? storage.getTenantAssignmentsByOrganization(orgId) : Promise.resolve([]),
       ]);
 
       // Apply filters
@@ -17007,14 +17606,13 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
-      // Overdue rent periods (respect property/block filters)
+      // Overdue rent periods (respect property/block filters); omit when Rentals module OFF
       const { listOverdueRentPeriodsForOrganization } = await import("./propertyFinanceService");
       const overdueRentPropertyIds =
         filterPropertyId || filterBlockId ? properties.map((p: any) => p.id) : undefined;
-      const overdueRentPeriods = await listOverdueRentPeriodsForOrganization(
-        orgId,
-        overdueRentPropertyIds,
-      );
+      const overdueRentPeriods = rentalsModuleOn
+        ? await listOverdueRentPeriodsForOrganization(orgId, overdueRentPropertyIds)
+        : [];
 
       res.json({
         // Summary counts
@@ -17023,7 +17621,7 @@ ${optionalNotes || "No details provided."}`;
           blocks: blocks.length,
           inspections: inspections.length,
           maintenance: maintenance.length,
-          compliance: compliance.length,
+          compliance: complianceModuleOn ? compliance.length : 0,
         },
 
         // Critical alerts
@@ -17037,15 +17635,17 @@ ${optionalNotes || "No details provided."}`;
             scheduledDate: i.scheduledDate,
             daysOverdue: Math.ceil((today.getTime() - new Date(i.scheduledDate!).getTime()) / (1000 * 60 * 60 * 24))
           })),
-          overdueCompliance: overdueCompliance.length,
-          overdueComplianceList: overdueCompliance.slice(0, 10).map(c => ({
-            id: c.id,
-            propertyId: c.propertyId,
-            blockId: c.blockId,
-            documentType: c.documentType,
-            expiryDate: c.expiryDate,
-            daysOverdue: Math.ceil((today.getTime() - new Date(c.expiryDate!).getTime()) / (1000 * 60 * 60 * 24))
-          })),
+          overdueCompliance: complianceModuleOn ? overdueCompliance.length : 0,
+          overdueComplianceList: complianceModuleOn
+            ? overdueCompliance.slice(0, 10).map(c => ({
+                id: c.id,
+                propertyId: c.propertyId,
+                blockId: c.blockId,
+                documentType: c.documentType,
+                expiryDate: c.expiryDate,
+                daysOverdue: Math.ceil((today.getTime() - new Date(c.expiryDate!).getTime()) / (1000 * 60 * 60 * 24))
+              }))
+            : [],
           urgentMaintenance: urgentMaintenance.length,
           urgentMaintenanceList: urgentMaintenance.slice(0, 10).map(m => {
             let daysOverdue = 0;
@@ -17071,31 +17671,33 @@ ${optionalNotes || "No details provided."}`;
               createdAt: m.createdAt
             };
           }),
-          overdueRent: overdueRentPeriods.length,
-          overdueRentList: overdueRentPeriods.slice(0, 10).map((r) => ({
-            id: r.id,
-            propertyId: r.propertyId,
-            tenantName: r.tenantName,
-            periodLabel: r.periodLabel,
-            amountOutstanding: r.amountOutstanding,
-            currency: r.currency,
-            dueDate: r.dueDate,
-            daysOverdue: r.daysOverdue,
-          })),
+          overdueRent: rentalsModuleOn ? overdueRentPeriods.length : 0,
+          overdueRentList: rentalsModuleOn
+            ? overdueRentPeriods.slice(0, 10).map((r) => ({
+                id: r.id,
+                propertyId: r.propertyId,
+                tenantName: r.tenantName,
+                periodLabel: r.periodLabel,
+                amountOutstanding: r.amountOutstanding,
+                currency: r.currency,
+                dueDate: r.dueDate,
+                daysOverdue: r.daysOverdue,
+              }))
+            : [],
         },
 
         // Due soon
         upcoming: {
           inspectionsDueNext7Days: inspectionsDueNext7Days.length,
           inspectionsDueNext30Days: inspectionsDueNext30Days.length,
-          complianceExpiringNext30Days: complianceExpiringNext30Days.length,
-          complianceExpiringNext90Days: complianceExpiringNext90Days.length,
+          complianceExpiringNext30Days: complianceModuleOn ? complianceExpiringNext30Days.length : 0,
+          complianceExpiringNext90Days: complianceModuleOn ? complianceExpiringNext90Days.length : 0,
         },
 
         // KPIs
         kpis: {
-          occupancyRate,
-          complianceRate,
+          occupancyRate: tenanciesModuleOn ? occupancyRate : 0,
+          complianceRate: complianceModuleOn ? complianceRate : 100,
           inspectionCompletionRate,
           avgMaintenanceResolutionDays: avgResolutionDays,
           openMaintenanceCount: openMaintenance.length,
@@ -17584,6 +18186,10 @@ ${optionalNotes || "No details provided."}`;
       if (!entry) {
         return res.status(404).json({ message: "Entry not found" });
       }
+      const inspection = await storage.getInspection(entry.inspectionId);
+      if (!inspection || inspection.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
       res.json(entry);
     } catch (error) {
       console.error("Error fetching inspection entry:", error);
@@ -17824,7 +18430,7 @@ ${optionalNotes || "No details provided."}`;
       // Call OpenAI Vision API using Responses API
       const openaiClient = getOpenAI();
       const response = await openaiClient.responses.create({
-        model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+        model: getInspectionModel(),
         input: [
           {
             role: "user",
@@ -17856,8 +18462,8 @@ ${optionalNotes || "No details provided."}`;
         inspectionEntryId: inspectionEntryId || undefined,
         mediaUrl: imageUrl, // Schema expects mediaUrl, not imageUrl
         mediaType: "photo",
-        model: "gpt-5",
-        resultJson: { text: analysisText, model: "gpt-5" },
+        model: getInspectionModel(),
+        resultJson: { text: analysisText, model: getInspectionModel() },
       });
       const analysis = await storage.createAiImageAnalysis(validatedData);
 
@@ -18191,7 +18797,7 @@ ${optionalNotes || "No details provided."}`;
           const rawFile = await toFile(buffer, 'audio.m4a', { type: 'audio/mp4' });
           const transcription = await openaiClient.audio.transcriptions.create({
             file: rawFile,
-            model: "whisper-1",
+            model: getWhisperModel(),
             language: "en",
             response_format: "text"
           });
@@ -18234,7 +18840,7 @@ ${optionalNotes || "No details provided."}`;
       const audioFile = await toFile(audioBuffer, `audio.${ext}`, { type: mime });
       const transcription = await openaiClient.audio.transcriptions.create({
         file: audioFile,
-        model: "whisper-1",
+        model: getWhisperModel(),
         language: "en",
         response_format: "text"
       });
@@ -18386,7 +18992,7 @@ ${optionalNotes || "No details provided."}`;
       const transcribeWithFile = async (fileInput: any) => {
         return openaiClient.audio.transcriptions.create({
           file: fileInput,
-          model: "whisper-1",
+          model: getWhisperModel(),
           language: "en",
           response_format: "text"
         });
@@ -18587,7 +19193,8 @@ ${optionalNotes || "No details provided."}`;
 
   // Set ACL endpoint - must be BEFORE the catch-all route
   app.put("/api/objects/set-acl", isAuthenticated, async (req: any, res) => {
-    if (!req.body.photoUrl) {
+    const photoUrl = req.body.photoUrl || req.body.objectPath;
+    if (!photoUrl) {
       return res.status(400).json({ error: "photoUrl is required" });
     }
 
@@ -18596,7 +19203,7 @@ ${optionalNotes || "No details provided."}`;
     try {
       const objectStorageService = new ObjectStorageService();
       const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
-        req.body.photoUrl,
+        photoUrl,
         {
           owner: userId,
           visibility: "public",
@@ -18890,6 +19497,8 @@ ${optionalNotes || "No details provided."}`;
 
   const { registerCreditRequestRoutes } = await import("./creditRequestRoutes");
   registerCreditRequestRoutes(app, isAuthenticated, isAdminAuthenticated);
+  const { registerReapitRoutes } = await import("./reapitRoutes");
+  registerReapitRoutes(app, isAuthenticated);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {
@@ -20084,7 +20693,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Create issue in Fixflo from maintenance request
-  app.post("/api/fixflo/issues", isAuthenticated, requireRole("owner", "clerk"), async (req: any, res) => {
+  app.post("/api/fixflo/issues", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -28246,7 +28855,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Get maintenance requests for tenant
-  app.get("/api/tenants/:tenantId/maintenance", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenants/:tenantId/maintenance", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -29259,7 +29868,7 @@ Answer the user's question based on the data provided above. Focus on being help
       ];
 
       const completion = await openaiClient.chat.completions.create({
-        model: "gpt-4o",
+        model: getChatModel(),
         messages,
         max_completion_tokens: 1000,
         temperature: 0.7,
@@ -29433,7 +30042,7 @@ You can help the tenant with:
       let completion;
       try {
         completion = await openaiClient.chat.completions.create({
-          model: "gpt-4o", // Use valid OpenAI model
+          model: getChatModel(), // Use valid OpenAI model
           messages: messages as any,
           max_tokens: 1000,
           temperature: 0.7,
@@ -29483,7 +30092,7 @@ You can help the tenant with:
         try {
           const titlePrompt = `Generate a short 3-5 word title for a conversation that starts with: "${content.substring(0, 100)}"`;
           const titleCompletion = await openaiClient.chat.completions.create({
-            model: "gpt-4o-mini", // Use valid OpenAI model
+            model: getChatMiniModel(), // Use valid OpenAI model
             messages: [{ role: "user", content: titlePrompt }],
             max_tokens: 20,
           });
@@ -29632,7 +30241,7 @@ You can help the tenant with:
   });
 
   // Get tenant's maintenance chat conversations
-  app.get("/api/tenant/maintenance-chats", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenant/maintenance-chats", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -29650,7 +30259,7 @@ You can help the tenant with:
   });
 
   // Get specific maintenance chat with messages
-  app.get("/api/tenant/maintenance-chats/:chatId", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenant/maintenance-chats/:chatId", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -29675,7 +30284,7 @@ You can help the tenant with:
   });
 
   // Send message in maintenance chat with AI response
-  app.post("/api/tenant/maintenance-chat/message", isAuthenticated, async (req: any, res) => {
+  app.post("/api/tenant/maintenance-chat/message", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -29826,7 +30435,7 @@ You can help the tenant with:
           console.log("[Tenant Maintenance Chat] Making AI call with image");
           try {
             const analysisCompletion = await openaiClient.chat.completions.create({
-              model: "gpt-4o",
+              model: getChatModel(),
               messages: [
                 {
                   role: "system",
@@ -29882,7 +30491,7 @@ You can help the tenant with:
           // Text-only message - no image or image conversion failed
           console.log("[Tenant Maintenance Chat] Processing text-only message:", message);
           const completion = await openaiClient.chat.completions.create({
-            model: "gpt-4o",
+            model: getChatModel(),
             messages: [
               {
                 role: "system",
@@ -29992,7 +30601,7 @@ You can help the tenant with:
   });
 
   // Create maintenance request from chat
-  app.post("/api/tenant/maintenance-chat/create-request", isAuthenticated, async (req: any, res) => {
+  app.post("/api/tenant/maintenance-chat/create-request", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -30059,7 +30668,7 @@ You can help the tenant with:
   });
 
   // Get tenant's maintenance requests
-  app.get("/api/tenant/maintenance-requests", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tenant/maintenance-requests", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -30078,7 +30687,7 @@ You can help the tenant with:
 
   // Manually log a maintenance request (bypass AI chat)
   // Property/block/org are always taken from the tenant's active tenancy — never from the client body.
-  app.post("/api/tenant/maintenance-requests", isAuthenticated, async (req: any, res) => {
+  app.post("/api/tenant/maintenance-requests", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -30820,7 +31429,7 @@ Please provide:
 Format your response as a brief, professional cost assessment note. Include specific price ranges in GBP (£).`;
 
             const response = await openai.chat.completions.create({
-              model: "gpt-4o",
+              model: getChatModel(),
               messages: [
                 { role: "system", content: "You are a property maintenance cost expert with knowledge of UK repair costs." },
                 { role: "user", content: searchPrompt }
@@ -32227,7 +32836,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   }
 
   // Generate Tenants Report PDF
-  app.post("/api/reports/tenants/pdf", isAuthenticated, async (req: any, res) => {
+  app.post("/api/reports/tenants/pdf", isAuthenticated, requireCompanyModule("tenancies"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user || !user.organizationId) {
@@ -32937,7 +33546,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   }
 
   // Generate Compliance Report PDF
-  app.post("/api/reports/compliance/pdf", isAuthenticated, async (req: any, res) => {
+  app.post("/api/reports/compliance/pdf", isAuthenticated, requireCompanyModule("compliance"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user || !user.organizationId) {

@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { pagePad, textBreak, dialogFooterSticky, dialogContentBase } from "@/lib/responsive";
+import { pagePad, textBreak, dialogFooterSticky, dialogContentBase, cardGrid } from "@/lib/responsive";
 
 interface CommunityGroup {
   id: string;
@@ -632,7 +632,7 @@ export default function TenantCommunity() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className={cardGrid}>
           {groups.map((group) => (
             <Card
               key={group.id}

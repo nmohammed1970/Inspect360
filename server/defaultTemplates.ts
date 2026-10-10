@@ -106,6 +106,7 @@ export const DEFAULT_TEMPLATES = [
         {
           id: "section_living_room",
           title: "Living Room",
+          repeatable: true,
           fields: [
             {
               id: "field_checkin_living_floor_condition",
@@ -131,6 +132,7 @@ export const DEFAULT_TEMPLATES = [
         {
           id: "section_kitchen",
           title: "Kitchen",
+          repeatable: true,
           fields: [
             {
               id: "field_checkin_kitchen_condition",
@@ -299,6 +301,7 @@ export const DEFAULT_TEMPLATES = [
         {
           id: "section_living_room",
           title: "Living Room",
+          repeatable: true,
           fields: [
             {
               id: "field_checkout_living_floor_condition",
@@ -331,6 +334,7 @@ export const DEFAULT_TEMPLATES = [
         {
           id: "section_kitchen",
           title: "Kitchen",
+          repeatable: true,
           fields: [
             {
               id: "field_checkout_kitchen_condition",

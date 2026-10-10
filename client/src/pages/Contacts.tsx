@@ -22,7 +22,8 @@ import { FiltersSection } from "@/components/FiltersSection";
 import { parsePhoneNumber, combinePhoneNumber, getPhoneCodeForCountry, normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 import { useLocale } from "@/contexts/LocaleContext";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 type ContactWithTags = Omit<Contact, 'tags'> & { tags?: TagType[] };
 
@@ -34,6 +35,7 @@ const contactTypeLabels: Record<string, string> = {
   partner: "Partner",
   vendor: "Vendor",
   tenant: "Tenant",
+  landlord: "Landlord",
   other: "Other",
 };
 
@@ -45,11 +47,13 @@ const contactTypeBadgeVariants: Record<string, "default" | "secondary" | "outlin
   partner: "default",
   vendor: "secondary",
   tenant: "default",
+  landlord: "secondary",
   other: "outline",
 };
 
 export default function Contacts() {
   const { toast } = useToast();
+  const { tenanciesEnabled } = useCompanyModules();
   const { countryCode: userCountryCode } = useLocale();
   const defaultPhoneCode = getPhoneCodeForCountry(userCountryCode);
   const [searchTerm, setSearchTerm] = useState("");
@@ -82,6 +86,7 @@ export default function Contacts() {
 
   const { data: tenantAssignments = [] } = useQuery<TenantAssignment[]>({
     queryKey: ["/api/tenant-assignments"],
+    enabled: tenanciesEnabled,
   });
 
   const createMutation = useMutation({
@@ -431,6 +436,8 @@ export default function Contacts() {
                         <SelectItem value="company">Company</SelectItem>
                         <SelectItem value="partner">Partner</SelectItem>
                         <SelectItem value="vendor">Vendor</SelectItem>
+                        <SelectItem value="tenant">Tenant</SelectItem>
+                        <SelectItem value="landlord">Landlord</SelectItem>
                         <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
@@ -728,6 +735,8 @@ export default function Contacts() {
               <SelectItem value="company">Company</SelectItem>
               <SelectItem value="partner">Partner</SelectItem>
               <SelectItem value="vendor">Vendor</SelectItem>
+              <SelectItem value="tenant">Tenant</SelectItem>
+              <SelectItem value="landlord">Landlord</SelectItem>
               <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
@@ -841,6 +850,8 @@ export default function Contacts() {
                       <SelectItem value="company">Company</SelectItem>
                       <SelectItem value="partner">Partner</SelectItem>
                       <SelectItem value="vendor">Vendor</SelectItem>
+                      <SelectItem value="tenant">Tenant</SelectItem>
+                      <SelectItem value="landlord">Landlord</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>

@@ -11,6 +11,11 @@ import { storage } from "./storage";
 import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/schema";
 import { billingNowUtc } from "@shared/billingClock";
 import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
+import {
+  COMPANY_MODULE_META,
+  isCompanyModuleEnabled,
+  type CompanyModuleKey,
+} from "@shared/companyModules";
 import { getOrganizationAccessStatus, recordEntitlementEvent } from "./entitlementService";
 import { validateNewPassword } from "@shared/passwordPolicy";
 import {
@@ -513,6 +518,20 @@ export async function setupAuth(app: Express) {
             console.error("Warning: Failed to create sample data:", sampleDataError);
           }
 
+          // Notify platform admins (non-blocking; signup success does not depend on email)
+          try {
+            const { notifyAdminsOfOrganizationSignup } = await import("./organizationSignupNotification");
+            void notifyAdminsOfOrganizationSignup({
+              organization,
+              user: updatedUser,
+              source: "register",
+            }).catch((err: any) => {
+              console.error("[OrgSignupNotify]", err?.message || err);
+            });
+          } catch (notifyImportError: any) {
+            console.error("[OrgSignupNotify] Failed to start notification:", notifyImportError?.message || notifyImportError);
+          }
+
           // Log user in after registration with updated user data
           req.login(updatedUser, (err) => {
             if (err) return next(err);
@@ -840,5 +859,35 @@ export function requireRole(...allowedRoles: string[]) {
     }
 
     next();
+  };
+}
+
+/** Block API access when the org has disabled a company module (Settings → Internal Modules). */
+export function requireCompanyModule(moduleKey: CompanyModuleKey) {
+  return async (req: any, res: any, next: any) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(403).json({ message: "No organization" });
+    }
+
+    try {
+      const org = await storage.getOrganization(organizationId);
+      if (!isCompanyModuleEnabled(org, moduleKey)) {
+        const label = COMPANY_MODULE_META[moduleKey].label;
+        return res.status(403).json({
+          message: `${label} is disabled for your organization`,
+          code: "COMPANY_MODULE_DISABLED",
+          module: moduleKey,
+        });
+      }
+      return next();
+    } catch (error) {
+      console.error(`[requireCompanyModule:${moduleKey}]`, error);
+      return res.status(500).json({ message: "Failed to verify module access" });
+    }
   };
 }

@@ -69,6 +69,72 @@ Push the schema to your database:
 npm run db:push
 ```
 
+#### Company module flags (Contabo)
+
+Org-scoped **Rentals / Tenancies / Compliance / Maintenance** toggles live on `organizations`
+(`rentals_enabled`, `tenancies_enabled`, `compliance_enabled`, `maintenance_enabled`). SQL:
+`server/migrations/addCompanyModules.sql` and `server/migrations/addMaintenanceCompanyModule.sql`.
+
+On Contabo, connect as `creativecloud` (not `inspect360`):
+
+```bash
+# Dev
+docker exec -it postgres psql -U creativecloud -d inspect360_dev -f - < server/migrations/addCompanyModules.sql
+docker exec -it postgres psql -U creativecloud -d inspect360_dev -f - < server/migrations/addMaintenanceCompanyModule.sql
+
+# Prod
+docker exec -it postgres psql -U creativecloud -d inspect360 -f - < server/migrations/addCompanyModules.sql
+docker exec -it postgres psql -U creativecloud -d inspect360 -f - < server/migrations/addMaintenanceCompanyModule.sql
+```
+
+Or paste the SQL interactively after `docker exec -it postgres psql -U creativecloud -d <db>`.
+
+Disabling a module never deletes data.
+Tenancies OFF also disables Rentals (rent is tied to tenant assignments).
+Rentals OFF alone hides finance UI/jobs; Compliance OFF hides compliance surfaces
+and skips WO→compliance auto-link. Maintenance OFF hides requests, work orders,
+inspection Log Maintenance, and tenant maintenance. Properties, Blocks, and Inspections stay available.
+
+#### Property layout columns (Contabo)
+
+Room counts + floor-plan metadata on `properties`, and
+`property_room_counts_snapshot` on `inspections`. SQL:
+`server/migrations/addPropertyLayout.sql`.
+
+```bash
+# Dev
+docker exec -it postgres psql -U creativecloud -d inspect360_dev -f - < server/migrations/addPropertyLayout.sql
+
+# Prod
+docker exec -it postgres psql -U creativecloud -d inspect360 -f - < server/migrations/addPropertyLayout.sql
+```
+
+Existing properties default to 1 bedroom / kitchen / bathroom / living room.
+New property inspections snapshot those counts at create time; historical
+inspections are never rewritten.
+
+#### Inspection gallery tables (Contabo)
+
+Per-inspection media pool + field assignments:
+`inspection_gallery_images`, `inspection_gallery_assignments`.
+SQL: `server/migrations/addInspectionGallery.sql`.
+Legacy entry photos are backfilled into the gallery on first `GET …/gallery`.
+
+```bash
+# Dev
+docker exec -it postgres psql -U creativecloud -d inspect360_dev -f - < server/migrations/addInspectionGallery.sql
+
+# Prod
+docker exec -it postgres psql -U creativecloud -d inspect360 -f - < server/migrations/addInspectionGallery.sql
+```
+
+After creating the tables as `creativecloud`, grant the app role:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON inspection_gallery_images TO inspect360;
+GRANT SELECT, INSERT, UPDATE, DELETE ON inspection_gallery_assignments TO inspect360;
+```
+
 ### 7. Start Development Server
 
 ```bash
@@ -123,10 +189,22 @@ The application will be available at `http://localhost:5000` (or your configured
 | `STRIPE_WEBHOOK_SECRET` | ❌ No | Stripe webhook secret |
 | `AI_INTEGRATIONS_OPENAI_BASE_URL` | ❌ No | OpenAI API base URL |
 | `AI_INTEGRATIONS_OPENAI_API_KEY` | ❌ No | OpenAI API key |
+| `AI_INSPECTION_MODEL` | ❌ No | Vision/write-up model (default `gpt-5`) |
+| `AI_CHAT_MODEL` | ❌ No | Chat/maintenance model (default `gpt-4o`) |
+| `AI_CHAT_MINI_MODEL` | ❌ No | Lightweight chat titles (default `gpt-4o-mini`) |
+| `AI_WHISPER_MODEL` | ❌ No | Transcription model (default `whisper-1`) |
+| `AI_IMAGE_MODEL` | ❌ No | Image generation model (default `dall-e-3`) |
 | `LOCAL_STORAGE_DIR` | ❌ No | Directory for local file storage (default: `./storage`) |
 | `PUBLIC_OBJECT_SEARCH_PATHS` | ❌ No | Comma-separated paths for public object search (default: `public`) |
 | `PRIVATE_OBJECT_DIR` | ❌ No | Directory name for private objects (default: `private`) |
 | `PORT` | ❌ No | Server port (default: 5000) |
+| `REAPIT_CLIENT_ID` | ❌ No | Reapit app client id |
+| `REAPIT_CLIENT_SECRET` | ❌ No | Reapit app client secret |
+| `REAPIT_CONNECT_URL` | ❌ No | Default `https://connect.reapit.cloud` |
+| `REAPIT_API_URL` | ❌ No | Default `https://platform.reapit.cloud` |
+| `REAPIT_REDIRECT_URI` | ❌ No | OAuth callback override |
+| `INTEGRATION_ENCRYPTION_KEY` | ❌ No | AES-256-GCM key for Reapit tokens (32-byte hex) |
+| `ENABLE_REAPIT_WORKER` | ❌ No | Set `false` to disable the Reapit job worker |
 
 ## Next Steps
 

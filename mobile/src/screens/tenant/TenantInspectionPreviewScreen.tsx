@@ -37,6 +37,7 @@ import Input from '../../components/ui/Input';
 import { colors, spacing, borderRadius } from '../../theme';
 import { getFontSize, getButtonHeight, moderateScale } from '../../utils/responsive';
 import { useResponsive } from '../../hooks/useResponsive';
+import { useTenantPortalFlags } from '../../hooks/useTenantPortalFlags';
 import { getAPI_URL } from '../../services/api';
 import type { TenantHomeStackParamList } from '../../navigation/types';
 import {
@@ -70,6 +71,7 @@ function formatValue(valueJson: any): React.ReactNode {
 export default function TenantInspectionPreviewScreen({ navigation, route }: Props) {
   const { inspectionId } = route.params;
   const { user } = useAuth();
+  const { maintenanceEnabled } = useTenantPortalFlags();
   const theme = useTheme();
   const themeColors = theme?.colors ?? colors;
   const insets = useSafeAreaInsets();
@@ -262,7 +264,7 @@ export default function TenantInspectionPreviewScreen({ navigation, route }: Pro
               </Text>
             ) : null}
           </View>
-          {isPending ? (
+          {maintenanceEnabled && isPending ? (
             <Button
               title="Log"
               variant="outline"
@@ -409,7 +411,7 @@ export default function TenantInspectionPreviewScreen({ navigation, route }: Pro
 
         <Text style={[styles.sectionHeading, { color: themeColors.text?.primary }]}>Inspection entries</Text>
         <Text style={{ color: themeColors.text?.secondary, fontSize: getFontSize(12), marginTop: -spacing.sm }}>
-          Fields are read-only. You can log maintenance if something needs attention.
+          Fields are read-only.{maintenanceEnabled ? ' You can log maintenance if something needs attention.' : ''}
         </Text>
 
         {sections.length > 0
@@ -625,7 +627,7 @@ export default function TenantInspectionPreviewScreen({ navigation, route }: Pro
 
       {/* Quick maintenance */}
       <Modal
-        visible={!!maintenanceTarget}
+        visible={maintenanceEnabled && !!maintenanceTarget}
         transparent
         animationType="slide"
         onRequestClose={() => setMaintenanceTarget(null)}

@@ -24,7 +24,7 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
-import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
 
 const conditionLabels = {
   excellent: "Excellent",

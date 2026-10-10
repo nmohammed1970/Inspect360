@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useModules } from "@/hooks/use-modules";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Organization } from "@shared/schema";
@@ -42,6 +43,7 @@ export function AppSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -151,9 +153,19 @@ export function AppSidebar() {
     },
   ];
 
-  const filteredMainMenu = mainMenuItems.filter((item) =>
-    item.roles.includes(user?.role || "")
-  );
+  const filteredMainMenu = mainMenuItems.filter((item) => {
+    if (!item.roles.includes(user?.role || "")) return false;
+    if (item.url === "/compliance" && !complianceEnabled) return false;
+    if (
+      !maintenanceEnabled &&
+      (item.url === "/maintenance" ||
+        item.url === "/analytics" ||
+        item.url.startsWith("/maintenance?"))
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   // Dynamic active state styling based on organization's brand color
   const getActiveStyle = (isActive: boolean) => {

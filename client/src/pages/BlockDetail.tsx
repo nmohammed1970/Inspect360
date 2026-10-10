@@ -19,6 +19,7 @@ import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar"
 import { ObjectUploader, COMPLIANCE_DOCUMENT_ACCEPT } from "@/components/ObjectUploader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { MapPreview } from "@/components/MapPreview";
 import { insertComplianceDocumentSchema } from "@shared/schema";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
@@ -30,7 +31,7 @@ import {
 import { format } from "date-fns";
 import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, formGrid2, textBreak } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll } from "@/lib/responsive";
 
 interface PropertyStats {
   totalUnits: number;
@@ -107,6 +108,7 @@ export default function BlockDetail() {
   const [blockImageDialogOpen, setBlockImageDialogOpen] = useState(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
   const { toast } = useToast();
+  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
 
   const form = useForm<UploadFormValues>({
     resolver: zodResolver(uploadFormSchema),
@@ -170,7 +172,7 @@ export default function BlockDetail() {
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: !!blockId,
+    enabled: !!blockId && complianceEnabled,
   });
 
   const { data: compliance = [], isLoading: complianceLoading } = useQuery<ComplianceDoc[]>({
@@ -180,11 +182,12 @@ export default function BlockDetail() {
       if (!res.ok) throw new Error("Failed to fetch compliance documents");
       return res.json();
     },
-    enabled: !!blockId,
+    enabled: !!blockId && complianceEnabled,
   });
 
   const { data: customDocTypes = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/compliance-document-types"],
+    queryKey: ["/api/compliance/document-types"],
+    enabled: complianceEnabled,
   });
 
   const allDocumentTypes = [
@@ -433,15 +436,17 @@ export default function BlockDetail() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Compliance</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
-            </CardContent>
-          </Card>
+          {complianceEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Compliance</CardTitle>
+                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -461,6 +466,7 @@ export default function BlockDetail() {
             </CardContent>
           </Card>
 
+          {maintenanceEnabled && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
@@ -471,24 +477,27 @@ export default function BlockDetail() {
               <p className="text-xs text-muted-foreground">Open requests</p>
             </CardContent>
           </Card>
+          )}
         </div>
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="properties" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="properties" data-testid="tab-properties">
-            <Building2 className="h-4 w-4 mr-2" />
-            Properties ({properties.length})
+      <Tabs defaultValue="properties" className="space-y-6 min-w-0">
+        <TabsList className={tabsListScroll}>
+          <TabsTrigger value="properties" data-testid="tab-properties" className="shrink-0 gap-1.5">
+            <Building2 className="h-4 w-4 shrink-0" />
+            <span>Properties ({properties.length})</span>
           </TabsTrigger>
-          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule">
-            <ClipboardCheck className="h-4 w-4 mr-2" />
-            Inspection Schedule
+          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule" className="shrink-0 gap-1.5">
+            <ClipboardCheck className="h-4 w-4 shrink-0" />
+            <span>Inspection Schedule</span>
           </TabsTrigger>
-          <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule">
-            <FileCheck className="h-4 w-4 mr-2" />
-            Compliance Documents
-          </TabsTrigger>
+          {complianceEnabled && (
+            <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule" className="shrink-0 gap-1.5">
+              <FileCheck className="h-4 w-4 shrink-0" />
+              <span>Compliance Documents</span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Properties Tab */}

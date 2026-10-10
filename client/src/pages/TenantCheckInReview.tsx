@@ -32,6 +32,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { pagePad, textBreak } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 interface Inspection {
   id: string;
@@ -62,6 +63,7 @@ export default function TenantCheckInReview() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { maintenanceEnabled } = useCompanyModules();
   const [comments, setComments] = useState("");
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const signaturePadRef = useRef<SignatureCanvas>(null);
@@ -302,7 +304,7 @@ export default function TenantCheckInReview() {
         <CardHeader>
           <CardTitle>Inspection Entries</CardTitle>
           <CardDescription>
-            All fields are read-only. You can log a maintenance request if something needs attention.
+            All fields are read-only.{maintenanceEnabled ? " You can log a maintenance request if something needs attention." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -332,7 +334,7 @@ export default function TenantCheckInReview() {
                               <p className={cn("text-sm text-muted-foreground", textBreak)}>{field.description}</p>
                             )}
                           </div>
-                          {isPending && (
+                          {maintenanceEnabled && isPending && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -543,7 +545,7 @@ export default function TenantCheckInReview() {
         </CardContent>
       </Card>
 
-      {showMaintenanceSheet && selectedFieldForMaintenance && (
+      {maintenanceEnabled && showMaintenanceSheet && selectedFieldForMaintenance && (
         <QuickAddMaintenanceSheet
           open={showMaintenanceSheet}
           onOpenChange={setShowMaintenanceSheet}

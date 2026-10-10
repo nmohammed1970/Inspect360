@@ -52,10 +52,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { AddressInput } from "@/components/AddressInput";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { MapPreview } from "@/components/MapPreview";
 import AddTenantDialog from "@/components/AddTenantDialog";
+import { PropertyLayoutFields, type PropertyLayoutValue } from "@/components/PropertyLayoutFields";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, formGrid2, textBreak } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll } from "@/lib/responsive";
+import { formatRoomCountsSummary } from "@shared/propertyLayout";
 
 interface Property {
   id: string;
@@ -67,6 +71,15 @@ interface Property {
   organizationId: string;
   imageUrl?: string | null;
   propertyType?: string | null;
+  bedrooms?: number;
+  kitchens?: number;
+  bathrooms?: number;
+  livingRooms?: number;
+  floorPlanUrl?: string | null;
+  floorPlanMimeType?: string | null;
+  floorPlanFileName?: string | null;
+  floorPlanAnalysisStatus?: string | null;
+  floorPlanAnalysisJson?: any;
 }
 
 interface PropertyStats {
@@ -161,27 +174,29 @@ export default function PropertyDetail() {
   const propertyId = params?.id;
   const searchParams = useSearch();
   const urlTab = new URLSearchParams(searchParams).get("tab");
-  const propertyTabs = useMemo(
-    () =>
-      new Set([
-        "inspections",
-        "tenants",
-        "inventory",
-        "inspection-schedule",
-        "compliance-schedule",
-        "maintenance",
-        "deposit",
-        "rent-collection",
-        "expenses",
-      ]),
-    [],
-  );
-  const resolvedTab =
-    urlTab === "compliance"
-      ? "compliance-schedule"
-      : urlTab && propertyTabs.has(urlTab)
-        ? urlTab
-        : "inspections";
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const propertyTabs = useMemo(() => {
+    const tabs = new Set([
+      "inspections",
+      "inventory",
+      "inspection-schedule",
+    ]);
+    if (maintenanceEnabled) tabs.add("maintenance");
+    if (tenanciesEnabled) tabs.add("tenants");
+    if (complianceEnabled) tabs.add("compliance-schedule");
+    if (rentalsEnabled) {
+      tabs.add("deposit");
+      tabs.add("rent-collection");
+      tabs.add("expenses");
+    }
+    return tabs;
+  }, [rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled]);
+  const resolvedTab = (() => {
+    const requested =
+      urlTab === "compliance" ? "compliance-schedule" : urlTab;
+    if (requested && propertyTabs.has(requested)) return requested;
+    return "inspections";
+  })();
   const [activeTab, setActiveTab] = useState(resolvedTab);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editName, setEditName] = useState("");
@@ -191,6 +206,8 @@ export default function PropertyDetail() {
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
   const [propertyImageDialogOpen, setPropertyImageDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canSeeReapitSource = user?.role === "owner" || user?.role === "clerk";
 
   useEffect(() => {
     setActiveTab(resolvedTab);
@@ -228,6 +245,16 @@ export default function PropertyDetail() {
     enabled: !!propertyId,
   });
 
+  const { data: reapitMapping } = useQuery<{ lastSyncedAt?: string | null } | null>({
+    queryKey: ["/api/reapit/mappings/property", propertyId],
+    queryFn: async () => {
+      const res = await fetch(`/api/reapit/mappings/property/${propertyId}`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!propertyId && canSeeReapitSource,
+  });
+
   const { data: stats } = useQuery<PropertyStats>({
     queryKey: ["/api/properties", propertyId, "stats"],
     queryFn: async () => {
@@ -245,7 +272,7 @@ export default function PropertyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && tenanciesEnabled,
   });
 
   const hasOccupyingTenant = tenants.some((t) => t.assignment?.isActive !== false);
@@ -293,7 +320,7 @@ export default function PropertyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && complianceEnabled,
   });
 
   const complianceRateFromDocs = computeDocumentComplianceRate(
@@ -307,7 +334,7 @@ export default function PropertyDetail() {
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && complianceEnabled,
   });
 
   const { data: maintenance = [] } = useQuery<MaintenanceRequest[]>({
@@ -317,7 +344,7 @@ export default function PropertyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!propertyId,
+    enabled: !!propertyId && maintenanceEnabled,
   });
 
 
@@ -424,6 +451,14 @@ export default function PropertyDetail() {
                   Block: {property.blockName}
                 </Badge>
               </div>
+            )}
+            {canSeeReapitSource && reapitMapping && (
+              <p className="text-xs text-muted-foreground" data-testid="text-reapit-source">
+                Source: Reapit
+                {reapitMapping.lastSyncedAt
+                  ? ` · last synced ${new Date(reapitMapping.lastSyncedAt).toLocaleString()}`
+                  : ""}
+              </p>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -549,30 +584,92 @@ export default function PropertyDetail() {
             </CardContent>
           </Card>
         )}
+
+        <Card data-testid="card-property-layout">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Property Layout</CardTitle>
+            <CardDescription>
+              {formatRoomCountsSummary({
+                bedrooms: property.bedrooms ?? 1,
+                kitchens: property.kitchens ?? 1,
+                bathrooms: property.bathrooms ?? 1,
+                livingRooms: property.livingRooms ?? 1,
+              })}
+              . Used automatically for new inspections.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PropertyLayoutFields
+              propertyId={propertyId}
+              value={{
+                bedrooms: property.bedrooms ?? 1,
+                kitchens: property.kitchens ?? 1,
+                bathrooms: property.bathrooms ?? 1,
+                livingRooms: property.livingRooms ?? 1,
+                floorPlanUrl: property.floorPlanUrl ?? null,
+                floorPlanMimeType: property.floorPlanMimeType ?? null,
+                floorPlanFileName: property.floorPlanFileName ?? null,
+                floorPlanAnalysisStatus: (property.floorPlanAnalysisStatus as any) ?? "none",
+                floorPlanAnalysisJson: property.floorPlanAnalysisJson ?? null,
+              }}
+              onChange={async (next: PropertyLayoutValue) => {
+                const countsChanged =
+                  next.bedrooms !== (property.bedrooms ?? 1) ||
+                  next.kitchens !== (property.kitchens ?? 1) ||
+                  next.bathrooms !== (property.bathrooms ?? 1) ||
+                  next.livingRooms !== (property.livingRooms ?? 1);
+                if (!countsChanged) {
+                  queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
+                  return;
+                }
+                try {
+                  await apiRequest("PATCH", `/api/properties/${propertyId}`, {
+                    bedrooms: next.bedrooms,
+                    kitchens: next.kitchens,
+                    bathrooms: next.bathrooms,
+                    livingRooms: next.livingRooms,
+                  });
+                  queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
+                  queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+                } catch (e: any) {
+                  toast({
+                    title: "Unable to save layout",
+                    description: e?.message || "Please try again.",
+                    variant: "destructive",
+                  });
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
       </div>
 
       {/* Stats Overview */}
       {stats && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{occupancyLabel}</div>
-            </CardContent>
-          </Card>
+          {tenanciesEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{occupancyLabel}</div>
+              </CardContent>
+            </Card>
+          )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Compliance</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
-            </CardContent>
-          </Card>
+          {complianceEnabled && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Compliance</CardTitle>
+                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -603,44 +700,54 @@ export default function PropertyDetail() {
       )}
 
       {/* Tabbed Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="inspections" data-testid="tab-inspections">
-            <ClipboardCheck className="h-4 w-4 mr-2" />
-            Inspections
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-w-0">
+        <TabsList className={tabsListScroll}>
+          <TabsTrigger value="inspections" data-testid="tab-inspections" className="shrink-0 gap-1.5">
+            <ClipboardCheck className="h-4 w-4 shrink-0" />
+            <span>Inspections</span>
           </TabsTrigger>
-          <TabsTrigger value="tenants" data-testid="tab-tenants">
-            <Users className="h-4 w-4 mr-2" />
-            Tenants
+          {tenanciesEnabled && (
+            <TabsTrigger value="tenants" data-testid="tab-tenants" className="shrink-0 gap-1.5">
+              <Users className="h-4 w-4 shrink-0" />
+              <span>Tenants</span>
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="inventory" data-testid="tab-inventory" className="shrink-0 gap-1.5">
+            <Package className="h-4 w-4 shrink-0" />
+            <span>Inventory</span>
           </TabsTrigger>
-          <TabsTrigger value="inventory" data-testid="tab-inventory">
-            <Package className="h-4 w-4 mr-2" />
-            Inventory
+          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule" className="shrink-0 gap-1.5">
+            <ClipboardCheck className="h-4 w-4 shrink-0" />
+            <span>Inspection Schedule</span>
           </TabsTrigger>
-          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule">
-            <ClipboardCheck className="h-4 w-4 mr-2" />
-            Inspection Schedule
+          {complianceEnabled && (
+            <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule" className="shrink-0 gap-1.5">
+              <FileCheck className="h-4 w-4 shrink-0" />
+              <span>Compliance Documents</span>
+            </TabsTrigger>
+          )}
+          {maintenanceEnabled && (
+          <TabsTrigger value="maintenance" data-testid="tab-maintenance" className="shrink-0 gap-1.5">
+            <Wrench className="h-4 w-4 shrink-0" />
+            <span>Maintenance</span>
           </TabsTrigger>
-          <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule">
-            <FileCheck className="h-4 w-4 mr-2" />
-            Compliance Documents
-          </TabsTrigger>
-          <TabsTrigger value="maintenance" data-testid="tab-maintenance">
-            <Wrench className="h-4 w-4 mr-2" />
-            Maintenance
-          </TabsTrigger>
-          <TabsTrigger value="deposit" data-testid="tab-deposit">
-            <Wallet className="h-4 w-4 mr-2" />
-            Deposit
-          </TabsTrigger>
-          <TabsTrigger value="rent-collection" data-testid="tab-rent-collection">
-            <Banknote className="h-4 w-4 mr-2" />
-            Rent Collection
-          </TabsTrigger>
-          <TabsTrigger value="expenses" data-testid="tab-expenses">
-            <Receipt className="h-4 w-4 mr-2" />
-            Expenses
-          </TabsTrigger>
+          )}
+          {rentalsEnabled && (
+            <>
+              <TabsTrigger value="deposit" data-testid="tab-deposit" className="shrink-0 gap-1.5">
+                <Wallet className="h-4 w-4 shrink-0" />
+                <span>Deposit</span>
+              </TabsTrigger>
+              <TabsTrigger value="rent-collection" data-testid="tab-rent-collection" className="shrink-0 gap-1.5">
+                <Banknote className="h-4 w-4 shrink-0" />
+                <span>Rent Collection</span>
+              </TabsTrigger>
+              <TabsTrigger value="expenses" data-testid="tab-expenses" className="shrink-0 gap-1.5">
+                <Receipt className="h-4 w-4 shrink-0" />
+                <span>Expenses</span>
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         {/* Inspections Tab */}
@@ -969,6 +1076,7 @@ export default function PropertyDetail() {
         </TabsContent>
 
         {/* Maintenance Tab */}
+        {maintenanceEnabled && (
         <TabsContent value="maintenance" className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold">Maintenance Requests</h2>
@@ -1031,6 +1139,7 @@ export default function PropertyDetail() {
             </div>
           )}
         </TabsContent>
+        )}
 
         <TabsContent value="deposit" className="space-y-4">
           <PropertyDepositPanel propertyId={propertyId!} />

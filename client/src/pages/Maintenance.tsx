@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -183,6 +184,8 @@ export default function Maintenance() {
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
+  const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
+  const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
 
   const canSeeWorkOrders =
     user?.role === "owner" || user?.role === "contractor" || user?.role === "clerk";
@@ -267,6 +270,48 @@ export default function Maintenance() {
     },
     onError: () => {
       toast({ title: "Failed to update work order status", variant: "destructive" });
+    },
+  });
+
+  const deleteRequestMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/maintenance/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/analytics/work-orders"] });
+      setRequestToDelete(null);
+      toast({
+        title: "Request deleted",
+        description: "Any linked work orders were deleted automatically.",
+      });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to delete request",
+        description: e?.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteWorkOrderMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/work-orders/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/analytics/work-orders"] });
+      setWorkOrderToDelete(null);
+      toast({ title: "Work order deleted" });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to delete work order",
+        description: e?.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -1552,20 +1597,31 @@ export default function Maintenance() {
                           </CardTitle>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {(user?.role === "owner" || user?.role === "clerk") && (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => handleEdit(request)}
-                                data-testid={`button-edit-${request.id}`}
-                                className="h-8 w-8"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Button>
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleEdit(request)}
+                                  data-testid={`button-edit-${request.id}`}
+                                  className="h-8 w-8"
+                                  title="Edit request"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => setRequestToDelete(request)}
+                                  data-testid={`button-delete-${request.id}`}
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="Delete request"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
                             )}
-                            <div className="flex flex-col gap-1 items-end">
-                              {getPriorityBadge(request.priority)}
-                              {getStatusBadge(request.status)}
-                            </div>
+                            {getPriorityBadge(request.priority)}
+                            {getStatusBadge(request.status)}
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2 text-xs md:text-sm text-muted-foreground">
@@ -1769,9 +1825,23 @@ export default function Maintenance() {
                                 {workOrder.maintenanceRequest.description || "No description provided"}
                               </CardDescription>
                             </div>
-                            <Badge className={cn(workOrderStatusColors[workOrder.status], "shrink-0 capitalize")}>
-                              {workOrder.status.replace("_", " ")}
-                            </Badge>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {(user?.role === "owner" || user?.role === "clerk") && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => setWorkOrderToDelete(workOrder)}
+                                  data-testid={`button-delete-work-order-${workOrder.id}`}
+                                  title="Delete work order"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                              <Badge className={cn(workOrderStatusColors[workOrder.status], "capitalize")}>
+                                {workOrder.status.replace("_", " ")}
+                              </Badge>
+                            </div>
                           </div>
                         </CardHeader>
                         <CardContent className="p-4 md:p-5 pt-0">
@@ -1954,6 +2024,45 @@ export default function Maintenance() {
           </DialogContent>
         </Dialog>
       )}
+
+      <DeleteConfirmDialog
+        open={!!requestToDelete}
+        onOpenChange={(open) => {
+          if (!open) setRequestToDelete(null);
+        }}
+        title="Delete maintenance request?"
+        description="This permanently deletes the maintenance request"
+        itemName={requestToDelete?.title}
+        warning={
+          (() => {
+            const linkedCount = requestToDelete
+              ? workOrders.filter((wo) => wo.maintenanceRequest?.id === requestToDelete.id).length
+              : 0;
+            if (linkedCount > 0) {
+              return `Any work order(s) against this maintenance request will be deleted automatically (${linkedCount} linked). This cannot be undone.`;
+            }
+            return "Any work order(s) created against this maintenance request will be deleted automatically. This cannot be undone.";
+          })()
+        }
+        isPending={deleteRequestMutation.isPending}
+        onConfirm={() => {
+          if (requestToDelete) deleteRequestMutation.mutate(requestToDelete.id);
+        }}
+      />
+
+      <DeleteConfirmDialog
+        open={!!workOrderToDelete}
+        onOpenChange={(open) => {
+          if (!open) setWorkOrderToDelete(null);
+        }}
+        title="Delete work order?"
+        description="This permanently deletes the work order. The related maintenance request is kept."
+        itemName={workOrderToDelete?.maintenanceRequest?.title}
+        isPending={deleteWorkOrderMutation.isPending}
+        onConfirm={() => {
+          if (workOrderToDelete) deleteWorkOrderMutation.mutate(workOrderToDelete.id);
+        }}
+      />
     </div>
   );
 }

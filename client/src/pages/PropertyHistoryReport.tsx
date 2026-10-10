@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,44 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
+import { PreviewableImage } from "@/components/ImagePreview";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+
+function normalizeAssetPhotoUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.pathname.startsWith("/objects/")) {
+        return `${parsed.pathname}${parsed.search}`;
+      }
+      return trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+  if (trimmed.startsWith("/")) return trimmed;
+  if (trimmed.startsWith("objects/")) return `/${trimmed}`;
+  return `/${trimmed.replace(/^\/+/, "")}`;
+}
+
+function isLikelyAssetDocument(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const path = url.split("?")[0].toLowerCase();
+  return path.endsWith(".pdf") || path.includes(".pdf");
+}
+
+function firstAssetImage(photos: unknown): string | null {
+  if (!Array.isArray(photos)) return null;
+  for (const item of photos) {
+    if (typeof item !== "string" || !item.trim()) continue;
+    if (isLikelyAssetDocument(item)) continue;
+    return normalizeAssetPhotoUrl(item);
+  }
+  return null;
+}
 
 function formatDate(value: any): string {
   if (!value) return "";
@@ -235,6 +273,7 @@ function searchPropertyId(search: string): string {
 export default function PropertyHistoryReport() {
   const { toast } = useToast();
   const { formatCurrency } = useLocale();
+  const { maintenanceEnabled } = useCompanyModules();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const propertyId = searchPropertyId(search);
@@ -252,11 +291,11 @@ export default function PropertyHistoryReport() {
   });
   const { data: maintenanceRequests = [], isLoading: maintenanceLoading } = useQuery<any[]>({
     queryKey: ["/api/maintenance"],
-    enabled: !!propertyId,
+    enabled: !!propertyId && maintenanceEnabled,
   });
   const { data: workOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/work-orders"],
-    enabled: !!propertyId,
+    enabled: !!propertyId && maintenanceEnabled,
   });
   const { data: assetInventory = [], isLoading: assetsLoading } = useQuery<any[]>({
     queryKey: ["/api/asset-inventory"],
@@ -364,7 +403,7 @@ export default function PropertyHistoryReport() {
     propertiesLoading ||
     (!!propertyId &&
       (inspectionsLoading ||
-        maintenanceLoading ||
+        (maintenanceEnabled && maintenanceLoading) ||
         assetsLoading ||
         complianceLoading ||
         tenantsLoading ||
@@ -497,10 +536,14 @@ export default function PropertyHistoryReport() {
               { label: "Inspections", value: propertyInspections.length, target: "section-inspections" },
               { label: "Tenants", value: propertyTenants.length, target: "section-tenants" },
               { label: "Compliance", value: propertyCompliance.length, target: "section-compliance" },
-              { label: "Maintenance", value: propertyMaintenance.length, target: "section-maintenance" },
+              maintenanceEnabled
+                ? { label: "Maintenance", value: propertyMaintenance.length, target: "section-maintenance" }
+                : null,
               { label: "Disputes", value: disputeRows.length, target: "section-disputes" },
               { label: "Assets", value: propertyAssets.length, target: "section-assets" },
-            ].map((card) => (
+            ]
+              .filter((card): card is { label: string; value: number; target: string } => card !== null)
+              .map((card) => (
               <button
                 key={card.target}
                 type="button"
@@ -750,6 +793,7 @@ export default function PropertyHistoryReport() {
             </Table>
           </SectionTable>
 
+          {maintenanceEnabled && (
           <SectionTable title="Maintenance History" icon={Wrench} count={propertyMaintenance.length} id="section-maintenance">
             <Table className={reportTableClass}>
               <TableHeader>
@@ -821,6 +865,7 @@ export default function PropertyHistoryReport() {
               </TableBody>
             </Table>
           </SectionTable>
+          )}
 
           <SectionTable title="Dispute History" icon={Scale} count={disputeRows.length} id="section-disputes">
             <Table className={reportTableClass}>
@@ -895,10 +940,39 @@ export default function PropertyHistoryReport() {
                 ) : (
                   propertyAssets.map((asset) => {
                     const href = `/asset-inventory?assetId=${asset.id}`;
+                    const thumb = firstAssetImage(asset.photos);
+                    const gallery = Array.isArray(asset.photos)
+                      ? asset.photos
+                          .filter((p: unknown): p is string => typeof p === "string" && !!p.trim() && !isLikelyAssetDocument(p))
+                          .map((p: string) => ({
+                            src: normalizeAssetPhotoUrl(p) || p,
+                            alt: asset.name || "Asset",
+                            title: asset.name || "Asset",
+                          }))
+                      : [];
                     return (
                       <TableRow key={asset.id}>
                         <TableCell>
-                          <CellStack title={asset.name || "—"} sub={asset.category || ""} href={href} />
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md border bg-muted">
+                              {thumb ? (
+                                <PreviewableImage
+                                  src={thumb}
+                                  alt={asset.name || "Asset"}
+                                  title={asset.name || "Asset"}
+                                  showHint={false}
+                                  gallery={gallery}
+                                  className="h-full w-full object-cover"
+                                  data-testid={`img-asset-thumb-${asset.id}`}
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Package className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                            </div>
+                            <CellStack title={asset.name || "—"} sub={asset.category || ""} href={href} />
+                          </div>
                         </TableCell>
                         <TableCell>
                           <TextLink href={href}>{asset.location || "—"}</TextLink>

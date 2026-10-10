@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import type { Tag } from "@shared/schema";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 interface TagSearchProps {
   open: boolean;
@@ -27,7 +28,7 @@ export function TagSearch({ open, onOpenChange }: TagSearchProps) {
   const [, setLocation] = useLocation();
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
-
+  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
   const { data: allTags = [] } = useQuery<Tag[]>({
     queryKey: ["/api/tags"],
   });
@@ -76,8 +77,9 @@ export function TagSearch({ open, onOpenChange }: TagSearchProps) {
       searchResults.properties.length +
       searchResults.users.length +
       searchResults.complianceDocuments.length +
-      searchResults.assetInventory.length +
+      (complianceEnabled ? searchResults.complianceDocuments.length : 0) +
       searchResults.maintenanceRequests.length
+      (maintenanceEnabled ? searchResults.maintenanceRequests.length : 0)
     );
   };
 
@@ -223,7 +225,7 @@ export function TagSearch({ open, onOpenChange }: TagSearchProps) {
                   )}
 
                   {/* Compliance Documents */}
-                  {searchResults.complianceDocuments.length > 0 && (
+                  {complianceEnabled && searchResults.complianceDocuments.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                         <FileText className="h-4 w-4" />
@@ -275,7 +277,7 @@ export function TagSearch({ open, onOpenChange }: TagSearchProps) {
                   )}
 
                   {/* Maintenance Requests */}
-                  {searchResults.maintenanceRequests.length > 0 && (
+                  {maintenanceEnabled && searchResults.maintenanceRequests.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                         <Wrench className="h-4 w-4" />

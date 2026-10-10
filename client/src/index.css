@@ -526,3 +526,47 @@
     pointer-events: auto !important;
   }
 }
+
+/* Card quick-action bars: labels visible by default; hidden only when cramped */
+.card-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(var(--qa-cols, 5), minmax(0, 1fr));
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.card-quick-actions[data-count="4"] { --qa-cols: 4; }
+.card-quick-actions[data-count="5"] { --qa-cols: 5; }
+.card-quick-actions[data-count="6"] { --qa-cols: 6; }
+.card-quick-actions[data-count="7"] { --qa-cols: 7; }
+
+.card-quick-actions .card-quick-action {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  height: auto !important;
+  min-height: 2.5rem;
+  min-width: 0;
+  width: 100%;
+  padding: 0.5rem 0.15rem !important;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.card-quick-actions .card-quick-action-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.card-quick-actions .card-quick-action-label--hidden {
+  display: none;
+}

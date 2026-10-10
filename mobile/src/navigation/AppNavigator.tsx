@@ -16,6 +16,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { useAuth, isTenantRole } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useTenantPortalFlags } from '../hooks/useTenantPortalFlags';
+import { useCompanyModules } from '../hooks/useCompanyModules';
 import { useTenantEntitlement } from '../hooks/useTenantEntitlement';
 import { colors } from '../theme';
 import { moderateScale } from '../utils/responsive';
@@ -182,6 +183,7 @@ function MainTabNavigator() {
   const theme = useTheme();
   const themeColors = theme && theme.colors ? theme.colors : colors;
   const isDark = !!theme?.isDark;
+  const { maintenanceEnabled } = useCompanyModules();
   const barColor = themeColors.card.DEFAULT;
   const insetColor = isDark ? '#000000' : '#E8E8E8';
   const bottomInset = Math.max(insets.bottom, moderateScale(8, 0.3));
@@ -224,6 +226,7 @@ function MainTabNavigator() {
           ),
         }}
       />
+      {maintenanceEnabled && (
       <MainTabs.Screen
         name="Maintenance"
         component={MaintenanceNavigator}
@@ -233,6 +236,8 @@ function MainTabNavigator() {
           ),
         }}
       />
+      )}
+      {maintenanceEnabled && (
       <MainTabs.Screen
         name="WorkOrders"
         component={WorkOrdersNavigator}
@@ -243,6 +248,7 @@ function MainTabNavigator() {
           ),
         }}
       />
+      )}
       <MainTabs.Screen
         name="Assets"
         component={AssetsNavigator}

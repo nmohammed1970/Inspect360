@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X } from "lucide-react";
+import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, Trash2, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { formatDistanceToNow, format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -142,6 +143,7 @@ export default function Analytics() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>("all");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null);
+  const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
   const [draggingWorkOrderId, setDraggingWorkOrderId] = useState<string | null>(null);
   const [dropTargetColumn, setDropTargetColumn] = useState<keyof typeof statusCategories | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -212,6 +214,25 @@ export default function Analytics() {
     if (workOrder.status === nextStatus) return;
     updateStatusMutation.mutate({ id: workOrderId, status: nextStatus });
   };
+
+  const deleteWorkOrderMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/work-orders/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/analytics/work-orders"] });
+      setWorkOrderToDelete(null);
+      toast({ title: "Work order deleted" });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to delete work order",
+        description: e?.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const updateWorkOrderMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
@@ -697,6 +718,11 @@ export default function Analytics() {
                         key={wo.id}
                         workOrder={wo}
                         onEdit={openEditDialog}
+                        onDelete={
+                          user?.role === "owner" || user?.role === "clerk"
+                            ? setWorkOrderToDelete
+                            : undefined
+                        }
                         onStatusChange={(status) =>
                           updateStatusMutation.mutate({ id: wo.id, status })
                         }
@@ -1066,6 +1092,20 @@ export default function Analytics() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DeleteConfirmDialog
+        open={!!workOrderToDelete}
+        onOpenChange={(open) => {
+          if (!open) setWorkOrderToDelete(null);
+        }}
+        title="Delete work order?"
+        description="This permanently deletes the work order. The related maintenance request is kept."
+        itemName={workOrderToDelete?.maintenanceRequest?.title}
+        isPending={deleteWorkOrderMutation.isPending}
+        onConfirm={() => {
+          if (workOrderToDelete) deleteWorkOrderMutation.mutate(workOrderToDelete.id);
+        }}
+      />
     </div>
   );
 }
@@ -1073,6 +1113,7 @@ export default function Analytics() {
 interface WorkOrderCardProps {
   workOrder: WorkOrder;
   onEdit: (wo: WorkOrder) => void;
+  onDelete?: (wo: WorkOrder) => void;
   onStatusChange: (status: string) => void;
   locale: any;
   compact?: boolean;
@@ -1084,6 +1125,7 @@ interface WorkOrderCardProps {
 function WorkOrderCard({
   workOrder,
   onEdit,
+  onDelete,
   onStatusChange,
   locale,
   compact = false,
@@ -1121,16 +1163,38 @@ function WorkOrderCard({
             <h4 className={cn("font-semibold leading-snug line-clamp-2", compact ? "text-xs" : "text-sm")}>
               {workOrder.maintenanceRequest.title}
             </h4>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              className="h-7 w-7 flex-shrink-0 cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); onEdit(workOrder); }}
-              onPointerDown={(e) => e.stopPropagation()}
-              data-testid={`button-edit-${workOrder.id}`}
-            >
-              <Edit className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(workOrder);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                data-testid={`button-edit-${workOrder.id}`}
+                title="Edit work order"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </Button>
+              {onDelete && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 cursor-pointer text-destructive hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(workOrder);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  data-testid={`button-delete-${workOrder.id}`}
+                  title="Delete work order"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-1.5 flex-wrap">

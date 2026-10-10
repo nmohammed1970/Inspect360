@@ -25,6 +25,7 @@ import {
 } from "@shared/schema";
 import { billingCurrencySymbol } from "@shared/billingCurrencies";
 import { computeRentPeriodWindows as computeWindows } from "@shared/rentPeriodMath";
+import { isCompanyModuleEnabled } from "@shared/companyModules";
 
 const DEFAULT_TEMPLATES = {
   reminder1Subject: "Rent reminder: payment due in {days_until_due} days",
@@ -135,11 +136,21 @@ export async function reconcileRentPeriods(): Promise<{ assignments: number; cre
     .from(tenantAssignments)
     .where(eq(tenantAssignments.isActive, true));
 
+  const orgIds = [...new Set(active.map((a) => a.organizationId))];
+  const rentalsOnByOrg = new Map<string, boolean>();
+  for (const orgId of orgIds) {
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
+    rentalsOnByOrg.set(orgId, isCompanyModuleEnabled(org, "rentals"));
+  }
+
   let created = 0;
+  let processed = 0;
   for (const a of active) {
+    if (!rentalsOnByOrg.get(a.organizationId)) continue;
+    processed += 1;
     created += await generateRentPeriodsForAssignment(a.id);
   }
-  return { assignments: active.length, created };
+  return { assignments: processed, created };
 }
 
 export async function listPropertyDeposits(organizationId: string, propertyId: string) {
@@ -751,6 +762,14 @@ export async function processScheduledRentReminders(): Promise<void> {
   const todayKey = today.toISOString().slice(0, 10);
 
   for (const settings of enabledSettings) {
+    const [org] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, settings.organizationId));
+
+    // Skip orgs with Rentals company module disabled
+    if (!isCompanyModuleEnabled(org, "rentals")) continue;
+
     const openPeriods = await db
       .select()
       .from(rentPeriods)
@@ -762,11 +781,6 @@ export async function processScheduledRentReminders(): Promise<void> {
       );
 
     if (!openPeriods.length) continue;
-
-    const [org] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.id, settings.organizationId));
 
     const propertyIds = [...new Set(openPeriods.map((p) => p.propertyId))];
     const allItems: RentPeriodListItem[] = [];

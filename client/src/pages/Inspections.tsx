@@ -46,6 +46,9 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { cardGrid } from "@/lib/responsive";
+import { formatRoomCountsSummary, parseRoomCounts } from "@shared/propertyLayout";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -148,6 +151,7 @@ export default function Inspections() {
   const { toast } = useToast();
   const { user } = useAuth();
   const locale = useLocale();
+  const { tenanciesEnabled } = useCompanyModules();
   const [, navigate] = useLocation();
   const searchParams = useSearch();
   const urlParams = new URLSearchParams(searchParams);
@@ -689,6 +693,31 @@ export default function Inspections() {
                   />
                 )}
 
+                {form.watch("targetType") === "property" && selectedPropertyId && (() => {
+                  const selectedProperty = properties.find((p: any) => p.id === selectedPropertyId);
+                  if (!selectedProperty) return null;
+                  const summary = formatRoomCountsSummary(
+                    parseRoomCounts({
+                      bedrooms: selectedProperty.bedrooms,
+                      kitchens: selectedProperty.kitchens,
+                      bathrooms: selectedProperty.bathrooms,
+                      livingRooms: selectedProperty.livingRooms,
+                    }),
+                  );
+                  return (
+                    <div
+                      className="rounded-md border bg-muted/30 p-3 space-y-1"
+                      data-testid="selected-property-layout-summary"
+                    >
+                      <p className="text-sm font-medium">Selected Property Layout</p>
+                      <p className="text-sm text-muted-foreground">{summary}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Inspection rooms will be generated from these property counts.
+                      </p>
+                    </div>
+                  );
+                })()}
+
                 {/* Active Tenants Display */}
                 {form.watch("targetType") === "property" && selectedPropertyId && (
                   <div className="space-y-2">
@@ -1182,7 +1211,7 @@ export default function Inspections() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className={cardGrid}>
           {filteredInspections.map((inspection: any) => (
             <Card key={inspection.id} className="hover-elevate flex flex-col" data-testid={`card-inspection-${inspection.id}`}>
               <CardHeader>
@@ -1192,8 +1221,8 @@ export default function Inspections() {
                   </CardTitle>
                   <div className="flex flex-col items-end gap-1">
                     {getStatusBadge(inspection.status)}
-                    {/* Tenant Approval Status - For Check-In Inspections */}
-                    {inspection.type === "check_in" && (
+                    {/* Tenant Approval Status - For Check-In Inspections (tenancies module only) */}
+                    {tenanciesEnabled && inspection.type === "check_in" && (
                       (() => {
                         // Check if deadline has passed and status is still pending/null - should show as approved
                         const deadline = inspection.tenantApprovalDeadline 

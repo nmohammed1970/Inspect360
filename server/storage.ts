@@ -27,6 +27,7 @@ import {
   inventoryItems,
   workOrders,
   workLogs,
+  workOrderCertificates,
   assetInventory,
   tags,
   blockTags,
@@ -1621,6 +1622,37 @@ export class DatabaseStorage implements IStorage {
     return request;
   }
 
+  async getMaintenanceRequest(id: string): Promise<MaintenanceRequest | undefined> {
+    const [request] = await db
+      .select()
+      .from(maintenanceRequests)
+      .where(eq(maintenanceRequests.id, id));
+    return request;
+  }
+
+  async deleteMaintenanceRequest(id: string): Promise<void> {
+    // Delete linked work orders (and their children) first
+    const linkedWorkOrders = await db
+      .select({ id: workOrders.id })
+      .from(workOrders)
+      .where(eq(workOrders.maintenanceRequestId, id));
+    for (const wo of linkedWorkOrders) {
+      await this.deleteWorkOrder(wo.id);
+    }
+
+    await db
+      .delete(maintenanceRequestTags)
+      .where(eq(maintenanceRequestTags.maintenanceRequestId, id));
+
+    // Clear soft links from tenant chats
+    await db
+      .update(tenantMaintenanceChats)
+      .set({ maintenanceRequestId: null, updatedAt: new Date() })
+      .where(eq(tenantMaintenanceChats.maintenanceRequestId, id));
+
+    await db.delete(maintenanceRequests).where(eq(maintenanceRequests.id, id));
+  }
+
   // Comparison Report operations
   async createComparisonReport(reportData: InsertComparisonReport): Promise<ComparisonReport> {
     const [report] = await db.insert(comparisonReports).values(reportData).returning();
@@ -2656,6 +2688,17 @@ export class DatabaseStorage implements IStorage {
       .where(eq(workOrders.id, id))
       .returning();
     return workOrder;
+  }
+
+  async deleteWorkOrder(id: string): Promise<void> {
+    await db.delete(workLogs).where(eq(workLogs.workOrderId, id));
+    await db.delete(workOrderCertificates).where(eq(workOrderCertificates.workOrderId, id));
+    // Detach compliance docs that were linked from this work order (keep the docs)
+    await db
+      .update(complianceDocuments)
+      .set({ sourceWorkOrderId: null, updatedAt: new Date() })
+      .where(eq(complianceDocuments.sourceWorkOrderId, id));
+    await db.delete(workOrders).where(eq(workOrders.id, id));
   }
 
   // Work Log operations

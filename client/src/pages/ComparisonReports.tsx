@@ -25,6 +25,7 @@ import { format } from "date-fns";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface ComparisonReport {

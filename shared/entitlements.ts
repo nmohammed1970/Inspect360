@@ -23,6 +23,7 @@ export const LOCKED_API_PREFIXES = [
   "/api/tenant/maintenance-chat",
   "/api/tenant/maintenance-requests",
   "/api/community",
+  "/api/reapit",
 ] as const;
 
 /** App routes for the same modules, including tenant equivalents. */

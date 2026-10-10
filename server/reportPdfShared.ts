@@ -42,6 +42,140 @@ export function sanitizeReportUrl(url: string, baseUrl?: string): string {
   return escapeHtml(trimmed);
 }
 
+const SAFE_DATA_IMAGE_PREFIXES = [
+  "data:image/png",
+  "data:image/jpeg",
+  "data:image/jpg",
+  "data:image/gif",
+  "data:image/webp",
+];
+
+function mimeFromUrlExt(url: string): string {
+  const ext = url.split(".").pop()?.toLowerCase()?.split("?")[0] || "";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  return "image/png";
+}
+
+/**
+ * Convert a report image URL to a data URL for Puppeteer embedding.
+ * Unlike logoToDataUrl, does NOT fall back to the Inspect360 logo when missing.
+ */
+export async function resolveReportImageToDataUrl(
+  imageUrl?: string | null,
+  baseUrl?: string,
+): Promise<string | null> {
+  if (!imageUrl || typeof imageUrl !== "string") return null;
+  const trimmed = imageUrl.trim();
+  if (!trimmed) return null;
+
+  const lower = trimmed.toLowerCase();
+  if (SAFE_DATA_IMAGE_PREFIXES.some((p) => lower.startsWith(p))) {
+    return trimmed;
+  }
+
+  // Reject unsafe schemes (javascript:, etc.)
+  if (
+    !trimmed.startsWith("/") &&
+    !lower.startsWith("https://") &&
+    !lower.startsWith("http://")
+  ) {
+    return null;
+  }
+
+  try {
+    if (trimmed.startsWith("/objects/")) {
+      const objectStorageService = new ObjectStorageService();
+      const file = await objectStorageService.getObjectEntityFile(trimmed);
+      const buf = await fs.readFile(file.name);
+      return `data:${mimeFromUrlExt(trimmed)};base64,${buf.toString("base64")}`;
+    }
+
+    let absoluteUrl = trimmed;
+    if (trimmed.startsWith("/") && baseUrl) {
+      absoluteUrl = `${baseUrl}${trimmed}`;
+    } else if (trimmed.startsWith("/") && !baseUrl) {
+      return null;
+    }
+
+    const response = await fetch(absoluteUrl, { headers: { Accept: "image/*" } });
+    if (!response.ok) {
+      console.warn(`[Report PDF] Image fetch failed (${response.status}): ${absoluteUrl.substring(0, 120)}`);
+      return null;
+    }
+    const contentType = response.headers.get("content-type") || mimeFromUrlExt(trimmed);
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      console.warn(`[Report PDF] Non-image content-type for cover image: ${contentType}`);
+      return null;
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return `data:${contentType};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+  } catch (error) {
+    console.warn("[Report PDF] Cover image conversion failed:", error);
+    return null;
+  }
+}
+
+/** Prefer property cover image; fall back to block cover for block-scoped reports. */
+export async function resolvePropertyOrBlockCoverDataUrl(
+  opts: {
+    property?: { imageUrl?: string | null } | null;
+    block?: { imageUrl?: string | null } | null;
+  },
+  baseUrl?: string,
+): Promise<string | null> {
+  const propertyUrl = opts.property?.imageUrl?.trim();
+  if (propertyUrl) {
+    const data = await resolveReportImageToDataUrl(propertyUrl, baseUrl);
+    if (data) return data;
+  }
+  const blockUrl = opts.block?.imageUrl?.trim();
+  if (blockUrl) {
+    return resolveReportImageToDataUrl(blockUrl, baseUrl);
+  }
+  return null;
+}
+
+/** Empty string when no image — never renders a broken/empty frame. */
+export function renderCoverSubjectImageHtml(
+  dataUrl: string | null | undefined,
+  alt = "Property",
+): string {
+  if (!dataUrl || typeof dataUrl !== "string") return "";
+  const trimmed = dataUrl.trim();
+  if (!trimmed) return "";
+  const lower = trimmed.toLowerCase();
+  if (!SAFE_DATA_IMAGE_PREFIXES.some((p) => lower.startsWith(p))) {
+    return "";
+  }
+  return `<div class="cover-subject-image-wrap"><img class="cover-subject-image" src="${trimmed}" alt="${escapeHtml(alt)}" /></div>`;
+}
+
+/** CSS snippet for property/block cover photos (append where sharedCss is not used). */
+export function coverSubjectImageCss(): string {
+  return `
+    .cover-subject-image-wrap {
+      margin: 14px auto 16px;
+      width: 145mm;
+      max-width: 85%;
+      position: relative;
+      z-index: 1;
+      flex-shrink: 0;
+    }
+    .cover-subject-image {
+      width: 100%;
+      height: 80mm;
+      max-height: 80mm;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      display: block;
+    }
+  `;
+}
+
 export async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): Promise<string | null> {
   const url = resolveReportLogoUrl(logoUrl, "on-dark");
   if (url.startsWith("data:")) return url;
@@ -58,16 +192,7 @@ export async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): 
       const objectStorageService = new ObjectStorageService();
       const logoFile = await objectStorageService.getObjectEntityFile(url);
       const buf = await fs.readFile(logoFile.name);
-      const ext = url.split(".").pop()?.toLowerCase() || "";
-      const mime =
-        ext === "jpg" || ext === "jpeg"
-          ? "image/jpeg"
-          : ext === "webp"
-            ? "image/webp"
-            : ext === "gif"
-              ? "image/gif"
-              : "image/png";
-      return `data:${mime};base64,${buf.toString("base64")}`;
+      return `data:${mimeFromUrlExt(url)};base64,${buf.toString("base64")}`;
     }
 
     let absoluteUrl = url;
@@ -167,20 +292,25 @@ export function sharedCss(): string {
       display: flex;
       flex-direction: column;
       align-items: center;
+      /* Keep meta above absolutely positioned .cover-contact footer */
+      padding: 16px 24px 72px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     .cover-logo-container {
-      margin-bottom: 32px;
+      margin-bottom: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
     }
     .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
+      max-height: 72px;
+      max-width: 240px;
       width: auto;
       height: auto;
       object-fit: contain;
-      margin-top: 24px;
+      margin-top: 12px;
       background: transparent;
     }
     .cover-logo-text {
@@ -196,29 +326,35 @@ export function sharedCss(): string {
       letter-spacing: 1px;
     }
     .cover-title {
-      font-size: 42px;
+      font-size: 36px;
       font-weight: 700;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       letter-spacing: 0.5px;
     }
     .cover-subtitle {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 400;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
       opacity: 0.9;
+      max-width: 90%;
     }
     .cover-meta {
-      font-size: 16px;
+      font-size: 15px;
       opacity: 0.9;
-      margin-top: 10px;
+      margin-top: 6px;
     }
     .cover-contact {
       position: absolute;
-      bottom: 40px;
-      font-size: 14px;
+      bottom: 28px;
+      left: 24px;
+      right: 24px;
+      font-size: 13px;
       opacity: 0.8;
-      z-index: 1;
+      z-index: 2;
+      text-align: center;
+      pointer-events: none;
     }
+    ${coverSubjectImageCss()}
     .page {
       padding: 40px;
       page-break-after: always;

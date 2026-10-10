@@ -30,7 +30,7 @@ import {
 import { format } from "date-fns";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
+import { pagePad, dialogContentBase, dialogFooterSticky, cardGrid } from "@/lib/responsive";
 
 interface Block {
   id: string;
@@ -978,7 +978,7 @@ export default function CommunityModeration() {
                     <CheckCircle className="h-4 w-4 md:h-5 md:w-5 text-green-500 shrink-0" />
                     <span>Active Groups ({approvedGroups.length})</span>
                   </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  <div className={cn(cardGrid, "gap-3 md:gap-4")}>
                     {approvedGroups.map((group) => (
                       <Card 
                         key={group.id} 

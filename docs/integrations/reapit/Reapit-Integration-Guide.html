@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Inspect360 × Reapit Integration Guide</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Calibri, Arial, sans-serif;
+    color: #1a2332;
+    font-size: 11pt;
+    line-height: 1.45;
+    margin: 0;
+  }
+  .cover {
+    page-break-after: always;
+    min-height: 240mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 24mm 8mm;
+    background: linear-gradient(165deg, #0f2744 0%, #1a4a6e 55%, #2a6f8f 100%);
+    color: #fff;
+    border-radius: 4px;
+  }
+  .cover .eyebrow {
+    font-size: 10pt;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    opacity: 0.85;
+    margin-bottom: 18px;
+  }
+  .cover h1 {
+    font-size: 28pt;
+    font-weight: 700;
+    margin: 0 0 12px;
+    line-height: 1.15;
+  }
+  .cover .subtitle {
+    font-size: 13pt;
+    opacity: 0.92;
+    max-width: 420px;
+    margin-bottom: 40px;
+  }
+  .cover .meta {
+    font-size: 10pt;
+    opacity: 0.75;
+    border-top: 1px solid rgba(255,255,255,0.25);
+    padding-top: 16px;
+    margin-top: auto;
+  }
+  h2 {
+    font-size: 15pt;
+    color: #0f2744;
+    border-bottom: 2px solid #2a6f8f;
+    padding-bottom: 6px;
+    margin: 22px 0 12px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12pt;
+    color: #1a4a6e;
+    margin: 16px 0 8px;
+    page-break-after: avoid;
+  }
+  p { margin: 0 0 10px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 5px; }
+  .callout {
+    background: #f0f6fa;
+    border-left: 4px solid #2a6f8f;
+    padding: 10px 14px;
+    margin: 12px 0 14px;
+    border-radius: 0 4px 4px 0;
+  }
+  .warn {
+    background: #fdf6e8;
+    border-left-color: #c48a1a;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px;
+    font-size: 10pt;
+  }
+  th, td {
+    border: 1px solid #c5d3de;
+    padding: 7px 9px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #e8f1f6;
+    color: #0f2744;
+    font-weight: 600;
+  }
+  code, .mono {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9.5pt;
+    background: #eef3f7;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .flow {
+    background: #f7fafc;
+    border: 1px solid #d0dde8;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-family: Consolas, monospace;
+    font-size: 9pt;
+    white-space: pre-wrap;
+    margin: 10px 0 14px;
+    line-height: 1.35;
+  }
+  .toc li { margin-bottom: 4px; }
+  .footer-note {
+    margin-top: 28px;
+    font-size: 9pt;
+    color: #5a6a7a;
+    border-top: 1px solid #d0dde8;
+    padding-top: 10px;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 10px 0 14px;
+  }
+  .card {
+    border: 1px solid #d0dde8;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #fff;
+  }
+  .card strong { color: #0f2744; display: block; margin-bottom: 4px; }
+  .badge {
+    display: inline-block;
+    background: #2a6f8f;
+    color: #fff;
+    font-size: 8.5pt;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 4px;
+  }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="eyebrow">Inspect360 Documentation</div>
+  <h1>Reapit Foundations<br/>Integration Guide</h1>
+  <p class="subtitle">How Reapit connects to Inspect360, what you need to turn it on, how to use it day to day, and the value it brings to your lettings operations.</p>
+  <div class="meta">
+    Version 1.0 · One-way sync (Reapit → Inspect360)<br/>
+    Audience: owners, operations, and technical administrators
+  </div>
+</section>
+
+<section>
+  <h2>1. Contents</h2>
+  <ol class="toc">
+    <li>What this integration does</li>
+    <li>How it is built into Inspect360</li>
+    <li>What data comes across</li>
+    <li>What you need before using it</li>
+    <li>How to connect and use it</li>
+    <li>How it helps your business</li>
+    <li>Security, ownership, and limits (v1)</li>
+  </ol>
+</section>
+
+<section>
+  <h2>2. What this integration does</h2>
+  <p>
+    The Reapit integration is a <strong>one-way bridge</strong> from
+    <strong>Reapit Foundations</strong> (your agency CRM / property management system)
+    into <strong>Inspect360</strong> (inspections, compliance, maintenance, and tenant portal).
+  </p>
+  <div class="callout">
+    <strong>Simple idea:</strong> keep property, landlord, tenant, and tenancy master data in Reapit.
+    Inspect360 pulls that data in so you can run inspections and compliance without re-typing addresses,
+    tenants, or lease dates.
+  </div>
+  <p>Inspect360 does <em>not</em> write inspections, maintenance jobs, or compliance documents back into Reapit in version 1.</p>
+</section>
+
+<section>
+  <h2>3. How it is built into Inspect360</h2>
+  <h3>3.1 High-level flow</h3>
+  <div class="flow">Owner (Settings → Integrations)
+  → Connect with Reapit OAuth
+  → Inspect360 stores encrypted tokens + Reapit customer id
+  → Background worker syncs properties → landlords/contacts → tenancies
+  → Ongoing: Reapit webhooks trigger updates for changed records</div>
+
+  <h3>3.2 Main building blocks</h3>
+  <table>
+    <thead>
+      <tr><th>Piece</th><th>Role in Inspect360</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Settings → Integrations</td>
+        <td>Owner connects, syncs, disconnects; clerks can view status.</td>
+      </tr>
+      <tr>
+        <td><span class="mono">reapit_connections</span></td>
+        <td>One connection per organisation; encrypted tokens; Reapit customer id.</td>
+      </tr>
+      <tr>
+        <td><span class="mono">reapit_entity_mappings</span></td>
+        <td>Links each Reapit id to the matching Inspect360 property, contact, or tenancy.</td>
+      </tr>
+      <tr>
+        <td>Job worker (Postgres)</td>
+        <td>Runs initial/manual sync and webhook updates without Redis.</td>
+      </tr>
+      <tr>
+        <td><span class="mono">POST /api/webhooks/reapit</span></td>
+        <td>Receives Reapit events, verifies Ed25519 signature, queues safe upserts.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 Who owns what</h3>
+  <div class="two-col">
+    <div class="card">
+      <strong>Reapit owns</strong>
+      Property name &amp; address, landlord contact, tenant identity, lease dates, rent &amp; deposit figures (on mapped rows only).
+    </div>
+    <div class="card">
+      <strong>Inspect360 owns</strong>
+      Inspections, maintenance, compliance documents, assets, disputes, comparison reports, and all portal/workflow features.
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>4. What data comes across</h2>
+  <table>
+    <thead>
+      <tr><th>From Reapit</th><th>Into Inspect360</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Lettings properties</td>
+        <td><span class="mono">properties</span></td>
+        <td>Sales-only stock is skipped. Address is formatted into one address field.</td>
+      </tr>
+      <tr>
+        <td>Landlords</td>
+        <td>Contacts with type <strong>Landlord</strong></td>
+        <td>Not a login user. Optional link on the property via landlord contact.</td>
+      </tr>
+      <tr>
+        <td>Contacts / tenants</td>
+        <td>Contacts + tenant <span class="mono">users</span></td>
+        <td>Portal access starts <strong>off</strong>. No invite email unless you enable portal later.</td>
+      </tr>
+      <tr>
+        <td>Tenancies</td>
+        <td><span class="mono">tenant_assignments</span></td>
+        <td>Lease dates, rent, deposit. Ended tenancies become inactive (not deleted).</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout warn">
+    <strong>Important:</strong> Inspect360 never hard-deletes properties or users just because Reapit archived them.
+    Mapped identity fields can be updated from Reapit; your inspection/compliance history stays intact.
+  </div>
+</section>
+
+<section>
+  <h2>5. What needs to be done to use it</h2>
+  <p>There are two layers: <strong>platform setup</strong> (once, by your technical team) and <strong>agency connect</strong> (per organisation, by an owner).</p>
+
+  <h3>5.1 Platform / server checklist</h3>
+  <ol>
+    <li>Register an app in the <strong>Reapit Developer Portal</strong> (sandbox customer such as SBOX for testing).</li>
+    <li>Set redirect URL to <span class="mono">{BASE_URL}/api/reapit/oauth/callback</span>.</li>
+    <li>Set webhook URL to <span class="mono">{BASE_URL}/api/webhooks/reapit</span>.</li>
+    <li>Request scopes: <span class="mono">properties.read</span>, <span class="mono">contacts.read</span>, <span class="mono">landlords.read</span>, <span class="mono">tenancies.read</span>, and <span class="mono">tenancies.write</span> (needed for tenancy webhook delivery even though Inspect360 does not write to Reapit).</li>
+    <li>Add environment variables on the server (see table below).</li>
+    <li>Run the Contabo SQL migration <span class="mono">addReapitIntegration.sql</span> as database user <span class="mono">creativecloud</span>, then grant access to <span class="mono">inspect360</span>.</li>
+    <li>Deploy / restart the app so the Reapit worker is running (<span class="mono">ENABLE_REAPIT_WORKER</span> defaults to on).</li>
+  </ol>
+
+  <h3>5.2 Environment variables</h3>
+  <table>
+    <thead>
+      <tr><th>Variable</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="mono">REAPIT_CLIENT_ID</span></td><td>App client id from Reapit</td></tr>
+      <tr><td><span class="mono">REAPIT_CLIENT_SECRET</span></td><td>App client secret</td></tr>
+      <tr><td><span class="mono">REAPIT_CONNECT_URL</span></td><td>Usually <span class="mono">https://connect.reapit.cloud</span></td></tr>
+      <tr><td><span class="mono">REAPIT_API_URL</span></td><td>Usually <span class="mono">https://platform.reapit.cloud</span></td></tr>
+      <tr><td><span class="mono">REAPIT_REDIRECT_URI</span></td><td>Optional override of OAuth callback</td></tr>
+      <tr><td><span class="mono">INTEGRATION_ENCRYPTION_KEY</span></td><td>32-byte hex secret for token encryption (e.g. <span class="mono">openssl rand -hex 32</span>)</td></tr>
+      <tr><td><span class="mono">ENABLE_REAPIT_WORKER</span></td><td>Set <span class="mono">false</span> only to pause background sync</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.3 Agency owner checklist</h3>
+  <ol>
+    <li>Sign in to Inspect360 as an <strong>owner</strong>.</li>
+    <li>Open <strong>Settings → Integrations</strong>.</li>
+    <li>Click <strong>Connect Reapit</strong> and complete Reapit login / consent.</li>
+    <li>Wait for the initial sync (status and entity counts appear on the same card).</li>
+    <li>Use <strong>Sync now</strong> later for a full refresh; day-to-day changes can also arrive via webhooks.</li>
+    <li>On a property detail page (owner/clerk), look for <strong>Source: Reapit</strong> when the property came from sync.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>6. How to use it day to day</h2>
+  <ul>
+    <li><span class="badge">Connect</span> Once per organisation. Tokens never appear in the browser.</li>
+    <li><span class="badge">Sync</span> Initial sync loads lettings properties, landlords, contacts, and tenancies. Manual sync re-queues a full run.</li>
+    <li><span class="badge">Work</span> Schedule inspections, upload compliance, raise maintenance — as usual — against the imported properties and tenants.</li>
+    <li><span class="badge">Landlords</span> Appear under Contacts as type Landlord (address book only; no portal login).</li>
+    <li><span class="badge">Tenants</span> Exist as tenant users with portal off until you deliberately enable access.</li>
+    <li><span class="badge">Disconnect</span> Stops sync and drops tokens. Existing Inspect360 properties, tenants, and history remain.</li>
+  </ul>
+  <div class="callout">
+    Clerks can view connection status and sync history. Only owners can connect, disconnect, or start a sync.
+  </div>
+</section>
+
+<section>
+  <h2>7. How it helps us</h2>
+  <table>
+    <thead>
+      <tr><th>Benefit</th><th>Why it matters</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>No double data entry</td>
+        <td>Properties, tenants, and lease dates flow from Reapit instead of being typed twice.</td>
+      </tr>
+      <tr>
+        <td>Faster onboarding</td>
+        <td>A new agency can connect once and populate Inspect360 from their live CRM stock.</td>
+      </tr>
+      <tr>
+        <td>Cleaner source of truth</td>
+        <td>Reapit remains the commercial/lettings system; Inspect360 focuses on inspections and compliance quality.</td>
+      </tr>
+      <tr>
+        <td>Safer updates</td>
+        <td>Only mapped rows are updated. Manually created Inspect360 properties are left alone.</td>
+      </tr>
+      <tr>
+        <td>Live maintenance</td>
+        <td>Webhooks keep records fresher when properties, contacts, landlords, or tenancies change in Reapit.</td>
+      </tr>
+      <tr>
+        <td>Rent awareness</td>
+        <td>Tenancy rent/deposit fields sync and feed Inspect360’s existing rent-period generation.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>8. Security and v1 limits</h2>
+  <h3>Security highlights</h3>
+  <ul>
+    <li>OAuth state is signed and tied to the organisation (CSRF protection).</li>
+    <li>Tokens are encrypted at rest with AES-256-GCM.</li>
+    <li>Webhooks verify Reapit Ed25519 signatures; organisation is resolved from Reapit customer id, not a client-supplied org header.</li>
+    <li>Connector APIs respect trial/credit entitlement locks; the webhook endpoint remains reachable for Reapit delivery.</li>
+  </ul>
+  <h3>Not in version 1</h3>
+  <ul>
+    <li>Writing inspections or maintenance back to Reapit</li>
+    <li>Bulk import of Reapit document binaries / property image blitz</li>
+    <li>Auto-creating blocks from Reapit building structures</li>
+    <li>Importing sales-only property stock</li>
+  </ul>
+  <p class="footer-note">
+    Document generated for Inspect360 · Reapit Foundations integration v1 ·
+    Technical detail also lives under <span class="mono">docs/integrations/reapit/</span>.
+  </p>
+</section>
+
+</body>
+</html>

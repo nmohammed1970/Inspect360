@@ -115,6 +115,7 @@ export type TenantPortalOrganization = {
   tenantPortalComparisonEnabled?: boolean | null;
   tenantPortalCommunityEnabled?: boolean | null;
   tenantPortalChatbotEnabled?: boolean | null;
+  maintenanceEnabled?: boolean | null;
 };
 
 export type TenantCommunityGroup = {

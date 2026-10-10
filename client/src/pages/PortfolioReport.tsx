@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocale } from "@/contexts/LocaleContext";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 function formatDate(value: any): string {
   if (!value) return "";
@@ -147,6 +148,7 @@ const reportTableClass =
 export default function PortfolioReport() {
   const { toast } = useToast();
   const { formatCurrency } = useLocale();
+  const { maintenanceEnabled } = useCompanyModules();
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
@@ -162,6 +164,7 @@ export default function PortfolioReport() {
   });
   const { data: maintenanceRequests = [], isLoading: maintenanceLoading } = useQuery<any[]>({
     queryKey: ["/api/maintenance"],
+    enabled: maintenanceEnabled,
   });
   const { data: assetInventory = [], isLoading: assetsLoading } = useQuery<any[]>({
     queryKey: ["/api/asset-inventory"],
@@ -177,7 +180,7 @@ export default function PortfolioReport() {
     blocksLoading ||
     propertiesLoading ||
     inspectionsLoading ||
-    maintenanceLoading ||
+    (maintenanceEnabled && maintenanceLoading) ||
     assetsLoading ||
     complianceLoading ||
     tenantsLoading;
@@ -441,7 +444,7 @@ export default function PortfolioReport() {
         propertyName: property?.name || "",
         documentType: doc.documentType || "—",
         documentName: doc.documentName || "",
-        issueDate: formatDate(doc.issueDate) || "—",
+        uploadedDate: formatDate(doc.createdAt) || "—",
         expiryDate: formatDate(doc.expiryDate),
         status,
         variant,
@@ -886,18 +889,22 @@ export default function PortfolioReport() {
                 <CardTitle className="text-2xl tabular-nums">{inspections.length}</CardTitle>
               </CardHeader>
             </Card>
+            {maintenanceEnabled && (
             <Card className="glass-card shadow-sm">
               <CardHeader className="pb-2">
                 <CardDescription>Total Maintenance</CardDescription>
                 <CardTitle className="text-2xl tabular-nums">{maintenanceRequests.length}</CardTitle>
               </CardHeader>
             </Card>
+            )}
+            {maintenanceEnabled && (
             <Card className="glass-card shadow-sm">
               <CardHeader className="pb-2">
                 <CardDescription>Open Maintenance</CardDescription>
                 <CardTitle className="text-2xl tabular-nums text-destructive">{openMaintenance}</CardTitle>
               </CardHeader>
             </Card>
+            )}
             <Card className="glass-card shadow-sm">
               <CardHeader className="pb-2">
                 <CardDescription>Total Assets</CardDescription>
@@ -1044,6 +1051,7 @@ export default function PortfolioReport() {
           </SectionTable>
 
           {/* 3. Maintenance */}
+          {maintenanceEnabled && (
           <SectionTable title="Maintenance" icon={Wrench} count={maintenanceRows.length}>
             <Table className={reportTableClass}>
               <TableHeader>
@@ -1111,6 +1119,7 @@ export default function PortfolioReport() {
               </TableBody>
             </Table>
           </SectionTable>
+          )}
 
           {/* 4. Assets */}
           <SectionTable title="Assets" icon={Package} count={assetRows.length}>
@@ -1194,7 +1203,7 @@ export default function PortfolioReport() {
                       </TableCell>
                       <TableCell className="text-center hidden md:table-cell">
                         <CellStack
-                          title={row.issueDate}
+                          title={row.uploadedDate}
                           sub={row.expiryDate ? `Expires: ${row.expiryDate}` : null}
                         />
                       </TableCell>

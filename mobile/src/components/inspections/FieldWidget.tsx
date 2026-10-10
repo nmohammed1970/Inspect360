@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   ImageStyle,
+  ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -31,6 +32,11 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import { apiRequestJson, getAPI_URL } from '../../services/api';
+import {
+  inspectionGalleryService,
+  type GalleryImage,
+} from '../../services/inspectionGallery';
+import { addToSyncQueue } from '../../services/offline/database';
 // No offline functionality - app requires server connection
 import { format } from 'date-fns';
 import {
@@ -70,6 +76,8 @@ interface FieldWidgetProps {
   photos?: string[];
   inspectionId: string;
   entryId?: string;
+  /** Template sectionRef for gallery assignment (e.g. section_bedrooms/Bedrooms 1). */
+  sectionRef?: string;
   sectionName?: string;
   isCheckOut?: boolean;
   markedForReview?: boolean;
@@ -108,6 +116,95 @@ function getVoiceRecordingPreset() {
   };
 }
 
+function resolveGalleryUri(objectUrl: string): string {
+  if (objectUrl.startsWith('http://') || objectUrl.startsWith('https://')) return objectUrl;
+  const base = getAPI_URL().replace(/\/$/, '');
+  return `${base}${objectUrl.startsWith('/') ? '' : '/'}${objectUrl}`;
+}
+
+function GalleryPickBody({
+  inspectionId,
+  alreadyUrls,
+  selected,
+  onToggle,
+  enabled,
+}: {
+  inspectionId: string;
+  alreadyUrls: string[];
+  selected: Set<string>;
+  onToggle: (id: string, objectUrl: string) => void;
+  enabled: boolean;
+}) {
+  const theme = useTheme();
+  const themeColors = theme?.colors || colors;
+  const isOnline = useOnlineStatus();
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['gallery', inspectionId],
+    queryFn: () => inspectionGalleryService.list(inspectionId),
+    enabled: enabled && !!inspectionId && isOnline,
+  });
+  const images: GalleryImage[] = data?.images || [];
+  const already = new Set(alreadyUrls);
+
+  if (!isOnline) {
+    return (
+      <Text style={{ color: themeColors.text.secondary, marginBottom: 12 }}>
+        Gallery picker requires an internet connection.
+      </Text>
+    );
+  }
+  if (isLoading) {
+    return <ActivityIndicator color={themeColors.primary.DEFAULT} style={{ marginVertical: 16 }} />;
+  }
+  if (isError) {
+    return (
+      <View style={{ marginBottom: 12, gap: 8 }}>
+        <Text style={{ color: themeColors.destructive.DEFAULT }}>Unable to load gallery.</Text>
+        <Button title="Retry" onPress={() => refetch()} variant="outline" />
+      </View>
+    );
+  }
+  if (!images.length) {
+    return (
+      <Text style={{ color: themeColors.text.secondary, marginBottom: 12 }}>
+        No photos in this inspection gallery yet. Upload from the Gallery tab first.
+      </Text>
+    );
+  }
+
+  return (
+    <ScrollView style={{ maxHeight: 280, marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {images.map((image) => {
+          const used = already.has(image.objectUrl);
+          const isSelected = selected.has(image.id);
+          return (
+            <TouchableOpacity
+              key={image.id}
+              disabled={used}
+              onPress={() => onToggle(image.id, image.objectUrl)}
+              style={{
+                width: '30%',
+                aspectRatio: 1,
+                borderRadius: 8,
+                overflow: 'hidden',
+                borderWidth: isSelected ? 2 : 1,
+                borderColor: isSelected ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                opacity: used ? 0.5 : 1,
+              }}
+            >
+              <Image
+                source={{ uri: resolveGalleryUri(image.objectUrl) }}
+                style={{ width: '100%', height: '100%' }}
+              />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </ScrollView>
+  );
+}
+
 function FieldWidgetComponent(props: FieldWidgetProps) {
   const {
     field,
@@ -116,6 +213,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     photos = [],
     inspectionId,
     entryId,
+    sectionRef,
     sectionName,
     isCheckOut = false,
     markedForReview = false,
@@ -194,6 +292,9 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   );
   const [localMarkedForReview, setLocalMarkedForReview] = useState(!!markedForReview);
   const [showPhotoPicker, setShowPhotoPicker] = useState(false);
+  const [showGalleryPicker, setShowGalleryPicker] = useState(false);
+  const [galleryPickSelected, setGalleryPickSelected] = useState<Set<string>>(new Set());
+  const [galleryBusy, setGalleryBusy] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
 
@@ -579,6 +680,54 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
+  const syncPhotosToGallery = async (urls: string[]) => {
+    if (!inspectionId || !sectionRef || !urls.length) return;
+    const serverUrls = urls.filter(
+      (u) => u && !isLocalPath(u) && (u.startsWith('/objects/') || u.includes('/objects/')),
+    );
+    if (!serverUrls.length) return;
+
+    const payload = {
+      images: serverUrls.map((objectUrl) => ({ objectUrl })),
+      assign: { sectionRef, fieldKey: field.id },
+    };
+
+    if (!isOnline) {
+      try {
+        await addToSyncQueue({
+          operation: 'gallery_register',
+          entityType: 'gallery',
+          entityId: `${inspectionId}:${sectionRef}:${field.id}:${serverUrls[0]}`,
+          data: JSON.stringify({ inspectionId, ...payload }),
+          retryCount: 0,
+          lastError: null,
+        });
+      } catch (e) {
+        console.warn('[FieldWidget] Failed to queue gallery register:', e);
+      }
+      return;
+    }
+
+    try {
+      await inspectionGalleryService.register(inspectionId, payload.images, payload.assign);
+      queryClient.invalidateQueries({ queryKey: ['gallery', inspectionId] });
+    } catch (e) {
+      console.warn('[FieldWidget] Gallery register/assign failed, queueing:', e);
+      try {
+        await addToSyncQueue({
+          operation: 'gallery_register',
+          entityType: 'gallery',
+          entityId: `${inspectionId}:${sectionRef}:${field.id}:${serverUrls[0]}`,
+          data: JSON.stringify({ inspectionId, ...payload }),
+          retryCount: 0,
+          lastError: null,
+        });
+      } catch (qe) {
+        console.warn('[FieldWidget] Failed to queue gallery register:', qe);
+      }
+    }
+  };
+
   // Upload photo to server (with offline support)
   const uploadPhoto = async (uri: string): Promise<string> => {
     if (!inspectionId) {
@@ -749,6 +898,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
         const currentPhotos = [...localPhotos, serverUrl];
         onChange(composedValue, localNote, currentPhotos);
+        void syncPhotosToGallery([serverUrl]);
 
         return serverUrl;
       } catch (fetchError: any) {
@@ -1888,11 +2038,14 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       </View>
       )}
 
-      {/* Maintenance Logging - only shown for photo fields */}
-      {(safeField.type === 'photo' || safeField.type === 'photo_array') && localPhotos.length > 0 && onLogMaintenance && (
+      {/* Maintenance Logging — pass current field photos into create-maintenance */}
+      {(safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance && (
         <TouchableOpacity
           style={styles.maintenanceButton}
-          onPress={() => onLogMaintenance?.(safeField.label, localPhotos)}
+          onPress={() => {
+            const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
+            onLogMaintenance?.(safeField.label, fieldPhotos);
+          }}
         >
           <Wrench size={16} color={themeColors.warning} />
           <Text style={styles.maintenanceButtonText}>Log Maintenance</Text>
@@ -1985,10 +2138,21 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         <View style={styles.modalContainer}>
           <View style={[styles.modalContent, { maxHeight: modalMaxHeight(0.7), width: '88%', padding: padMd }]}>
             <Text style={styles.modalTitle}>Add Photo</Text>
+            {!!inspectionId && !!sectionRef && (
+              <Button
+                title="Choose from Gallery"
+                onPress={() => {
+                  setShowPhotoPicker(false);
+                  setGalleryPickSelected(new Set());
+                  setShowGalleryPicker(true);
+                }}
+                variant="default"
+              />
+            )}
             <Button
               title="Take Photo"
               onPress={handleTakePhoto}
-              variant="default"
+              variant="secondary"
             />
             <Button
               title="Choose from Library"
@@ -1998,6 +2162,89 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <Button
               title="Cancel"
               onPress={() => setShowPhotoPicker(false)}
+              variant="outline"
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Gallery pick modal */}
+      <Modal
+        visible={!!showGalleryPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowGalleryPicker(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalContent, { maxHeight: modalMaxHeight(0.85), width: '92%', padding: padMd }]}>
+            <Text style={styles.modalTitle}>Choose from Gallery</Text>
+            {sectionName ? (
+              <Text style={{ color: themeColors.text.secondary, marginBottom: 8, fontSize: 13 }}>
+                Assigning to {sectionName} → {safeField.label}
+              </Text>
+            ) : null}
+            <GalleryPickBody
+              inspectionId={inspectionId}
+              alreadyUrls={localPhotos}
+              selected={galleryPickSelected}
+              onToggle={(id, objectUrl) => {
+                if (localPhotos.includes(objectUrl)) return;
+                setGalleryPickSelected((prev) => {
+                  const next = new Set(prev);
+                  const remaining = Math.max(0, 10 - localPhotos.length);
+                  if (next.has(id)) next.delete(id);
+                  else if (next.size < remaining) next.add(id);
+                  return next;
+                });
+              }}
+              enabled={showGalleryPicker}
+            />
+            <Button
+              title={
+                galleryBusy
+                  ? 'Adding…'
+                  : galleryPickSelected.size
+                    ? `Add ${galleryPickSelected.size}`
+                    : 'Add selected'
+              }
+              disabled={!galleryPickSelected.size || galleryBusy}
+              onPress={async () => {
+                if (!sectionRef || !galleryPickSelected.size) return;
+                setGalleryBusy(true);
+                try {
+                  const list = await inspectionGalleryService.list(inspectionId);
+                  const chosen = (list.images || []).filter((img) => galleryPickSelected.has(img.id));
+                  await inspectionGalleryService.assign(
+                    inspectionId,
+                    chosen.map((c) => c.id),
+                    sectionRef,
+                    field.id,
+                  );
+                  const urls = chosen.map((c) => c.objectUrl);
+                  const merged = [...localPhotos];
+                  for (const u of urls) {
+                    if (!merged.includes(u) && merged.length < 10) merged.push(u);
+                  }
+                  setLocalPhotos(merged);
+                  const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
+                  onChange(composedValue, localNote, merged);
+                  queryClient.invalidateQueries({ queryKey: ['gallery', inspectionId] });
+                  setShowGalleryPicker(false);
+                  setGalleryPickSelected(new Set());
+                } catch (e: any) {
+                  Alert.alert('Gallery', e?.message || 'Could not add photos from gallery');
+                } finally {
+                  setGalleryBusy(false);
+                }
+              }}
+              variant="default"
+            />
+            <Button
+              title="Cancel"
+              onPress={() => {
+                setShowGalleryPicker(false);
+                setGalleryPickSelected(new Set());
+              }}
               variant="outline"
             />
           </View>

@@ -1,6 +1,6 @@
 import { PreviewableFileImage } from "@/components/ImagePreview";
 import { useState, useRef, useCallback } from "react";
-import { X, Upload, Camera, FileText, Loader2, CheckCircle2 } from "lucide-react";
+import { X, Upload, Camera, FileText, Loader2, CheckCircle2, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -20,6 +20,10 @@ interface ModernFilePickerInlineProps {
   uploadProgress?: number;
   height?: number;
   className?: string;
+  /** Optional third action (e.g. choose from inspection gallery). */
+  onChooseFromGallery?: () => void;
+  galleryLabel?: string;
+  galleryDisabled?: boolean;
 }
 
 export function ModernFilePickerInline({
@@ -32,6 +36,9 @@ export function ModernFilePickerInline({
   uploadProgress = 0,
   height = 300,
   className,
+  onChooseFromGallery,
+  galleryLabel = "Upload from Gallery",
+  galleryDisabled = false,
 }: ModernFilePickerInlineProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -203,6 +210,19 @@ export function ModernFilePickerInline({
             <div className="space-y-2">
               <p className="text-sm font-medium break-words">Drag and drop files here, or</p>
               <div className="flex flex-wrap gap-2 sm:gap-3 justify-center">
+                {onChooseFromGallery && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={onChooseFromGallery}
+                    disabled={galleryDisabled || busy}
+                    className="gap-2 min-h-11"
+                    data-testid="button-picker-gallery"
+                  >
+                    <ImageIcon className="h-4 w-4 shrink-0" />
+                    {galleryLabel}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="outline"

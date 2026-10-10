@@ -31,9 +31,17 @@ import { Link, useSearch } from "wouter";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { CardQuickActions } from "@/components/CardQuickActions";
+import type { CardQuickAction } from "@/components/CardQuickActions";
+import {
+  PropertyLayoutFields,
+  attachFloorPlanToProperty,
+  type PropertyLayoutValue,
+} from "@/components/PropertyLayoutFields";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase } from "@/lib/responsive";
+import { pagePad, cardGrid } from "@/lib/responsive";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 function isActiveTenantAssignment(ta: any): boolean {
   const nested = ta.assignment;
@@ -80,6 +88,7 @@ export default function Properties() {
   const { toast } = useToast();
   const searchParams = useSearch();
   const urlBlockId = new URLSearchParams(searchParams).get("blockId");
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled } = useCompanyModules();
   
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<any | null>(null);
@@ -93,6 +102,18 @@ export default function Properties() {
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [propertyToDelete, setPropertyToDelete] = useState<any | null>(null);
+  const defaultLayout = (): PropertyLayoutValue => ({
+    bedrooms: 1,
+    kitchens: 1,
+    bathrooms: 1,
+    livingRooms: 1,
+    floorPlanUrl: null,
+    floorPlanMimeType: null,
+    floorPlanFileName: null,
+    floorPlanAnalysisStatus: "none",
+    floorPlanAnalysisJson: null,
+  });
+  const [layout, setLayout] = useState<PropertyLayoutValue>(defaultLayout);
 
   /** Radix Select must stay controlled; avoid value={undefined} (breaks re-open / hydration). */
   const PROPERTY_TYPE_NONE = "__property_type_none__";
@@ -228,20 +249,39 @@ export default function Properties() {
   }, [dialogOpen, editingProperty, urlBlockId, selectedBlock]);
 
   const createProperty = useMutation({
-    mutationFn: async (data: { name: string; address: string; propertyType?: string | null; blockId?: string }) => {
+    mutationFn: async (data: Record<string, unknown>) => {
       const res = await apiRequest("POST", "/api/properties", data);
-      return await res.json();
-    },
-    onSuccess: async (property: any) => {
-      // Apply tags first, then refresh list so cards show the new tags immediately
+      const property = await res.json();
       if (selectedTags.length > 0 && property?.id) {
         await updatePropertyTags(property.id, selectedTags);
       }
+      // Floor plan AI already ran on upload; just persist the file + room counts on create.
+      if (property?.id && layout.floorPlanUrl) {
+        try {
+          await attachFloorPlanToProperty({
+            propertyId: property.id,
+            documentUrl: layout.floorPlanUrl,
+            mimeType: layout.floorPlanMimeType,
+            fileName: layout.floorPlanFileName,
+          });
+          // Persist AI-filled (or manually adjusted) counts after attach
+          await apiRequest("PATCH", `/api/properties/${property.id}`, {
+            bedrooms: layout.bedrooms,
+            kitchens: layout.kitchens,
+            bathrooms: layout.bathrooms,
+            livingRooms: layout.livingRooms,
+          });
+        } catch {
+          /* create body may already include floor plan URL / counts */
+        }
+      }
+      return { property };
+    },
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
-      
       toast({
-        title: "Success",
+        title: "Property created",
         description: "Property created successfully",
       });
       handleCloseDialog();
@@ -256,7 +296,14 @@ export default function Properties() {
   });
 
   const updateProperty = useMutation({
-    mutationFn: async (data: { id: string; name: string; address: string; propertyType?: string | null; blockId?: string }) => {
+    mutationFn: async (data: {
+      id: string;
+      name: string;
+      address: string;
+      propertyType?: string | null;
+      blockId?: string;
+      layout?: PropertyLayoutValue;
+    }) => {
       const body: Record<string, unknown> = {
         name: data.name,
         address: data.address,
@@ -264,6 +311,12 @@ export default function Properties() {
       };
       if (data.propertyType !== undefined) {
         body.propertyType = data.propertyType;
+      }
+      if (data.layout) {
+        body.bedrooms = data.layout.bedrooms;
+        body.kitchens = data.layout.kitchens;
+        body.bathrooms = data.layout.bathrooms;
+        body.livingRooms = data.layout.livingRooms;
       }
       console.log("[Properties] PATCH payload", { id: data.id, body });
       return await apiRequest("PATCH", `/api/properties/${data.id}`, body);
@@ -322,6 +375,7 @@ export default function Properties() {
       : undefined;
     setAddress(blockFromUrl?.address || "");
     setSelectedTags([]);
+    setLayout(defaultLayout());
     setDialogOpen(true);
   };
 
@@ -368,6 +422,17 @@ export default function Properties() {
       setPropertyTypeExtra(null);
     }
     setBlockId(propertyData.blockId || undefined);
+    setLayout({
+      bedrooms: propertyData.bedrooms ?? 1,
+      kitchens: propertyData.kitchens ?? 1,
+      bathrooms: propertyData.bathrooms ?? 1,
+      livingRooms: propertyData.livingRooms ?? 1,
+      floorPlanUrl: propertyData.floorPlanUrl ?? null,
+      floorPlanMimeType: propertyData.floorPlanMimeType ?? null,
+      floorPlanFileName: propertyData.floorPlanFileName ?? null,
+      floorPlanAnalysisStatus: propertyData.floorPlanAnalysisStatus ?? "none",
+      floorPlanAnalysisJson: propertyData.floorPlanAnalysisJson ?? null,
+    });
     
     // Fetch tags for this property
     try {
@@ -392,6 +457,7 @@ export default function Properties() {
     setPropertyTypeExtra(null);
     setBlockId(undefined);
     setSelectedTags([]);
+    setLayout(defaultLayout());
   };
 
   const updatePropertyTags = async (propertyId: string, tags: Tag[]) => {
@@ -458,12 +524,25 @@ export default function Properties() {
         address,
         propertyType: forApi,
         blockId: finalBlockId,
+        layout,
       });
     } else {
       const forApi = noneOrUnset
         ? undefined
         : normalizePropertyType(propertyType) ?? propertyType;
-      createProperty.mutate({ name, address, propertyType: forApi, blockId: finalBlockId });
+      createProperty.mutate({
+        name,
+        address,
+        propertyType: forApi,
+        blockId: finalBlockId,
+        bedrooms: layout.bedrooms,
+        kitchens: layout.kitchens,
+        bathrooms: layout.bathrooms,
+        livingRooms: layout.livingRooms,
+        floorPlanUrl: layout.floorPlanUrl || undefined,
+        floorPlanMimeType: layout.floorPlanMimeType || undefined,
+        floorPlanFileName: layout.floorPlanFileName || undefined,
+      });
     }
   };
 
@@ -507,11 +586,19 @@ export default function Properties() {
               <span className="sm:hidden">Add</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className={cn(dialogContentBase, "max-w-lg")}>
-            <DialogHeader>
+          <DialogContent
+            className={cn(
+              "!flex !flex-col !overflow-hidden max-w-xl w-full max-h-[min(90vh,calc(100dvh-2rem))] gap-4",
+            )}
+          >
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingProperty ? "Edit Property" : "Create New Property"}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form
+              id="property-form"
+              onSubmit={handleSubmit}
+              className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 pr-1"
+            >
               <div>
                 <Label htmlFor="name" required>Property Name</Label>
                 <Input
@@ -524,6 +611,36 @@ export default function Properties() {
                 />
               </div>
               <div>
+                <Label htmlFor="block">Block (Optional)</Label>
+                <Select
+                  value={blockId}
+                  onValueChange={(value) => {
+                    setBlockId(value);
+                    if (value && value !== "none") {
+                      const selected = blocks.find((b: any) => b.id === value);
+                      if (selected?.address) {
+                        setAddress(selected.address);
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid="select-block">
+                    <SelectValue placeholder="Select a block" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Block</SelectItem>
+                    {blocks.map((block: any) => (
+                      <SelectItem key={block.id} value={block.id}>
+                        {block.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Assign this property to a building/block for better organization. Selecting a block fills the address.
+                </p>
+              </div>
+              <div>
                 <Label htmlFor="address" required>Address</Label>
                 <AddressInput
                   id="address"
@@ -534,6 +651,15 @@ export default function Properties() {
                   required
                 />
               </div>
+
+              <div className="border-t pt-4">
+                <PropertyLayoutFields
+                  value={layout}
+                  onChange={setLayout}
+                  propertyId={editingProperty?.id || null}
+                />
+              </div>
+
               <div>
                 <Label htmlFor="propertyType">Property Type</Label>
                 <Select
@@ -566,38 +692,8 @@ export default function Properties() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label htmlFor="block">Block (Optional)</Label>
-                <Select
-                  value={blockId}
-                  onValueChange={(value) => {
-                    setBlockId(value);
-                    if (value && value !== "none") {
-                      const selected = blocks.find((b: any) => b.id === value);
-                      if (selected?.address) {
-                        setAddress(selected.address);
-                      }
-                    }
-                  }}
-                >
-                  <SelectTrigger data-testid="select-block">
-                    <SelectValue placeholder="Select a block" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Block</SelectItem>
-                    {blocks.map((block: any) => (
-                      <SelectItem key={block.id} value={block.id}>
-                        {block.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Assign this property to a building/block for better organization. Selecting a block fills the address.
-                </p>
-              </div>
-              
-              <div className="space-y-2">
+
+              <div className="space-y-2 pb-1">
                 <Label>Tags</Label>
                 <TagInput
                   selectedTags={selectedTags}
@@ -605,19 +701,19 @@ export default function Properties() {
                   placeholder="Add tags to organize this property..."
                 />
               </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={createProperty.isPending || updateProperty.isPending}
-                data-testid="button-submit-property"
-              >
-                {editingProperty 
-                  ? (updateProperty.isPending ? "Updating..." : "Update Property")
-                  : (createProperty.isPending ? "Creating..." : "Create Property")
-                }
-              </Button>
             </form>
+            <Button
+              type="submit"
+              form="property-form"
+              className="w-full shrink-0"
+              disabled={createProperty.isPending || updateProperty.isPending}
+              data-testid="button-submit-property"
+            >
+              {editingProperty 
+                ? (updateProperty.isPending ? "Updating..." : "Update Property")
+                : (createProperty.isPending ? "Creating..." : "Create Property")
+              }
+            </Button>
           </DialogContent>
         </Dialog>
       </div>
@@ -713,7 +809,7 @@ export default function Properties() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 items-stretch">
+        <div className={cardGrid}>
           {filteredProperties.map((property: any) => {
             const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
             return (
@@ -813,63 +909,46 @@ export default function Properties() {
                   </CardContent>
                 </Link>
                 <CardContent className="pt-0 border-t mt-auto">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1 pt-4">
-                    <Link href={`/asset-inventory?propertyId=${property.id}`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-inventory-${property.id}`}
-                      >
-                        <Package className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Inventory</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/inspections?propertyId=${property.id}&create=true`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-inspect-${property.id}`}
-                      >
-                        <ClipboardCheck className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Inspect</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/properties/${property.id}/tenants`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-tenants-${property.id}`}
-                      >
-                        <Users className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Tenants</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/compliance?propertyId=${property.id}`} className="w-full min-w-0">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-compliance-${property.id}`}
-                      >
-                        <FileText className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Compliance</span>
-                      </Button>
-                    </Link>
-                    <Link href={`/properties/${property.id}?tab=rent-collection`} className="w-full min-w-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex flex-col h-auto py-2 px-1 w-full min-w-0"
-                        data-testid={`button-rent-${property.id}`}
-                      >
-                        <Banknote className="h-4 w-4 mb-1" />
-                        <span className="text-xs truncate">Rent</span>
-                      </Button>
-                    </Link>
-                  </div>
+                  <CardQuickActions
+                    className="pt-4"
+                    actions={([
+                      {
+                        id: "inventory",
+                        label: "Inventory",
+                        icon: Package,
+                        href: `/asset-inventory?propertyId=${property.id}`,
+                        testId: `button-inventory-${property.id}`,
+                      },
+                      {
+                        id: "inspect",
+                        label: "Inspect",
+                        icon: ClipboardCheck,
+                        href: `/inspections?propertyId=${property.id}&create=true`,
+                        testId: `button-inspect-${property.id}`,
+                      },
+                      tenanciesEnabled && {
+                        id: "tenants",
+                        label: "Tenants",
+                        icon: Users,
+                        href: `/properties/${property.id}/tenants`,
+                        testId: `button-tenants-${property.id}`,
+                      },
+                      complianceEnabled && {
+                        id: "compliance",
+                        label: "Compliance",
+                        icon: FileText,
+                        href: `/compliance?propertyId=${property.id}`,
+                        testId: `button-compliance-${property.id}`,
+                      },
+                      rentalsEnabled && {
+                        id: "rent",
+                        label: "Rent",
+                        icon: Banknote,
+                        href: `/properties/${property.id}?tab=rent-collection`,
+                        testId: `button-rent-${property.id}`,
+                      },
+                    ] as (CardQuickAction | false)[]).filter(Boolean) as CardQuickAction[]}
+                  />
                 </CardContent>
               </Card>
             );

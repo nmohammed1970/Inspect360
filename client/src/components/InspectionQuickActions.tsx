@@ -10,7 +10,7 @@ import { Plus, Package, Wrench, X, RefreshCw } from "lucide-react";
 interface InspectionQuickActionsProps {
   onAddAsset: () => void;
   onUpdateAsset: () => void;
-  onLogMaintenance: () => void;
+  onLogMaintenance?: () => void;
 }
 
 export function InspectionQuickActions({
@@ -72,6 +72,7 @@ export function InspectionQuickActions({
                 </span>
               </div>
             </Button>
+            {onLogMaintenance && (
             <Button
               variant="ghost"
               className="w-full justify-start gap-3 h-12"
@@ -86,6 +87,7 @@ export function InspectionQuickActions({
                 </span>
               </div>
             </Button>
+            )}
           </div>
         </PopoverContent>
       </Popover>

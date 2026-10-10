@@ -17,19 +17,22 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
 import { z } from "zod";
 import Team from "./Team";
 import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
+import ReapitIntegrationSettings from "@/components/ReapitIntegrationSettings";
 import SettingsTeamsPanel from "@/components/SettingsTeamsPanel";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useModules } from "@/hooks/use-modules";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { COMPANY_MODULE_META } from "@shared/companyModules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
@@ -42,10 +45,11 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
+type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
+  { id: 'internal-modules', label: 'Internal Modules', icon: SlidersHorizontal },
   { id: 'templates', label: 'Inspection Templates', icon: ClipboardList },
   { id: 'document-types', label: 'Compliance Documents', icon: FileText },
   { id: 'team', label: 'Team Members', icon: Users },
@@ -78,9 +82,14 @@ export default function Settings() {
   const [tenantPortalChatbotEnabled, setTenantPortalChatbotEnabled] = useState(true);
   const [tenantPortalMaintenanceEnabled, setTenantPortalMaintenanceEnabled] = useState(true);
   const [checkInApprovalPeriodDays, setCheckInApprovalPeriodDays] = useState(5);
+  const [rentalsEnabled, setRentalsEnabled] = useState(true);
+  const [tenanciesEnabled, setTenanciesEnabled] = useState(true);
+  const [complianceEnabled, setComplianceEnabled] = useState(true);
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(true);
 
   const { isModuleEnabled } = useModules();
   const isWhiteLabelEnabled = isModuleEnabled("white_label");
+  const { rentalsEnabled: rentalsModuleOn, complianceEnabled: complianceModuleOn, maintenanceEnabled: maintenanceModuleOn } = useCompanyModules();
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -107,8 +116,41 @@ export default function Settings() {
       setTenantPortalChatbotEnabled(organization.tenantPortalChatbotEnabled ?? true);
       setTenantPortalMaintenanceEnabled(organization.tenantPortalMaintenanceEnabled ?? true);
       setCheckInApprovalPeriodDays(organization.checkInApprovalPeriodDays ?? 5);
+      setRentalsEnabled(organization.rentalsEnabled ?? true);
+      setTenanciesEnabled(organization.tenanciesEnabled ?? true);
+      setComplianceEnabled(organization.complianceEnabled ?? true);
+      setMaintenanceEnabled(organization.maintenanceEnabled ?? true);
     }
   }, [organization]);
+
+  const updateCompanyModulesMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.organizationId) return null;
+      const response = await apiRequest("PATCH", `/api/organizations/${user.organizationId}/company-modules`, {
+        // Tenancies OFF always persists Rentals OFF
+        rentalsEnabled: tenanciesEnabled ? rentalsEnabled : false,
+        tenanciesEnabled,
+        complianceEnabled,
+        maintenanceEnabled,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId] });
+      toast({
+        title: "Success",
+        description: "Company modules updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to update company modules",
+      });
+    },
+  });
 
   const updateBrandingMutation = useMutation({
     mutationFn: async () => {
@@ -405,7 +447,13 @@ export default function Settings() {
           <Card className="sticky top-8">
             <CardContent className="p-2">
               <nav className="space-y-1">
-                {settingsMenuItems.map((item) => {
+                {settingsMenuItems
+                  .filter((item) => {
+                    if (item.id === "document-types") return complianceModuleOn;
+                    if (item.id === "late-rent") return rentalsModuleOn;
+                    return true;
+                  })
+                  .map((item) => {
                   const Icon = item.icon;
                   const isActive = activeSection === item.id;
 
@@ -780,6 +828,89 @@ export default function Settings() {
             </div>
           )}
 
+          {activeSection === 'internal-modules' && (
+            <div className="space-y-6">
+              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg" data-testid="section-company-modules">
+                <CardHeader>
+                  <CardTitle className="text-2xl">Internal Modules</CardTitle>
+                  <CardDescription className="mt-2">
+                    Turn modules off to hide them across the app. Existing records are kept and become available again when re-enabled.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {orgLoading ? (
+                    <div className="text-center py-12 text-muted-foreground">Loading...</div>
+                  ) : (
+                    <>
+                      <div className="space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.tenancies.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.tenancies.description}</p>
+                          </div>
+                          <Switch
+                            checked={tenanciesEnabled}
+                            onCheckedChange={(on) => {
+                              setTenanciesEnabled(on);
+                              if (!on) setRentalsEnabled(false);
+                            }}
+                            data-testid="toggle-module-tenancies"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.rentals.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.rentals.description}</p>
+                            {!tenanciesEnabled && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Enable Tenancies first to turn Rentals on.
+                              </p>
+                            )}
+                          </div>
+                          <Switch
+                            checked={tenanciesEnabled && rentalsEnabled}
+                            onCheckedChange={setRentalsEnabled}
+                            disabled={!tenanciesEnabled}
+                            data-testid="toggle-module-rentals"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.compliance.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.compliance.description}</p>
+                          </div>
+                          <Switch
+                            checked={complianceEnabled}
+                            onCheckedChange={setComplianceEnabled}
+                            data-testid="toggle-module-compliance"
+                          />
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-base font-medium">{COMPANY_MODULE_META.maintenance.label}</Label>
+                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.maintenance.description}</p>
+                          </div>
+                          <Switch
+                            checked={maintenanceEnabled}
+                            onCheckedChange={setMaintenanceEnabled}
+                            data-testid="toggle-module-maintenance"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => updateCompanyModulesMutation.mutate()}
+                        disabled={updateCompanyModulesMutation.isPending}
+                        data-testid="button-save-company-modules"
+                      >
+                        {updateCompanyModulesMutation.isPending ? "Saving..." : "Save Module Settings"}
+                      </Button>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {activeSection === 'templates' && (
             <div className="space-y-6">
               <InspectionTemplatesContent embedded />
@@ -987,7 +1118,10 @@ export default function Settings() {
           )}
 
           {activeSection === 'integrations' && (
-            <FixfloIntegrationSettings />
+            <div className="space-y-6">
+              {maintenanceModuleOn && <FixfloIntegrationSettings />}
+              <ReapitIntegrationSettings />
+            </div>
           )}
 
           {activeSection === 'tenant-portal' && (

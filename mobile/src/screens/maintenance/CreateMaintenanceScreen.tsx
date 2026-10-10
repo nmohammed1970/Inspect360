@@ -193,58 +193,55 @@ export default function CreateMaintenanceScreen() {
     });
   }, [existingRequest, isEditMode, requestId]);
 
-  // Auto-populate from inspection context - use ref to track initialization per inspection
+  // Auto-populate from inspection field context (key includes field + photos so re-log works)
   const inspectionInitializedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Only initialize from inspection context if not in edit mode
     if (isEditMode) {
       return;
     }
 
-    // Reset initialization if inspectionId changed
-    const currentInspectionId = params?.inspectionId || 'new';
-    if (inspectionInitializedRef.current !== currentInspectionId) {
-      inspectionInitializedRef.current = null;
-    }
+    const fieldPhotos = (params?.photos || []).filter(Boolean).slice(0, 5);
+    const contextKey = [
+      params?.inspectionId || 'new',
+      params?.entryId || '',
+      params?.fieldLabel || '',
+      fieldPhotos.join('|'),
+    ].join('::');
 
-    // Skip if already initialized for this inspection
-    if (inspectionInitializedRef.current === currentInspectionId) {
+    if (inspectionInitializedRef.current === contextKey) {
       return;
     }
 
     let hasChanges = false;
 
-    // Pre-fill property and block from inspection context
-    if (params?.propertyId && !propertyId) {
+    if (params?.propertyId) {
       setPropertyId(params.propertyId);
       hasChanges = true;
     }
 
-    // Set block filter if blockId is provided
-    if (params?.blockId && !blockId) {
+    if (params?.blockId) {
       setBlockId(params.blockId);
       setFormBlockFilter(params.blockId);
       hasChanges = true;
     }
 
-    // Pre-fill title, description, and photos from field context
     if (params?.fieldLabel) {
       const sectionInfo = params.sectionTitle ? ` in ${params.sectionTitle}` : '';
       setTitle(`Maintenance: ${params.fieldLabel}${sectionInfo}`);
       setDescription(`Maintenance request created from inspection field: ${params.fieldLabel}${sectionInfo}`);
       setPriority('high');
-      if (params.photos && params.photos.length > 0) {
-        setUploadedImages(params.photos);
-      }
+      setUploadedImages(fieldPhotos);
+      hasChanges = true;
+    } else if (fieldPhotos.length > 0) {
+      setUploadedImages(fieldPhotos);
       hasChanges = true;
     }
 
-    // Mark as initialized if we made any changes
     if (hasChanges) {
-      inspectionInitializedRef.current = currentInspectionId;
+      inspectionInitializedRef.current = contextKey;
     }
-  }, [params, isEditMode, propertyId, blockId]);
+  }, [params, isEditMode]);
 
   // Reset dueDate when switching requests
   useEffect(() => {

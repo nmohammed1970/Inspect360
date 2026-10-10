@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
-import { pagePad } from "@/lib/responsive";
+import { pagePad, cardGridComfortable } from "@/lib/responsive";
 import {
   FileText,
   Building2,
@@ -14,8 +14,10 @@ import {
   History,
   ShieldCheck,
 } from "lucide-react";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 export default function Reports() {
+  const { tenanciesEnabled, complianceEnabled } = useCompanyModules();
   const reportCards = [
     {
       title: "Portfolio Report",
@@ -102,8 +104,14 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        {reportCards.map((report) => {
+      <div className={cardGridComfortable}>
+        {reportCards
+          .filter((report) => {
+            if (report.link === "/reports/tenants") return tenanciesEnabled;
+            if (report.link === "/reports/compliance") return complianceEnabled;
+            return true;
+          })
+          .map((report) => {
           const Icon = report.icon;
           const cardContent = (
             <Card

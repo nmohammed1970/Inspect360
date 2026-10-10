@@ -59,6 +59,7 @@ import {
   parseSignatureValue,
 } from "@shared/signature";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 
@@ -141,6 +142,7 @@ export default function InspectionReport() {
   const queryClient = useQueryClient();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const isOnline = useOnlineStatus();
+  const { tenanciesEnabled, maintenanceEnabled } = useCompanyModules();
 
   // IMMEDIATE redirect check - redirect to login if not authenticated
   // This runs synchronously to prevent any blank page
@@ -406,7 +408,7 @@ export default function InspectionReport() {
   // Fetch maintenance requests linked to this inspection
   const { data: maintenanceRequests = [] } = useQuery<any[]>({
     queryKey: [`/api/maintenance?inspectionId=${id}`],
-    enabled: !!id && isAuthenticated && !authLoading, // Only fetch if authenticated
+    enabled: !!id && isAuthenticated && !authLoading && maintenanceEnabled,
   });
 
   // Create maintenance request mutation
@@ -1335,8 +1337,10 @@ export default function InspectionReport() {
               </div>
             )}
 
-            {/* Tenant Approval Status - For Check-In Inspections */}
-            {inspection.type === 'check_in' && inspection.tenantApprovalStatus && (
+            {/* Tenant Approval Status - tenancies module only */}
+            {tenanciesEnabled &&
+              inspection.type === "check_in" &&
+              inspection.tenantApprovalStatus && (
               <div className="space-y-2 pt-6">
                 <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Tenant Approval</div>
                 <div className="flex items-center gap-2">
@@ -1634,12 +1638,14 @@ export default function InspectionReport() {
               <div className="space-y-4">
                 <h4 className="font-bold text-lg border-b pb-2">Status Icons</h4>
                 <div className="space-y-3 text-sm">
+                  {tenanciesEnabled && (
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
                       <AlertTriangle className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
                     </span>
                     <span className="text-muted-foreground">Disagreed by tenant</span>
                   </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
                       <Wrench className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />
@@ -1671,7 +1677,7 @@ export default function InspectionReport() {
         </Card>
 
         {/* Maintenance Action Required - Only for Check-Out inspections with degradations */}
-        {inspection.type === 'check_out' && degradations.length > 0 && (
+        {maintenanceEnabled && inspection.type === 'check_out' && degradations.length > 0 && (
           <Card className="print-break-inside-avoid border-2 border-orange-200 dark:border-orange-900/50" data-testid="maintenance-action-required">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
@@ -1830,6 +1836,13 @@ export default function InspectionReport() {
 
                                 {/* Render all fields for this instance */}
                                 {section.fields.map((field, fieldIdx) => {
+                                  if (
+                                    !tenanciesEnabled &&
+                                    field.type === "signature" &&
+                                    isTenantSignatureField(field)
+                                  ) {
+                                    return null;
+                                  }
                                   const entry = getEntryValue(section.id, field.id || field.key || field.label, instanceName);
                                   const entryKey = `${section.id}/${instanceName}-${field.id || field.key || field.label}`;
                                   const photoKey = `photos-${entryKey}`;
@@ -2054,6 +2067,13 @@ export default function InspectionReport() {
                       ) : (
                         // Render normally for non-repeatable sections
                         section.fields.map((field, fieldIdx) => {
+                          if (
+                            !tenanciesEnabled &&
+                            field.type === "signature" &&
+                            isTenantSignatureField(field)
+                          ) {
+                            return null;
+                          }
                           const entry = getEntryValue(section.id, field.id || field.key || field.label);
                           const entryKey = `${section.id}-${field.id || field.key || field.label}`;
                           const photoKey = `photos-${entryKey}`;
@@ -2224,7 +2244,7 @@ export default function InspectionReport() {
                                   {!editMode && entry && (
                                     <div className="mt-4 pt-3 border-t no-print space-y-3">
                                       <div className="flex gap-2 flex-wrap">
-                                        {inspection.propertyId && (
+                                        {maintenanceEnabled && inspection.propertyId && (
                                           <Button
                                             variant="outline"
                                             size="sm"
@@ -2584,72 +2604,74 @@ export default function InspectionReport() {
       </div>
 
       {/* Maintenance Request Dialog */}
-      <Dialog open={maintenanceDialogOpen} onOpenChange={setMaintenanceDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Raise Maintenance Request</DialogTitle>
-            <DialogDescription>
-              Create a maintenance request for this inspection item
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="maintenance-title">Title</Label>
-              <Input
-                id="maintenance-title"
-                value={maintenanceForm.title}
-                onChange={(e) => setMaintenanceForm({ ...maintenanceForm, title: e.target.value })}
-                placeholder="Brief description of the issue"
-                data-testid="input-maintenance-title"
-              />
+      {maintenanceEnabled && (
+        <Dialog open={maintenanceDialogOpen} onOpenChange={setMaintenanceDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Raise Maintenance Request</DialogTitle>
+              <DialogDescription>
+                Create a maintenance request for this inspection item
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="maintenance-title">Title</Label>
+                <Input
+                  id="maintenance-title"
+                  value={maintenanceForm.title}
+                  onChange={(e) => setMaintenanceForm({ ...maintenanceForm, title: e.target.value })}
+                  placeholder="Brief description of the issue"
+                  data-testid="input-maintenance-title"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="maintenance-description">Description</Label>
+                <Textarea
+                  id="maintenance-description"
+                  value={maintenanceForm.description}
+                  onChange={(e) => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })}
+                  placeholder="Detailed description of the maintenance issue..."
+                  className="min-h-[100px]"
+                  data-testid="textarea-maintenance-description"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="maintenance-priority">Priority</Label>
+                <Select
+                  value={maintenanceForm.priority}
+                  onValueChange={(value: any) => setMaintenanceForm({ ...maintenanceForm, priority: value })}
+                >
+                  <SelectTrigger id="maintenance-priority" data-testid="select-maintenance-priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="maintenance-description">Description</Label>
-              <Textarea
-                id="maintenance-description"
-                value={maintenanceForm.description}
-                onChange={(e) => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })}
-                placeholder="Detailed description of the maintenance issue..."
-                className="min-h-[100px]"
-                data-testid="textarea-maintenance-description"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="maintenance-priority">Priority</Label>
-              <Select
-                value={maintenanceForm.priority}
-                onValueChange={(value: any) => setMaintenanceForm({ ...maintenanceForm, priority: value })}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setMaintenanceDialogOpen(false)}
+                data-testid="button-cancel-maintenance"
               >
-                <SelectTrigger id="maintenance-priority" data-testid="select-maintenance-priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setMaintenanceDialogOpen(false)}
-              data-testid="button-cancel-maintenance"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmitMaintenance}
-              disabled={!maintenanceForm.title || createMaintenanceMutation.isPending}
-              data-testid="button-submit-maintenance"
-            >
-              {createMaintenanceMutation.isPending ? "Creating..." : "Create Request"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmitMaintenance}
+                disabled={!maintenanceForm.title || createMaintenanceMutation.isPending}
+                data-testid="button-submit-maintenance"
+              >
+                {createMaintenanceMutation.isPending ? "Creating..." : "Create Request"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Comparison Report Progress Dialog */}
       <Dialog open={autoCreateComparisonMutation.isPending} onOpenChange={() => { }}>
