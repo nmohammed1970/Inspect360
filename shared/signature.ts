@@ -82,11 +82,8 @@ export function formatSignerDisplayName(user?: {
   const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
   if (fullName) return fullName;
 
-  // Registration stores company name in username — use it only when it is not an email
-  const username = (user.username || "").trim();
-  if (username && !username.includes("@")) return username;
-
-  // Never show a raw email; humanize the local-part as a last resort
+  // Never use username as a person name (owners historically had company name there;
+  // new owners use email|company). Prefer email local-part only.
   const email = (user.email || "").trim();
   if (email.includes("@")) {
     const local = email.split("@")[0] || "";

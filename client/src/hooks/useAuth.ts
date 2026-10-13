@@ -54,7 +54,7 @@ export function useAuth() {
       queryClient.setQueryData(["/api/auth/user"], user);
       toast({
         title: "Welcome back!",
-        description: `Logged in as ${user.firstName || user.username}`,
+        description: `Logged in as ${user.firstName || user.email?.split("@")[0] || "user"}`,
       });
     },
     onError: (error: Error) => {

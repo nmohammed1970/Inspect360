@@ -15,7 +15,9 @@ export type NotifyOrganizationSignupResult = {
 
 function fullName(user: User): string {
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
-  return name || user.username || "";
+  if (name) return name;
+  const local = (user.email || "").split("@")[0] || "";
+  return local || "";
 }
 
 function signupSourceLabel(source: OrganizationSignupSource): string {

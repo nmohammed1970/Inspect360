@@ -9,6 +9,7 @@ import connectPg from "connect-pg-simple";
 import * as cookieSignature from "cookie-signature";
 import { storage } from "./storage";
 import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/schema";
+import { buildOwnerUsername, withUsernameCollisionSuffix } from "@shared/username";
 import { billingNowUtc } from "@shared/billingClock";
 import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
 import {
@@ -328,28 +329,37 @@ export async function setupAuth(app: Express) {
 
       // Normalize email to lowercase for case-insensitive storage
       const normalizedEmail = validatedData.email.toLowerCase().trim();
+      const companyName = validatedData.companyName.trim();
 
-      // Check if username already exists
-      const existingUser = await storage.getUserByUsername(validatedData.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-
-      // Check if email already exists
+      // Check if email already exists (company names may duplicate across orgs)
       const existingEmail = await storage.getUserByEmail(normalizedEmail);
       if (existingEmail) {
         return res.status(400).json({ message: "Email already exists" });
       }
 
+      // Username is an internal unique slug: email|companyName (not typed by the user)
+      const usernameBase = buildOwnerUsername(normalizedEmail, companyName);
+      let username = usernameBase;
+      for (let attempt = 1; attempt <= 20; attempt++) {
+        username = withUsernameCollisionSuffix(usernameBase, attempt);
+        const taken = await storage.getUserByUsername(username);
+        if (!taken) break;
+        if (attempt === 20) {
+          return res.status(400).json({ message: "Unable to allocate a unique username" });
+        }
+      }
+
       // Hash password and create user
       const hashedPassword = await hashPassword(validatedData.password);
+      const { companyName: _companyName, username: _ignoredUsername, ...userFields } = validatedData;
       const user = await storage.createUser({
-        ...validatedData,
+        ...userFields,
+        username,
         email: normalizedEmail,
         password: hashedPassword,
       });
 
-      // Automatically create organization using the username (company name) field
+      // Automatically create organization using companyName
       // Create organization for owner role, or if user doesn't have an organization yet
       if (user.role === "owner" || !user.organizationId) {
         try {
@@ -373,9 +383,9 @@ export async function setupAuth(app: Express) {
           const trialDays = await getDefaultTrialDays();
           const trialEndAt = addDaysUtc(trialStartAt, trialDays);
 
-          // Create organization using username as company name
+          // Create organization using company name from registration form
           const organization = await storage.createOrganization({
-            name: validatedData.username, // Company name from registration form
+            name: companyName,
             ownerId: user.id,
             countryCode: countryCode,
             preferredCurrency: preferredCurrency, // Set currency based on country
@@ -720,7 +730,7 @@ export async function setupAuth(app: Express) {
         const { sendPasswordResetEmail } = await import('./resend');
         const displayName = user.firstName
           ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
-          : user.username;
+          : (user.email?.split("@")[0] || "there");
         await sendPasswordResetEmail(
           user.email,
           displayName,

@@ -13,7 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { User as UserIcon, Loader2, Plus, X, Upload, FileText, Trash2, Lock, Eye, EyeOff } from "lucide-react";
-import { updateSelfProfileSchema, type User, type UserDocument } from "@shared/schema";
+import { updateSelfProfileSchema, type User, type UserDocument, type Organization } from "@shared/schema";
 import { MIN_PASSWORD_LENGTH } from "@shared/passwordPolicy";
 import { changePasswordFormSchema, type ChangePasswordFormValues } from "@shared/passwordPolicyForms";
 import { z } from "zod";
@@ -49,6 +49,11 @@ export default function Profile() {
   // Fetch current user profile
   const { data: user, isLoading } = useQuery<User>({
     queryKey: ["/api/auth/profile"],
+  });
+
+  const { data: organization } = useQuery<Organization>({
+    queryKey: ["/api/organizations", user?.organizationId],
+    enabled: !!user?.organizationId,
   });
 
   // Fetch user documents
@@ -327,7 +332,7 @@ export default function Profile() {
   const getUserInitials = () => {
     const first = user?.firstName?.[0] || "";
     const last = user?.lastName?.[0] || "";
-    return (first + last).toUpperCase() || user?.username?.[0]?.toUpperCase() || "U";
+    return (first + last).toUpperCase() || user?.email?.[0]?.toUpperCase() || "U";
   };
 
   if (isLoading) {
@@ -843,10 +848,14 @@ export default function Profile() {
             <Label className="text-sm font-medium text-muted-foreground">Email</Label>
             <p className="text-base" data-testid="text-email">{user?.email}</p>
           </div>
-          <div>
-            <Label className="text-sm font-medium text-muted-foreground">Username</Label>
-            <p className="text-base" data-testid="text-username">{user?.username}</p>
-          </div>
+          {(organization?.brandingName || organization?.name) && (
+            <div>
+              <Label className="text-sm font-medium text-muted-foreground">Organization</Label>
+              <p className="text-base" data-testid="text-organization-name">
+                {organization.brandingName || organization.name}
+              </p>
+            </div>
+          )}
           <div>
             <Label className="text-sm font-medium text-muted-foreground">Role</Label>
             <p className="text-base" data-testid="text-role">

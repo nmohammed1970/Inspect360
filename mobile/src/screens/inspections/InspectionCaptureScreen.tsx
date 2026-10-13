@@ -204,7 +204,7 @@ export default function InspectionCaptureScreen() {
     staleTime: 60000,
   });
 
-  // Prefer first/last name over username (username is often the company name from registration)
+  // Prefer first/last name for signer display (never use internal username slug)
   const assignedInspector =
     inspector ||
     (effectiveInspection as any)?.inspector ||

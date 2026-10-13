@@ -99,6 +99,17 @@ export default function ProfileScreen() {
     },
   });
 
+  const organizationId = profile?.organizationId || user?.organizationId;
+  const { data: organization } = useQuery({
+    queryKey: ['/api/organizations', organizationId],
+    queryFn: () =>
+      apiRequestJson<{ name?: string; brandingName?: string | null }>(
+        'GET',
+        `/api/organizations/${organizationId}`,
+      ),
+    enabled: !!organizationId,
+  });
+
   // Check biometric availability and status
   useEffect(() => {
     const checkBiometric = async () => {
@@ -484,7 +495,7 @@ export default function ProfileScreen() {
   const getUserInitials = () => {
     const first = firstName?.[0] || '';
     const last = lastName?.[0] || '';
-    return (first + last).toUpperCase() || user?.username?.[0]?.toUpperCase() || 'U';
+    return (first + last).toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U';
   };
 
   const getProfileImageUrl = () => {
@@ -1200,19 +1211,21 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              <View style={[styles.infoRow, { borderBottomColor: themeColors.border.light }]}>
-                <View style={styles.infoLeft}>
-                  <View style={[styles.infoIconContainer, { backgroundColor: `${themeColors.primary.DEFAULT} 15` }]}>
-                    <UserIcon size={18} color={themeColors.primary.DEFAULT} />
-                  </View>
-                  <View style={[styles.infoTextContainer, { minWidth: 0 }]}>
-                    <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Username</Text>
-                    <Text style={[styles.infoValue, { color: themeColors.text.primary, minWidth: 0 }]}>
-                      {displayUser?.username || 'N/A'}
-                    </Text>
+              {(organization?.brandingName || organization?.name) ? (
+                <View style={[styles.infoRow, { borderBottomColor: themeColors.border.light }]}>
+                  <View style={styles.infoLeft}>
+                    <View style={[styles.infoIconContainer, { backgroundColor: `${themeColors.primary.DEFAULT} 15` }]}>
+                      <UserIcon size={18} color={themeColors.primary.DEFAULT} />
+                    </View>
+                    <View style={[styles.infoTextContainer, { minWidth: 0 }]}>
+                      <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Organization</Text>
+                      <Text style={[styles.infoValue, { color: themeColors.text.primary, minWidth: 0 }]}>
+                        {organization.brandingName || organization.name}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
+              ) : null}
 
               <View style={styles.infoRow}>
                 <View style={styles.infoLeft}>

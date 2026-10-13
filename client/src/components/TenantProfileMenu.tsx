@@ -24,8 +24,8 @@ export function TenantProfileMenu() {
     if (user.firstName) {
       return user.firstName.substring(0, 2).toUpperCase();
     }
-    if (user.username) {
-      return user.username.substring(0, 2).toUpperCase();
+    if (user.email) {
+      return user.email.substring(0, 2).toUpperCase();
     }
     return "U";
   };
@@ -37,7 +37,8 @@ export function TenantProfileMenu() {
     if (user.firstName) {
       return user.firstName;
     }
-    return user.username;
+    const local = (user.email || "").split("@")[0] || "";
+    return local || "Account";
   };
 
   return (
