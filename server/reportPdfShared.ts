@@ -7,6 +7,12 @@ import fs from "fs/promises";
 import { ObjectStorageService } from "./objectStorage";
 import { formatCurrency } from "@shared/countryUtils";
 import { resolveReportLogoUrl, REPORT_LOGO_ON_DARK, REPORT_LOGO_ON_LIGHT } from "./reportLogo";
+import {
+  resolveReportTheme,
+  type ReportTheme,
+  type OrgBrandThemeSource,
+  DEFAULT_REPORT_PALETTE,
+} from "@shared/reportBrandTheme";
 
 export type LandscapeReportBranding = {
   logoUrl?: string | null;
@@ -14,7 +20,28 @@ export type LandscapeReportBranding = {
   brandingEmail?: string | null;
   brandingPhone?: string | null;
   brandingWebsite?: string | null;
+  brandingPrimaryColor?: string | null;
+  brandingReportPalette?: OrgBrandThemeSource["brandingReportPalette"];
 };
+
+export { resolveReportTheme };
+export type { ReportTheme };
+
+/** Replace Inspect360 default teal hexes in HTML/CSS with the org report theme. */
+export function applyBrandThemeToHtml(html: string, theme?: ReportTheme | null): string {
+  const t = theme || resolveReportTheme(null);
+  return html
+    .replace(/#00D5CC/gi, t.primary)
+    .replace(/#3B7A8C/gi, t.secondary)
+    .replace(/#04C6BD/gi, t.primary)
+    .replace(/#f0fdfa/gi, t.surface || DEFAULT_REPORT_PALETTE.surface);
+}
+
+export function themeFromOrgBranding(
+  branding?: LandscapeReportBranding | OrgBrandThemeSource | null,
+): ReportTheme {
+  return resolveReportTheme(branding || null);
+}
 
 export function escapeHtml(str: string): string {
   if (!str) return "";
@@ -244,14 +271,20 @@ export function formatMoneyCents(value: unknown, currency: "GBP" | "USD" | "AED"
   return formatCurrency(num, currency, true);
 }
 
-export function sharedCss(): string {
+export function sharedCss(themeInput?: ReportTheme | OrgBrandThemeSource | null): string {
+  const theme = themeInput && "primary" in themeInput && "primaryDark" in themeInput
+    ? (themeInput as ReportTheme)
+    : resolveReportTheme((themeInput as OrgBrandThemeSource) || null);
+  const primary = theme.primary;
+  const secondary = theme.secondary;
+  const primaryDark = theme.primaryDark || secondary;
   return `
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
-      color: #333;
-      background: white;
+      color: ${theme.text || "#333"};
+      background: ${theme.background || "white"};
     }
     .cover-page {
       height: 100vh;
@@ -260,7 +293,7 @@ export function sharedCss(): string {
       justify-content: center;
       align-items: center;
       text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
+      background: linear-gradient(135deg, ${primary} 0%, ${primaryDark} 100%);
       color: white;
       page-break-after: always;
       position: relative;
@@ -366,8 +399,8 @@ export function sharedCss(): string {
       font-size: 26px;
       font-weight: 800;
       margin-bottom: 28px;
-      color: #00D5CC;
-      border-bottom: 4px solid #00D5CC;
+      color: ${primary};
+      border-bottom: 4px solid ${primary};
       padding-bottom: 12px;
       padding-left: 4px;
       text-transform: uppercase;
@@ -381,7 +414,7 @@ export function sharedCss(): string {
       bottom: -4px;
       width: 60px;
       height: 4px;
-      background: #3B7A8C;
+      background: ${secondary};
       border-radius: 2px;
     }
     .stats-grid {
@@ -404,7 +437,7 @@ export function sharedCss(): string {
     .stat-value {
       font-size: 32px;
       font-weight: 700;
-      color: #00D5CC;
+      color: ${primary};
       margin-bottom: 8px;
     }
     .stat-label {
@@ -422,14 +455,14 @@ export function sharedCss(): string {
       table-layout: fixed;
       border-collapse: collapse;
       margin-bottom: 24px;
-      border: 2px solid #00D5CC;
+      border: 2px solid ${primary};
       border-radius: 8px;
       overflow: hidden;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       background: white;
     }
     th {
-      background: #00D5CC;
+      background: ${primary};
       color: white;
       padding: 10px 8px;
       text-align: center;

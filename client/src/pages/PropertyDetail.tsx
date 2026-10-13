@@ -47,16 +47,29 @@ import {
   Wallet,
   Banknote,
   Receipt,
+  LayoutDashboard,
+  BedDouble,
+  Bath,
+  CookingPot,
+  Sofa,
+  FileText,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { PropertyFormDialog } from "@/components/PropertyFormDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { useLocale } from "@/contexts/LocaleContext";
 import { MapPreview } from "@/components/MapPreview";
 import AddTenantDialog from "@/components/AddTenantDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll } from "@/lib/responsive";
+import {
+  defaultLengthUnitForCountry,
+  defaultAreaUnitForCountry,
+  formatFloorArea,
+  fromMillimetres,
+} from "@shared/propertyRooms";
 
 interface Property {
   id: string;
@@ -174,6 +187,7 @@ export default function PropertyDetail() {
   const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
   const propertyTabs = useMemo(() => {
     const tabs = new Set([
+      "overview",
       "inspections",
       "inventory",
       "inspection-schedule",
@@ -192,7 +206,7 @@ export default function PropertyDetail() {
     const requested =
       urlTab === "compliance" ? "compliance-schedule" : urlTab;
     if (requested && propertyTabs.has(requested)) return requested;
-    return "inspections";
+    return "overview";
   })();
   const [activeTab, setActiveTab] = useState(resolvedTab);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -200,7 +214,11 @@ export default function PropertyDetail() {
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+  const locale = useLocale();
   const canSeeReapitSource = user?.role === "owner" || user?.role === "clerk";
+  const lengthUnit = defaultLengthUnitForCountry(locale.countryCode);
+  const areaUnit = defaultAreaUnitForCountry(locale.countryCode);
+  const lengthUnitLabel = lengthUnit === "ft" ? "ft" : "m";
 
   useEffect(() => {
     setActiveTab(resolvedTab);
@@ -295,6 +313,92 @@ export default function PropertyDetail() {
     },
     enabled: !!propertyId && tenanciesEnabled,
   });
+
+  const { data: propertyRooms = [] } = useQuery<
+    Array<{
+      id: string;
+      name: string;
+      categoryName: string;
+      categorySlug?: string;
+      widthMm?: number | null;
+      lengthMm?: number | null;
+      ceilingHeightMm?: number | null;
+    }>
+  >({
+    queryKey: ["/api/properties", propertyId, "rooms"],
+    queryFn: async () => {
+      const res = await fetch(`/api/properties/${propertyId}/rooms`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!propertyId,
+  });
+
+  type OverviewRoom = {
+    id: string;
+    name: string;
+    categoryName: string;
+    widthMm?: number | null;
+    lengthMm?: number | null;
+    ceilingHeightMm?: number | null;
+    hasDetails: boolean;
+  };
+
+  const overviewRooms = useMemo<OverviewRoom[]>(() => {
+    if (propertyRooms.length > 0) {
+      return propertyRooms.map((room) => ({
+        id: room.id,
+        name: room.name,
+        categoryName: room.categoryName,
+        widthMm: room.widthMm,
+        lengthMm: room.lengthMm,
+        ceilingHeightMm: room.ceilingHeightMm,
+        hasDetails: true,
+      }));
+    }
+    if (!property) return [];
+    const fromCounts: OverviewRoom[] = [];
+    const pushCount = (label: string, count: number) => {
+      for (let i = 1; i <= count; i++) {
+        fromCounts.push({
+          id: `layout-${label}-${i}`,
+          name: count === 1 ? label : `${label} ${i}`,
+          categoryName: label,
+          hasDetails: false,
+        });
+      }
+    };
+    pushCount("Bedroom", property.bedrooms ?? 1);
+    pushCount("Bathroom", property.bathrooms ?? 1);
+    pushCount("Kitchen", property.kitchens ?? 1);
+    pushCount("Living room", property.livingRooms ?? 1);
+    return fromCounts;
+  }, [propertyRooms, property]);
+
+  const overviewRoomSections = useMemo(() => {
+    const sections = new Map<string, OverviewRoom[]>();
+    for (const room of overviewRooms) {
+      const key = room.categoryName || "Other";
+      const list = sections.get(key) || [];
+      list.push(room);
+      sections.set(key, list);
+    }
+    return Array.from(sections.entries());
+  }, [overviewRooms]);
+
+  const formatRoomDimensions = (
+    room: Pick<OverviewRoom, "widthMm" | "lengthMm" | "ceilingHeightMm">,
+  ) => {
+    const w = fromMillimetres(room.widthMm, lengthUnit);
+    const l = fromMillimetres(room.lengthMm, lengthUnit);
+    if (w == null || l == null) return null;
+    const area = formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
+    const ceiling = fromMillimetres(room.ceilingHeightMm, lengthUnit);
+    const parts = [`${w} ${lengthUnitLabel} × ${l} ${lengthUnitLabel}`];
+    if (area) parts.push(area);
+    if (ceiling != null) parts.push(`Ceiling ${ceiling} ${lengthUnitLabel}`);
+    return parts.join(" · ");
+  };
 
   const hasOccupyingTenant = tenants.some((t) => t.assignment?.isActive !== false);
   const occupancyLabel =
@@ -511,13 +615,6 @@ export default function PropertyDetail() {
           </Card>
         </div>
 
-        {property.notes && (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">{property.notes}</p>
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       {/* Stats Overview */}
@@ -580,6 +677,10 @@ export default function PropertyDetail() {
       {/* Tabbed Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-w-0">
         <TabsList className={tabsListScroll}>
+          <TabsTrigger value="overview" data-testid="tab-overview" className="shrink-0 gap-1.5">
+            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            <span>Overview</span>
+          </TabsTrigger>
           <TabsTrigger value="inspections" data-testid="tab-inspections" className="shrink-0 gap-1.5">
             <ClipboardCheck className="h-4 w-4 shrink-0" />
             <span>Inspections</span>
@@ -627,6 +728,220 @@ export default function PropertyDetail() {
             </>
           )}
         </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-6" data-testid="tab-content-overview">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-primary" />
+                  Property details
+                </CardTitle>
+                <CardDescription>Core information for this property</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1 min-w-0">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</dt>
+                    <dd className="text-sm font-medium break-words">{property.name}</dd>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</dt>
+                    <dd className="text-sm font-medium capitalize">
+                      {property.propertyType
+                        ? property.propertyType.replace(/-/g, " ")
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div className="space-y-1 min-w-0 sm:col-span-2">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Address</dt>
+                    <dd className="text-sm font-medium break-words flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <span>{property.address}</span>
+                    </dd>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Block</dt>
+                    <dd className="text-sm font-medium">
+                      {property.blockName ? (
+                        <Link href={`/blocks/${property.blockId}`}>
+                          <Badge variant="outline" className="cursor-pointer hover:bg-muted">
+                            {property.blockName}
+                          </Badge>
+                        </Link>
+                      ) : (
+                        "Not assigned"
+                      )}
+                    </dd>
+                  </div>
+                  {tenanciesEnabled && (
+                    <div className="space-y-1 min-w-0">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Occupancy</dt>
+                      <dd>
+                        <Badge variant={occupancyLabel === "Occupied" ? "success" : "secondary"}>
+                          {occupancyLabel}
+                        </Badge>
+                      </dd>
+                    </div>
+                  )}
+                  {canSeeReapitSource && reapitMapping && (
+                    <div className="space-y-1 min-w-0 sm:col-span-2">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Source</dt>
+                      <dd className="text-sm text-muted-foreground">
+                        Reapit
+                        {reapitMapping.lastSyncedAt
+                          ? ` · last synced ${new Date(reapitMapping.lastSyncedAt).toLocaleString()}`
+                          : ""}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Layout summary</CardTitle>
+                <CardDescription>Room counts on this property</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {[
+                  { label: "Bedrooms", value: property.bedrooms ?? 1, icon: BedDouble },
+                  { label: "Bathrooms", value: property.bathrooms ?? 1, icon: Bath },
+                  { label: "Kitchens", value: property.kitchens ?? 1, icon: CookingPot },
+                  { label: "Living rooms", value: property.livingRooms ?? 1, icon: Sofa },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-center justify-between rounded-lg border px-3 py-2.5"
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <item.icon className="h-4 w-4 text-muted-foreground" />
+                      <span>{item.label}</span>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">{item.value}</span>
+                  </div>
+                ))}
+                {propertyRooms.length > 0 && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    {propertyRooms.length} detailed room{propertyRooms.length === 1 ? "" : "s"} configured below
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {(property.floorPlanUrl || property.notes) && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {property.floorPlanUrl && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-primary" />
+                      Floor plan
+                    </CardTitle>
+                    <CardDescription>
+                      {property.floorPlanFileName || "Uploaded floor plan"}
+                      {property.floorPlanAnalysisStatus === "complete" ? " · Analysed" : ""}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {(property.floorPlanMimeType || "").includes("pdf") ||
+                    (property.floorPlanFileName || "").toLowerCase().endsWith(".pdf") ? (
+                      <div className="rounded-lg border bg-muted/30 flex flex-col items-center justify-center py-10 gap-2">
+                        <FileText className="h-10 w-10 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground truncate max-w-full px-4">
+                          {property.floorPlanFileName || "PDF floor plan"}
+                        </span>
+                        <a
+                          href={property.floorPlanUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-primary hover:underline"
+                        >
+                          Open PDF
+                        </a>
+                      </div>
+                    ) : (
+                      <PreviewableImage
+                        src={property.floorPlanUrl}
+                        alt="Floor plan"
+                        title="Floor plan"
+                        className="w-full max-h-64 object-contain rounded-lg border bg-muted/30"
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+              {property.notes && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Notes</CardTitle>
+                    <CardDescription>Additional property notes</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">
+                      {property.notes}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          <Card data-testid="card-property-rooms">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Rooms &amp; areas</CardTitle>
+              <CardDescription>
+                {propertyRooms.length > 0
+                  ? `${overviewRooms.length} room${overviewRooms.length === 1 ? "" : "s"} across ${overviewRoomSections.length} categor${overviewRoomSections.length === 1 ? "y" : "ies"}`
+                  : "Rooms from layout counts — open Edit Property to set categories and dimensions"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {overviewRoomSections.length === 0 ? (
+                <div className="rounded-lg border border-dashed px-4 py-10 text-center">
+                  <BedDouble className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    No rooms configured for this property yet.
+                  </p>
+                </div>
+              ) : (
+                overviewRoomSections.map(([categoryName, rooms]) => (
+                  <section key={categoryName} className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      {categoryName}
+                      <span className="font-normal tabular-nums"> · {rooms.length}</span>
+                    </h3>
+                    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {rooms.map((room) => {
+                        const dims = formatRoomDimensions(room);
+                        return (
+                          <li
+                            key={room.id}
+                            className="rounded-xl border bg-card px-4 py-3 text-sm min-w-0 shadow-sm"
+                          >
+                            <div className="font-medium truncate">{room.name}</div>
+                            {dims ? (
+                              <div className="text-xs text-muted-foreground mt-2 tabular-nums">
+                                {dims}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-muted-foreground/70 mt-2">
+                                {room.hasDetails ? "No dimensions" : "Dimensions not set"}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Inspections Tab */}
         <TabsContent value="inspections" className="space-y-4">

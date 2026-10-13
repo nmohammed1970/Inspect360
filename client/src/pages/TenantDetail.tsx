@@ -22,6 +22,7 @@ import {
   Clock,
   ExternalLink,
   ClipboardCheck,
+  Pencil,
 } from "lucide-react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -34,6 +35,8 @@ import {
   inspectionStatusBadgeVariant,
   maintenanceStatusBadgeVariant,
 } from "@shared/inspectionLabels";
+import EditTenantDialog from "@/components/EditTenantDialog";
+import { queryClient } from "@/lib/queryClient";
 
 interface TenantDetails {
   id: string;
@@ -260,6 +263,25 @@ export default function TenantDetail() {
 
   const activeTenancies = tenancyHistory.filter(t => t.isActive);
   const historicalTenancies = tenancyHistory.filter(t => !t.isActive);
+  // Prefer current tenancy for the shared EditTenantDialog (same as Property Tenants page)
+  const editableTenancy = activeTenancies[0] ?? historicalTenancies[0] ?? null;
+  const editTenantPayload = editableTenancy && tenant
+    ? {
+        id: tenant.id,
+        firstName: tenant.firstName,
+        lastName: tenant.lastName,
+        email: tenant.email,
+        phone: tenant.phone,
+        assignment: {
+          id: editableTenancy.id,
+          leaseStartDate: editableTenancy.leaseStartDate,
+          leaseEndDate: editableTenancy.leaseEndDate,
+          monthlyRent: editableTenancy.monthlyRent,
+          depositAmount: editableTenancy.depositAmount,
+          isActive: editableTenancy.isActive,
+        },
+      }
+    : null;
 
   return (
     <div className="p-6 space-y-6" data-testid="page-tenant-detail">
@@ -280,8 +302,32 @@ export default function TenantDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <Card className="lg:col-span-1">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
             <CardTitle className="text-lg">Contact Details</CardTitle>
+            {tenanciesEnabled && editTenantPayload && editableTenancy && (
+              <EditTenantDialog
+                propertyId={editableTenancy.propertyId}
+                tenant={editTenantPayload}
+                onSuccess={() => {
+                  queryClient.invalidateQueries({ queryKey: ["/api/users", tenantId] });
+                  queryClient.invalidateQueries({ queryKey: ["/api/tenants", tenantId, "history"] });
+                  queryClient.invalidateQueries({
+                    queryKey: ["/api/properties", editableTenancy.propertyId, "tenants"],
+                  });
+                }}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  data-testid="button-edit-tenant"
+                  title="Edit tenant information"
+                  aria-label="Edit tenant information"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </EditTenantDialog>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-center">

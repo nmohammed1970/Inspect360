@@ -25,6 +25,10 @@ import {
   type AiLayoutSuggestion,
   type FloorPlanAnalysisStatus,
 } from "@shared/propertyLayout";
+import {
+  normalizeAiRoomsResult,
+  type AiProposedRoom,
+} from "@shared/propertyRooms";
 
 const FLOOR_PLAN_SYSTEM_PROMPT = `You analyse residential property floor-plan images (and OCR/text from floor-plan PDFs).
 Return ONLY a JSON object with this shape:
@@ -39,6 +43,16 @@ Return ONLY a JSON object with this shape:
     "bathrooms": "high"|"medium"|"low",
     "livingRooms": "high"|"medium"|"low"
   },
+  "rooms": [
+    {
+      "name": "Master Bedroom",
+      "category": "Master Bedroom",
+      "widthM": <number or null>,
+      "lengthM": <number or null>,
+      "areaM2": <number or null>,
+      "confidence": "high"|"medium"|"low"
+    }
+  ],
   "estimatedMeasurements": [
     {
       "roomLabel": "Bedroom 1",
@@ -50,10 +64,42 @@ Return ONLY a JSON object with this shape:
   ],
   "notes": "<optional short caveat>"
 }
+List every distinct room/area in "rooms" with a human name and category
+(e.g. Master Bedroom, En-suite, Kitchen, Hallway, Garden, Garage, Study, Utility).
+Do not collapse different rooms into generic counts only — counts must still match the rooms list.
 Count bathrooms including ensuites and WCs when clearly rooms.
 Living rooms include lounges/reception rooms (not bedrooms).
-Measurements are estimates only when dimensions/scale are visible; otherwise null.
+Measurements are estimates only when dimensions/scale are visible; otherwise null. Never invent dimensions.
 If unsure, use best estimate with low confidence. Never invent dozens of rooms.`;
+
+function enrichSuggestion(raw: unknown): {
+  suggestion: AiLayoutSuggestion;
+  proposedRooms: AiProposedRoom[];
+} {
+  const suggestion = normalizeAiLayoutResult(raw);
+  if (!suggestion) throw httpError("AI returned invalid layout JSON", 502);
+  const roomsNorm = normalizeAiRoomsResult(raw);
+  const proposedRooms = roomsNorm?.rooms?.length
+    ? roomsNorm.rooms
+    : (suggestion.estimatedMeasurements || []).map((m) => ({
+        name: m.roomLabel,
+        category:
+          m.roomType === "bedrooms"
+            ? "Bedroom"
+            : m.roomType === "bathrooms"
+              ? "Bathroom"
+              : m.roomType === "kitchens"
+                ? "Kitchen"
+                : m.roomType === "livingRooms"
+                  ? "Living Room"
+                  : "Other",
+        widthM: m.widthM ?? null,
+        lengthM: m.lengthM ?? null,
+        areaM2: m.areaM2 ?? null,
+        confidence: undefined as undefined,
+      }));
+  return { suggestion, proposedRooms };
+}
 
 function getOpenAI(): OpenAI {
   if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
@@ -182,12 +228,15 @@ async function rasterizePdfPages(pdfBuffer: Buffer, maxPages = 3): Promise<strin
   }
 }
 
-async function analyseWithVision(imageDataUrls: string[]): Promise<AiLayoutSuggestion> {
+async function analyseWithVision(imageDataUrls: string[]): Promise<{
+  suggestion: AiLayoutSuggestion;
+  proposedRooms: AiProposedRoom[];
+}> {
   const client = getOpenAI();
   const content: OpenAI.Chat.ChatCompletionContentPart[] = [
     {
       type: "text",
-      text: "Analyse this floor plan and return room counts as JSON.",
+      text: "Analyse this floor plan and return rooms and room counts as JSON.",
     },
     ...imageDataUrls.slice(0, 3).map(
       (url): OpenAI.Chat.ChatCompletionContentPart => ({
@@ -206,12 +255,13 @@ async function analyseWithVision(imageDataUrls: string[]): Promise<AiLayoutSugge
     ],
   });
   const parsed = extractJsonObject(response.choices[0]?.message?.content || "{}");
-  const normalized = normalizeAiLayoutResult(parsed);
-  if (!normalized) throw httpError("AI returned invalid layout JSON", 502);
-  return normalized;
+  return enrichSuggestion(parsed);
 }
 
-async function analyseWithText(text: string): Promise<AiLayoutSuggestion> {
+async function analyseWithText(text: string): Promise<{
+  suggestion: AiLayoutSuggestion;
+  proposedRooms: AiProposedRoom[];
+}> {
   const client = getOpenAI();
   const response = await client.chat.completions.create({
     model: getChatModel(),
@@ -221,14 +271,12 @@ async function analyseWithText(text: string): Promise<AiLayoutSuggestion> {
       { role: "system", content: FLOOR_PLAN_SYSTEM_PROMPT },
       {
         role: "user",
-        content: `Floor plan text/OCR excerpt:\n\n${text.slice(0, 12000)}\n\nReturn room counts as JSON.`,
+        content: `Floor plan text/OCR excerpt:\n\n${text.slice(0, 12000)}\n\nReturn rooms and room counts as JSON.`,
       },
     ],
   });
   const parsed = extractJsonObject(response.choices[0]?.message?.content || "{}");
-  const normalized = normalizeAiLayoutResult(parsed);
-  if (!normalized) throw httpError("AI returned invalid layout JSON", 502);
-  return normalized;
+  return enrichSuggestion(parsed);
 }
 
 export async function assertPropertyAccess(
@@ -315,6 +363,7 @@ export async function analyseFloorPlanObject(input: {
   fileName?: string | null;
 }): Promise<{
   suggestion: AiLayoutSuggestion;
+  proposedRooms: AiProposedRoom[];
   analysisJson: Record<string, unknown>;
 }> {
   const path = normalizeObjectPath(input.documentUrl);
@@ -338,20 +387,19 @@ export async function analyseFloorPlanObject(input: {
     mime.includes("pdf") || path.toLowerCase().endsWith(".pdf") || fileName.endsWith(".pdf");
 
   try {
-    let suggestion: AiLayoutSuggestion;
+    let analysed: { suggestion: AiLayoutSuggestion; proposedRooms: AiProposedRoom[] } | null =
+      null;
     if (isPdf) {
       const buf = await loadObjectBuffer(path);
-      let visionOk = false;
       try {
         const pages = await rasterizePdfPages(buf, 3);
         if (pages.length) {
-          suggestion = await analyseWithVision(pages);
-          visionOk = true;
+          analysed = await analyseWithVision(pages);
         }
       } catch (e) {
         console.warn("[FloorPlan] PDF rasterize/vision failed, trying text:", e);
       }
-      if (!visionOk) {
+      if (!analysed) {
         const text = await extractTextFromFile(path);
         if (!text || text.trim().length < 20) {
           throw httpError(
@@ -359,21 +407,25 @@ export async function analyseFloorPlanObject(input: {
             422,
           );
         }
-        suggestion = await analyseWithText(text);
+        analysed = await analyseWithText(text);
       }
     } else {
       const buf = await loadObjectBuffer(path);
       const dataUrl = await toOpenAIImageDataUrl(buf);
-      suggestion = await analyseWithVision([dataUrl]);
+      analysed = await analyseWithVision([dataUrl]);
     }
 
+    const { suggestion, proposedRooms } = analysed;
     return {
       suggestion,
+      proposedRooms,
       analysisJson: {
         suggestion,
+        proposedRooms,
         analysedAt: new Date().toISOString(),
         estimated: true,
-        disclaimer: "AI estimated from floor plan — adjust counts if needed.",
+        disclaimer:
+          "AI estimated rooms from floor plan — review and apply before saving. Adjust dimensions if needed.",
       },
     };
   } catch (e: any) {
@@ -407,12 +459,13 @@ export async function analyseFloorPlan(input: {
     .where(eq(properties.id, input.propertyId));
 
   try {
-    const { suggestion, analysisJson } = await analyseFloorPlanObject({
+    const { suggestion, proposedRooms, analysisJson } = await analyseFloorPlanObject({
       documentUrl: property.floorPlanUrl,
       mimeType: property.floorPlanMimeType,
       fileName: property.floorPlanFileName,
     });
 
+    // Persist analysis + legacy counts; room list applied only after user review in the UI
     const [updated] = await db
       .update(properties)
       .set({
@@ -421,7 +474,12 @@ export async function analyseFloorPlan(input: {
         bathrooms: suggestion.bathrooms,
         livingRooms: suggestion.livingRooms,
         floorPlanAnalysisStatus: "complete",
-        floorPlanAnalysisJson: { ...analysisJson, appliedToProperty: true } as any,
+        floorPlanAnalysisJson: {
+          ...analysisJson,
+          proposedRooms,
+          appliedToProperty: false,
+          countsApplied: true,
+        } as any,
         floorPlanAnalysedAt: new Date(),
         updatedAt: new Date(),
       })

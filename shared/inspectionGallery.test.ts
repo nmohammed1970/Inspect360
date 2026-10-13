@@ -88,4 +88,36 @@ assert.ok(assertDestinationValid(custom, "custom_lobby", "photo_doors", {}));
 const keys = dests2.map((d) => `${d.sectionRef}::${d.fieldKey}`);
 assert.equal(keys.length, new Set(keys).size);
 
+// Property-room stable refs (sectionId/roomId) used by capture UI
+const withRooms = {
+  ...structure,
+  propertyRoomInstances: [
+    {
+      roomId: "room-abc",
+      sectionRef: "section_bedrooms/room-abc",
+      title: "Master Bedroom",
+    },
+    {
+      roomId: "room-def",
+      sectionRef: "section_bedrooms/room-def",
+      title: "Bedroom 2",
+    },
+  ],
+};
+const roomDests = listPhotoDestinations(withRooms, { section_bedrooms: 99 });
+assert.ok(roomDests.some((d) => d.sectionRef === "section_bedrooms/room-abc"));
+assert.ok(roomDests.some((d) => d.sectionLabel === "Master Bedroom"));
+assert.ok(
+  assertDestinationValid(withRooms, "section_bedrooms/room-abc", "field_floor", {}),
+);
+assert.equal(
+  assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 1", "field_floor", {}),
+  null,
+);
+
+// Older snapshots without propertyRoomInstances still accept roomId refs
+assert.ok(
+  assertDestinationValid(structure, "section_bedrooms/room-abc", "field_floor", {}),
+);
+
 console.log("inspectionGallery.test.ts: ok");

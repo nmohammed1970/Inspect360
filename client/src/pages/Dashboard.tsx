@@ -98,6 +98,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
+import { CompanyModulesSettings } from "@/components/CompanyModulesSettings";
 import type { Property, Block } from "@shared/schema";
 
 interface DashboardStats {
@@ -223,6 +224,7 @@ export default function Dashboard() {
     }
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("dashboard");
   const [creditRequestOpen, setCreditRequestOpen] = useState(false);
   
   // Inspection Schedule widget filter state
@@ -503,7 +505,13 @@ export default function Dashboard() {
                 <p>Refresh dashboard stats and alerts</p>
               </TooltipContent>
             </UiTooltip>
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <Dialog
+              open={settingsOpen}
+              onOpenChange={(open) => {
+                setSettingsOpen(open);
+                if (open) setSettingsTab("dashboard");
+              }}
+            >
               <UiTooltip>
                 <TooltipTrigger asChild>
                   <DialogTrigger asChild>
@@ -513,37 +521,58 @@ export default function Dashboard() {
                   </DialogTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Show or hide dashboard sections</p>
+                  <p>Dashboard configuration and internal modules</p>
                 </TooltipContent>
               </UiTooltip>
-              <DialogContent>
+              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Dashboard Settings</DialogTitle>
                   <DialogDescription>
-                    Choose which sections to display on your dashboard
+                    Configure dashboard sections or enable and disable internal modules
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
-                  {(Object.keys(widgetLabels) as WidgetKey[])
-                    .filter((key) => key !== "complianceSchedule" || complianceEnabled)
-                    .map((key) => (
-                    <div key={key} className="flex items-center justify-between gap-4 p-2 rounded-lg border">
-                      <div className="flex items-center gap-3">
-                        {visibleWidgets[key] ? (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="text-sm font-medium">{widgetLabels[key]}</span>
-                      </div>
-                      <Checkbox 
-                        checked={visibleWidgets[key]}
-                        onCheckedChange={() => toggleWidget(key)}
-                        data-testid={`checkbox-widget-${key}`}
-                      />
+                <Tabs value={settingsTab} onValueChange={setSettingsTab} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="dashboard" data-testid="tab-dashboard-configuration">
+                      Dashboard Configuration
+                    </TabsTrigger>
+                    <TabsTrigger value="modules" data-testid="tab-internal-modules">
+                      Internal Modules
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="dashboard" className="mt-4">
+                    <div className="space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        Choose which sections to display on your dashboard
+                      </p>
+                      {(Object.keys(widgetLabels) as WidgetKey[])
+                        .filter((key) => key !== "complianceSchedule" || complianceEnabled)
+                        .map((key) => (
+                        <div key={key} className="flex items-center justify-between gap-4 p-2 rounded-lg border">
+                          <div className="flex items-center gap-3">
+                            {visibleWidgets[key] ? (
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <EyeOff className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span className="text-sm font-medium">{widgetLabels[key]}</span>
+                          </div>
+                          <Checkbox
+                            checked={visibleWidgets[key]}
+                            onCheckedChange={() => toggleWidget(key)}
+                            data-testid={`checkbox-widget-${key}`}
+                          />
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </TabsContent>
+                  <TabsContent value="modules" className="mt-4">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Turn modules off to hide them across the app. Existing records are kept and become available again when re-enabled.
+                    </p>
+                    <CompanyModulesSettings />
+                  </TabsContent>
+                </Tabs>
               </DialogContent>
             </Dialog>
           </div>

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TagFilter } from "@/components/TagFilter";
 import type { Tag } from "@shared/schema";
-import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, Users, FileText, ArrowLeft, Pencil, Tag as TagIcon, Filter, X, Trash2, Banknote } from "lucide-react";
+import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, FileText, ArrowLeft, Pencil, Tag as TagIcon, Filter, X, Trash2, Banknote, Wrench, Users } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";

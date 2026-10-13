@@ -59,6 +59,11 @@ import {
   parseSignatureValue,
 } from "@shared/signature";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
+import {
+  formatInspectionNote,
+  isLabeledInspectionNote,
+  parseInspectionNote,
+} from "@shared/inspectionNoteSections";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
@@ -404,6 +409,10 @@ export default function InspectionReport() {
   });
 
   const reportCoverLogoSrc = organization?.logoUrl || BRAND_LOGO_MASTER;
+  const reportBrandPrimary =
+    organization?.brandingReportPalette?.primary ||
+    organization?.brandingPrimaryColor ||
+    "#04C6BD";
 
   // Fetch maintenance requests linked to this inspection
   const { data: maintenanceRequests = [] } = useQuery<any[]>({
@@ -1260,7 +1269,7 @@ export default function InspectionReport() {
             <h1 className="text-5xl font-bold text-gray-900" style={{ color: '#000' }}>
               {inspection.type === 'check_out' ? 'Check-out Inventory Report' : 'Inspection Report'}
             </h1>
-            <div className="h-1 w-32 mx-auto" style={{ backgroundColor: '#04C6BD' }}></div>
+            <div className="h-1 w-32 mx-auto" style={{ backgroundColor: reportBrandPrimary }}></div>
           </div>
 
           {/* Inspection Type */}
@@ -2290,9 +2299,23 @@ export default function InspectionReport() {
                                           await saveEntryVoiceData(entry.id, currentNote, audioUrls, entry?.valueJson);
                                         }}
                                         onTranscription={async (audioUrl, transcribedText) => {
-                                          const existingNote = entry?.note || '';
-                                          const label = 'Inspector Comments: ' + transcribedText;
-                                          const newNote = existingNote ? `${existingNote}\n\n${label}` : label;
+                                          const existingNote = entry?.note || editedNotes[entryKey] || "";
+                                          const label = `Inspector Comments: ${String(transcribedText || "").trim()}`;
+                                          let newNote: string;
+                                          if (isLabeledInspectionNote(existingNote)) {
+                                            const current = parseInspectionNote(existingNote);
+                                            const desc = (current.description || "").trim();
+                                            const usable =
+                                              desc && desc.toLowerCase() !== "none" ? desc : "";
+                                            newNote = formatInspectionNote({
+                                              ...current,
+                                              description: usable ? `${usable}\n${label}` : label,
+                                            });
+                                          } else {
+                                            const existing = existingNote.trim();
+                                            newNote = existing ? `${existing}\n${label}` : label;
+                                          }
+                                          setEditedNotes((prev) => ({ ...prev, [entryKey]: newNote }));
                                           const urls = entryAudioUrls[entryKey] ?? (Array.isArray((entry?.valueJson as any)?.audioUrls) ? (entry.valueJson as any).audioUrls : (entry?.valueJson as any)?.audioUrl ? [(entry.valueJson as any).audioUrl] : []);
                                           await saveEntryVoiceData(entry.id, newNote, urls, entry?.valueJson);
                                         }}

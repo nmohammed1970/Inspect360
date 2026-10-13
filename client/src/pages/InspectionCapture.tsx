@@ -117,6 +117,7 @@ export default function InspectionCapture() {
     sectionTitle?: string;
     entryId?: string;
     photos?: string[];
+    note?: string;
   }>({});
 
   // Copy from previous check-in state
@@ -145,7 +146,25 @@ export default function InspectionCapture() {
   const propertyRoomCountsSnapshot =
     (inspection as Inspection & { propertyRoomCountsSnapshot?: PropertyRoomCountsSnapshot | null })
       ?.propertyRoomCountsSnapshot ?? null;
-  const roomsLockedFromProperty = !!propertyRoomCountsSnapshot;
+  const propertyRoomsSnapshot = (
+    inspection as Inspection & {
+      propertyRoomsSnapshot?: {
+        rooms?: Array<{
+          id: string;
+          name: string;
+          widthMm?: number | null;
+          lengthMm?: number | null;
+        }>;
+      } | null;
+    }
+  )?.propertyRoomsSnapshot ?? null;
+  const propertyRoomInstances = (
+    (inspection?.templateSnapshotJson as any)?.propertyRoomInstances as
+      | Array<{ roomId: string; sectionRef: string; title: string }>
+      | undefined
+  ) || [];
+  const roomsLockedFromProperty =
+    !!propertyRoomCountsSnapshot || (propertyRoomsSnapshot?.rooms?.length ?? 0) > 0;
 
   // Fetch property details if inspection has a propertyId
   const { data: property } = useQuery<any>({
@@ -1161,10 +1180,18 @@ export default function InspectionCapture() {
     const field = currentSection.fields.find(f => f.id === fieldKey);
     if (!field) return;
 
-    // For repeatable sections, use instance-specific sectionRef
-    const sectionRef = instanceIndex !== undefined 
-      ? `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
-      : currentSection.id;
+    // For repeatable sections, prefer stable property-room sectionRef when available
+    const roomInst =
+      instanceIndex !== undefined
+        ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))[
+            instanceIndex
+          ]
+        : undefined;
+    const sectionRef =
+      instanceIndex !== undefined
+        ? roomInst?.sectionRef ||
+          `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
+        : currentSection.id;
     
     const entryKey = `${sectionRef}-${fieldKey}`;
     const existingEntry = entries[entryKey];
@@ -1258,9 +1285,17 @@ export default function InspectionCapture() {
 
   // Handle mark for review change
   const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean, instanceIndex?: number) => {
-    const sectionRef = instanceIndex !== undefined 
-      ? `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
-      : currentSection.id;
+    const roomInst =
+      instanceIndex !== undefined
+        ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))[
+            instanceIndex
+          ]
+        : undefined;
+    const sectionRef =
+      instanceIndex !== undefined
+        ? roomInst?.sectionRef ||
+          `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
+        : currentSection.id;
     const entryKey = `${sectionRef}-${fieldKey}`;
     const entry = entries[entryKey];
 
@@ -1971,12 +2006,32 @@ export default function InspectionCapture() {
 
             {/* Render fields - for repeatable sections, render for each instance */}
             {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
-              // Render instances for repeatable sections
-              Array.from({ length: repeatableCounts[currentSection.id] ?? 1 }).map((_, instanceIndex) => {
-                const instanceName = `${currentSection.title} ${instanceIndex + 1}`;
+              // Render instances for repeatable sections (property rooms use stable ids)
+              (() => {
+                const sectionRoomInsts = propertyRoomInstances.filter((r) =>
+                  r.sectionRef.startsWith(`${currentSection.id}/`),
+                );
+                const count = repeatableCounts[currentSection.id] ?? 1;
+                const instanceCount = sectionRoomInsts.length > 0 ? sectionRoomInsts.length : count;
+                return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
+                const roomInst = sectionRoomInsts[instanceIndex];
+                const snapRoom = propertyRoomsSnapshot?.rooms?.find(
+                  (r) => r.id === roomInst?.roomId,
+                );
+                const instanceName =
+                  roomInst?.title || `${currentSection.title} ${instanceIndex + 1}`;
+                const dimLabel =
+                  snapRoom?.widthMm && snapRoom?.lengthMm
+                    ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
+                    : "";
                 return (
-                  <div key={`instance-${instanceIndex}`} className="space-y-6 p-3 sm:p-4 border-2 rounded-lg bg-card min-w-0">
-                    <h3 className="text-base sm:text-lg font-semibold text-primary break-words">{instanceName}</h3>
+                  <div key={roomInst?.roomId || `instance-${instanceIndex}`} className="space-y-6 p-3 sm:p-4 border-2 rounded-lg bg-card min-w-0">
+                    <h3 className="text-base sm:text-lg font-semibold text-primary break-words">
+                      {instanceName}
+                      {dimLabel && (
+                        <span className="text-sm font-normal text-muted-foreground">{dimLabel}</span>
+                      )}
+                    </h3>
                     {currentSection.fields.map((field) => {
                       if (
                         !tenanciesEnabled &&
@@ -1985,7 +2040,9 @@ export default function InspectionCapture() {
                       ) {
                         return null;
                       }
-                      const sectionRef = `${currentSection.id}/${instanceName}`;
+                      const sectionRef =
+                        roomInst?.sectionRef ||
+                        `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                       const entryKey = `${sectionRef}-${field.id}`;
                       const entry = entries[entryKey];
                       
@@ -2054,13 +2111,14 @@ export default function InspectionCapture() {
                           onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked, instanceIndex)}
                           onLogMaintenance={
                             maintenanceEnabled
-                              ? (fieldLabel: string, photos: string[]) => {
+                              ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
                                   const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
                                   setMaintenanceContext({
                                     fieldLabel,
                                     sectionTitle: instanceName,
                                     entryId: entry?.id,
                                     photos: fieldPhotos,
+                                    note: fieldNote || entry?.note || undefined,
                                   });
                                   setShowMaintenanceSheet(true);
                                 }
@@ -2071,7 +2129,8 @@ export default function InspectionCapture() {
                     })}
                   </div>
                 );
-              })
+                });
+              })()
             ) : !currentSection.repeatable ? (
               // Render normally for non-repeatable sections
               currentSection.fields.map((field) => {
@@ -2157,13 +2216,14 @@ export default function InspectionCapture() {
                     onMarkedForReviewChange={(marked: boolean) => handleMarkedForReviewChange(field.id, marked)}
                     onLogMaintenance={
                       maintenanceEnabled
-                        ? (fieldLabel: string, photos: string[]) => {
+                        ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
                             const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
                             setMaintenanceContext({
                               fieldLabel,
                               sectionTitle: currentSection.title,
                               entryId: entry?.id,
                               photos: fieldPhotos,
+                              note: fieldNote || entry?.note || undefined,
                             });
                             setShowMaintenanceSheet(true);
                           }
@@ -2244,6 +2304,7 @@ export default function InspectionCapture() {
         inspectionEntryId={maintenanceContext.entryId}
         fieldLabel={maintenanceContext.fieldLabel}
         sectionTitle={maintenanceContext.sectionTitle}
+        fieldNote={maintenanceContext.note}
         initialPhotos={maintenanceContext.photos}
       />
       )}

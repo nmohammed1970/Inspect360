@@ -89,7 +89,7 @@ export default function Blocks() {
   const [maintenanceBlockId, setMaintenanceBlockId] = useState<string | null>(null);
   const [blockToDelete, setBlockToDelete] = useState<Block | null>(null);
   const { toast } = useToast();
-  const { tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
 
   const { data: blocks = [], isLoading } = useQuery<Block[]>({
     queryKey: ["/api/blocks"],
@@ -651,25 +651,11 @@ export default function Blocks() {
                         testId: `button-properties-${block.id}`,
                       },
                       {
-                        id: "inventory",
-                        label: "Inventory",
-                        icon: Package,
-                        href: `/asset-inventory?blockId=${block.id}`,
-                        testId: `button-inventory-${block.id}`,
-                      },
-                      {
                         id: "inspect",
                         label: "Inspect",
                         icon: ClipboardCheck,
                         href: `/inspections?blockId=${block.id}&create=true`,
                         testId: `button-inspect-${block.id}`,
-                      },
-                      tenanciesEnabled && {
-                        id: "tenants",
-                        label: "Tenants",
-                        icon: Users,
-                        href: `/blocks/${block.id}/tenants`,
-                        testId: `button-tenants-${block.id}`,
                       },
                       complianceEnabled && {
                         id: "compliance",
@@ -684,6 +670,13 @@ export default function Blocks() {
                         icon: Wrench,
                         onClick: () => setMaintenanceBlockId(block.id),
                         testId: `button-maintenance-${block.id}`,
+                      },
+                      {
+                        id: "inventory",
+                        label: "Inventory",
+                        icon: Package,
+                        href: `/asset-inventory?blockId=${block.id}`,
+                        testId: `button-inventory-${block.id}`,
                       },
                     ] as (CardQuickAction | false)[]).filter(Boolean) as CardQuickAction[]}
                   />

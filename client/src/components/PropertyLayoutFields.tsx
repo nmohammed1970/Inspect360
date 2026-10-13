@@ -36,6 +36,14 @@ export type PropertyLayoutValue = PropertyRoomCounts & {
   floorPlanAnalysisStatus?: FloorPlanAnalysisStatus | null;
   floorPlanAnalysisJson?: {
     suggestion?: AiLayoutSuggestion;
+    proposedRooms?: Array<{
+      name: string;
+      category: string;
+      widthM?: number | null;
+      lengthM?: number | null;
+      areaM2?: number | null;
+      confidence?: "high" | "medium" | "low";
+    }>;
     error?: string;
     disclaimer?: string;
   } | null;
@@ -48,10 +56,12 @@ type PropertyLayoutFieldsProps = {
   propertyId?: string | null;
   disabled?: boolean;
   className?: string;
-  /**
-   * When true (create modal), floor plan is held until save; analysis runs after create.
-   * Parent should call `runPostCreateFloorPlanPipeline` after create.
-   */
+  /** Hide legacy room-count steppers when using PropertyRoomsEditor. */
+  hideRoomSteppers?: boolean;
+  /** Called when AI returns a proposed room list for review. */
+  onProposedRooms?: (
+    rooms: NonNullable<PropertyLayoutValue["floorPlanAnalysisJson"]>["proposedRooms"],
+  ) => void;
 };
 
 function RoomStepper({
@@ -139,6 +149,8 @@ export function PropertyLayoutFields({
   propertyId,
   disabled,
   className,
+  hideRoomSteppers = false,
+  onProposedRooms,
 }: PropertyLayoutFieldsProps) {
   const { toast } = useToast();
   const [dirty, setDirty] = useState<Partial<Record<RoomTypeKey, boolean>>>({});
@@ -202,6 +214,16 @@ export function PropertyLayoutFields({
         const updated = await res.json();
         analysisJson = updated.floorPlanAnalysisJson;
         suggestion = updated.floorPlanAnalysisJson?.suggestion;
+        if (
+          analysisJson &&
+          !analysisJson.proposedRooms &&
+          updated.floorPlanAnalysisJson?.proposedRooms
+        ) {
+          analysisJson = {
+            ...analysisJson,
+            proposedRooms: updated.floorPlanAnalysisJson.proposedRooms,
+          };
+        }
         nextCounts = {
           bedrooms: updated.bedrooms,
           kitchens: updated.kitchens,
@@ -240,7 +262,13 @@ export function PropertyLayoutFields({
         }
         const result = await res.json();
         suggestion = result.suggestion;
-        analysisJson = result.analysis ?? { suggestion: result.suggestion };
+        analysisJson = result.analysis ?? {
+          suggestion: result.suggestion,
+          proposedRooms: result.proposedRooms,
+        };
+        if (result.proposedRooms && !analysisJson?.proposedRooms) {
+          analysisJson = { ...analysisJson, proposedRooms: result.proposedRooms };
+        }
         nextCounts = {
           bedrooms: result.bedrooms,
           kitchens: result.kitchens,
@@ -276,10 +304,21 @@ export function PropertyLayoutFields({
       };
       const withDirtyGuard = applySuggestionToValue(next, suggestion, dirty);
       onChange(withDirtyGuard);
-      toast({
-        title: "Floor plan analysed",
-        description: `Room counts updated: ${formatRoomCountsSummary(withDirtyGuard)}`,
-      });
+      const proposed =
+        withDirtyGuard.floorPlanAnalysisJson?.proposedRooms ||
+        (analysisJson as any)?.proposedRooms;
+      if (proposed?.length) {
+        onProposedRooms?.(proposed);
+        toast({
+          title: "Floor plan analysed",
+          description: `${proposed.length} room(s) detected — review and apply below.`,
+        });
+      } else {
+        toast({
+          title: "Floor plan analysed",
+          description: `Room counts updated: ${formatRoomCountsSummary(withDirtyGuard)}`,
+        });
+      }
     } catch (e: any) {
       onChange({
         ...base,
@@ -532,11 +571,15 @@ export function PropertyLayoutFields({
 
         {suggestion && status === "complete" && (
           <p className="text-xs text-muted-foreground" data-testid="text-ai-layout-applied">
-            AI filled: {formatRoomCountsSummary(suggestion)}. Adjust the steppers below if needed.
+            AI estimated: {formatRoomCountsSummary(suggestion)}.
+            {hideRoomSteppers
+              ? " Review detected rooms in the list below."
+              : " Adjust the steppers below if needed."}
           </p>
         )}
       </div>
 
+      {!hideRoomSteppers && (
       <div className="grid grid-cols-2 gap-3 min-w-0">
         <RoomStepper
           label="Bedrooms"
@@ -567,6 +610,7 @@ export function PropertyLayoutFields({
           testId="stepper-living-rooms"
         />
       </div>
+      )}
     </div>
   );
 }
