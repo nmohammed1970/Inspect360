@@ -161,7 +161,7 @@ export default function Maintenance() {
   const [isAutoOpening, setIsAutoOpening] = useState(false);
   const [editingRequest, setEditingRequest] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
-  const [filterProperty, setFilterProperty] = useState<string>("all");
+  const [filterProperty, setFilterProperty] = useState<string>(() => urlPropertyId || "all");
   const [filterBlock, setFilterBlock] = useState<string>("all");
   const [formBlockFilter, setFormBlockFilter] = useState<string>("all");
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
@@ -642,6 +642,13 @@ export default function Maintenance() {
     }
   }, [maintenanceId, requests, editingRequest, isCreateOpen, navigate, toast, form]);
 
+  // Deep-link: filter list to a property (e.g. from property card Maintenance action)
+  useEffect(() => {
+    if (urlPropertyId) {
+      setFilterProperty(urlPropertyId);
+    }
+  }, [urlPropertyId]);
+
   // Handle URL parameters for auto-opening dialog and pre-populating
   useEffect(() => {
     if (urlPropertyId && shouldCreate === "true" && properties.length > 0) {
@@ -817,6 +824,21 @@ export default function Maintenance() {
     selectedStatus === "all"
       ? scopedRequests
       : scopedRequests.filter((r) => r.status === selectedStatus);
+
+  let scopedWorkOrders = workOrders;
+  if (filterProperty !== "all") {
+    scopedWorkOrders = scopedWorkOrders.filter(
+      (wo) => wo.maintenanceRequest?.propertyId === filterProperty,
+    );
+  }
+  if (filterBlock !== "all") {
+    const blockPropertyIds = properties.filter((p) => p.blockId === filterBlock).map((p) => p.id);
+    scopedWorkOrders = scopedWorkOrders.filter(
+      (wo) =>
+        !!wo.maintenanceRequest?.propertyId &&
+        blockPropertyIds.includes(wo.maintenanceRequest.propertyId),
+    );
+  }
 
   // Work order helper functions
   const formatCurrency = (amount?: number | null) => {
@@ -1775,13 +1797,13 @@ export default function Maintenance() {
                   </h2>
                   <div className="h-px flex-1 bg-border" />
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {workOrders.length}
+                    {scopedWorkOrders.length}
                   </span>
                 </div>
 
                 {workOrdersLoading ? (
                   <div className="text-center py-8 text-muted-foreground">Loading work orders...</div>
-                ) : workOrders.length === 0 ? (
+                ) : scopedWorkOrders.length === 0 ? (
                   <Card>
                     <CardContent className="flex flex-col items-center justify-center py-12">
                       <UserIcon className="h-12 w-12 text-muted-foreground mb-4" />
@@ -1797,7 +1819,7 @@ export default function Maintenance() {
                   </Card>
                 ) : (
                   <div className="grid gap-3">
-                    {workOrders.map((workOrder) => (
+                    {scopedWorkOrders.map((workOrder) => (
                       <Card
                         key={workOrder.id}
                         data-testid={`card-work-order-${workOrder.id}`}

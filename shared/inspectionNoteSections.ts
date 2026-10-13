@@ -183,6 +183,45 @@ export function formatInspectionNote(sections: InspectionNoteSections): string {
   return `DESCRIPTION:\n${desc}\n\nMAINTENANCE ISSUES:\n${maint}\n\nRECOMMENDED ACTIONS:\n${rec}`;
 }
 
+/**
+ * Seed a maintenance request description from an inspection field note.
+ * Prefers AI structured sections (description + recommended actions, plus issues).
+ * Falls back to plain notes; always includes a short field/section preamble when available.
+ */
+export function buildMaintenanceRequestDescription(opts: {
+  fieldLabel?: string | null;
+  sectionTitle?: string | null;
+  note?: string | null;
+}): string {
+  const fieldLabel = (opts.fieldLabel || "").trim();
+  const sectionTitle = (opts.sectionTitle || "").trim();
+  const sectionInfo = sectionTitle ? ` in ${sectionTitle}` : "";
+  const preamble = fieldLabel
+    ? `Maintenance request created from inspection field: ${fieldLabel}${sectionInfo}`
+    : "";
+
+  const rawNote = (opts.note || "").trim();
+  if (!rawNote) return preamble;
+
+  const sections = parseInspectionNote(rawNote);
+  const desc = normalizeNone(sections.description);
+  const maint = normalizeNone(sections.maintenanceIssues);
+  const rec = normalizeNone(sections.recommendedActions);
+
+  const bodyParts: string[] = [];
+  if (desc) bodyParts.push(`Description:\n${desc}`);
+  if (maint) bodyParts.push(`Maintenance Issues:\n${maint}`);
+  if (rec) bodyParts.push(`Recommended Actions:\n${rec}`);
+
+  // Labeled/heuristic produced nothing useful → keep raw note (e.g. voice comments only)
+  if (bodyParts.length === 0) {
+    bodyParts.push(rawNote);
+  }
+
+  if (preamble) return `${preamble}\n\n${bodyParts.join("\n\n")}`;
+  return bodyParts.join("\n\n");
+}
+
 /** Instruction block appended to InspectAI prompts for structured notes. */
 export const INSPECTION_NOTE_STRUCTURE_PROMPT = `Structure your response EXACTLY in these three labeled sections (plain text, no markdown, no bullets, no emojis):
 

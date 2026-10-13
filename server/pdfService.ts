@@ -9,6 +9,8 @@ import {
   coverSubjectImageCss,
   renderCoverSubjectImageHtml,
   resolvePropertyOrBlockCoverDataUrl,
+  applyBrandThemeToHtml,
+  themeFromOrgBranding,
 } from "./reportPdfShared";
 
 // Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
@@ -292,6 +294,8 @@ interface BrandingInfo {
   brandingPhone?: string | null;
   brandingAddress?: string | null;
   brandingWebsite?: string | null;
+  brandingPrimaryColor?: string | null;
+  brandingReportPalette?: any;
 }
 
 interface MaintenanceRequest {
@@ -1312,7 +1316,7 @@ function generateInspectionHTML(
     </div>
   ` : '';
 
-  return `
+  const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -1695,4 +1699,5 @@ function generateInspectionHTML(
 </body>
 </html>
   `;
+  return applyBrandThemeToHtml(html, themeFromOrgBranding(branding || null));
 }

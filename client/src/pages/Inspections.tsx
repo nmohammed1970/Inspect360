@@ -50,7 +50,6 @@ import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { PageHeader } from "@/components/PageHeader";
 import { cardGrid, pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
-import { formatRoomCountsSummary, parseRoomCounts } from "@shared/propertyLayout";
 import {
   formatInspectionStatus,
   formatInspectionType,
@@ -677,31 +676,6 @@ export default function Inspections() {
                     )}
                   />
                 )}
-
-                {form.watch("targetType") === "property" && selectedPropertyId && (() => {
-                  const selectedProperty = properties.find((p: any) => p.id === selectedPropertyId);
-                  if (!selectedProperty) return null;
-                  const summary = formatRoomCountsSummary(
-                    parseRoomCounts({
-                      bedrooms: selectedProperty.bedrooms,
-                      kitchens: selectedProperty.kitchens,
-                      bathrooms: selectedProperty.bathrooms,
-                      livingRooms: selectedProperty.livingRooms,
-                    }),
-                  );
-                  return (
-                    <div
-                      className="rounded-md border bg-muted/30 p-3 space-y-1"
-                      data-testid="selected-property-layout-summary"
-                    >
-                      <p className="text-sm font-medium">Selected Property Layout</p>
-                      <p className="text-sm text-muted-foreground">{summary}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Inspection rooms will be generated from these property counts.
-                      </p>
-                    </div>
-                  );
-                })()}
 
                 {/* Active Tenants Display — tenancies module only */}
                 {tenanciesEnabled && form.watch("targetType") === "property" && selectedPropertyId && (

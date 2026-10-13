@@ -303,7 +303,7 @@ export async function generatePropertyHistoryReportHTML(params: {
 <html>
 <head>
   <meta charset="UTF-8">
-  <style>${sharedCss()}</style>
+  <style>${sharedCss(branding)}</style>
 </head>
 <body>
   <div class="cover-page">

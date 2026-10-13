@@ -25,6 +25,7 @@ import {
   getInspectionModel,
   getWhisperModel,
 } from "./aiModels";
+import { applyBrandThemeToHtml, themeFromOrgBranding } from "./reportPdfShared";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -452,6 +453,7 @@ import {
   insertInspectionEntrySchema,
   insertAiImageAnalysisSchema,
   insertPropertySchema,
+  putPropertyRoomsSchema,
   insertComplianceDocumentSchema,
   insertMaintenanceRequestSchema,
   insertInspectionSchema,
@@ -1838,6 +1840,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function orgHasWhiteLabelModule(organizationId: string): Promise<boolean> {
+    try {
+      const instanceSub = await storage.getInstanceSubscription(organizationId);
+      if (!instanceSub) return false;
+      const myModules = await storage.getInstanceModules(instanceSub.id);
+      const allModules = await storage.getMarketplaceModules();
+      return myModules.some((im) => {
+        if (!im.isEnabled) return false;
+        const mod = allModules.find((m) => m.id === im.moduleId);
+        return mod?.moduleKey === "white_label";
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  // Extract brand colors from company website (evidence-first; does not persist)
+  app.post(
+    "/api/organizations/:id/branding/extract-colors",
+    isAuthenticated,
+    requireRole("owner"),
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        const organizationId = req.params.id;
+        const user = await storage.getUser(userId);
+        if (!user?.organizationId || user.organizationId !== organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        if (!(await orgHasWhiteLabelModule(organizationId))) {
+          return res.status(403).json({
+            message: "White Label module is required to extract brand colors",
+          });
+        }
+
+        const { consumeAuthRateLimit } = await import("./auth");
+        if (!consumeAuthRateLimit(`brand-extract:${organizationId}`, 3, 15 * 60 * 1000)) {
+          return res.status(429).json({
+            message: "Too many extraction requests. Try again in a few minutes.",
+          });
+        }
+
+        const org = await storage.getOrganization(organizationId);
+        const rawUrl =
+          (typeof req.body?.url === "string" && req.body.url.trim()) ||
+          org?.brandingWebsite ||
+          "";
+        if (!rawUrl) {
+          return res.status(400).json({ message: "Enter a company website URL first" });
+        }
+
+        const { extractBrandColorsFromWebsite, SsrfError } = await import(
+          "./websiteBrandExtractor"
+        );
+        try {
+          const result = await extractBrandColorsFromWebsite(rawUrl);
+          res.json(result);
+        } catch (err: any) {
+          if (err instanceof SsrfError || err?.name === "SsrfError") {
+            return res.status(err.status || 422).json({ message: err.message });
+          }
+          console.error("[BrandExtract]", err);
+          return res.status(422).json({
+            message: err?.message || "Failed to extract brand colors from website",
+          });
+        }
+      } catch (error) {
+        console.error("Error extracting brand colors:", error);
+        res.status(500).json({ message: "Failed to extract brand colors" });
+      }
+    },
+  );
+
   // Update organization branding (white-label settings)
   app.patch("/api/organizations/:id/branding", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
@@ -1849,9 +1924,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const { logoUrl, trademarkUrl, brandingName, brandingEmail, brandingPhone, brandingAddress, brandingWebsite, financeEmail, comparisonAlertThreshold } = req.body;
+      const {
+        logoUrl,
+        trademarkUrl,
+        brandingName,
+        brandingEmail,
+        brandingPhone,
+        brandingAddress,
+        brandingWebsite,
+        financeEmail,
+        comparisonAlertThreshold,
+        brandingPrimaryColor,
+        brandingReportPalette,
+        brandingPaletteMeta,
+        resetReportTheme,
+      } = req.body;
 
-      const organization = await storage.updateOrganization(organizationId, {
+      const {
+        DEFAULT_REPORT_PALETTE,
+        isValidReportPalette,
+        normalizeReportPalette,
+        normalizeHexColor,
+      } = await import("@shared/reportBrandTheme");
+
+      const updates: Record<string, unknown> = {
         logoUrl: logoUrl || null,
         trademarkUrl: trademarkUrl || null,
         brandingName: brandingName || null,
@@ -1860,8 +1956,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brandingAddress: brandingAddress || null,
         brandingWebsite: brandingWebsite || null,
         financeEmail: financeEmail || null,
-        comparisonAlertThreshold: typeof comparisonAlertThreshold === 'number' ? comparisonAlertThreshold : undefined,
-      });
+        comparisonAlertThreshold:
+          typeof comparisonAlertThreshold === "number" ? comparisonAlertThreshold : undefined,
+      };
+
+      const touchingTheme =
+        resetReportTheme === true ||
+        brandingReportPalette != null ||
+        brandingPrimaryColor !== undefined;
+      if (touchingTheme && !(await orgHasWhiteLabelModule(organizationId))) {
+        return res.status(403).json({
+          message: "White Label module is required to change report brand colors",
+        });
+      }
+
+      if (resetReportTheme === true) {
+        updates.brandingReportPalette = null;
+        updates.brandingPaletteMeta = {
+          sourceUrl: null,
+          extractedAt: null,
+          extractionStatus: "default",
+          appliedAt: new Date().toISOString(),
+        };
+        updates.brandingPrimaryColor = null;
+      } else if (brandingReportPalette != null) {
+        if (!isValidReportPalette(brandingReportPalette) && typeof brandingReportPalette === "object") {
+          const normalized = normalizeReportPalette(brandingReportPalette);
+          updates.brandingReportPalette = normalized;
+          updates.brandingPrimaryColor = normalized.primary;
+        } else if (isValidReportPalette(brandingReportPalette)) {
+          const normalized = normalizeReportPalette(brandingReportPalette);
+          updates.brandingReportPalette = normalized;
+          updates.brandingPrimaryColor = normalized.primary;
+        } else {
+          return res.status(400).json({ message: "Invalid branding report palette" });
+        }
+        updates.brandingPaletteMeta = {
+          ...(typeof brandingPaletteMeta === "object" && brandingPaletteMeta
+            ? brandingPaletteMeta
+            : {}),
+          appliedAt: new Date().toISOString(),
+          extractionStatus:
+            (brandingPaletteMeta && brandingPaletteMeta.extractionStatus) || "manual",
+        };
+      } else if (brandingPrimaryColor !== undefined) {
+        const hex = brandingPrimaryColor
+          ? normalizeHexColor(brandingPrimaryColor)
+          : null;
+        if (brandingPrimaryColor && !hex) {
+          return res.status(400).json({ message: "Invalid brandingPrimaryColor" });
+        }
+        updates.brandingPrimaryColor = hex;
+        if (hex) {
+          const { darkenHex } = await import("@shared/reportBrandTheme");
+          updates.brandingReportPalette = normalizeReportPalette({
+            ...DEFAULT_REPORT_PALETTE,
+            primary: hex,
+            secondary: darkenHex(hex, 0.35),
+            accent: hex,
+          });
+        }
+      }
+
+      const organization = await storage.updateOrganization(organizationId, updates as any);
 
       res.json(organization);
     } catch (error) {
@@ -4991,6 +5148,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         floorPlanAnalysisStatus: "none",
       } as any);
 
+      const roomsBody = putPropertyRoomsSchema.safeParse(req.body);
+      if (roomsBody.success && roomsBody.data.rooms.length > 0) {
+        const { replacePropertyRooms } = await import("./propertyRoomsService");
+        await replacePropertyRooms(user.organizationId, property.id, roomsBody.data.rooms);
+        const updated = await storage.getProperty(property.id);
+        return res.json(updated || property);
+      }
+
       res.json(property);
     } catch (error) {
       console.error("Error creating property:", error);
@@ -5177,6 +5342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         status: "complete",
         suggestion: result.suggestion,
+        proposedRooms: result.proposedRooms,
         analysis: result.analysisJson,
         bedrooms: result.suggestion.bedrooms,
         kitchens: result.suggestion.kitchens,
@@ -5275,6 +5441,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching floor plan analysis:", error);
       res.status(500).json({ message: "Failed to fetch analysis" });
+    }
+  });
+
+  // --- Room categories (org-scoped) ---
+  app.get("/api/room-categories", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { listRoomCategories } = await import("./propertyRoomsService");
+      res.json(await listRoomCategories(user.organizationId));
+    } catch (error: any) {
+      console.error("Error listing room categories:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to list categories" });
+    }
+  });
+
+  app.post("/api/room-categories", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { createRoomCategory } = await import("./propertyRoomsService");
+      res.json(await createRoomCategory(user.organizationId, String(req.body?.name || "")));
+    } catch (error: any) {
+      console.error("Error creating room category:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to create category" });
+    }
+  });
+
+  app.patch("/api/room-categories/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { updateRoomCategory } = await import("./propertyRoomsService");
+      res.json(
+        await updateRoomCategory(user.organizationId, req.params.id, String(req.body?.name || "")),
+      );
+    } catch (error: any) {
+      console.error("Error updating room category:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to update category" });
+    }
+  });
+
+  app.delete("/api/room-categories/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const { deleteRoomCategory } = await import("./propertyRoomsService");
+      await deleteRoomCategory(user.organizationId, req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting room category:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to delete category" });
+    }
+  });
+
+  // --- Property rooms ---
+  app.get("/api/properties/:id/rooms", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const property = await storage.getProperty(req.params.id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const { listPropertyRooms } = await import("./propertyRoomsService");
+      res.json(await listPropertyRooms(user.organizationId, property.id));
+    } catch (error: any) {
+      console.error("Error listing property rooms:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to list rooms" });
+    }
+  });
+
+  app.put("/api/properties/:id/rooms", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      const property = await storage.getProperty(req.params.id);
+      if (!property || property.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      const parsed = putPropertyRoomsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid rooms payload", errors: parsed.error.errors });
+      }
+      const { replacePropertyRooms } = await import("./propertyRoomsService");
+      const rooms = await replacePropertyRooms(
+        user.organizationId,
+        property.id,
+        parsed.data.rooms,
+      );
+      const updated = await storage.getProperty(property.id);
+      res.json({ rooms, property: updated });
+    } catch (error: any) {
+      console.error("Error saving property rooms:", error);
+      res.status(error?.status || 500).json({ message: error?.message || "Failed to save rooms" });
     }
   });
 
@@ -6374,8 +6647,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateVersion = template.version;
       }
 
-      // Property = source of truth for room counts on NEW property inspections
+      // Property = source of truth for rooms / counts on NEW property inspections
       let propertyRoomCountsSnapshot: any = null;
+      let propertyRoomsSnapshot: any = null;
       let seedEntries: Array<{
         sectionRef: string;
         fieldKey: string;
@@ -6393,6 +6667,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           buildPropertyRoomCountsSnapshot,
           parseRoomCounts,
         } = await import("@shared/propertyLayout");
+        const {
+          applyPropertyRoomsToTemplateSnapshot,
+          buildPropertyRoomsSnapshot,
+        } = await import("@shared/propertyRooms");
+        const { listPropertyRooms, toSnapshotItems } = await import("./propertyRoomsService");
+
+        const rooms = await listPropertyRooms(currentUser.organizationId, propertyId);
+        const snapshotItems = toSnapshotItems(rooms);
+        propertyRoomsSnapshot =
+          snapshotItems.length > 0 ? buildPropertyRoomsSnapshot(snapshotItems) : null;
+
         const counts = parseRoomCounts({
           bedrooms: property.bedrooms,
           kitchens: property.kitchens,
@@ -6400,14 +6685,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           livingRooms: property.livingRooms,
         });
         propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(counts);
+
         if (templateSnapshotJson) {
-          const applied = applyPropertyCountsToTemplateSnapshot(
-            templateSnapshotJson as any,
-            counts,
-            { propertyType: (property as any).propertyType },
-          );
-          templateSnapshotJson = applied.structure as any;
-          seedEntries = applied.seedEntries;
+          if (snapshotItems.length > 0) {
+            const applied = applyPropertyRoomsToTemplateSnapshot(
+              templateSnapshotJson as any,
+              snapshotItems,
+              { propertyType: (property as any).propertyType },
+            );
+            templateSnapshotJson = applied.structure as any;
+            seedEntries = applied.seedEntries;
+            propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(applied.counts);
+          } else {
+            const applied = applyPropertyCountsToTemplateSnapshot(
+              templateSnapshotJson as any,
+              counts,
+              { propertyType: (property as any).propertyType },
+            );
+            templateSnapshotJson = applied.structure as any;
+            seedEntries = applied.seedEntries;
+          }
         }
       }
 
@@ -6423,6 +6720,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateVersion,
         templateSnapshotJson: templateSnapshotJson as any,
         propertyRoomCountsSnapshot: propertyRoomCountsSnapshot as any,
+        propertyRoomsSnapshot: propertyRoomsSnapshot as any,
       } as any);
 
       for (const seed of seedEntries) {
@@ -7216,10 +7514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied: Inspection does not belong to your organization" });
       }
 
-      // Fetch inspection items
-      const items = await storage.getInspectionItems(id);
-
-      // Fetch related data
+      // Fetch related data early (also used by room-section repair)
       let property = null;
       let block = null;
       let clerk = null;
@@ -7227,6 +7522,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (inspection.propertyId) {
         property = await storage.getProperty(inspection.propertyId);
       }
+
+      // Repair legacy room→section mapping (e.g. Garden under General Information)
+      const roomsSnap = (inspection as any).propertyRoomsSnapshot as
+        | { rooms?: Array<{
+            id: string;
+            name: string;
+            categoryId: string;
+            categoryName: string;
+            categorySlug?: string;
+            widthMm?: number | null;
+            lengthMm?: number | null;
+            ceilingHeightMm?: number | null;
+          }> }
+        | null
+        | undefined;
+      if (roomsSnap?.rooms?.length && inspection.templateSnapshotJson) {
+        try {
+          const {
+            applyPropertyRoomsToTemplateSnapshot,
+            propertyRoomsNeedSectionRepair,
+          } = await import("@shared/propertyRooms");
+          if (
+            propertyRoomsNeedSectionRepair(
+              inspection.templateSnapshotJson as any,
+              roomsSnap.rooms,
+            )
+          ) {
+            const oldPaths =
+              ((inspection.templateSnapshotJson as any).propertyRoomInstances as Array<{
+                roomId: string;
+                sectionRef: string;
+              }>) || [];
+            const oldByRoom = new Map(oldPaths.map((p) => [p.roomId, p.sectionRef]));
+            const applied = applyPropertyRoomsToTemplateSnapshot(
+              inspection.templateSnapshotJson as any,
+              roomsSnap.rooms,
+              { propertyType: (property as any)?.propertyType },
+            );
+            await storage.updateInspection(id, {
+              templateSnapshotJson: applied.structure as any,
+            } as any);
+
+            const entries = await storage.getInspectionEntries(id);
+            for (const path of applied.roomInstancePaths) {
+              const oldRef = oldByRoom.get(path.roomId);
+              if (!oldRef || oldRef === path.sectionRef) continue;
+              const oldParent = oldRef.split("/")[0] || "";
+              const wasUnderGeneral = /general|overview/i.test(oldParent);
+              for (const entry of entries) {
+                if (entry.sectionRef !== oldRef) continue;
+                // General fields that were wrongly scoped under a room instance
+                // go back to bare General; real room instances move to the new section.
+                const nextRef = wasUnderGeneral ? oldParent : path.sectionRef;
+                await storage.updateInspectionEntry(entry.id, {
+                  sectionRef: nextRef,
+                } as any);
+              }
+            }
+
+            for (const entry of entries) {
+              if (
+                String(entry.fieldKey || "").startsWith("__repeatable_count_") &&
+                /general|overview/i.test(entry.sectionRef || "")
+              ) {
+                await storage.deleteInspectionEntry(entry.id);
+              }
+            }
+
+            const entriesAfter = await storage.getInspectionEntries(id);
+            for (const seed of applied.seedEntries) {
+              if (!String(seed.fieldKey).startsWith("__repeatable_count_")) continue;
+              const existing = entriesAfter.find(
+                (e) => e.sectionRef === seed.sectionRef && e.fieldKey === seed.fieldKey,
+              );
+              if (existing) {
+                await storage.updateInspectionEntry(existing.id, {
+                  valueJson: seed.valueJson as any,
+                } as any);
+              } else {
+                await storage.createInspectionEntry({
+                  inspectionId: id,
+                  sectionRef: seed.sectionRef,
+                  fieldKey: seed.fieldKey,
+                  fieldType: (seed.fieldType || "number") as any,
+                  valueJson: seed.valueJson as any,
+                });
+              }
+            }
+
+            inspection = await storage.getInspection(id);
+          }
+        } catch (repairErr) {
+          console.error("[Inspection] Room section repair failed:", repairErr);
+        }
+      }
+
+      // Fetch inspection items
+      const items = await storage.getInspectionItems(id);
+
       if (inspection.blockId) {
         block = await storage.getBlock(inspection.blockId);
       }
@@ -7444,6 +7838,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brandingPhone: organization.brandingPhone,
         brandingAddress: organization.brandingAddress,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: organization.brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : undefined;
 
       // Build full inspection object with relations
@@ -11191,6 +11587,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       // Build base URL for converting relative image paths to absolute (same as inspection report)
@@ -11229,7 +11627,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -12461,6 +12859,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       // Build base URL for images
@@ -12527,7 +12927,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       try {
         browser = await launchPuppeteerBrowser();
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -12661,6 +13061,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
             brandingEmail: organization.brandingEmail,
             brandingPhone: organization.brandingPhone,
             brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
           };
 
           const comments = await storage.getComparisonComments(id);
@@ -12692,7 +13094,7 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
           const browser = await launchPuppeteerBrowser();
           try {
             const page = await browser.newPage();
-            await page.setContent(html, { waitUntil: "networkidle0" });
+            await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), { waitUntil: "networkidle0" });
             const pdf = await page.pdf({
               format: "A4",
               landscape: true,
@@ -31512,7 +31914,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     brandingEmail?: string | null;
     brandingPhone?: string | null;
     brandingWebsite?: string | null;
+    brandingPrimaryColor?: string | null;
+    brandingReportPalette?: any;
     trademarks?: ReportTrademarkInfo[];
+  }
+
+  function themeReportHtml(html: string, branding?: ReportBrandingInfo | null): string {
+    return applyBrandThemeToHtml(html, themeFromOrgBranding(branding || null));
   }
 
   // Sanitize URL for use in HTML attributes (allow http(s) + safe image data URLs for default logos)
@@ -32089,6 +32497,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
         trademarks: trademarksArray,
       } : {};
 
@@ -32099,7 +32509,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -32195,6 +32605,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       // Generate HTML for PDF
@@ -32206,7 +32618,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -32549,6 +32961,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       const html = generatePropertiesReportHTML(properties, blocks, inspections, tenantAssignments, maintenanceRequests, branding);
@@ -32558,7 +32972,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -32897,6 +33311,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       const html = generateTenantsReportHTML(tenantAssignments, properties, blocks, branding);
@@ -32906,7 +33322,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -33239,6 +33655,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       const html = generateInventoryReportHTML(assetInventory, properties, blocks, branding);
@@ -33248,7 +33666,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -33609,6 +34027,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       const html = generateComplianceReportHTML(complianceDocuments, properties, blocks, branding);
@@ -33618,7 +34038,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -33667,6 +34087,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingEmail: organization.brandingEmail,
         brandingPhone: organization.brandingPhone,
         brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
       // Fetch all data
@@ -33879,7 +34301,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "networkidle0",
         });
 
@@ -34720,6 +35142,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             brandingEmail: organization.brandingEmail,
             brandingPhone: organization.brandingPhone,
             brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
           }
         : {};
 
@@ -34745,7 +35169,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       try {
         browser = await launchPuppeteerBrowser();
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "domcontentloaded",
           timeout: 60000,
         });
@@ -34872,6 +35296,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             brandingEmail: organization.brandingEmail,
             brandingPhone: organization.brandingPhone,
             brandingWebsite: organization.brandingWebsite,
+        brandingPrimaryColor: (organization as any).brandingPrimaryColor,
+        brandingReportPalette: (organization as any).brandingReportPalette,
           }
         : {};
 
@@ -34903,7 +35329,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       try {
         browser = await launchPuppeteerBrowser();
         const page = await browser.newPage();
-        await page.setContent(html, {
+        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
           waitUntil: "domcontentloaded",
           timeout: 60000,
         });

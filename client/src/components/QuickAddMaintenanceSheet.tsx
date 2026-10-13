@@ -10,6 +10,7 @@ import { fileUploadSync } from "@/lib/fileUploadSync";
 import { prepareImageForUpload } from "@/lib/compressImage";
 import type { QuickAddMaintenance } from "@shared/schema";
 import { quickAddMaintenanceSchema } from "@shared/schema";
+import { buildMaintenanceRequestDescription } from "@shared/inspectionNoteSections";
 import {
   Sheet,
   SheetContent,
@@ -47,6 +48,8 @@ interface QuickAddMaintenanceSheetProps {
   inspectionEntryId?: string;
   fieldLabel?: string;
   sectionTitle?: string;
+  /** Inspection field notes / AI analysis used to seed the description */
+  fieldNote?: string | null;
   initialPhotos?: string[];
 }
 
@@ -59,6 +62,7 @@ export function QuickAddMaintenanceSheet({
   inspectionEntryId,
   fieldLabel,
   sectionTitle,
+  fieldNote,
   initialPhotos = [],
 }: QuickAddMaintenanceSheetProps) {
   const { toast } = useToast();
@@ -214,9 +218,11 @@ export function QuickAddMaintenanceSheet({
       const seededTitle = fieldLabel
         ? `Maintenance: ${fieldLabel}${sectionInfo}`
         : "";
-      const seededDescription = fieldLabel
-        ? `Maintenance request created from inspection field: ${fieldLabel}${sectionInfo}`
-        : "";
+      const seededDescription = buildMaintenanceRequestDescription({
+        fieldLabel,
+        sectionTitle,
+        note: fieldNote,
+      });
 
       form.reset({
         title: seededTitle,
@@ -234,7 +240,7 @@ export function QuickAddMaintenanceSheet({
     }
     wasOpenRef.current = open;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, propertyId, blockId, fieldLabel, sectionTitle, inspectionId, inspectionEntryId, seededPhotos.join("|")]);
+  }, [open, propertyId, blockId, fieldLabel, sectionTitle, fieldNote, inspectionId, inspectionEntryId, seededPhotos.join("|")]);
 
   const createMaintenanceMutation = useMutation({
     mutationFn: async (data: QuickAddMaintenance) => {

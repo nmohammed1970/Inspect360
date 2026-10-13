@@ -26,6 +26,13 @@ import {
   attachFloorPlanToProperty,
   type PropertyLayoutValue,
 } from "@/components/PropertyLayoutFields";
+import {
+  PropertyRoomsEditor,
+  draftRoomsToPayload,
+  roomsFromApi,
+  type DraftRoom,
+} from "@/components/PropertyRoomsEditor";
+import type { AiProposedRoom } from "@shared/propertyRooms";
 import { cn } from "@/lib/utils";
 
 const PROPERTY_TYPE_NONE = "__property_type_none__";
@@ -104,6 +111,8 @@ export function PropertyFormDialog({
   const [blockId, setBlockId] = useState<string | undefined>();
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [layout, setLayout] = useState<PropertyLayoutValue>(defaultLayout());
+  const [rooms, setRooms] = useState<DraftRoom[]>([]);
+  const [aiProposedRooms, setAiProposedRooms] = useState<AiProposedRoom[] | null>(null);
   const [isHydrating, setIsHydrating] = useState(false);
 
   const { data: blocks = [] } = useQuery<any[]>({
@@ -120,6 +129,8 @@ export function PropertyFormDialog({
     setBlockId(undefined);
     setSelectedTags([]);
     setLayout(defaultLayout());
+    setRooms([]);
+    setAiProposedRooms(null);
   };
 
   const updatePropertyTags = async (propertyId: string, tags: Tag[]) => {
@@ -176,6 +187,10 @@ export function PropertyFormDialog({
           /* create body may already include floor plan URL / counts */
         }
       }
+      const payload = draftRoomsToPayload(rooms);
+      if (created?.id && payload.length > 0) {
+        await apiRequest("PUT", `/api/properties/${created.id}/rooms`, { rooms: payload });
+      }
       return created;
     },
     onSuccess: async (created) => {
@@ -221,12 +236,16 @@ export function PropertyFormDialog({
         body.bathrooms = data.layout.bathrooms;
         body.livingRooms = data.layout.livingRooms;
       }
-      return await apiRequest("PATCH", `/api/properties/${data.id}`, body);
+      await apiRequest("PATCH", `/api/properties/${data.id}`, body);
+      await apiRequest("PUT", `/api/properties/${data.id}/rooms`, {
+        rooms: draftRoomsToPayload(rooms),
+      });
     },
     onSuccess: async (_, variables) => {
       await updatePropertyTags(variables.id, selectedTags);
       await queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.id] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/properties", variables.id, "rooms"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/properties/tags"] });
       toast({
         title: "Success",
@@ -304,6 +323,20 @@ export function PropertyFormDialog({
             floorPlanAnalysisStatus: propertyData.floorPlanAnalysisStatus ?? "none",
             floorPlanAnalysisJson: propertyData.floorPlanAnalysisJson ?? null,
           });
+
+          try {
+            const roomsRes = await fetch(`/api/properties/${property.id}/rooms`, {
+              credentials: "include",
+            });
+            if (roomsRes.ok) {
+              const roomRows = await roomsRes.json();
+              if (!cancelled) setRooms(roomsFromApi(roomRows));
+            } else if (!cancelled) {
+              setRooms([]);
+            }
+          } catch {
+            if (!cancelled) setRooms([]);
+          }
 
           try {
             const res = await fetch(`/api/properties/${property.id}/tags`, { credentials: "include" });
@@ -405,139 +438,192 @@ export function PropertyFormDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         className={cn(
-          "!flex !flex-col !overflow-hidden max-w-xl w-full max-h-[min(90vh,calc(100dvh-2rem))] gap-4",
+          "!flex !flex-col !overflow-hidden w-[min(96vw,72rem)] max-w-[min(96vw,72rem)]",
+          "max-h-[min(96vh,calc(100dvh-1rem))] gap-0 p-0",
         )}
       >
-        <DialogHeader className="shrink-0">
-          <DialogTitle>{editingProperty ? "Edit Property" : "Create New Property"}</DialogTitle>
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-4 border-b">
+          <DialogTitle className="text-xl">
+            {editingProperty ? "Edit Property" : "Create New Property"}
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground font-normal">
+            Basics, floor plan, rooms with dimensions, and tags
+          </p>
         </DialogHeader>
         <form
           id="property-form"
           onSubmit={handleSubmit}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 pr-1"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-5 space-y-8"
         >
-          <div>
-            <Label htmlFor="name" required>
-              Property Name
-            </Label>
-            <Input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Flat 12, Unit 5B"
-              data-testid="input-property-name"
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="block">Block (Optional)</Label>
-            <Select
-              value={blockId}
-              onValueChange={(value) => {
-                setBlockId(value);
-                if (value && value !== "none") {
-                  const selected = blocks.find((b: any) => b.id === value);
-                  if (selected?.address) {
-                    setAddress(selected.address);
-                  }
-                }
-              }}
-            >
-              <SelectTrigger data-testid="select-block">
-                <SelectValue placeholder="Select a block" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No Block</SelectItem>
-                {blocks.map((block: any) => (
-                  <SelectItem key={block.id} value={block.id}>
-                    {block.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground mt-1">
-              Assign this property to a building/block for better organization. Selecting a block fills the address.
-            </p>
-          </div>
-          <div>
-            <Label htmlFor="address" required>
-              Address
-            </Label>
-            <AddressInput
-              id="address"
-              value={address}
-              onChange={setAddress}
-              placeholder="Start typing to search..."
-              data-testid="input-property-address"
-              required
-            />
-          </div>
+          <section className="space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Basics
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <Label htmlFor="name" required>
+                  Property Name
+                </Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g., Flat 12, Unit 5B"
+                  data-testid="input-property-name"
+                  required
+                  className="h-11"
+                />
+              </div>
+              <div>
+                <Label htmlFor="block">Block (Optional)</Label>
+                <Select
+                  value={blockId}
+                  onValueChange={(value) => {
+                    setBlockId(value);
+                    if (value && value !== "none") {
+                      const selected = blocks.find((b: any) => b.id === value);
+                      if (selected?.address) {
+                        setAddress(selected.address);
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid="select-block" className="h-11">
+                    <SelectValue placeholder="Select a block" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Block</SelectItem>
+                    {blocks.map((block: any) => (
+                      <SelectItem key={block.id} value={block.id}>
+                        {block.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Selecting a block fills the address.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="propertyType">Property Type</Label>
+                <Select
+                  value={propertyType ?? PROPERTY_TYPE_NONE}
+                  onValueChange={(v) => {
+                    if (v === PROPERTY_TYPE_NONE) {
+                      setPropertyType(undefined);
+                      setPropertyTypeExtra(null);
+                      return;
+                    }
+                    setPropertyType(v);
+                    setPropertyTypeExtra(null);
+                  }}
+                >
+                  <SelectTrigger data-testid="select-property-type" className="h-11">
+                    <SelectValue placeholder="Select property type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={PROPERTY_TYPE_NONE}>Select property type</SelectItem>
+                    {propertyTypeExtra && (
+                      <SelectItem value={propertyTypeExtra.value}>
+                        {propertyTypeExtra.label} (saved)
+                      </SelectItem>
+                    )}
+                    {PROPERTY_TYPES.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="address" required>
+                  Address
+                </Label>
+                <AddressInput
+                  id="address"
+                  value={address}
+                  onChange={setAddress}
+                  placeholder="Start typing to search..."
+                  data-testid="input-property-address"
+                  required
+                />
+              </div>
+            </div>
+          </section>
 
-          <div className="border-t pt-4">
+          <section className="space-y-4 border-t pt-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Floor plan
+            </h3>
             <PropertyLayoutFields
               value={layout}
               onChange={setLayout}
               propertyId={editingProperty?.id || null}
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="propertyType">Property Type</Label>
-            <Select
-              value={propertyType ?? PROPERTY_TYPE_NONE}
-              onValueChange={(v) => {
-                if (v === PROPERTY_TYPE_NONE) {
-                  setPropertyType(undefined);
-                  setPropertyTypeExtra(null);
-                  return;
-                }
-                setPropertyType(v);
-                setPropertyTypeExtra(null);
+              hideRoomSteppers
+              onProposedRooms={(proposed) => {
+                if (proposed?.length) setAiProposedRooms(proposed as AiProposedRoom[]);
               }}
-            >
-              <SelectTrigger data-testid="select-property-type">
-                <SelectValue placeholder="Select property type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={PROPERTY_TYPE_NONE}>Select property type</SelectItem>
-                {propertyTypeExtra && (
-                  <SelectItem value={propertyTypeExtra.value}>
-                    {propertyTypeExtra.label} (saved)
-                  </SelectItem>
-                )}
-                {PROPERTY_TYPES.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            />
+          </section>
 
-          <div className="space-y-2 pb-1">
-            <Label>Tags</Label>
+          <section className="space-y-4 border-t pt-6">
+            <PropertyRoomsEditor
+              propertyId={editingProperty?.id || null}
+              rooms={rooms}
+              onChange={setRooms}
+              aiProposedRooms={aiProposedRooms}
+              onAiProposedConsumed={() => setAiProposedRooms(null)}
+              onCountsDerived={(counts) =>
+                setLayout((prev) => ({
+                  ...prev,
+                  bedrooms: counts.bedrooms,
+                  kitchens: counts.kitchens,
+                  bathrooms: counts.bathrooms,
+                  livingRooms: counts.livingRooms,
+                }))
+              }
+              disabled={isPending}
+            />
+          </section>
+
+          <section className="space-y-3 border-t pt-6 pb-2">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Tags
+            </h3>
             <TagInput
               selectedTags={selectedTags}
               onTagsChange={setSelectedTags}
               placeholder="Add tags to organize this property..."
             />
-          </div>
+          </section>
         </form>
-        <Button
-          type="submit"
-          form="property-form"
-          className="w-full shrink-0"
-          disabled={isPending}
-          data-testid="button-submit-property"
-        >
-          {editingProperty
-            ? updateProperty.isPending
-              ? "Updating..."
-              : "Update Property"
-            : createProperty.isPending
-              ? "Creating..."
-              : "Create Property"}
-        </Button>
+        <div className="shrink-0 border-t px-6 py-4 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end bg-background">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleClose(false)}
+            disabled={isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="property-form"
+            variant="brand"
+            className="sm:min-w-[10rem]"
+            disabled={isPending}
+            data-testid="button-submit-property"
+          >
+            {editingProperty
+              ? updateProperty.isPending
+                ? "Updating..."
+                : "Update Property"
+              : createProperty.isPending
+                ? "Creating..."
+                : "Create Property"}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

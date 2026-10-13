@@ -17,7 +17,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal, Loader2, Palette, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
@@ -32,12 +32,29 @@ import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useModules } from "@/hooks/use-modules";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
-import { COMPANY_MODULE_META } from "@shared/companyModules";
+import { CompanyModulesSettings } from "@/components/CompanyModulesSettings";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2 } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  DEFAULT_REPORT_PALETTE,
+  normalizeHexColor,
+  type ReportBrandPalette,
+  type ReportBrandPaletteMeta,
+} from "@shared/reportBrandTheme";
+
+const PALETTE_ROLE_LABELS: Array<{ key: keyof ReportBrandPalette; label: string }> = [
+  { key: "primary", label: "Primary" },
+  { key: "secondary", label: "Secondary" },
+  { key: "accent", label: "Accent" },
+  { key: "background", label: "Background" },
+  { key: "surface", label: "Surface" },
+  { key: "text", label: "Text" },
+  { key: "mutedText", label: "Muted text" },
+  { key: "border", label: "Border" },
+];
 
 const categoryFormSchema = insertInspectionCategorySchema.extend({
   name: z.string().min(1, "Category name is required"),
@@ -76,6 +93,9 @@ export default function Settings() {
   const [brandingPhone, setBrandingPhone] = useState("");
   const [brandingAddress, setBrandingAddress] = useState("");
   const [brandingWebsite, setBrandingWebsite] = useState("");
+  const [reportPalette, setReportPalette] = useState<ReportBrandPalette>({ ...DEFAULT_REPORT_PALETTE });
+  const [paletteMeta, setPaletteMeta] = useState<ReportBrandPaletteMeta | null>(null);
+  const [extractMessage, setExtractMessage] = useState<string | null>(null);
   const [financeEmail, setFinanceEmail] = useState("");
   const [comparisonAlertThreshold, setComparisonAlertThreshold] = useState(20);
   const [tenantPortalCommunityEnabled, setTenantPortalCommunityEnabled] = useState(true);
@@ -83,10 +103,6 @@ export default function Settings() {
   const [tenantPortalChatbotEnabled, setTenantPortalChatbotEnabled] = useState(true);
   const [tenantPortalMaintenanceEnabled, setTenantPortalMaintenanceEnabled] = useState(true);
   const [checkInApprovalPeriodDays, setCheckInApprovalPeriodDays] = useState(5);
-  const [rentalsEnabled, setRentalsEnabled] = useState(true);
-  const [tenanciesEnabled, setTenanciesEnabled] = useState(true);
-  const [complianceEnabled, setComplianceEnabled] = useState(true);
-  const [maintenanceEnabled, setMaintenanceEnabled] = useState(true);
 
   const { isModuleEnabled } = useModules();
   const isWhiteLabelEnabled = isModuleEnabled("white_label");
@@ -110,6 +126,21 @@ export default function Settings() {
       setBrandingPhone(organization.brandingPhone || "");
       setBrandingAddress(organization.brandingAddress || "");
       setBrandingWebsite(organization.brandingWebsite || "");
+      const savedPalette = (organization as any).brandingReportPalette as ReportBrandPalette | null;
+      if (savedPalette?.primary) {
+        setReportPalette({ ...DEFAULT_REPORT_PALETTE, ...savedPalette });
+      } else if (organization.brandingPrimaryColor) {
+        const p = normalizeHexColor(organization.brandingPrimaryColor) || DEFAULT_REPORT_PALETTE.primary;
+        setReportPalette({
+          ...DEFAULT_REPORT_PALETTE,
+          primary: p,
+          secondary: DEFAULT_REPORT_PALETTE.secondary,
+          accent: p,
+        });
+      } else {
+        setReportPalette({ ...DEFAULT_REPORT_PALETTE });
+      }
+      setPaletteMeta(((organization as any).brandingPaletteMeta as ReportBrandPaletteMeta) || null);
       setFinanceEmail(organization.financeEmail || "");
       setComparisonAlertThreshold(organization.comparisonAlertThreshold ?? 20);
       setTenantPortalCommunityEnabled(organization.tenantPortalCommunityEnabled ?? true);
@@ -117,41 +148,8 @@ export default function Settings() {
       setTenantPortalChatbotEnabled(organization.tenantPortalChatbotEnabled ?? true);
       setTenantPortalMaintenanceEnabled(organization.tenantPortalMaintenanceEnabled ?? true);
       setCheckInApprovalPeriodDays(organization.checkInApprovalPeriodDays ?? 5);
-      setRentalsEnabled(organization.rentalsEnabled ?? true);
-      setTenanciesEnabled(organization.tenanciesEnabled ?? true);
-      setComplianceEnabled(organization.complianceEnabled ?? true);
-      setMaintenanceEnabled(organization.maintenanceEnabled ?? true);
     }
   }, [organization]);
-
-  const updateCompanyModulesMutation = useMutation({
-    mutationFn: async () => {
-      if (!user?.organizationId) return null;
-      const response = await apiRequest("PATCH", `/api/organizations/${user.organizationId}/company-modules`, {
-        // Tenancies OFF always persists Rentals OFF
-        rentalsEnabled: tenanciesEnabled ? rentalsEnabled : false,
-        tenanciesEnabled,
-        complianceEnabled,
-        maintenanceEnabled,
-      });
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/organizations", user?.organizationId] });
-      toast({
-        title: "Success",
-        description: "Company modules updated successfully",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to update company modules",
-      });
-    },
-  });
 
   const updateBrandingMutation = useMutation({
     mutationFn: async () => {
@@ -166,6 +164,13 @@ export default function Settings() {
         brandingWebsite: brandingWebsite || null,
         financeEmail: financeEmail || null,
         comparisonAlertThreshold,
+        ...(isWhiteLabelEnabled
+          ? {
+              brandingReportPalette: reportPalette,
+              brandingPaletteMeta: paletteMeta,
+              brandingPrimaryColor: reportPalette.primary,
+            }
+          : {}),
       });
       return response.json();
     },
@@ -183,6 +188,83 @@ export default function Settings() {
         variant: "destructive",
         title: "Error",
         description: error.message || "Failed to update branding",
+      });
+    },
+  });
+
+  const extractBrandColorsMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.organizationId) throw new Error("Organization not found");
+      const response = await apiRequest(
+        "POST",
+        `/api/organizations/${user.organizationId}/branding/extract-colors`,
+        { url: brandingWebsite || undefined },
+      );
+      return response.json();
+    },
+    onSuccess: (data: {
+      palette: ReportBrandPalette;
+      meta: ReportBrandPaletteMeta;
+      message?: string;
+    }) => {
+      setReportPalette({ ...DEFAULT_REPORT_PALETTE, ...data.palette });
+      setPaletteMeta(data.meta || null);
+      setExtractMessage(data.message || "Colors detected. Review and save to apply to reports.");
+      if (data.meta?.sourceUrl) {
+        try {
+          const host = new URL(data.meta.sourceUrl).hostname;
+          if (host && !brandingWebsite) setBrandingWebsite(host);
+        } catch {
+          /* ignore */
+        }
+      }
+      toast({
+        title: data.meta?.extractionStatus === "partial" ? "Partial palette" : "Colors extracted",
+        description: data.message || "Review the palette below, then save branding settings.",
+      });
+    },
+    onError: (error: Error) => {
+      setExtractMessage(error.message || "Extraction failed");
+      toast({
+        variant: "destructive",
+        title: "Could not extract colors",
+        description: error.message || "Check the website URL and try again, or set colors manually.",
+      });
+    },
+  });
+
+  const resetReportThemeMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.organizationId) throw new Error("Organization not found");
+      const response = await apiRequest("PATCH", `/api/organizations/${user.organizationId}/branding`, {
+        logoUrl,
+        trademarkUrl,
+        brandingName: brandingName || null,
+        brandingEmail: brandingEmail || null,
+        brandingPhone: brandingPhone || null,
+        brandingAddress: brandingAddress || null,
+        brandingWebsite: brandingWebsite || null,
+        financeEmail: financeEmail || null,
+        comparisonAlertThreshold,
+        resetReportTheme: true,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      setReportPalette({ ...DEFAULT_REPORT_PALETTE });
+      setPaletteMeta({ extractionStatus: "default", appliedAt: new Date().toISOString() });
+      setExtractMessage(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
+      toast({
+        title: "Default theme restored",
+        description: "Inspection reports will use the Inspect360 default colors.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to reset theme",
       });
     },
   });
@@ -769,6 +851,156 @@ export default function Settings() {
                         </div>
                       </div>
 
+                      <div className="border-t border-border pt-6 space-y-4" data-testid="section-website-brand-colors">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <Label className="text-base font-medium flex items-center gap-2">
+                              <Palette className="h-4 w-4" />
+                              Website Brand Colors
+                            </Label>
+                            <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+                              Extract real colors from your company website and apply them to inspection report PDFs.
+                              Status colors (pass/fail, severity) stay unchanged.
+                            </p>
+                          </div>
+                        </div>
+
+                        {!isWhiteLabelEnabled ? (
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                            White Label is required to extract and apply report brand colors.
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={
+                                  extractBrandColorsMutation.isPending ||
+                                  !brandingWebsite.trim()
+                                }
+                                onClick={() => extractBrandColorsMutation.mutate()}
+                                data-testid="button-extract-brand-colors"
+                              >
+                                {extractBrandColorsMutation.isPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Extracting…
+                                  </>
+                                ) : (
+                                  "Extract Brand Colors"
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                disabled={resetReportThemeMutation.isPending}
+                                onClick={() => resetReportThemeMutation.mutate()}
+                                data-testid="button-reset-report-theme"
+                              >
+                                <RotateCcw className="h-4 w-4 mr-2" />
+                                Reset to Default Theme
+                              </Button>
+                            </div>
+                            {extractMessage && (
+                              <p className="text-xs text-muted-foreground" data-testid="text-extract-message">
+                                {extractMessage}
+                              </p>
+                            )}
+                            {paletteMeta?.extractionStatus && (
+                              <p className="text-xs text-muted-foreground">
+                                Status: {paletteMeta.extractionStatus}
+                                {paletteMeta.sourceUrl ? ` · ${paletteMeta.sourceUrl}` : ""}
+                              </p>
+                            )}
+
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                              {PALETTE_ROLE_LABELS.map(({ key, label }) => (
+                                <div key={key} className="space-y-1.5">
+                                  <Label className="text-xs">{label}</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      aria-label={label}
+                                      value={normalizeHexColor(reportPalette[key] || "") || "#000000"}
+                                      onChange={(e) => {
+                                        const hex = normalizeHexColor(e.target.value);
+                                        if (!hex) return;
+                                        setReportPalette((prev) => ({ ...prev, [key]: hex }));
+                                        setPaletteMeta((prev) => ({
+                                          ...(prev || {}),
+                                          extractionStatus: "manual",
+                                        }));
+                                      }}
+                                      className="h-9 w-10 cursor-pointer rounded border bg-transparent p-0.5"
+                                      data-testid={`input-palette-${key}`}
+                                    />
+                                    <Input
+                                      value={reportPalette[key] || ""}
+                                      onChange={(e) => {
+                                        const hex = normalizeHexColor(e.target.value);
+                                        if (!hex && e.target.value.trim() !== "") return;
+                                        setReportPalette((prev) => ({
+                                          ...prev,
+                                          [key]: hex || prev[key],
+                                        }));
+                                      }}
+                                      className="font-mono text-xs h-9"
+                                      placeholder="#000000"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div
+                              className="rounded-xl border overflow-hidden shadow-sm"
+                              data-testid="report-brand-preview"
+                            >
+                              <div
+                                className="px-4 py-6 text-sm font-semibold"
+                                style={{
+                                  background: `linear-gradient(135deg, ${reportPalette.primary} 0%, ${reportPalette.secondary} 100%)`,
+                                  color: "#fff",
+                                }}
+                              >
+                                Report cover preview
+                              </div>
+                              <div
+                                className="p-4 space-y-3"
+                                style={{ background: reportPalette.background, color: reportPalette.text }}
+                              >
+                                <div
+                                  className="text-sm font-semibold border-b pb-2"
+                                  style={{
+                                    borderColor: reportPalette.border,
+                                    color: reportPalette.primary,
+                                  }}
+                                >
+                                  Section heading
+                                </div>
+                                <div
+                                  className="rounded-md border p-3 text-xs"
+                                  style={{
+                                    background: reportPalette.surface,
+                                    borderColor: reportPalette.border,
+                                    color: reportPalette.mutedText,
+                                  }}
+                                >
+                                  Surface panel · muted supporting text
+                                </div>
+                                <div
+                                  className="inline-flex rounded px-2 py-1 text-xs font-medium text-white"
+                                  style={{ background: reportPalette.accent }}
+                                >
+                                  Accent badge
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="border-t border-border pt-6 space-y-4">
                         <Label className="text-base font-medium">Finance Department</Label>
                         <div className="grid gap-4">
@@ -831,83 +1063,15 @@ export default function Settings() {
 
           {activeSection === 'internal-modules' && (
             <div className="space-y-6">
-              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg" data-testid="section-company-modules">
+              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
                 <CardHeader>
                   <CardTitle className="text-2xl">Internal Modules</CardTitle>
                   <CardDescription className="mt-2">
                     Turn modules off to hide them across the app. Existing records are kept and become available again when re-enabled.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  {orgLoading ? (
-                    <div className="text-center py-12 text-muted-foreground">Loading...</div>
-                  ) : (
-                    <>
-                      <div className="space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <Label className="text-base font-medium">{COMPANY_MODULE_META.tenancies.label}</Label>
-                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.tenancies.description}</p>
-                          </div>
-                          <Switch
-                            checked={tenanciesEnabled}
-                            onCheckedChange={(on) => {
-                              setTenanciesEnabled(on);
-                              if (!on) setRentalsEnabled(false);
-                            }}
-                            data-testid="toggle-module-tenancies"
-                          />
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <Label className="text-base font-medium">{COMPANY_MODULE_META.rentals.label}</Label>
-                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.rentals.description}</p>
-                            {!tenanciesEnabled && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Enable Tenancies first to turn Rentals on.
-                              </p>
-                            )}
-                          </div>
-                          <Switch
-                            checked={tenanciesEnabled && rentalsEnabled}
-                            onCheckedChange={setRentalsEnabled}
-                            disabled={!tenanciesEnabled}
-                            data-testid="toggle-module-rentals"
-                          />
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <Label className="text-base font-medium">{COMPANY_MODULE_META.compliance.label}</Label>
-                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.compliance.description}</p>
-                          </div>
-                          <Switch
-                            checked={complianceEnabled}
-                            onCheckedChange={setComplianceEnabled}
-                            data-testid="toggle-module-compliance"
-                          />
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <Label className="text-base font-medium">{COMPANY_MODULE_META.maintenance.label}</Label>
-                            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.maintenance.description}</p>
-                          </div>
-                          <Switch
-                            checked={maintenanceEnabled}
-                            onCheckedChange={setMaintenanceEnabled}
-                            data-testid="toggle-module-maintenance"
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        variant="brand"
-                        onClick={() => updateCompanyModulesMutation.mutate()}
-                        disabled={updateCompanyModulesMutation.isPending}
-                        data-testid="button-save-company-modules"
-                      >
-                        {updateCompanyModulesMutation.isPending ? "Saving..." : "Save Module Settings"}
-                      </Button>
-                    </>
-                  )}
+                <CardContent>
+                  <CompanyModulesSettings />
                 </CardContent>
               </Card>
             </div>

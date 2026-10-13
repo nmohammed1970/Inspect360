@@ -32,6 +32,12 @@ export type GalleryTemplateSection = {
 
 export type GalleryTemplateStructure = {
   sections?: GalleryTemplateSection[];
+  /** Stable property-room instance paths: `{sectionId}/{roomId}` */
+  propertyRoomInstances?: Array<{
+    roomId?: string;
+    sectionRef: string;
+    title?: string;
+  }>;
   [key: string]: unknown;
 };
 
@@ -92,6 +98,25 @@ export function listPhotoDestinations(
   const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
   const destinations: PhotoDestination[] = [];
 
+  const roomsBySection = new Map<
+    string,
+    Array<{ sectionRef: string; title: string }>
+  >();
+  const roomInstances = Array.isArray(structure?.propertyRoomInstances)
+    ? structure!.propertyRoomInstances!
+    : [];
+  for (const room of roomInstances) {
+    const ref = String(room?.sectionRef || "").trim();
+    if (!ref.includes("/")) continue;
+    const sectionId = ref.split("/")[0]!;
+    const list = roomsBySection.get(sectionId) || [];
+    list.push({
+      sectionRef: ref,
+      title: (room.title || ref.split("/")[1] || sectionId).trim(),
+    });
+    roomsBySection.set(sectionId, list);
+  }
+
   for (const section of sections) {
     if (!section?.id) continue;
     const photoFields = (section.fields || []).filter((f) => isPhotoFieldType(f.type));
@@ -100,24 +125,43 @@ export function listPhotoDestinations(
     const title = (section.title || section.id).trim() || section.id;
 
     if (section.repeatable) {
-      const rawCount = Number(repeatableCounts[section.id] ?? 1);
-      const count = Number.isFinite(rawCount)
-        ? Math.max(1, Math.min(50, Math.floor(rawCount)))
-        : 1;
-      for (let i = 1; i <= count; i++) {
-        const instanceLabel = `${title} ${i}`;
-        const sectionRef = `${section.id}/${instanceLabel}`;
-        for (const field of photoFields) {
-          const fk = fieldKeyOf(field);
-          if (!fk || !isPhotoFieldType(field.type)) continue;
-          destinations.push({
-            sectionId: section.id,
-            sectionRef,
-            sectionLabel: instanceLabel,
-            fieldKey: fk,
-            fieldLabel: (field.label || fk).trim() || fk,
-            fieldType: field.type,
-          });
+      const propertyRooms = roomsBySection.get(section.id);
+      if (propertyRooms?.length) {
+        // Property rooms: stable sectionRef = `{sectionId}/{roomId}`
+        for (const room of propertyRooms) {
+          for (const field of photoFields) {
+            const fk = fieldKeyOf(field);
+            if (!fk || !isPhotoFieldType(field.type)) continue;
+            destinations.push({
+              sectionId: section.id,
+              sectionRef: room.sectionRef,
+              sectionLabel: room.title,
+              fieldKey: fk,
+              fieldLabel: (field.label || fk).trim() || fk,
+              fieldType: field.type,
+            });
+          }
+        }
+      } else {
+        const rawCount = Number(repeatableCounts[section.id] ?? 1);
+        const count = Number.isFinite(rawCount)
+          ? Math.max(1, Math.min(50, Math.floor(rawCount)))
+          : 1;
+        for (let i = 1; i <= count; i++) {
+          const instanceLabel = `${title} ${i}`;
+          const sectionRef = `${section.id}/${instanceLabel}`;
+          for (const field of photoFields) {
+            const fk = fieldKeyOf(field);
+            if (!fk || !isPhotoFieldType(field.type)) continue;
+            destinations.push({
+              sectionId: section.id,
+              sectionRef,
+              sectionLabel: instanceLabel,
+              fieldKey: fk,
+              fieldLabel: (field.label || fk).trim() || fk,
+              fieldType: field.type,
+            });
+          }
         }
       }
     } else {
@@ -148,7 +192,42 @@ export function assertDestinationValid(
   const dest = listPhotoDestinations(structure, repeatableCounts).find(
     (d) => d.sectionRef === sectionRef && d.fieldKey === fieldKey,
   );
-  return dest || null;
+  if (dest) return dest;
+
+  // Fallback: accept stable property-room refs (`sectionId/roomId`) even when
+  // propertyRoomInstances is missing from an older snapshot. Reject Title-N
+  // refs (e.g. "Bedrooms 9") — those must match listPhotoDestinations counts.
+  const ref = String(sectionRef || "").trim();
+  const slash = ref.indexOf("/");
+  if (slash <= 0) return null;
+  const sectionId = ref.slice(0, slash);
+  const instancePart = ref.slice(slash + 1).trim();
+  if (!sectionId || !instancePart) return null;
+
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const section = sections.find((s) => s.id === sectionId);
+  if (!section?.repeatable) return null;
+
+  const sectionTitle = (section.title || section.id).trim() || section.id;
+  if (new RegExp(`^${escapeRegExp(sectionTitle)}\\s+\\d+$`).test(instancePart)) {
+    return null;
+  }
+
+  const field = (section.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
+  if (!field || !isPhotoFieldType(field.type)) return null;
+
+  return {
+    sectionId,
+    sectionRef: ref,
+    sectionLabel: instancePart,
+    fieldKey,
+    fieldLabel: (field.label || fieldKey).trim() || fieldKey,
+    fieldType: field.type,
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function formatDestinationLabel(dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel">): string {

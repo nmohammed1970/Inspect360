@@ -197,6 +197,27 @@ export const organizations = pgTable("organizations", {
   brandingAddress: text("branding_address"), // White-label: Address for reports
   brandingWebsite: varchar("branding_website"), // White-label: Company website
   brandingPrimaryColor: varchar("branding_primary_color"), // White-label: Primary brand color (hex)
+  /** Applied report PDF palette (primary/secondary/accent/background/…). */
+  brandingReportPalette: jsonb("branding_report_palette").$type<{
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    surface: string;
+    text: string;
+    mutedText: string;
+    border: string;
+    success?: string;
+    warning?: string;
+    danger?: string;
+  }>(),
+  /** Extraction/apply metadata for report brand palette. */
+  brandingPaletteMeta: jsonb("branding_palette_meta").$type<{
+    sourceUrl?: string | null;
+    extractedAt?: string | null;
+    extractionStatus?: string | null;
+    appliedAt?: string | null;
+  }>(),
   financeEmail: varchar("finance_email"), // Finance department email for liability reports
   autoRenewEnabled: boolean("auto_renew_enabled").default(false), // Auto-renew credits when low
   autoRenewBundleId: varchar("auto_renew_bundle_id"), // Which bundle to auto-purchase
@@ -443,6 +464,85 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
 });
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
+
+/** Org-scoped room/area categories (Bedroom, Garden, custom, …). */
+export const organizationRoomCategories = pgTable(
+  "organization_room_categories",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    nameNormalized: varchar("name_normalized", { length: 120 }).notNull(),
+    slug: varchar("slug", { length: 80 }).notNull(),
+    isSystem: boolean("is_system").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("organization_room_categories_org_name_uq").on(
+      table.organizationId,
+      table.nameNormalized,
+    ),
+    index("organization_room_categories_org_idx").on(table.organizationId),
+  ],
+);
+
+export const insertOrganizationRoomCategorySchema = createInsertSchema(
+  organizationRoomCategories,
+).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type OrganizationRoomCategory = typeof organizationRoomCategories.$inferSelect;
+export type InsertOrganizationRoomCategory = z.infer<
+  typeof insertOrganizationRoomCategorySchema
+>;
+
+/** Individual rooms/areas on a property with optional dimensions (mm). */
+export const propertyRooms = pgTable(
+  "property_rooms",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    propertyId: varchar("property_id").notNull(),
+    categoryId: varchar("category_id").notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    widthMm: integer("width_mm"),
+    lengthMm: integer("length_mm"),
+    ceilingHeightMm: integer("ceiling_height_mm"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    source: varchar("source", { length: 20 }).notNull().default("manual"),
+    aiConfidence: varchar("ai_confidence", { length: 20 }),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("property_rooms_property_sort_idx").on(table.propertyId, table.sortOrder),
+    index("property_rooms_org_idx").on(table.organizationId),
+    index("property_rooms_category_idx").on(table.categoryId),
+  ],
+);
+
+export const propertyRoomInputSchema = z.object({
+  id: z.string().optional(),
+  categoryId: z.string().min(1),
+  name: z.string().trim().min(1).max(160),
+  widthMm: z.number().int().positive().nullable().optional(),
+  lengthMm: z.number().int().positive().nullable().optional(),
+  ceilingHeightMm: z.number().int().positive().nullable().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  source: z.enum(["manual", "ai"]).optional(),
+  aiConfidence: z.enum(["high", "medium", "low"]).nullable().optional(),
+});
+
+export const putPropertyRoomsSchema = z.object({
+  rooms: z.array(propertyRoomInputSchema).max(80),
+});
+
+export type PropertyRoom = typeof propertyRooms.$inferSelect;
+export type PropertyRoomInput = z.infer<typeof propertyRoomInputSchema>;
 
 // Tenant Assignments (tracks which tenant is assigned to which property)
 export const tenantAssignments = pgTable("tenant_assignments", {

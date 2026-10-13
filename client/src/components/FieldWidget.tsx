@@ -68,7 +68,7 @@ interface FieldWidgetProps {
   };
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
-  onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
+  onLogMaintenance?: (fieldLabel: string, photos: string[], note?: string) => void;
 }
 
 export function FieldWidget({
@@ -410,6 +410,40 @@ export function FieldWidget({
       const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrlsRef.current);
       onChange(composedValue, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
     }, 800);
+  };
+
+  /** Append voice transcription to notes (description when structured) on a new line. */
+  const appendVoiceTranscription = (existingNote: string, rawText: string) => {
+    const label = `Inspector Comments: ${rawText.trim()}`.trim();
+    if (!label || label === "Inspector Comments:") return existingNote;
+
+    if (isLabeledInspectionNote(existingNote)) {
+      const current = parseInspectionNote(existingNote);
+      const desc = (current.description || "").trim();
+      const usableDesc = desc && desc.toLowerCase() !== "none" ? desc : "";
+      return formatInspectionNote({
+        ...current,
+        description: usableDesc ? `${usableDesc}\n${label}` : label,
+      });
+    }
+
+    const existing = (existingNote || "").trim();
+    return existing ? `${existing}\n${label}` : label;
+  };
+
+  const commitNoteImmediately = (newNote: string) => {
+    if (noteDebounceTimeoutRef.current) {
+      clearTimeout(noteDebounceTimeoutRef.current);
+      noteDebounceTimeoutRef.current = null;
+    }
+    setLocalNote(newNote);
+    const composedValue = composeValue(
+      localValue,
+      localCondition,
+      localCleanliness,
+      audioUrlsRef.current,
+    );
+    onChange(composedValue, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
   };
 
   // Cleanup timeout on unmount
@@ -2016,29 +2050,6 @@ export function FieldWidget({
         </div>
       )}
 
-      {/* Log Maintenance — photo fields (field photos are passed into the maintenance sheet) */}
-      {inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array") && (
-        <div className="pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
-              onLogMaintenance(field.label, fieldPhotos);
-            }}
-            data-testid={`button-log-maintenance-${field.id}`}
-            className="w-full"
-          >
-            <Wrench className="w-4 h-4 mr-2" />
-            Log Maintenance
-          </Button>
-          <p className="text-xs text-muted-foreground mt-1">
-            Create a maintenance ticket for this item
-            {(localPhotos?.length || photos?.length) ? " (field photos included)" : ""}
-          </p>
-        </div>
-      )}
-
       {/* Voice Recording - only shown for photo fields, BEFORE notes (multiple recordings) */}
       {(field.type === "photo" || field.type === "photo_array") && (
         <div className="pt-2 space-y-2">
@@ -2235,11 +2246,8 @@ export function FieldWidget({
                           }
                           const result = await res.json();
                           if (result.text) {
-                            const existingNote = localNote || '';
-                            const transcribedText = `Inspector Comments: ${result.text}`;
-                            const newNote = existingNote ? `${existingNote}\n\n${transcribedText}` : transcribedText;
-                            setLocalNote(newNote);
-                            handleNoteChange(newNote);
+                            const newNote = appendVoiceTranscription(localNote || "", result.text);
+                            commitNoteImmediately(newNote);
                             toast({
                               title: "Transcription Complete",
                               description: "Voice recording has been converted to text and added to notes.",
@@ -2344,6 +2352,25 @@ export function FieldWidget({
               <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
             </>
           )}
+        </div>
+      )}
+
+      {/* Log Maintenance — after notes so AI/note context is visible first */}
+      {inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array") && (
+        <div className="pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
+              onLogMaintenance(field.label, fieldPhotos, localNote || note || undefined);
+            }}
+            data-testid={`button-log-maintenance-${field.id}`}
+            className="w-full"
+          >
+            <Wrench className="w-4 h-4 mr-2" />
+            Log Maintenance
+          </Button>
         </div>
       )}
 
