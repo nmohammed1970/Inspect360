@@ -23,8 +23,8 @@ import {
   getChatModel,
   getImageModel,
   getInspectionModel,
-  getWhisperModel,
 } from "./aiModels";
+import { runSpeechToText, SttError } from "./stt";
 import { applyBrandThemeToHtml, themeFromOrgBranding } from "./reportPdfShared";
 
 /**
@@ -400,7 +400,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission, getObjectAclPolicy } from "./objectAcl";
 import { db } from "./db";
 import { eq, and, lt, gt, desc, inArray, or, sql } from "drizzle-orm";
-import OpenAI, { toFile } from "openai";
+import OpenAI from "openai";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import multer from "multer";
@@ -514,7 +514,7 @@ import {
 } from "@shared/billingCurrencies";
 
 // Initialize OpenAI using Replit AI Integrations (lazy initialization)
-// Using gpt-5 for vision analysis - the newest OpenAI model (released August 7, 2025), supports images and provides excellent results
+// Vision analysis model comes from AI_INSPECTION_MODEL (see server/aiModels.ts)
 
 // Detect if running in a cloud/sandboxed/Docker environment
 const isCloudEnvironment = !!(
@@ -10926,7 +10926,7 @@ Example of what you should write:
 
 Now provide your comparison analysis:`;
 
-            console.log(`[ComparisonReport] Making AI call for notes comparison with model gpt-4o...`);
+            console.log(`[ComparisonReport] Making AI call for notes comparison with model ${getChatModel()}...`);
             const notesResponse = await getOpenAI().responses.create({
               model: getChatModel(),
               input: [{ role: "user", content: normalizeApiContent([{ type: "text", text: notesComparisonPrompt }]) }],
@@ -19157,9 +19157,10 @@ ${optionalNotes || "No details provided."}`;
   }
 
   // Audio transcription via base64 (avoids multipart/FormData binary corruption on mobile)
+  // STT provider is selected via STT_PROVIDER (openai default; whisper_cpp for self-hosted).
   app.post("/api/audio/transcribe-base64", isAuthenticated, async (req: any, res: any) => {
     try {
-      const { audioBase64, fileName: reqFileName } = req.body || {};
+      const { audioBase64, fileName: reqFileName, language: reqLanguage } = req.body || {};
       if (!audioBase64 || typeof audioBase64 !== 'string') {
         return res.status(400).json({ error: "Missing audioBase64 in request body" });
       }
@@ -19184,38 +19185,27 @@ ${optionalNotes || "No details provided."}`;
         console.warn('[Transcribe-base64] Decoded buffer does not look like M4A (missing ftyp). Check client sends auth for audio URL.');
       }
       console.log('[Transcribe-base64] Received:', { size, fileName, looksLikeM4A });
-      const openaiClient = getOpenAI();
+      const sttLanguage = typeof reqLanguage === "string" ? reqLanguage : undefined;
       const isM4A = fileName.toLowerCase().endsWith('.m4a') || fileName.toLowerCase().endsWith('.mp4');
       let audioBuffer = buffer;
       let ext = 'm4a';
       let mime = 'audio/mp4';
 
       if (isM4A) {
-        // Strategy for iOS M4A: try Whisper with raw M4A first (often works); then pipe-based ffmpeg (no temp file)
-        let transcribedText: string | null = null;
-
-        // 1) Try raw M4A with Whisper first (avoids ffmpeg entirely - works for many iOS recordings)
+        // Strategy for iOS M4A: try STT with raw M4A first; then pipe-based ffmpeg (no temp file)
         try {
-          console.log('[Transcribe-base64] Trying raw M4A with Whisper first (no ffmpeg)');
-          const rawFile = await toFile(buffer, 'audio.m4a', { type: 'audio/mp4' });
-          const transcription = await openaiClient.audio.transcriptions.create({
-            file: rawFile,
-            model: getWhisperModel(),
-            language: "en",
-            response_format: "text"
+          console.log('[Transcribe-base64] Trying raw M4A with configured STT provider first (no ffmpeg)');
+          const rawResult = await runSpeechToText({
+            buffer,
+            fileName: "audio.m4a",
+            mimeType: "audio/mp4",
+            language: sttLanguage,
           });
-          const text = typeof transcription === 'string'
-            ? transcription
-            : (transcription as any)?.text || String(transcription || '').trim();
-          if (text && text.trim().length > 0) {
-            transcribedText = text.trim();
+          if (rawResult.text?.trim()) {
+            return res.json({ text: rawResult.text.trim() });
           }
         } catch (rawErr: any) {
-          console.warn('[Transcribe-base64] Raw M4A Whisper failed:', rawErr?.message);
-        }
-
-        if (transcribedText) {
-          return res.json({ text: transcribedText });
+          console.warn('[Transcribe-base64] Raw M4A STT failed:', rawErr?.message);
         }
 
         // 2) Convert via ffmpeg stdin pipe (no temp file - avoids Windows "Invalid data" file write issues)
@@ -19240,22 +19230,31 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
-      const audioFile = await toFile(audioBuffer, `audio.${ext}`, { type: mime });
-      const transcription = await openaiClient.audio.transcriptions.create({
-        file: audioFile,
-        model: getWhisperModel(),
-        language: "en",
-        response_format: "text"
+      const result = await runSpeechToText({
+        buffer: audioBuffer,
+        fileName: `audio.${ext}`,
+        mimeType: mime,
+        language: sttLanguage,
       });
-      const transcribedText = typeof transcription === 'string'
-        ? transcription
-        : (transcription as any)?.text || String(transcription || '').trim();
-      if (!transcribedText || transcribedText.trim().length === 0) {
+      if (!result.text?.trim()) {
         return res.status(500).json({ error: "Transcription returned empty result" });
       }
-      res.json({ text: transcribedText.trim() });
+      res.json({ text: result.text.trim() });
     } catch (error: any) {
       console.error("Error in audio transcription (base64):", error);
+      if (error instanceof SttError) {
+        if (error.code === "timeout") {
+          return res.status(504).json({ error: "Transcription timed out. Try a shorter recording." });
+        }
+        if (error.code === "unavailable") {
+          return res.status(503).json({ error: "Speech-to-text service is unavailable." });
+        }
+        if (error.code === "invalid_audio" || error.code === "empty_result") {
+          return res.status(400).json({
+            error: "The audio file could not be processed. Try recording again or use a shorter clip.",
+          });
+        }
+      }
       if (error?.message?.includes('OpenAI') || error?.status === 401) {
         return res.status(500).json({ error: "OpenAI API error. Please check your API configuration." });
       }
@@ -19275,7 +19274,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  // Audio transcription endpoint using OpenAI Whisper API (multipart/form-data)
+  // Audio transcription (multipart/form-data). Provider: STT_PROVIDER (openai | whisper_cpp).
   app.post("/api/audio/transcribe", isAuthenticated, upload.single('audio'), async (req: any, res: any) => {
     try {
       if (!req.file) {
@@ -19314,7 +19313,7 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
-      // Check file size (max 25MB for Whisper API)
+      // Check file size (max 25MB)
       const maxSize = 25 * 1024 * 1024; // 25MB
       if (req.file.size > maxSize) {
         return res.status(400).json({ 
@@ -19322,17 +19321,11 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
-      // Get OpenAI client
-      const openaiClient = getOpenAI();
-
-      // Map MIME types to OpenAI-compatible formats
-      // OpenAI supports: flac, m4a, mp3, mp4, mpeg, mpga, oga, ogg, wav, webm
-      // IMPORTANT: OpenAI checks the file extension in the filename, so .m4a files need .m4a extension
-      // The MIME type can be audio/mp4 or audio/m4a for .m4a files, but extension must be .m4a
+      // Map MIME types to formats expected by OpenAI Whisper / file extension sniffing
       const mimeTypeMap: Record<string, { mimeType: string; extension: string }> = {
         'audio/mpeg': { mimeType: 'audio/mpeg', extension: 'mp3' },
         'audio/mp3': { mimeType: 'audio/mpeg', extension: 'mp3' },
-        'audio/mp4': { mimeType: 'audio/mp4', extension: 'm4a' }, // Use audio/mp4 MIME type with .m4a extension (OpenAI accepts this)
+        'audio/mp4': { mimeType: 'audio/mp4', extension: 'm4a' },
         'audio/m4a': { mimeType: 'audio/mp4', extension: 'm4a' },
         'audio/x-m4a': { mimeType: 'audio/mp4', extension: 'm4a' },
         'audio/wav': { mimeType: 'audio/wav', extension: 'wav' },
@@ -19343,8 +19336,6 @@ ${optionalNotes || "No details provided."}`;
         'audio/flac': { mimeType: 'audio/flac', extension: 'flac' },
       };
 
-      // Normalize MIME type and get proper extension
-      // Handle application/octet-stream by checking filename extension
       let detectedMimeType = req.file.mimetype.toLowerCase();
       if (detectedMimeType === 'application/octet-stream' || !detectedMimeType.startsWith('audio/')) {
         const fileExt = req.file.originalname?.toLowerCase().split('.').pop() || '';
@@ -19365,13 +19356,11 @@ ${optionalNotes || "No details provided."}`;
       
       const normalized = mimeTypeMap[detectedMimeType] || 
         mimeTypeMap[req.file.mimetype] || 
-        { mimeType: 'audio/mp4', extension: 'm4a' }; // Default to audio/mp4 with .m4a extension for mobile recordings
+        { mimeType: 'audio/mp4', extension: 'm4a' };
 
-      // Ensure filename has correct extension that matches what OpenAI expects
       let fileName = req.file.originalname || `audio.${normalized.extension}`;
       const currentExt = fileName.toLowerCase().split('.').pop() || '';
       
-      // If current extension is not the normalized one, replace it
       if (currentExt !== normalized.extension.toLowerCase()) {
         const baseName = fileName.replace(/\.[^/.]+$/, '');
         fileName = `${baseName}.${normalized.extension}`;
@@ -19387,76 +19376,61 @@ ${optionalNotes || "No details provided."}`;
         bufferLength: req.file.buffer?.length || 0,
       });
 
-      // Use toFile() from OpenAI SDK - ensures correct File object with proper filename
-      // Whisper API infers format from file extension, so filename must have correct extension
-      let transcription: any;
-      const tmpPath = path.join(os.tmpdir(), `whisper-${randomUUID()}.${normalized.extension}`);
+      const sttLanguage =
+        typeof req.body?.language === "string" ? req.body.language : undefined;
 
-      const transcribeWithFile = async (fileInput: any) => {
-        return openaiClient.audio.transcriptions.create({
-          file: fileInput,
-          model: getWhisperModel(),
-          language: "en",
-          response_format: "text"
-        });
-      };
-
+      let result;
       try {
-        const audioFile = await toFile(req.file.buffer, fileName, { type: normalized.mimeType });
-        console.log('[Transcribe] Created File via toFile:', {
-          name: audioFile.name,
-          type: audioFile.type,
-          size: audioFile.size,
+        result = await runSpeechToText({
+          buffer: req.file.buffer,
+          fileName,
+          mimeType: normalized.mimeType,
+          language: sttLanguage,
         });
-        transcription = await transcribeWithFile(audioFile);
       } catch (firstError: any) {
-        const isInvalidFormat = (firstError?.message || '').toLowerCase().includes('invalid file format') ||
-          (firstError?.message || '').toLowerCase().includes('unrecognized file format');
-        if (isInvalidFormat) {
-          // Fallback 1: temp file + stream (fixes binary issues)
-          console.log('[Transcribe] Format rejected, retrying with temp file');
-          await fs.writeFile(tmpPath, req.file.buffer);
-          try {
-            const { createReadStream } = await import('fs');
-            transcription = await transcribeWithFile(createReadStream(tmpPath));
-          } catch (streamErr: any) {
-            const stillInvalid = (streamErr?.message || '').toLowerCase().includes('invalid file format') || (streamErr?.message || '').toLowerCase().includes('unrecognized file format');
-            if (stillInvalid) {
-              // Fallback 2: convert to MP3 (mobile M4A compatibility)
-              console.log('[Transcribe] Still rejected, converting to MP3');
-              const mp3Buffer = await convertToMp3(req.file.buffer, normalized.extension);
-              const mp3File = await toFile(mp3Buffer, 'audio.mp3', { type: 'audio/mpeg' });
-              transcription = await transcribeWithFile(mp3File);
-            } else {
-              throw streamErr;
-            }
-          } finally {
-            await fs.unlink(tmpPath).catch(() => {});
-          }
-        } else {
-          throw firstError;
-        }
+        const msg = (firstError?.message || "").toLowerCase();
+        const isInvalidFormat =
+          msg.includes("invalid file format") ||
+          msg.includes("unrecognized file format") ||
+          (firstError instanceof SttError && firstError.code === "invalid_audio");
+        if (!isInvalidFormat) throw firstError;
+
+        console.log("[Transcribe] Format rejected, converting to MP3 then retrying STT");
+        const mp3Buffer = await convertToMp3(req.file.buffer, normalized.extension);
+        result = await runSpeechToText({
+          buffer: mp3Buffer,
+          fileName: "audio.mp3",
+          mimeType: "audio/mpeg",
+          language: sttLanguage,
+        });
       }
 
-      // Extract transcribed text
-      // Whisper API with response_format: "text" returns a string directly
-      const transcribedText = typeof transcription === 'string' 
-        ? transcription 
-        : (transcription as any)?.text || String(transcription || '').trim();
-
-      if (!transcribedText || transcribedText.trim().length === 0) {
+      if (!result.text?.trim()) {
         return res.status(500).json({ 
           error: "Transcription returned empty result" 
         });
       }
 
       res.json({ 
-        text: transcribedText.trim() 
+        text: result.text.trim() 
       });
     } catch (error: any) {
       console.error("Error in audio transcription:", error);
+
+      if (error instanceof SttError) {
+        if (error.code === "timeout") {
+          return res.status(504).json({ error: "Transcription timed out. Try a shorter recording." });
+        }
+        if (error.code === "unavailable") {
+          return res.status(503).json({ error: "Speech-to-text service is unavailable." });
+        }
+        if (error.code === "invalid_audio" || error.code === "empty_result") {
+          return res.status(400).json({
+            error: "Invalid audio format. Please ensure the recording is in a supported format (M4A, MP3, WAV). Try recording again.",
+          });
+        }
+      }
       
-      // Handle specific OpenAI errors
       if (error?.message?.includes('OpenAI') || error?.status === 401) {
         return res.status(500).json({ 
           error: "OpenAI API error. Please check your API configuration." 
@@ -19469,7 +19443,6 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
-      // User-friendly message for common Whisper API format errors
       const msg = error?.message || "Failed to transcribe audio";
       const isFormatError = msg.toLowerCase().includes('invalid file format') ||
         msg.toLowerCase().includes('unrecognized file format');

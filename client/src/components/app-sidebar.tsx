@@ -146,7 +146,7 @@ export function AppSidebar() {
       roles: ["owner"],
     },
     {
-      title: "Modules",
+      title: "AI Credits",
       url: "/billing",
       icon: CreditCard,
       roles: ["owner"],
