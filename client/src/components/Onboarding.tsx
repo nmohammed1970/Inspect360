@@ -150,7 +150,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   // Auto-populate company name and email from registration when component mounts
   useEffect(() => {
     if (user && organization && !hasAutoPopulated.current) {
-      // Auto-populate company name from organization name (which comes from username during registration)
+      // Auto-populate company name from organization name (set at registration)
       if (organization.name) {
         setBrandingName(organization.name);
       }

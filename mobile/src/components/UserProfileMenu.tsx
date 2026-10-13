@@ -28,7 +28,6 @@ function getInitials(user: {
     return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
   }
   if (user.firstName) return user.firstName.substring(0, 2).toUpperCase();
-  if (user.username) return user.username.substring(0, 2).toUpperCase();
   if (user.email) return user.email.substring(0, 2).toUpperCase();
   return 'U';
 }
@@ -41,8 +40,8 @@ function getDisplayName(user: {
 }): string {
   if (user.firstName && user.lastName) return `${user.firstName} ${user.lastName}`;
   if (user.firstName) return user.firstName;
-  if (user.username) return user.username;
-  return user.email || 'Account';
+  const local = (user.email || '').split('@')[0] || '';
+  return local || 'Account';
 }
 
 /**

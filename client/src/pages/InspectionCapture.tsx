@@ -184,7 +184,7 @@ export default function InspectionCapture() {
     enabled: !!inspection?.inspectorId,
   });
 
-  // Prefer first/last name over username (username is often the company name from registration)
+  // Prefer first/last name for signer display (never use internal username slug)
   const assignedInspector =
     inspector ||
     (inspection as any)?.inspector ||

@@ -35,7 +35,7 @@ export default function Auth() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [countryCode, setCountryCode] = useState("GB");
@@ -100,7 +100,7 @@ export default function Auth() {
     e.preventDefault();
 
     // Validation
-    if (!firstName || !lastName || !email || !username || !password || !confirmPassword) {
+    if (!firstName || !lastName || !email || !companyName || !password || !confirmPassword) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -132,7 +132,7 @@ export default function Auth() {
         firstName,
         lastName,
         email,
-        username,
+        companyName,
         password,
         countryCode,
         role: "owner", // All self-registrations are owners
@@ -289,10 +289,10 @@ export default function Auth() {
                       id="company-name"
                       type="text"
                       placeholder="Acme Property Management"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
                       disabled={registerMutation.isPending}
-                      data-testid="input-register-username"
+                      data-testid="input-register-company-name"
                     />
                   </div>
 

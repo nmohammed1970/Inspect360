@@ -112,13 +112,16 @@ export const insertUserSchema = createInsertSchema(users).omit({
 });
 
 export const registerUserSchema = insertUserSchema.pick({
-  username: true,
   password: true,
   email: true,
   firstName: true,
   lastName: true,
   role: true,
 }).extend({
+  /** Company / organization display name → organizations.name (duplicates allowed). */
+  companyName: z.string().min(1, "Company name is required").max(160),
+  /** Optional; ignored on register — server derives username from email + companyName. */
+  username: z.string().optional(),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   countryCode: z.string().length(2).optional(), // ISO 3166-1 alpha-2
