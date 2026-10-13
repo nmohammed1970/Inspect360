@@ -13,11 +13,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Trash2, GripVertical, Save, X, Eye, Code, ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
+import { Plus, Trash2, Copy, GripVertical, Save, X, Eye, Code, ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type InspectionTemplate, type TemplateCategory } from "@shared/schema";
+import { duplicateTemplateSection } from "@shared/templateSectionDuplicate";
 import { z } from "zod";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
@@ -248,6 +249,16 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     const newExpanded = new Set(expandedSections);
     newExpanded.delete(sectionId);
     setExpandedSections(newExpanded);
+  };
+
+  const duplicateSection = (sectionId: string) => {
+    const index = structure.sections.findIndex((s) => s.id === sectionId);
+    if (index < 0) return;
+    const copy = duplicateTemplateSection(structure.sections[index]!);
+    const next = [...structure.sections];
+    next.splice(index + 1, 0, copy);
+    setStructure({ sections: next });
+    setExpandedSections(new Set([...Array.from(expandedSections), copy.id]));
   };
 
   const addField = (sectionId: string) => {
@@ -967,9 +978,22 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                 <span className="text-xs text-muted-foreground">Repeatable</span>
                               </div>
                               <Button
+                                type="button"
                                 variant="ghost"
                                 size="icon"
                                 className="min-h-11 min-w-11 shrink-0"
+                                title="Duplicate section"
+                                onClick={() => duplicateSection(section.id)}
+                                data-testid={`button-duplicate-section-${sectionIndex}`}
+                              >
+                                <Copy className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="min-h-11 min-w-11 shrink-0"
+                                title="Delete section"
                                 onClick={() => deleteSection(section.id)}
                                 data-testid={`button-delete-section-${sectionIndex}`}
                               >
