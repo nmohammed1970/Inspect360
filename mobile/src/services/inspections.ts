@@ -264,6 +264,37 @@ export const inspectionsService = {
     });
   },
 
+  async addCustomPoint(
+    inspectionId: string,
+    data: {
+      sectionId: string;
+      label: string;
+      kind?: "photo_condition" | "choice";
+      options?: string[];
+      clientRequestId?: string;
+      parentFieldId?: string;
+      instanceSectionRef?: string;
+    }
+  ): Promise<{
+    field: { id: string; key: string; label: string; type: string; parentFieldId?: string; options?: string[] };
+    created: boolean;
+    templateSnapshotJson: unknown;
+  }> {
+    return apiRequestJson('POST', `/api/inspections/${inspectionId}/custom-points`, data);
+  },
+
+  async deleteCustomPoint(
+    inspectionId: string,
+    data: { sectionId: string; fieldId: string }
+  ): Promise<{
+    fieldId: string;
+    removed: boolean;
+    deletedEntryCount: number;
+    templateSnapshotJson: unknown;
+  }> {
+    return apiRequestJson('POST', `/api/inspections/${inspectionId}/custom-points/delete`, data);
+  },
+
   async getMostRecentCheckIn(propertyId: string): Promise<{ inspection: InspectionDetail; entries: InspectionEntry[] } | null> {
     return apiRequestJson<{ inspection: InspectionDetail; entries: InspectionEntry[] } | null>(
       'GET',

@@ -94,6 +94,23 @@ export function companyModuleFlagField(key: CompanyModuleKey): keyof CompanyModu
   return FLAG_BY_KEY[key];
 }
 
+/** Which report surfaces to include for an org (disabled modules stay hidden). */
+export type ReportModuleSurfaces = {
+  includeTenancies: boolean;
+  includeCompliance: boolean;
+  includeMaintenance: boolean;
+};
+
+export function reportModuleSurfaces(
+  org: CompanyModuleFlags | null | undefined,
+): ReportModuleSurfaces {
+  return {
+    includeTenancies: isCompanyModuleEnabled(org, "tenancies"),
+    includeCompliance: isCompanyModuleEnabled(org, "compliance"),
+    includeMaintenance: isCompanyModuleEnabled(org, "maintenance"),
+  };
+}
+
 export const COMPANY_MODULE_META: Record<
   CompanyModuleKey,
   { label: string; description: string }

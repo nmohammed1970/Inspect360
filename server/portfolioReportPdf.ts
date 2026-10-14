@@ -30,20 +30,29 @@ export async function generatePortfolioReportHTML(params: {
   branding?: PortfolioReportBranding;
   baseUrl?: string;
   countryCode?: string | null;
+  /** When a flag is false, omit that module’s stats/sections/columns. Defaults to include. */
+  modules?: {
+    includeTenancies?: boolean;
+    includeCompliance?: boolean;
+    includeMaintenance?: boolean;
+  };
 }): Promise<string> {
   const {
     organizationName,
     properties,
     blocks,
     inspections,
-    complianceDocuments,
-    maintenanceRequests,
     assetInventory,
-    tenantAssignments,
     branding,
     baseUrl,
     countryCode,
   } = params;
+  const includeTenancies = params.modules?.includeTenancies !== false;
+  const includeCompliance = params.modules?.includeCompliance !== false;
+  const includeMaintenance = params.modules?.includeMaintenance !== false;
+  const complianceDocuments = includeCompliance ? params.complianceDocuments : [];
+  const maintenanceRequests = includeMaintenance ? params.maintenanceRequests : [];
+  const tenantAssignments = includeTenancies ? params.tenantAssignments : [];
 
   const currency = getCurrencyForCountry(countryCode || "GB");
   const now = new Date();
@@ -80,51 +89,10 @@ export async function generatePortfolioReportHTML(params: {
     propertiesByBlock.get(blockId)!.push(prop);
   });
 
-  blocks.forEach((block) => {
-    const blockProperties = propertiesByBlock.get(block.id) || [];
-    if (blockProperties.length === 0) {
-      blocksRows.push([
-        stackedCell(block.name || "", block.address || ""),
-        stackedCell("—", ""),
-        "—",
-        "—",
-        "—",
-        "0",
-        "0",
-        "0",
-        "0",
-      ]);
-    } else {
-      blockProperties.forEach((property, propIdx) => {
-        const propertyInspections = inspections.filter((i) => i.propertyId === property.id);
-        const propertyMaintenance = maintenanceRequests.filter((m) => m.propertyId === property.id);
-        const propertyAssets = assetInventory.filter((a) => a.propertyId === property.id);
-        const propertyCompliance = complianceDocuments.filter((c) => c.propertyId === property.id);
-        const tenantAssignment = tenantAssignments.find(
-          (ta) =>
-            ta.propertyId === property.id &&
-            (ta.status === "active" || ta.status === "current" || ta.isActive === true)
-        );
-        blocksRows.push([
-          propIdx === 0
-            ? stackedCell(block.name || "", block.address || "")
-            : "",
-          stackedCell(property.name || "", property.address || ""),
-          escapeHtml((property as any).propertyType || "—"),
-          tenantAssignment ? "Occupied" : "Vacant",
-          escapeHtml(formatMoney(tenantAssignment?.monthlyRent, currency)),
-          String(propertyInspections.length),
-          String(propertyMaintenance.length),
-          String(propertyAssets.length),
-          String(propertyCompliance.length),
-        ]);
-      });
-    }
-  });
-
-  // Standalone properties (no block)
-  const standalone = propertiesByBlock.get("no-block") || [];
-  standalone.forEach((property) => {
+  const buildPropertyRow = (
+    property: any,
+    blockCell: string,
+  ): string[] => {
     const propertyInspections = inspections.filter((i) => i.propertyId === property.id);
     const propertyMaintenance = maintenanceRequests.filter((m) => m.propertyId === property.id);
     const propertyAssets = assetInventory.filter((a) => a.propertyId === property.id);
@@ -134,17 +102,52 @@ export async function generatePortfolioReportHTML(params: {
         ta.propertyId === property.id &&
         (ta.status === "active" || ta.status === "current" || ta.isActive === true)
     );
-    blocksRows.push([
-      stackedCell("Standalone", ""),
+    return [
+      blockCell,
       stackedCell(property.name || "", property.address || ""),
       escapeHtml((property as any).propertyType || "—"),
-      tenantAssignment ? "Occupied" : "Vacant",
-      escapeHtml(formatMoney(tenantAssignment?.monthlyRent, currency)),
+      ...(includeTenancies
+        ? [
+            tenantAssignment ? "Occupied" : "Vacant",
+            escapeHtml(formatMoney(tenantAssignment?.monthlyRent, currency)),
+          ]
+        : []),
       String(propertyInspections.length),
-      String(propertyMaintenance.length),
+      ...(includeMaintenance ? [String(propertyMaintenance.length)] : []),
       String(propertyAssets.length),
-      String(propertyCompliance.length),
-    ]);
+      ...(includeCompliance ? [String(propertyCompliance.length)] : []),
+    ];
+  };
+
+  blocks.forEach((block) => {
+    const blockProperties = propertiesByBlock.get(block.id) || [];
+    if (blockProperties.length === 0) {
+      blocksRows.push([
+        stackedCell(block.name || "", block.address || ""),
+        stackedCell("—", ""),
+        "—",
+        ...(includeTenancies ? ["—", "—"] : []),
+        "0",
+        ...(includeMaintenance ? ["0"] : []),
+        "0",
+        ...(includeCompliance ? ["0"] : []),
+      ]);
+    } else {
+      blockProperties.forEach((property, propIdx) => {
+        blocksRows.push(
+          buildPropertyRow(
+            property,
+            propIdx === 0 ? stackedCell(block.name || "", block.address || "") : "",
+          ),
+        );
+      });
+    }
+  });
+
+  // Standalone properties (no block)
+  const standalone = propertiesByBlock.get("no-block") || [];
+  standalone.forEach((property) => {
+    blocksRows.push(buildPropertyRow(property, stackedCell("Standalone", "")));
   });
 
   // ---- Inspections ----
@@ -445,22 +448,40 @@ export async function generatePortfolioReportHTML(params: {
       <div class="stat-card"><div class="stat-value">${blocks.length}</div><div class="stat-label">Total Blocks</div></div>
       <div class="stat-card"><div class="stat-value">${properties.length}</div><div class="stat-label">Total Properties</div></div>
       <div class="stat-card"><div class="stat-value">${inspections.length}</div><div class="stat-label">Total Inspections</div></div>
-      <div class="stat-card"><div class="stat-value">${maintenanceRequests.length}</div><div class="stat-label">Total Maintenance</div></div>
-      <div class="stat-card"><div class="stat-value">${openMaintenance}</div><div class="stat-label">Open Maintenance</div></div>
+      ${includeMaintenance ? `<div class="stat-card"><div class="stat-value">${maintenanceRequests.length}</div><div class="stat-label">Total Maintenance</div></div>
+      <div class="stat-card"><div class="stat-value">${openMaintenance}</div><div class="stat-label">Open Maintenance</div></div>` : ""}
       <div class="stat-card"><div class="stat-value">${assetInventory.length}</div><div class="stat-label">Total Assets</div></div>
-      <div class="stat-card"><div class="stat-value">${complianceDocuments.length}</div><div class="stat-label">Compliance Docs</div></div>
+      ${includeCompliance ? `<div class="stat-card"><div class="stat-value">${complianceDocuments.length}</div><div class="stat-label">Compliance Docs</div></div>
       <div class="stat-card"><div class="stat-value">${expiringCompliance}</div><div class="stat-label">Expiring ≤30 days</div></div>
-      <div class="stat-card"><div class="stat-value">${expiredCompliance}</div><div class="stat-label">Expired Documents</div></div>
+      <div class="stat-card"><div class="stat-value">${expiredCompliance}</div><div class="stat-label">Expired Documents</div></div>` : ""}
     </div>
   </div>
 
   <div class="page compact">
     <h2 class="section-title">Blocks &amp; Properties</h2>
     ${renderTable(
-      ["Block", "Property", "Type", "Status", "Rent", "Insp", "Maint", "Assets", "Comp"],
+      [
+        "Block",
+        "Property",
+        "Type",
+        ...(includeTenancies ? ["Status", "Rent"] : []),
+        "Insp",
+        ...(includeMaintenance ? ["Maint"] : []),
+        "Assets",
+        ...(includeCompliance ? ["Comp"] : []),
+      ],
       blocksRows,
       "No blocks or properties found.",
-      ["left", "left", "center", "center", "right", "center", "center", "center", "center"]
+      [
+        "left",
+        "left",
+        "center",
+        ...(includeTenancies ? (["center", "right"] as const) : []),
+        "center",
+        ...(includeMaintenance ? (["center"] as const) : []),
+        "center",
+        ...(includeCompliance ? (["center"] as const) : []),
+      ] as any
     )}
   </div>
 
@@ -474,7 +495,7 @@ export async function generatePortfolioReportHTML(params: {
     )}
   </div>
 
-  <div class="page compact">
+  ${includeMaintenance ? `<div class="page compact">
     <h2 class="section-title">Maintenance</h2>
     ${renderTable(
       ["Date", "Block", "Property", "Title", "Status", "Priority", "People"],
@@ -482,7 +503,7 @@ export async function generatePortfolioReportHTML(params: {
       "No maintenance requests found.",
       ["left", "left", "left", "left", "center", "center", "left"]
     )}
-  </div>
+  </div>` : ""}
 
   <div class="page compact">
     <h2 class="section-title">Assets</h2>
@@ -494,7 +515,7 @@ export async function generatePortfolioReportHTML(params: {
     )}
   </div>
 
-  <div class="page compact">
+  ${includeCompliance ? `<div class="page compact">
     <h2 class="section-title">Compliance</h2>
     ${renderTable(
       ["Location", "Document", "Dates", "Status", "Notes"],
@@ -502,9 +523,9 @@ export async function generatePortfolioReportHTML(params: {
       "No compliance documents found.",
       ["left", "left", "center", "center", "left"]
     )}
-  </div>
+  </div>` : ""}
 
-  <div class="page compact">
+  ${includeTenancies ? `<div class="page compact">
     <h2 class="section-title">Tenants</h2>
     ${renderTable(
       ["Location", "Tenant", "Lease", "Rent", "Deposit", "Status"],
@@ -512,7 +533,7 @@ export async function generatePortfolioReportHTML(params: {
       "No tenant assignments found.",
       ["left", "left", "center", "right", "right", "center"]
     )}
-  </div>
+  </div>` : ""}
 
   <div class="page compact">
     <h2 class="section-title">At Risk Items</h2>

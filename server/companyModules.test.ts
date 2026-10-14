@@ -8,6 +8,7 @@ import {
   COMPANY_MODULE_META,
   isCompanyModuleEnabled,
   normalizeCompanyModuleFlags,
+  reportModuleSurfaces,
   type CompanyModuleKey,
 } from "@shared/companyModules";
 
@@ -50,6 +51,19 @@ assert.equal(
     "rentals",
   ),
   true,
+);
+
+assert.deepEqual(
+  reportModuleSurfaces({
+    tenanciesEnabled: false,
+    complianceEnabled: false,
+    maintenanceEnabled: true,
+  }),
+  {
+    includeTenancies: false,
+    includeCompliance: false,
+    includeMaintenance: true,
+  },
 );
 
 assert.deepEqual(

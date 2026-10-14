@@ -27,8 +27,8 @@ delete process.env.AI_CHAT_MINI_MODEL;
 delete process.env.AI_WHISPER_MODEL;
 delete process.env.AI_IMAGE_MODEL;
 
-assert(getInspectionModel() === "gpt-5", "default inspection model");
-assert(getChatModel() === "gpt-4o", "default chat model");
+assert(getInspectionModel() === "gpt-5-mini", "default inspection model");
+assert(getChatModel() === "gpt-4o-mini", "default chat model");
 assert(getChatMiniModel() === "gpt-4o-mini", "default mini model");
 assert(getWhisperModel() === "whisper-1", "default whisper model");
 assert(getImageModel() === "dall-e-3", "default image model");

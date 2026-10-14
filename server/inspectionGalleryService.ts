@@ -2,7 +2,7 @@
  * Per-inspection image gallery: register, assign, unassign, move, delete.
  * Assignments sync object URLs into inspection_entries.photos for reports.
  */
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./storage";
 import {
