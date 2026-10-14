@@ -17,6 +17,7 @@ import {
   GALLERY_FIELD_PHOTO_MAX,
   GALLERY_REGISTER_BATCH_MAX,
   assertDestinationValid,
+  extractCipCountsFromEntries,
   extractRepeatableCountsFromEntries,
   formatDestinationLabel,
   isAllowedGalleryMime,
@@ -111,9 +112,10 @@ async function loadRepeatableCounts(
 function destinationLabelMap(
   structure: any,
   counts: Record<string, number>,
+  cipCounts?: ReturnType<typeof extractCipCountsFromEntries>,
 ): Map<string, string> {
   const map = new Map<string, string>();
-  for (const d of listPhotoDestinations(structure, counts)) {
+  for (const d of listPhotoDestinations(structure, counts, cipCounts)) {
     map.set(`${d.sectionRef}::${d.fieldKey}`, formatDestinationLabel(d));
   }
   return map;
@@ -155,6 +157,7 @@ export async function backfillGalleryFromEntries(
   const labelMap = destinationLabelMap(
     inspection.templateSnapshotJson as any,
     extractRepeatableCountsFromEntries(entries),
+    extractCipCountsFromEntries(entries),
   );
 
   for (const entry of entries) {
@@ -249,7 +252,9 @@ export async function listGallery(
   await backfillGalleryFromEntries(inspection, organizationId);
 
   const counts = await loadRepeatableCounts(inspectionId, inspection);
-  const labelMap = destinationLabelMap(inspection.templateSnapshotJson as any, counts);
+  const entries = await storage.getInspectionEntries(inspectionId);
+  const cipCounts = extractCipCountsFromEntries(entries);
+  const labelMap = destinationLabelMap(inspection.templateSnapshotJson as any, counts, cipCounts);
 
   const images = await db
     .select()
@@ -290,7 +295,9 @@ export async function listDestinations(
 ): Promise<PhotoDestination[]> {
   const { inspection } = await assertInspectionGalleryAccess(inspectionId, user, "read");
   const counts = await loadRepeatableCounts(inspectionId, inspection);
-  return listPhotoDestinations(inspection.templateSnapshotJson as any, counts);
+  const entries = await storage.getInspectionEntries(inspectionId);
+  const cipCounts = extractCipCountsFromEntries(entries);
+  return listPhotoDestinations(inspection.templateSnapshotJson as any, counts, cipCounts);
 }
 
 export async function registerGalleryImages(
@@ -316,6 +323,8 @@ export async function registerGalleryImages(
   }
 
   const counts = await loadRepeatableCounts(inspectionId, inspection);
+  const entriesForDest = await storage.getInspectionEntries(inspectionId);
+  const cipCounts = extractCipCountsFromEntries(entriesForDest);
   let dest: PhotoDestination | null = null;
   if (autoAssign) {
     dest = assertDestinationValid(
@@ -323,6 +332,7 @@ export async function registerGalleryImages(
       autoAssign.sectionRef,
       autoAssign.fieldKey,
       counts,
+      cipCounts,
     );
     if (!dest) throw httpError("Invalid assignment destination", 400);
   }
@@ -536,11 +546,14 @@ export async function assignGalleryImages(
   if (!imageIds?.length) throw httpError("No images selected", 400);
 
   const counts = await loadRepeatableCounts(inspectionId, inspection);
+  const entriesForDest = await storage.getInspectionEntries(inspectionId);
+  const cipCounts = extractCipCountsFromEntries(entriesForDest);
   const dest = assertDestinationValid(
     inspection.templateSnapshotJson as any,
     sectionRef,
     fieldKey,
     counts,
+    cipCounts,
   );
   if (!dest) throw httpError("Invalid assignment destination for this inspection template", 400);
 

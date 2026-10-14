@@ -20,6 +20,8 @@ export type DuplicatableTemplateSection = {
   title: string;
   description?: string;
   repeatable?: boolean;
+  /** Opt-in CIP allow-list; preserved on duplicate via section spread. */
+  customInspectionPointIds?: string[];
   fields: DuplicatableTemplateField[];
   [key: string]: unknown;
 };

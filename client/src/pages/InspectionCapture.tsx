@@ -18,15 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, X, Camera, ListChecks } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -49,15 +41,21 @@ import {
   repeatableCountsFromPropertyLayout,
   type PropertyRoomCountsSnapshot,
 } from "@shared/propertyLayout";
-import {
-  canAddCustomPointsToSection,
-  fieldVisibleForInstance,
-  getChildFields,
-  getTopLevelFields,
-  isCustomPointField,
-} from "@shared/inspectionCustomPoints";
+import { numberedRoomInstanceTitle } from "@shared/propertyRooms";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
+import {
+  cipCountFieldKey,
+  cipExpandedFieldKey,
+  cipInstanceLabel,
+  expandCipFieldsForCount,
+  getCipsForSection,
+  isCipRepeatable,
+  parseCipCountValue,
+  parseCipExpandedFieldKey,
+  resolveCipInstanceCount,
+  type CustomInspectionPoint,
+} from "@shared/templateCustomInspectionPoints";
 
 interface AIAnalysisStatus {
   status: "idle" | "processing" | "completed" | "failed";
@@ -88,8 +86,6 @@ interface TemplateField {
   includeCleanliness?: boolean;
   custom?: boolean;
   parentFieldId?: string;
-  /** Repeatable room scope (e.g. section_bedrooms/Bedroom 1) */
-  instanceSectionRef?: string;
 }
 
 interface InspectionEntry {
@@ -152,18 +148,6 @@ export default function InspectionCapture() {
   const [copiedNoteKeys, setCopiedNoteKeys] = useState<Set<string>>(new Set());
   /** Avoid re-applying check-in bedroom count after user edits or duplicate effect runs */
   const bedroomCountSeededFromCheckInRef = useRef(false);
-  const [showAddPointDialog, setShowAddPointDialog] = useState(false);
-  const [newPointName, setNewPointName] = useState("");
-  const [addPointNameError, setAddPointNameError] = useState<string | null>(null);
-  const [addPointKind, setAddPointKind] = useState<"photo_condition" | "choice">("photo_condition");
-  const [addPointOptions, setAddPointOptions] = useState<string[]>(["Yes", "No"]);
-  const [addPointOptionDraft, setAddPointOptionDraft] = useState("");
-  const [addPointParent, setAddPointParent] = useState<{ id: string; label: string } | null>(null);
-  /** When adding from a bedroom/kitchen card, scope the new point to that instance. */
-  const [addPointInstanceRef, setAddPointInstanceRef] = useState<string | null>(null);
-  const addPointRequestIdRef = useRef<string | null>(null);
-  const pendingScrollFieldIdRef = useRef<string | null>(null);
-
   useEffect(() => {
     bedroomCountSeededFromCheckInRef.current = false;
   }, [id]);
@@ -406,7 +390,17 @@ export default function InspectionCapture() {
   }, [existingEntries, propertyRoomCountsSnapshot, inspection?.templateSnapshotJson]);
 
   // Parse template structure from snapshot and migrate old templates
-  const rawTemplateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
+  const rawTemplateStructure = inspection?.templateSnapshotJson as {
+    sections: TemplateSection[];
+  } | null;
+
+  const templateSnapshot = inspection?.templateSnapshotJson as any;
+
+  const sectionCipsFor = React.useCallback(
+    (section: TemplateSection | null | undefined) =>
+      getCipsForSection(templateSnapshot, section as any),
+    [templateSnapshot],
+  );
 
   const ensureBedroomWallsField = (section: any, fields: any[]) => {
     const sectionTitle = (section.title || "").toLowerCase();
@@ -661,194 +655,6 @@ export default function InspectionCapture() {
       });
     }
   });
-
-  const addCustomPoint = useMutation({
-    mutationFn: async (data: {
-      sectionId: string;
-      label: string;
-      kind: "photo_condition" | "choice";
-      options?: string[];
-      clientRequestId: string;
-      parentFieldId?: string;
-      instanceSectionRef?: string;
-    }) => {
-      const response = await apiRequest("POST", `/api/inspections/${id}/custom-points`, data);
-      return response.json();
-    },
-    onSuccess: (
-      data: { field?: { id: string; label: string }; templateSnapshotJson?: unknown },
-      variables,
-    ) => {
-      if (data.templateSnapshotJson) {
-        queryClient.setQueryData(["/api/inspections", id], (prev: Inspection | undefined) =>
-          prev
-            ? { ...prev, templateSnapshotJson: data.templateSnapshotJson as Inspection["templateSnapshotJson"] }
-            : prev,
-        );
-      } else {
-        queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      }
-      if (data.field?.id) {
-        pendingScrollFieldIdRef.current = data.field.id;
-      }
-      setShowAddPointDialog(false);
-      setNewPointName("");
-      setAddPointNameError(null);
-      setAddPointKind("photo_condition");
-      setAddPointOptions(["Yes", "No"]);
-      setAddPointOptionDraft("");
-      setAddPointParent(null);
-      setAddPointInstanceRef(null);
-      addPointRequestIdRef.current = null;
-      toast({
-        title: variables.parentFieldId ? "Sub-point added" : "Inspection point added",
-        description: data.field?.label
-          ? `"${data.field.label}" is ready to inspect`
-          : "Custom inspection point added",
-      });
-    },
-    onError: (error: any) => {
-      addPointRequestIdRef.current = null;
-      toast({
-        variant: "destructive",
-        title: "Could not add inspection point",
-        description: error?.message || "Please try again",
-      });
-    },
-  });
-
-  const deleteCustomPoint = useMutation({
-    mutationFn: async (data: { sectionId: string; fieldId: string }) => {
-      const response = await apiRequest("POST", `/api/inspections/${id}/custom-points/delete`, data);
-      return response.json();
-    },
-    onSuccess: (data: {
-      templateSnapshotJson?: unknown;
-      fieldId?: string;
-      removedFieldIds?: string[];
-    }) => {
-      if (data.templateSnapshotJson) {
-        queryClient.setQueryData(["/api/inspections", id], (prev: Inspection | undefined) =>
-          prev
-            ? { ...prev, templateSnapshotJson: data.templateSnapshotJson as Inspection["templateSnapshotJson"] }
-            : prev,
-        );
-      } else {
-        queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      }
-      const ids = new Set(data.removedFieldIds?.length ? data.removedFieldIds : data.fieldId ? [data.fieldId] : []);
-      if (ids.size > 0) {
-        setEntries((prev) => {
-          const next = { ...prev };
-          for (const key of Object.keys(next)) {
-            if (ids.has(next[key]?.fieldKey)) {
-              delete next[key];
-            }
-          }
-          return next;
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
-      toast({
-        title: "Inspection point removed",
-        description: "The custom inspection point was deleted from this inspection.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        variant: "destructive",
-        title: "Could not remove inspection point",
-        description: error?.message || "Please try again",
-      });
-    },
-  });
-
-  const openAddPointDialog = (
-    parent?: { id: string; label: string } | null,
-    instanceSectionRef?: string | null,
-  ) => {
-    setNewPointName("");
-    setAddPointNameError(null);
-    setAddPointKind("photo_condition");
-    setAddPointOptions(["Yes", "No"]);
-    setAddPointOptionDraft("");
-    addPointRequestIdRef.current = null;
-    setAddPointParent(parent || null);
-    setAddPointInstanceRef(instanceSectionRef?.trim() || null);
-    setShowAddPointDialog(true);
-  };
-
-  const addChoiceOption = () => {
-    const trimmed = addPointOptionDraft.trim().replace(/\s+/g, " ");
-    if (!trimmed) return;
-    const exists = addPointOptions.some((o) => o.toLowerCase() === trimmed.toLowerCase());
-    if (exists) {
-      setAddPointNameError("That option is already in the list");
-      return;
-    }
-    if (addPointOptions.length >= 50) {
-      setAddPointNameError("You can add up to 50 options");
-      return;
-    }
-    setAddPointOptions((prev) => [...prev, trimmed]);
-    setAddPointOptionDraft("");
-    if (addPointNameError) setAddPointNameError(null);
-  };
-
-  const submitAddPoint = () => {
-    const trimmed = newPointName.trim();
-    if (!trimmed) {
-      setAddPointNameError("Enter a name for this inspection point");
-      return;
-    }
-    if (addPointKind === "choice") {
-      const cleaned = addPointOptions.map((o) => o.trim()).filter(Boolean);
-      if (cleaned.length < 1) {
-        setAddPointNameError("Add at least one option for the choice list");
-        return;
-      }
-    }
-    if (!currentSection || !id) return;
-    if (!addPointRequestIdRef.current) {
-      addPointRequestIdRef.current =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `req_${Date.now()}`;
-    }
-    addCustomPoint.mutate({
-      sectionId: currentSection.id,
-      label: trimmed,
-      kind: addPointKind,
-      options: addPointKind === "choice" ? addPointOptions : undefined,
-      clientRequestId: addPointRequestIdRef.current,
-      parentFieldId: addPointParent?.id,
-      instanceSectionRef: addPointInstanceRef || undefined,
-    });
-  };
-
-  const requestDeleteCustomPoint = (sectionId: string, field: TemplateField) => {
-    const isParent = isCustomPointField(field) && !field.parentFieldId;
-    const message = isParent
-      ? `Remove "${field.label}" and any sub-points from this inspection? Photos and notes for these points will be deleted.`
-      : `Remove "${field.label}" from this inspection? Any photos and notes for this point will be deleted.`;
-    if (!window.confirm(message)) {
-      return;
-    }
-    deleteCustomPoint.mutate({ sectionId, fieldId: field.id });
-  };
-
-  useEffect(() => {
-    const fieldId = pendingScrollFieldIdRef.current;
-    if (!fieldId) return;
-    const timer = window.setTimeout(() => {
-      const el = document.querySelector(`[data-custom-point-id="${fieldId}"]`);
-      if (el && "scrollIntoView" in el) {
-        (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest" });
-      }
-      pendingScrollFieldIdRef.current = null;
-    }, 150);
-    return () => window.clearTimeout(timer);
-  }, [sections, currentSectionIndex]);
 
   // Copy images from check-in when checkbox is checked
   useEffect(() => {
@@ -1557,6 +1363,341 @@ export default function InspectionCapture() {
     }
   };
 
+  const persistInspectionEntry = (entry: InspectionEntry) => {
+    const entryKey = `${entry.sectionRef}-${entry.fieldKey}`;
+    setEntries((prev) => ({ ...prev, [entryKey]: entry }));
+    if (!isOnline) {
+      offlineQueue.enqueue({
+        inspectionId: id!,
+        sectionRef: entry.sectionRef,
+        fieldKey: entry.fieldKey,
+        fieldType: entry.fieldType,
+        valueJson: entry.valueJson,
+        note: entry.note,
+        photos: entry.photos,
+      });
+      setPendingCount(offlineQueue.getPendingCount());
+      toast({
+        title: "Saved Offline",
+        description: "Entry will sync when connection is restored",
+      });
+      return;
+    }
+    updateEntry.mutate(entry);
+  };
+
+  const handleScopedFieldChange = (
+    sectionRef: string,
+    field: Pick<TemplateField, "id" | "type" | "label">,
+    fieldKey: string,
+    value: any,
+    note?: string,
+    photos?: string[],
+  ) => {
+    const entryKey = `${sectionRef}-${fieldKey}`;
+    const existingEntry = entries[entryKey];
+    const isPhotoRemoval =
+      photos !== undefined && existingEntry?.photos && existingEntry.photos.length > 0;
+    const hasAudioUrl =
+      value &&
+      typeof value === "object" &&
+      (((value as any).audioUrl) ||
+        (Array.isArray((value as any).audioUrls) && (value as any).audioUrls.length > 0));
+
+    if (value === null || value === undefined) {
+      if (!note && (!photos || photos.length === 0) && !isPhotoRemoval && !hasAudioUrl) {
+        return;
+      }
+    }
+
+    const entry: InspectionEntry = {
+      id: existingEntry?.id,
+      sectionRef,
+      fieldKey,
+      fieldType: field.type,
+      valueJson: value,
+      note,
+      photos,
+      markedForReview: existingEntry?.markedForReview || false,
+    };
+    persistInspectionEntry(entry);
+  };
+
+  const handleScopedMarkedForReviewChange = async (
+    sectionRef: string,
+    fieldKey: string,
+    marked: boolean,
+  ) => {
+    const entryKey = `${sectionRef}-${fieldKey}`;
+    const entry = entries[entryKey];
+
+    setEntries((prev) => ({
+      ...prev,
+      [entryKey]: {
+        ...prev[entryKey],
+        markedForReview: marked,
+      },
+    }));
+
+    if (!entry?.id) return;
+
+    try {
+      const response = await fetch(`/api/inspection-entries/${entry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markedForReview: marked }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update mark for review",
+      });
+      setEntries((prev) => ({
+        ...prev,
+        [entryKey]: {
+          ...prev[entryKey],
+          markedForReview: !marked,
+        },
+      }));
+    }
+  };
+
+  const handleCipCountChange = (sectionRef: string, cip: CustomInspectionPoint, count: number) => {
+    const newCount = Math.max(0, Math.min(50, Math.floor(Number(count) || 0)));
+    const countFieldKey = cipCountFieldKey(cip.id);
+    const countEntryKey = `${sectionRef}-${countFieldKey}`;
+    const prevCount = parseCipCountValue(entries[countEntryKey]?.valueJson);
+
+    const countEntry: InspectionEntry = {
+      id: entries[countEntryKey]?.id,
+      sectionRef,
+      fieldKey: countFieldKey,
+      fieldType: "number",
+      valueJson: newCount,
+    };
+    persistInspectionEntry(countEntry);
+
+    if (newCount < prevCount) {
+      setEntries((prev) => {
+        const updated = { ...prev };
+        for (let i = newCount + 1; i <= prevCount; i++) {
+          for (const field of cip.fields || []) {
+            const baseId = String(field.id || field.key || "").trim();
+            if (!baseId) continue;
+            const fk = cipExpandedFieldKey(cip.id, i, baseId);
+            delete updated[`${sectionRef}-${fk}`];
+          }
+        }
+        return updated;
+      });
+    }
+  };
+
+  const renderCipCountInputs = (sectionRef: string, sectionCips: CustomInspectionPoint[]) => {
+    const repeatableCips = sectionCips.filter((cip) => isCipRepeatable(cip));
+    if (!repeatableCips.length) return null;
+    return (
+      <div className="space-y-4 mb-6 pb-4 border-b border-border">
+        {repeatableCips.map((cip) => {
+          const countFieldKey = cipCountFieldKey(cip.id);
+          const countEntryKey = `${sectionRef}-${countFieldKey}`;
+          const countValue = parseCipCountValue(entries[countEntryKey]?.valueJson);
+          return (
+            <div key={`cip-count-${sectionRef}-${cip.id}`} className="space-y-2 min-w-0">
+              <Label htmlFor={`cip-count-${sectionRef}-${cip.id}`}>
+                How many {cip.label} are there?
+              </Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="min-h-11 min-w-11 shrink-0"
+                  onClick={() => handleCipCountChange(sectionRef, cip, countValue - 1)}
+                  disabled={countValue <= 0}
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input
+                  id={`cip-count-${sectionRef}-${cip.id}`}
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={countValue}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    handleCipCountChange(sectionRef, cip, Number.isFinite(n) ? n : 0);
+                  }}
+                  className="w-24 min-h-11 text-center"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="min-h-11 min-w-11 shrink-0"
+                  onClick={() => handleCipCountChange(sectionRef, cip, countValue + 1)}
+                  disabled={countValue >= 50}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderCipInstanceCards = (
+    sectionRef: string,
+    instanceName: string,
+    sectionCips: CustomInspectionPoint[],
+  ) => {
+    if (!sectionCips.length) return null;
+
+    const getAddress = () => {
+      if (property) {
+        return [property.address, property.city, property.state, property.postalCode]
+          .filter(Boolean)
+          .join(", ");
+      }
+      if (block) {
+        return [block.address, block.city, block.state, block.postalCode]
+          .filter(Boolean)
+          .join(", ");
+      }
+      return "";
+    };
+
+    const getTenantNames = () => {
+      if (tenants && tenants.length > 0) {
+        const tenantNames = tenants
+          .map((t: any) => {
+            return (
+              t.tenantName ||
+              t.name ||
+              t.tenant?.name ||
+              t.tenant?.fullName ||
+              (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : t.firstName || t.lastName || "")
+            );
+          })
+          .filter(Boolean);
+        if (tenantNames.length > 0) return tenantNames.join(", ");
+        const hasAnyTenant = tenants.some(
+          (t: any) => t.tenantName || t.name || t.tenant || t.firstName || t.lastName,
+        );
+        if (hasAnyTenant) return "Tenant assigned";
+      }
+      return "";
+    };
+
+    const autoContext = {
+      inspectorName: resolvedInspectorName,
+      address: getAddress(),
+      tenantNames: getTenantNames(),
+      inspectionDate: inspection?.scheduledDate
+        ? new Date(inspection.scheduledDate).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0],
+    };
+
+    return (
+      <div className="space-y-6 mt-8">
+        {sectionCips.map((cip) => {
+          const count = resolveCipInstanceCount(
+            cip,
+            entries[`${sectionRef}-${cipCountFieldKey(cip.id)}`]?.valueJson,
+          );
+          if (count < 1) return null;
+          return Array.from({ length: count }, (_, idx) => idx + 1).map((instanceIndex) => {
+            const expandedForInstance = expandCipFieldsForCount(cip, count).filter(
+              (f) => f.cipInstanceIndex === instanceIndex,
+            );
+            return (
+              <div
+                key={`cip-card-${sectionRef}-${cip.id}-${instanceIndex}`}
+                className="space-y-6 p-3 sm:p-5 border-2 rounded-xl bg-muted/30 min-w-0"
+              >
+                <h4 className="text-base font-semibold text-primary break-words">
+                  {cipInstanceLabel(cip.label, instanceIndex)}
+                </h4>
+                {expandedForInstance.map((expanded) => {
+                  const baseField = (cip.fields || []).find(
+                    (f) => String(f.id || f.key || "") === parseCipExpandedFieldKey(expanded.id)?.fieldId,
+                  );
+                  const fieldForWidget: TemplateField = {
+                    ...(baseField as TemplateField),
+                    id: expanded.id,
+                    key: expanded.id,
+                    label: (baseField?.label as string) || expanded.label,
+                  };
+                  if (
+                    !tenanciesEnabled &&
+                    fieldForWidget.type === "signature" &&
+                    isTenantSignatureField(fieldForWidget)
+                  ) {
+                    return null;
+                  }
+                  const entryKey = `${sectionRef}-${expanded.id}`;
+                  const entry = entries[entryKey];
+                  return (
+                    <div key={expanded.id} className="min-w-0">
+                      <FieldWidget
+                        field={fieldForWidget}
+                        value={entry?.valueJson}
+                        note={entry?.note}
+                        photos={entry?.photos}
+                        inspectionId={id}
+                        entryId={entry?.id}
+                        isCheckOut={inspection?.type === "check_out"}
+                        markedForReview={entry?.markedForReview || false}
+                        sectionName={instanceName}
+                        sectionRef={sectionRef}
+                        autoContext={autoContext}
+                        onChange={(value: any, note?: string, photos?: string[]) =>
+                          handleScopedFieldChange(
+                            sectionRef,
+                            fieldForWidget,
+                            expanded.id,
+                            value,
+                            note,
+                            photos,
+                          )
+                        }
+                        onMarkedForReviewChange={(marked: boolean) =>
+                          handleScopedMarkedForReviewChange(sectionRef, expanded.id, marked)
+                        }
+                        onLogMaintenance={
+                          maintenanceEnabled
+                            ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
+                                const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(
+                                  Boolean,
+                                );
+                                setMaintenanceContext({
+                                  fieldLabel,
+                                  sectionTitle: instanceName,
+                                  entryId: entry?.id,
+                                  photos: fieldPhotos,
+                                  note: fieldNote || entry?.note || undefined,
+                                });
+                                setShowMaintenanceSheet(true);
+                              }
+                            : undefined
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          });
+        })}
+      </div>
+    );
+  };
+
   // Navigate sections
   const goToNextSection = () => {
     if (currentSectionIndex < sections.length - 1) {
@@ -1861,220 +2002,6 @@ export default function InspectionCapture() {
           </Button>
         </div>
       </div>
-
-      <Dialog
-        open={showAddPointDialog}
-        onOpenChange={(open) => {
-          if (addCustomPoint.isPending) return;
-          setShowAddPointDialog(open);
-          if (!open) {
-            setNewPointName("");
-            setAddPointNameError(null);
-            setAddPointKind("photo_condition");
-            setAddPointOptions(["Yes", "No"]);
-            setAddPointOptionDraft("");
-            setAddPointParent(null);
-            addPointRequestIdRef.current = null;
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg" data-testid="dialog-add-inspection-point">
-          <DialogHeader>
-            <DialogTitle>
-              {addPointParent ? "Add Sub Inspection Point" : "Add Inspection Point"}
-            </DialogTitle>
-            <DialogDescription>
-              {addPointParent
-                ? `Create a sub-point under "${addPointParent.label}".`
-                : addPointInstanceRef
-                  ? `Create a custom point for this room only (${addPointInstanceRef.split("/").slice(1).join("/") || "this instance"}).`
-                  : `Create a custom point in ${currentSection?.title || "this section"}.`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Point type</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  disabled={addCustomPoint.isPending}
-                  onClick={() => {
-                    setAddPointKind("photo_condition");
-                    if (addPointNameError) setAddPointNameError(null);
-                  }}
-                  className={cn(
-                    "rounded-xl border-2 p-3 text-left transition-colors min-h-11",
-                    addPointKind === "photo_condition"
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-muted-foreground/40",
-                  )}
-                  data-testid="button-point-kind-photo"
-                >
-                  <div className="flex items-center gap-2 font-semibold text-sm">
-                    <Camera className="h-4 w-4 shrink-0" />
-                    Photo & Condition
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Photos, condition, cleanliness, voice notes, and AI tools.
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  disabled={addCustomPoint.isPending}
-                  onClick={() => {
-                    setAddPointKind("choice");
-                    if (addPointNameError) setAddPointNameError(null);
-                  }}
-                  className={cn(
-                    "rounded-xl border-2 p-3 text-left transition-colors min-h-11",
-                    addPointKind === "choice"
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-muted-foreground/40",
-                  )}
-                  data-testid="button-point-kind-choice"
-                >
-                  <div className="flex items-center gap-2 font-semibold text-sm">
-                    <ListChecks className="h-4 w-4 shrink-0" />
-                    Choice list
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    A dropdown with options you define (Yes/No or any choices).
-                  </p>
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="custom-point-name">
-                {addPointParent ? "Sub-Point Name" : "Inspection Point Name"}
-              </Label>
-              <Input
-                id="custom-point-name"
-                value={newPointName}
-                onChange={(e) => {
-                  setNewPointName(e.target.value);
-                  if (addPointNameError) setAddPointNameError(null);
-                }}
-                placeholder={
-                  addPointKind === "choice"
-                    ? "e.g. Meter Readings Taken"
-                    : addPointParent
-                      ? "e.g. Door Knob"
-                      : "e.g. Ceiling Condition"
-                }
-                maxLength={200}
-                autoFocus
-                disabled={addCustomPoint.isPending}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && addPointKind !== "choice") {
-                    e.preventDefault();
-                    submitAddPoint();
-                  }
-                }}
-                data-testid="input-custom-point-name"
-              />
-            </div>
-
-            {addPointKind === "choice" && (
-              <div className="space-y-2">
-                <Label>Options</Label>
-                <div className="flex flex-wrap gap-2 min-h-[2rem]">
-                  {addPointOptions.map((opt) => (
-                    <Badge
-                      key={opt}
-                      variant="secondary"
-                      className="gap-1 pr-1 pl-2.5 py-1 text-sm font-medium"
-                    >
-                      {opt}
-                      <button
-                        type="button"
-                        className="rounded-full p-0.5 hover:bg-muted-foreground/20"
-                        disabled={addCustomPoint.isPending}
-                        onClick={() =>
-                          setAddPointOptions((prev) => prev.filter((o) => o !== opt))
-                        }
-                        aria-label={`Remove ${opt}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </Badge>
-                  ))}
-                  {addPointOptions.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No options yet — add at least one.</p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={addPointOptionDraft}
-                    onChange={(e) => {
-                      setAddPointOptionDraft(e.target.value);
-                      if (addPointNameError) setAddPointNameError(null);
-                    }}
-                    placeholder="e.g. Yes, No, N/A…"
-                    maxLength={100}
-                    disabled={addCustomPoint.isPending}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addChoiceOption();
-                      }
-                    }}
-                    data-testid="input-custom-point-option"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={addCustomPoint.isPending || !addPointOptionDraft.trim()}
-                    onClick={addChoiceOption}
-                    data-testid="button-add-choice-option"
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {addPointNameError && (
-              <p className="text-sm text-destructive" data-testid="text-custom-point-name-error">
-                {addPointNameError}
-              </p>
-            )}
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={addCustomPoint.isPending}
-              onClick={() => {
-                setShowAddPointDialog(false);
-                setAddPointInstanceRef(null);
-                setAddPointParent(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={addCustomPoint.isPending}
-              data-testid="button-confirm-add-inspection-point"
-              onClick={submitAddPoint}
-            >
-              {addCustomPoint.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Adding...
-                </>
-              ) : addPointParent ? (
-                "Add Sub-Point"
-              ) : (
-                "Add Inspection Point"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={showCompleteDialog} onOpenChange={(open) => {
         if (!completingAction) setShowCompleteDialog(open);
@@ -2452,8 +2379,11 @@ export default function InspectionCapture() {
                 const snapRoom = propertyRoomsSnapshot?.rooms?.find(
                   (r) => r.id === roomInst?.roomId,
                 );
-                const instanceName =
-                  roomInst?.title || `${currentSection.title} ${instanceIndex + 1}`;
+                const instanceName = numberedRoomInstanceTitle(
+                  roomInst?.title,
+                  currentSection.title,
+                  instanceIndex,
+                );
                 const dimLabel =
                   snapRoom?.widthMm && snapRoom?.lengthMm
                     ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
@@ -2466,7 +2396,14 @@ export default function InspectionCapture() {
                         <span className="text-sm font-normal text-muted-foreground">{dimLabel}</span>
                       )}
                     </h3>
-                    {getTopLevelFields(currentSection.fields).map((field) => {
+                    {(() => {
+                      const sectionRef =
+                        roomInst?.sectionRef ||
+                        `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                      const sectionCips = sectionCipsFor(currentSection);
+                      return sectionCips.length ? renderCipCountInputs(sectionRef, sectionCips) : null;
+                    })()}
+                    {currentSection.fields.map((field) => {
                       if (
                         !tenanciesEnabled &&
                         field.type === "signature" &&
@@ -2477,59 +2414,8 @@ export default function InspectionCapture() {
                       const sectionRef =
                         roomInst?.sectionRef ||
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
-                      const entryRefsForField = Object.values(entries)
-                        .filter(
-                          (e) =>
-                            e.fieldKey === field.id &&
-                            typeof e.sectionRef === "string" &&
-                            e.sectionRef.startsWith(`${currentSection.id}/`),
-                        )
-                        .map((e) => e.sectionRef);
-                      if (
-                        !fieldVisibleForInstance(
-                          field,
-                          sectionRef,
-                          currentSection.fields,
-                          entryRefsForField,
-                        )
-                      ) {
-                        return null;
-                      }
-                      // Legacy unscoped customs (no instanceSectionRef, no entries):
-                      // pin each to one room by order so they don't duplicate on every bedroom.
-                      if (
-                        isCustomPointField(field) &&
-                        !field.instanceSectionRef &&
-                        entryRefsForField.length === 0
-                      ) {
-                        const unscopedTop = getTopLevelFields(currentSection.fields).filter(
-                          (f) => isCustomPointField(f) && !f.instanceSectionRef,
-                        );
-                        const ordinal = unscopedTop.findIndex((f) => f.id === field.id);
-                        if (ordinal >= 0 && ordinal !== instanceIndex) {
-                          return null;
-                        }
-                      }
                       const entryKey = `${sectionRef}-${field.id}`;
                       const entry = entries[entryKey];
-                      const childFields = isCustomPointField(field)
-                        ? getChildFields(currentSection.fields, field.id).filter((child) => {
-                            const childEntryRefs = Object.values(entries)
-                              .filter(
-                                (e) =>
-                                  e.fieldKey === child.id &&
-                                  typeof e.sectionRef === "string" &&
-                                  e.sectionRef.startsWith(`${currentSection.id}/`),
-                              )
-                              .map((e) => e.sectionRef);
-                            return fieldVisibleForInstance(
-                              child,
-                              sectionRef,
-                              currentSection.fields,
-                              childEntryRefs,
-                            );
-                          })
-                        : [];
 
                       const getAddress = () => {
                         if (property) {
@@ -2577,126 +2463,67 @@ export default function InspectionCapture() {
                           : new Date().toISOString().split("T")[0],
                       };
 
-                      const renderRepeatablePoint = (point: TemplateField) => {
-                        const pointEntryKey = `${sectionRef}-${point.id}`;
-                        const pointEntry = entries[pointEntryKey];
-                        return (
-                          <div
-                            key={`${instanceIndex}-${point.id}`}
-                            data-custom-point-id={point.id}
-                            className="min-w-0"
-                          >
-                            <FieldWidget
-                              field={point}
-                              value={pointEntry?.valueJson}
-                              note={pointEntry?.note}
-                              photos={pointEntry?.photos}
-                              inspectionId={id}
-                              entryId={pointEntry?.id}
-                              isCheckOut={inspection?.type === "check_out"}
-                              markedForReview={pointEntry?.markedForReview || false}
-                              sectionName={instanceName}
-                              sectionRef={sectionRef}
-                              autoContext={autoContext}
-                              onChange={(value: any, note?: string, photos?: string[]) =>
-                                handleFieldChange(point.id, value, note, photos, instanceIndex)
-                              }
-                              onMarkedForReviewChange={(marked: boolean) =>
-                                handleMarkedForReviewChange(point.id, marked, instanceIndex)
-                              }
-                              onLogMaintenance={
-                                maintenanceEnabled
-                                  ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
-                                      const fieldPhotos = (photos?.length ? photos : pointEntry?.photos || []).filter(Boolean);
-                                      setMaintenanceContext({
-                                        fieldLabel,
-                                        sectionTitle: instanceName,
-                                        entryId: pointEntry?.id,
-                                        photos: fieldPhotos,
-                                        note: fieldNote || pointEntry?.note || undefined,
-                                      });
-                                      setShowMaintenanceSheet(true);
-                                    }
-                                  : undefined
-                              }
-                              onAddSubPoint={
-                                isCustomPointField(point) &&
-                                !point.parentFieldId &&
-                                inspection?.status !== "completed"
-                                  ? () =>
-                                      openAddPointDialog(
-                                        { id: point.id, label: point.label },
-                                        sectionRef,
-                                      )
-                                  : undefined
-                              }
-                              addingSubPoint={
-                                addCustomPoint.isPending &&
-                                addCustomPoint.variables?.parentFieldId === point.id
-                              }
-                              onDeleteCustomPoint={
-                                isCustomPointField(point) &&
-                                inspection?.status !== "completed"
-                                  ? () => requestDeleteCustomPoint(currentSection.id, point)
-                                  : undefined
-                              }
-                              deletingCustomPoint={
-                                deleteCustomPoint.isPending &&
-                                deleteCustomPoint.variables?.fieldId === point.id
-                              }
-                            />
-                          </div>
-                        );
-                      };
-
                       return (
-                        <div key={`${instanceIndex}-${field.id}`} className="min-w-0 space-y-5">
-                          {renderRepeatablePoint(field)}
-                          {childFields.length > 0 && (
-                            <div className="space-y-5 ml-3 sm:ml-5 pl-3 sm:pl-4 border-l-2 border-muted-foreground/30">
-                              {childFields.map((child) => renderRepeatablePoint(child))}
-                            </div>
-                          )}
+                        <div key={`${instanceIndex}-${field.id}`} className="min-w-0">
+                          <FieldWidget
+                            field={field}
+                            value={entry?.valueJson}
+                            note={entry?.note}
+                            photos={entry?.photos}
+                            inspectionId={id}
+                            entryId={entry?.id}
+                            isCheckOut={inspection?.type === "check_out"}
+                            markedForReview={entry?.markedForReview || false}
+                            sectionName={instanceName}
+                            sectionRef={sectionRef}
+                            autoContext={autoContext}
+                            onChange={(value: any, note?: string, photos?: string[]) =>
+                              handleFieldChange(field.id, value, note, photos, instanceIndex)
+                            }
+                            onMarkedForReviewChange={(marked: boolean) =>
+                              handleMarkedForReviewChange(field.id, marked, instanceIndex)
+                            }
+                            onLogMaintenance={
+                              maintenanceEnabled
+                                ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
+                                    const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
+                                    setMaintenanceContext({
+                                      fieldLabel,
+                                      sectionTitle: instanceName,
+                                      entryId: entry?.id,
+                                      photos: fieldPhotos,
+                                      note: fieldNote || entry?.note || undefined,
+                                    });
+                                    setShowMaintenanceSheet(true);
+                                  }
+                                : undefined
+                            }
+                          />
                         </div>
                       );
                     })}
-                    {canAddCustomPointsToSection(currentSection) &&
-                      inspection?.status !== "completed" && (
-                      <div className="pt-3 mt-1 border-t border-dashed border-border">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full min-h-11 justify-center gap-2 border-2 font-semibold"
-                          onClick={() =>
-                            openAddPointDialog(
-                              null,
-                              roomInst?.sectionRef ||
-                                `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`,
-                            )
-                          }
-                          disabled={addCustomPoint.isPending || !isOnline}
-                          data-testid={`button-add-inspection-point-instance-${instanceIndex}`}
-                        >
-                          <Plus className="h-4 w-4 shrink-0" />
-                          Add Inspection Point
-                          <span className="font-normal text-muted-foreground truncate max-w-[40%]">
-                            · {instanceName}
-                          </span>
-                        </Button>
-                        {!isOnline && (
-                          <p className="mt-2 text-xs text-muted-foreground text-center">
-                            Connect to the internet to add a new inspection point.
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    {(() => {
+                      const sectionRef =
+                        roomInst?.sectionRef ||
+                        `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                      const sectionCips = sectionCipsFor(currentSection);
+                      return sectionCips.length
+                        ? renderCipInstanceCards(sectionRef, instanceName, sectionCips)
+                        : null;
+                    })()}
                   </div>
                 );
                 });
               })()
             ) : !currentSection.repeatable ? (
-              // Render top-level fields; nest custom sub-points under their parent
-              getTopLevelFields(currentSection.fields).map((field) => {
+              <>
+                {(() => {
+                  const sectionCips = sectionCipsFor(currentSection);
+                  return sectionCips.length
+                    ? renderCipCountInputs(currentSection.id, sectionCips)
+                    : null;
+                })()}
+              {currentSection.fields.map((field) => {
                 if (
                   !tenanciesEnabled &&
                   field.type === "signature" &&
@@ -2706,9 +2533,6 @@ export default function InspectionCapture() {
                 }
                 const entryKey = `${currentSection.id}-${field.id}`;
                 const entry = entries[entryKey];
-                const childFields = isCustomPointField(field)
-                  ? getChildFields(currentSection.fields, field.id)
-                  : [];
 
                 const getAddress = () => {
                   if (property) {
@@ -2759,109 +2583,59 @@ export default function InspectionCapture() {
                 const lockBedroomCount =
                   roomsLockedFromProperty && isBedroomCountField(field);
 
-                const renderPointWidget = (point: TemplateField) => {
-                  const pointEntryKey = `${currentSection.id}-${point.id}`;
-                  const pointEntry = entries[pointEntryKey];
-                  return (
-                    <div key={point.id} data-custom-point-id={point.id} className="min-w-0">
-                      <FieldWidget
-                        field={point}
-                        value={pointEntry?.valueJson}
-                        note={pointEntry?.note}
-                        photos={pointEntry?.photos}
-                        inspectionId={id}
-                        entryId={pointEntry?.id}
-                        isCheckOut={inspection?.type === "check_out"}
-                        markedForReview={pointEntry?.markedForReview || false}
-                        sectionName={currentSection.title}
-                        sectionRef={currentSection.id}
-                        disabled={lockBedroomCount && point.id === field.id}
-                        autoContext={autoContext}
-                        onChange={(value: any, note?: string, photos?: string[]) => {
-                          if (lockBedroomCount && point.id === field.id) return;
-                          handleFieldChange(point.id, value, note, photos);
-                        }}
-                        onMarkedForReviewChange={(marked: boolean) =>
-                          handleMarkedForReviewChange(point.id, marked)
-                        }
-                        onLogMaintenance={
-                          maintenanceEnabled
-                            ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
-                                const fieldPhotos = (photos?.length ? photos : pointEntry?.photos || []).filter(Boolean);
-                                setMaintenanceContext({
-                                  fieldLabel,
-                                  sectionTitle: currentSection.title,
-                                  entryId: pointEntry?.id,
-                                  photos: fieldPhotos,
-                                  note: fieldNote || pointEntry?.note || undefined,
-                                });
-                                setShowMaintenanceSheet(true);
-                              }
-                            : undefined
-                        }
-                        onAddSubPoint={
-                          isCustomPointField(point) &&
-                          !point.parentFieldId &&
-                          inspection?.status !== "completed"
-                            ? () => openAddPointDialog({ id: point.id, label: point.label })
-                            : undefined
-                        }
-                        addingSubPoint={
-                          addCustomPoint.isPending &&
-                          addCustomPoint.variables?.parentFieldId === point.id
-                        }
-                        onDeleteCustomPoint={
-                          isCustomPointField(point) && inspection?.status !== "completed"
-                            ? () => requestDeleteCustomPoint(currentSection.id, point)
-                            : undefined
-                        }
-                        deletingCustomPoint={
-                          deleteCustomPoint.isPending &&
-                          deleteCustomPoint.variables?.fieldId === point.id
-                        }
-                      />
-                    </div>
-                  );
-                };
-
                 return (
-                  <div key={field.id} className="min-w-0 space-y-5">
-                    {renderPointWidget(field)}
-                    {childFields.length > 0 && (
-                      <div className="space-y-5 ml-3 sm:ml-5 pl-3 sm:pl-4 border-l-2 border-muted-foreground/30">
-                        {childFields.map((child) => renderPointWidget(child))}
-                      </div>
-                    )}
+                  <div key={field.id} className="min-w-0">
+                    <FieldWidget
+                      field={field}
+                      value={entry?.valueJson}
+                      note={entry?.note}
+                      photos={entry?.photos}
+                      inspectionId={id}
+                      entryId={entry?.id}
+                      isCheckOut={inspection?.type === "check_out"}
+                      markedForReview={entry?.markedForReview || false}
+                      sectionName={currentSection.title}
+                      sectionRef={currentSection.id}
+                      disabled={lockBedroomCount}
+                      autoContext={autoContext}
+                      onChange={(value: any, note?: string, photos?: string[]) => {
+                        if (lockBedroomCount) return;
+                        handleFieldChange(field.id, value, note, photos);
+                      }}
+                      onMarkedForReviewChange={(marked: boolean) =>
+                        handleMarkedForReviewChange(field.id, marked)
+                      }
+                      onLogMaintenance={
+                        maintenanceEnabled
+                          ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
+                              const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
+                              setMaintenanceContext({
+                                fieldLabel,
+                                sectionTitle: currentSection.title,
+                                entryId: entry?.id,
+                                photos: fieldPhotos,
+                                note: fieldNote || entry?.note || undefined,
+                              });
+                              setShowMaintenanceSheet(true);
+                            }
+                          : undefined
+                      }
+                    />
                   </div>
                 );
-              })
+              })}
+                {(() => {
+                  const sectionCips = sectionCipsFor(currentSection);
+                  return sectionCips.length
+                    ? renderCipInstanceCards(
+                        currentSection.id,
+                        currentSection.title,
+                        sectionCips,
+                      )
+                    : null;
+                })()}
+              </>
             ) : null}
-
-            {/* Non-repeatable sections: one Add control at the end.
-                Repeatable rooms (Bedroom / Kitchen / Bathroom…) get Add inside each instance card. */}
-            {currentSection &&
-              !currentSection.repeatable &&
-              canAddCustomPointsToSection(currentSection) &&
-              inspection?.status !== "completed" && (
-              <div className="pt-4 mt-1 border-t border-dashed border-border">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full min-h-12 justify-center gap-2 border-2 font-semibold"
-                  onClick={() => openAddPointDialog(null)}
-                  disabled={addCustomPoint.isPending || !isOnline}
-                  data-testid="button-add-inspection-point"
-                >
-                  <Plus className="h-5 w-5 shrink-0" />
-                  Add Inspection Point
-                </Button>
-                {!isOnline && (
-                  <p className="mt-2 text-xs text-muted-foreground text-center">
-                    Connect to the internet to add a new inspection point.
-                  </p>
-                )}
-              </div>
-            )}
           </CardContent>
         </Card>
       )}

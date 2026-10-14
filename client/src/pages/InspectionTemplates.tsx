@@ -238,9 +238,11 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
     setEditingTemplate(null);
   };
 
-  const handleBuilderSave = () => {
-    // Cache invalidation is handled by TemplateBuilder
-    handleCloseBuilder();
+  const handleBuilderSave = (saved?: InspectionTemplate) => {
+    // Keep builder open after save; refresh editing template so further saves are updates.
+    if (saved) {
+      setEditingTemplate(saved);
+    }
   };
 
   const clearAllFilters = () => {

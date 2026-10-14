@@ -22,8 +22,6 @@ export type PhotoDestination = {
   fieldKey: string;
   fieldLabel: string;
   fieldType: "photo" | "photo_array";
-  parentFieldKey?: string | null;
-  parentFieldLabel?: string | null;
 };
 
 export type UploadJob = {

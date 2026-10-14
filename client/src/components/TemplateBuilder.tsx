@@ -19,6 +19,12 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { duplicateTemplateSection } from "@shared/templateSectionDuplicate";
+import {
+  isMetaSection,
+  normalizeCustomInspectionPoints,
+  sanitizeStructureSectionCipIds,
+  TemplateCipValidationError,
+} from "@shared/templateCustomInspectionPoints";
 import { z } from "zod";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
@@ -107,11 +113,28 @@ interface TemplateSection {
   title: string;
   description?: string;
   repeatable?: boolean;
+  /** Allow-list of template CIP ids enabled for this section (opt-in). */
+  customInspectionPointIds?: string[];
+  fields: TemplateField[];
+}
+
+interface CustomInspectionPoint {
+  id: string;
+  label: string;
+  repeatable?: boolean;
   fields: TemplateField[];
 }
 
 interface TemplateStructure {
   sections: TemplateSection[];
+  customInspectionPoints?: CustomInspectionPoint[];
+}
+
+function newCustomInspectionPointId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `cip_${crypto.randomUUID()}`;
+  }
+  return `cip_${Date.now()}`;
 }
 
 const FIELD_TYPES = [
@@ -140,12 +163,13 @@ interface TemplateBuilderProps {
   template: InspectionTemplate | null;
   categories: TemplateCategory[];
   onClose: () => void;
-  onSave: () => void;
+  onSave: (saved?: InspectionTemplate) => void;
 }
 
 export function TemplateBuilder({ template, categories, onClose, onSave }: TemplateBuilderProps) {
   const { toast } = useToast();
   const [previewMode, setPreviewMode] = useState(false);
+  const [persistedTemplate, setPersistedTemplate] = useState<InspectionTemplate | null>(template);
   
   // Parse existing structure or create default
   const rawStructure: TemplateStructure = template?.structureJson 
@@ -156,10 +180,21 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
   const initialStructure: TemplateStructure = {
     sections: rawStructure.sections.map(section => ({
       ...section,
+      customInspectionPointIds: Array.isArray(section.customInspectionPointIds)
+        ? section.customInspectionPointIds.filter((id): id is string => typeof id === "string")
+        : [],
       fields: section.fields.map(field => ({
         ...field,
         id: field.id || field.key, // Use existing id or fall back to key
         key: field.key || field.id, // Ensure key exists too
+      })),
+    })),
+    customInspectionPoints: (rawStructure.customInspectionPoints ?? []).map((cip) => ({
+      ...cip,
+      fields: (cip.fields ?? []).map((field) => ({
+        ...field,
+        id: field.id || field.key,
+        key: field.key || field.id,
       })),
     })),
   };
@@ -183,31 +218,36 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     },
   });
 
-  // Save mutation
+  // Save mutation — modal stays open; first create switches to update mode.
   const saveMutation = useMutation({
     mutationFn: async (data: TemplateMetaForm) => {
       const payload = {
         ...data,
-        structureJson: structure,
+        structureJson: sanitizeStructureSectionCipIds({
+          ...structure,
+          customInspectionPoints: normalizeCustomInspectionPoints(
+            structure.customInspectionPoints ?? [],
+          ),
+        }),
       };
-      if (template) {
-        return await apiRequest("PUT", `/api/inspection-templates/${template.id}`, payload);
-      } else {
-        return await apiRequest("POST", "/api/inspection-templates", payload);
-      }
+      const res = persistedTemplate
+        ? await apiRequest("PUT", `/api/inspection-templates/${persistedTemplate.id}`, payload)
+        : await apiRequest("POST", "/api/inspection-templates", payload);
+      return (await res.json()) as InspectionTemplate;
     },
-    onSuccess: async () => {
-      // Refetch queries and wait for fresh data before closing dialog
+    onSuccess: async (saved) => {
+      setPersistedTemplate(saved);
       await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates"] });
-      if (template) {
-        await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates", template.id] });
+      if (saved?.id) {
+        await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates", saved.id] });
       }
       toast({
         title: "Success",
-        description: template ? "Template updated successfully" : "Template created successfully",
+        description: persistedTemplate
+          ? "Template updated successfully"
+          : "Template created successfully",
       });
-      onSave();
-      onClose(); // Close the modal after successful save
+      onSave(saved);
     },
     onError: (error: Error) => {
       toast({
@@ -220,6 +260,20 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
 
   const handleSave = () => {
     form.handleSubmit((data) => {
+      try {
+        normalizeCustomInspectionPoints(structure.customInspectionPoints ?? []);
+      } catch (err) {
+        const message =
+          err instanceof TemplateCipValidationError
+            ? err.message
+            : "Invalid custom inspection point configuration";
+        toast({
+          variant: "destructive",
+          title: "Cannot save template",
+          description: message,
+        });
+        return;
+      }
       saveMutation.mutate(data);
     })();
   };
@@ -230,12 +284,13 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       title: "New Section",
       fields: [],
     };
-    setStructure({ sections: [...structure.sections, newSection] });
+    setStructure({ ...structure, sections: [...structure.sections, newSection] });
     setExpandedSections(new Set([...Array.from(expandedSections), newSection.id]));
   };
 
   const updateSection = (sectionId: string, updates: Partial<TemplateSection>) => {
     setStructure({
+      ...structure,
       sections: structure.sections.map((s) =>
         s.id === sectionId ? { ...s, ...updates } : s
       ),
@@ -244,6 +299,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
 
   const deleteSection = (sectionId: string) => {
     setStructure({
+      ...structure,
       sections: structure.sections.filter((s) => s.id !== sectionId),
     });
     const newExpanded = new Set(expandedSections);
@@ -257,8 +313,109 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     const copy = duplicateTemplateSection(structure.sections[index]!);
     const next = [...structure.sections];
     next.splice(index + 1, 0, copy);
-    setStructure({ sections: next });
+    setStructure({ ...structure, sections: next });
     setExpandedSections(new Set([...Array.from(expandedSections), copy.id]));
+  };
+
+  const customInspectionPoints = structure.customInspectionPoints ?? [];
+
+  const addCustomInspectionPoint = () => {
+    const newCip: CustomInspectionPoint = {
+      id: newCustomInspectionPointId(),
+      label: "New Custom Inspection Point",
+      repeatable: true,
+      fields: [],
+    };
+    setStructure({
+      ...structure,
+      customInspectionPoints: [...customInspectionPoints, newCip],
+    });
+    setExpandedSections(new Set([...Array.from(expandedSections), newCip.id]));
+  };
+
+  const updateCustomInspectionPoint = (cipId: string, updates: Partial<CustomInspectionPoint>) => {
+    setStructure({
+      ...structure,
+      customInspectionPoints: customInspectionPoints.map((cip) =>
+        cip.id === cipId ? { ...cip, ...updates } : cip,
+      ),
+    });
+  };
+
+  const deleteCustomInspectionPoint = (cipId: string) => {
+    setStructure({
+      ...structure,
+      customInspectionPoints: customInspectionPoints.filter((cip) => cip.id !== cipId),
+      sections: structure.sections.map((section) => ({
+        ...section,
+        customInspectionPointIds: (section.customInspectionPointIds || []).filter((id) => id !== cipId),
+      })),
+    });
+    const newExpanded = new Set(expandedSections);
+    newExpanded.delete(cipId);
+    setExpandedSections(newExpanded);
+  };
+
+  const toggleSectionCustomInspectionPoint = (sectionId: string, cipId: string, enabled: boolean) => {
+    const section = structure.sections.find((s) => s.id === sectionId);
+    if (!section) return;
+    const current = section.customInspectionPointIds || [];
+    const next = enabled
+      ? current.includes(cipId)
+        ? current
+        : [...current, cipId]
+      : current.filter((id) => id !== cipId);
+    updateSection(sectionId, { customInspectionPointIds: next });
+  };
+
+  const duplicateCustomInspectionPoint = (cipId: string) => {
+    const index = customInspectionPoints.findIndex((c) => c.id === cipId);
+    if (index < 0) return;
+    const src = customInspectionPoints[index]!;
+    const stamp = Date.now();
+    const copy: CustomInspectionPoint = {
+      id: newCustomInspectionPointId(),
+      label: `${src.label} (Copy)`,
+      repeatable: src.repeatable !== false,
+      fields: (src.fields || []).map((f, i) => {
+        const fieldId = `field_${stamp}_${i}`;
+        return { ...f, id: fieldId, key: fieldId };
+      }),
+    };
+    const next = [...customInspectionPoints];
+    next.splice(index + 1, 0, copy);
+    setStructure({ ...structure, customInspectionPoints: next });
+    setExpandedSections(new Set([...Array.from(expandedSections), copy.id]));
+  };
+
+  const addCipField = (cipId: string) => {
+    const cip = customInspectionPoints.find((c) => c.id === cipId);
+    if (!cip) return;
+    const fieldId = `field_${Date.now()}`;
+    const newField: TemplateField = {
+      id: fieldId,
+      key: fieldId,
+      label: "New Field",
+      type: "photo_array",
+      required: false,
+    };
+    updateCustomInspectionPoint(cipId, { fields: [...cip.fields, newField] });
+  };
+
+  const updateCipField = (cipId: string, fieldKey: string, updates: Partial<TemplateField>) => {
+    const cip = customInspectionPoints.find((c) => c.id === cipId);
+    if (!cip) return;
+    updateCustomInspectionPoint(cipId, {
+      fields: cip.fields.map((f) => (f.key === fieldKey ? { ...f, ...updates } : f)),
+    });
+  };
+
+  const deleteCipField = (cipId: string, fieldKey: string) => {
+    const cip = customInspectionPoints.find((c) => c.id === cipId);
+    if (!cip) return;
+    updateCustomInspectionPoint(cipId, {
+      fields: cip.fields.filter((f) => f.key !== fieldKey),
+    });
   };
 
   const addField = (sectionId: string) => {
@@ -270,7 +427,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       id: fieldId,
       key: fieldId, // Keep key same as id for compatibility
       label: "New Field",
-      type: "short_text",
+      type: "photo_array",
       required: false,
     };
 
@@ -926,10 +1083,21 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                   <TabsContent value="structure" className="space-y-4 mt-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-lg font-semibold">Template Structure</h3>
-                      <Button onClick={addSection} size="sm" className="min-h-11 w-full sm:w-auto" data-testid="button-add-section">
-                        <Plus className="w-4 h-4 mr-2 shrink-0" />
-                        Add Section
-                      </Button>
+                      <div className="flex flex-col gap-2 sm:flex-row w-full sm:w-auto">
+                        <Button onClick={addSection} size="sm" className="min-h-11 w-full sm:w-auto" data-testid="button-add-section">
+                          <Plus className="w-4 h-4 mr-2 shrink-0" />
+                          Add Section
+                        </Button>
+                        <Button
+                          onClick={addCustomInspectionPoint}
+                          size="sm"
+                          className="min-h-11 w-full sm:w-auto"
+                          data-testid="button-add-custom-inspection-point"
+                        >
+                          <Plus className="w-4 h-4 mr-2 shrink-0" />
+                          Custom Inspection Point
+                        </Button>
+                      </div>
                     </div>
 
                 {structure.sections.length === 0 ? (
@@ -1010,6 +1178,34 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                 rows={2}
                                 data-testid={`input-section-description-${sectionIndex}`}
                               />
+
+                              {!isMetaSection(section) && customInspectionPoints.length > 0 && (
+                                <div className="space-y-2 rounded-lg border p-3">
+                                  <p className="text-sm font-medium">Custom Inspection Points</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Enable which template custom points apply to this section.
+                                  </p>
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+                                    {customInspectionPoints.map((cip) => {
+                                      const enabled = (section.customInspectionPointIds || []).includes(cip.id);
+                                      return (
+                                        <div key={cip.id} className="flex items-center gap-2 min-h-11">
+                                          <Switch
+                                            checked={enabled}
+                                            onCheckedChange={(checked) =>
+                                              toggleSectionCustomInspectionPoint(section.id, cip.id, checked)
+                                            }
+                                            data-testid={`switch-section-include-cip-${sectionIndex}-${cip.id}`}
+                                          />
+                                          <span className="text-xs text-muted-foreground">
+                                            Include {cip.label || "Custom Point"}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Fields */}
                               <div className="space-y-2">
@@ -1165,6 +1361,279 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                     ))}
                   </div>
                 )}
+
+                    <div className="space-y-3 pt-2 border-t">
+                      <div>
+                        <h3 className="text-lg font-semibold">Custom Inspection Points</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Defined on the template; enable per section with Include toggles above.
+                          Repeatable points ask How many {"{name}"}? at capture; non-repeatable
+                          points always show one copy.
+                        </p>
+                      </div>
+                      {customInspectionPoints.length === 0 ? (
+                        <Card className="shadow-sm">
+                          <CardContent className="text-center py-8">
+                            <p className="text-muted-foreground text-sm mb-4">No custom inspection points yet</p>
+                            <Button
+                              onClick={addCustomInspectionPoint}
+                              size="sm"
+                              className="min-h-11"
+                              data-testid="button-add-first-custom-inspection-point"
+                            >
+                              <Plus className="w-4 h-4 mr-2 shrink-0" />
+                              Custom Inspection Point
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        <div className="space-y-4">
+                          {customInspectionPoints.map((cip, cipIndex) => (
+                            <Card key={cip.id} className="shadow-sm">
+                              <Collapsible
+                                open={expandedSections.has(cip.id)}
+                                onOpenChange={() => toggleSection(cip.id)}
+                              >
+                                <CardHeader className="pb-3">
+                                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                                    <CollapsibleTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-11 w-11 shrink-0"
+                                        data-testid={`button-toggle-cip-${cipIndex}`}
+                                      >
+                                        {expandedSections.has(cip.id) ? (
+                                          <ChevronDown className="w-4 h-4" />
+                                        ) : (
+                                          <ChevronRight className="w-4 h-4" />
+                                        )}
+                                      </Button>
+                                    </CollapsibleTrigger>
+                                    <GripVertical className="w-4 h-4 text-muted-foreground hidden sm:block shrink-0" />
+                                    <Input
+                                      value={cip.label}
+                                      onChange={(e) =>
+                                        updateCustomInspectionPoint(cip.id, { label: e.target.value })
+                                      }
+                                      className="font-semibold flex-1 min-w-[10rem] min-h-11"
+                                      placeholder="Inspection point name (e.g. Door)"
+                                      data-testid={`input-cip-label-${cipIndex}`}
+                                    />
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <Switch
+                                        checked={cip.repeatable !== false}
+                                        onCheckedChange={(checked) =>
+                                          updateCustomInspectionPoint(cip.id, { repeatable: checked })
+                                        }
+                                        data-testid={`switch-cip-repeatable-${cipIndex}`}
+                                      />
+                                      <span className="text-xs text-muted-foreground">Repeatable</span>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="min-h-11 min-w-11 shrink-0"
+                                      title="Duplicate custom inspection point"
+                                      onClick={() => duplicateCustomInspectionPoint(cip.id)}
+                                      data-testid={`button-duplicate-cip-${cipIndex}`}
+                                    >
+                                      <Copy className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="min-h-11 min-w-11 shrink-0"
+                                      title="Delete custom inspection point"
+                                      onClick={() => deleteCustomInspectionPoint(cip.id)}
+                                      data-testid={`button-delete-cip-${cipIndex}`}
+                                    >
+                                      <Trash2 className="w-4 h-4 text-destructive" />
+                                    </Button>
+                                  </div>
+                                </CardHeader>
+                                <CollapsibleContent>
+                                  <CardContent className="space-y-3">
+                                    <div className="space-y-2">
+                                      {cip.fields.map((field, fieldIndex) => (
+                                        <div key={field.key} className="space-y-2">
+                                          <div className="space-y-2">
+                                            <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg sm:flex-row sm:flex-wrap sm:items-center min-w-0">
+                                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 hidden sm:block" />
+                                                <Input
+                                                  value={field.label}
+                                                  onChange={(e) =>
+                                                    updateCipField(cip.id, field.key, { label: e.target.value })
+                                                  }
+                                                  placeholder="Field Label"
+                                                  className="flex-1 min-w-0 min-h-11"
+                                                  data-testid={`input-cip-field-label-${cipIndex}-${fieldIndex}`}
+                                                />
+                                              </div>
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <Select
+                                                  value={field.type}
+                                                  onValueChange={(type) =>
+                                                    updateCipField(cip.id, field.key, { type })
+                                                  }
+                                                >
+                                                  <SelectTrigger
+                                                    className="w-full sm:w-40 min-h-11"
+                                                    data-testid={`select-cip-field-type-${cipIndex}-${fieldIndex}`}
+                                                  >
+                                                    <SelectValue />
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    {FIELD_TYPES.map((ft) => (
+                                                      <SelectItem key={ft.value} value={ft.value}>
+                                                        {ft.label}
+                                                      </SelectItem>
+                                                    ))}
+                                                  </SelectContent>
+                                                </Select>
+                                                <div className="flex items-center gap-2">
+                                                  <Switch
+                                                    checked={field.required || false}
+                                                    onCheckedChange={(checked) =>
+                                                      updateCipField(cip.id, field.key, { required: checked })
+                                                    }
+                                                    data-testid={`switch-cip-field-required-${cipIndex}-${fieldIndex}`}
+                                                  />
+                                                  <span className="text-xs text-muted-foreground">Required</span>
+                                                </div>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="min-h-11 min-w-11 shrink-0"
+                                                  onClick={() => deleteCipField(cip.id, field.key)}
+                                                  data-testid={`button-delete-cip-field-${cipIndex}-${fieldIndex}`}
+                                                >
+                                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                                </Button>
+                                              </div>
+                                            </div>
+
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 ml-0 sm:ml-8 px-1 sm:px-3">
+                                              <div className="flex items-center gap-2 min-h-11">
+                                                <Switch
+                                                  checked={field.includeCondition || false}
+                                                  onCheckedChange={(checked) =>
+                                                    updateCipField(cip.id, field.key, {
+                                                      includeCondition: checked,
+                                                    })
+                                                  }
+                                                  data-testid={`switch-cip-field-condition-${cipIndex}-${fieldIndex}`}
+                                                />
+                                                <span className="text-xs text-muted-foreground">
+                                                  Include Condition
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center gap-2 min-h-11">
+                                                <Switch
+                                                  checked={field.includeCleanliness || false}
+                                                  onCheckedChange={(checked) =>
+                                                    updateCipField(cip.id, field.key, {
+                                                      includeCleanliness: checked,
+                                                    })
+                                                  }
+                                                  data-testid={`switch-cip-field-cleanliness-${cipIndex}-${fieldIndex}`}
+                                                />
+                                                <span className="text-xs text-muted-foreground">
+                                                  Include Cleanliness
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {(field.type === "select" || field.type === "multiselect") && (
+                                            <div className="ml-0 sm:ml-8 p-3 bg-background border rounded-lg space-y-2 min-w-0">
+                                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                                <label className="text-sm font-medium">Dropdown Options</label>
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  className="min-h-11 w-full sm:w-auto"
+                                                  onClick={() => {
+                                                    const options = field.options || [];
+                                                    updateCipField(cip.id, field.key, {
+                                                      options: [...options, ""],
+                                                    });
+                                                  }}
+                                                  data-testid={`button-add-cip-option-${cipIndex}-${fieldIndex}`}
+                                                >
+                                                  <Plus className="w-3 h-3 mr-1" />
+                                                  Add Option
+                                                </Button>
+                                              </div>
+
+                                              {(!field.options || field.options.length === 0) ? (
+                                                <p className="text-xs text-muted-foreground">
+                                                  No options yet. Click &quot;Add Option&quot; to create dropdown
+                                                  choices.
+                                                </p>
+                                              ) : (
+                                                <div className="space-y-2">
+                                                  {field.options.map((option, optionIndex) => (
+                                                    <div key={optionIndex} className="flex items-center gap-2">
+                                                      <Input
+                                                        value={option}
+                                                        onChange={(e) => {
+                                                          const newOptions = [...(field.options || [])];
+                                                          newOptions[optionIndex] = e.target.value;
+                                                          updateCipField(cip.id, field.key, {
+                                                            options: newOptions,
+                                                          });
+                                                        }}
+                                                        placeholder={`Option ${optionIndex + 1}`}
+                                                        className="flex-1"
+                                                        data-testid={`input-cip-option-${cipIndex}-${fieldIndex}-${optionIndex}`}
+                                                      />
+                                                      <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => {
+                                                          const newOptions = (field.options || []).filter(
+                                                            (_, i) => i !== optionIndex,
+                                                          );
+                                                          updateCipField(cip.id, field.key, {
+                                                            options: newOptions,
+                                                          });
+                                                        }}
+                                                        data-testid={`button-delete-cip-option-${cipIndex}-${fieldIndex}-${optionIndex}`}
+                                                      >
+                                                        <X className="w-4 h-4 text-destructive" />
+                                                      </Button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => addCipField(cip.id)}
+                                      className="w-full min-h-11"
+                                      data-testid={`button-add-cip-field-${cipIndex}`}
+                                    >
+                                      <Plus className="w-4 h-4 mr-2" />
+                                      Add Field
+                                    </Button>
+                                  </CardContent>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </TabsContent>
                   
                   <TabsContent value="content" className="space-y-6 mt-4">

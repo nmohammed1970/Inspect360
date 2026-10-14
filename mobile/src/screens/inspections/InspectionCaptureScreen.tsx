@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
-  Modal,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -41,8 +40,9 @@ import {
   parseRepeatableCountValue,
   repeatableCountsFromPropertyLayout,
 } from '../../../../shared/propertyLayout';
+import { numberedRoomInstanceTitle } from '../../../../shared/propertyRooms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, Trash2, Camera, ListChecks, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
@@ -50,13 +50,17 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import FormScreen from '../../components/ui/FormScreen';
 import {
-  canAddCustomPointsToSection,
-  fieldVisibleForInstance,
-  getChildFields,
-  getTopLevelFields,
-  isCustomPointField,
-} from '../../../../shared/inspectionCustomPoints';
-
+  cipCountFieldKey,
+  cipExpandedFieldKey,
+  cipInstanceLabel,
+  expandCipFieldsForCount,
+  getCipsForSection,
+  isCipRepeatable,
+  parseCipCountValue,
+  parseCipExpandedFieldKey,
+  resolveCipInstanceCount,
+  type CustomInspectionPoint,
+} from '../../../../shared/templateCustomInspectionPoints';
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
 
@@ -82,7 +86,6 @@ interface TemplateField {
   includeCleanliness?: boolean;
   custom?: boolean;
   parentFieldId?: string;
-  instanceSectionRef?: string;
 }
 
 export default function InspectionCaptureScreen() {
@@ -118,14 +121,6 @@ export default function InspectionCaptureScreen() {
   const [copyNotes, setCopyNotes] = useState(false);
   const [syncStats, setSyncStats] = useState({ pendingEntries: 0, pendingImages: 0, queuedOperations: 0 });
 
-  const [showAddPointModal, setShowAddPointModal] = useState(false);
-  const [newPointName, setNewPointName] = useState('');
-  const [addPointKind, setAddPointKind] = useState<'photo_condition' | 'choice'>('photo_condition');
-  const [addPointOptions, setAddPointOptions] = useState<string[]>(['Yes', 'No']);
-  const [addPointOptionDraft, setAddPointOptionDraft] = useState('');
-  const [addPointParent, setAddPointParent] = useState<{ id: string; label: string } | null>(null);
-  const [addPointInstanceRef, setAddPointInstanceRef] = useState<string | null>(null);
-  const addPointRequestIdRef = useRef<string | null>(null);
   // Load sync stats periodically
   useEffect(() => {
     const loadSyncStats = async () => {
@@ -323,136 +318,6 @@ export default function InspectionCaptureScreen() {
     }
   }, [aiAnalysisStatus?.status, inspectionId]); // Removed queryClient from dependencies - it's stable from useQueryClient()
 
-  // Parse template structure (memoized to prevent re-parsing on every render)
-  const addCustomPoint = useMutation({
-    mutationFn: async (data: {
-      sectionId: string;
-      label: string;
-      kind: 'photo_condition' | 'choice';
-      options?: string[];
-      clientRequestId: string;
-      parentFieldId?: string;
-      instanceSectionRef?: string;
-    }) => {
-      return inspectionsService.addCustomPoint(inspectionId, data);
-    },
-    onSuccess: (data, variables) => {
-      if (data.templateSnapshotJson) {
-        queryClient.setQueryData([`/api/inspections/${inspectionId}`], (prev: any) =>
-          prev
-            ? { ...prev, templateSnapshotJson: data.templateSnapshotJson }
-            : prev,
-        );
-      } else {
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
-      }
-      setShowAddPointModal(false);
-      setNewPointName('');
-      setAddPointKind('photo_condition');
-      setAddPointOptions(['Yes', 'No']);
-      setAddPointOptionDraft('');
-      setAddPointParent(null);
-      setAddPointInstanceRef(null);
-      addPointRequestIdRef.current = null;
-      Alert.alert(
-        variables.parentFieldId ? 'Sub-point added' : 'Inspection point added',
-        data.field?.label
-          ? `"${data.field.label}" is ready to inspect`
-          : 'Custom inspection point added',
-      );
-    },
-    onError: (error: any) => {
-      addPointRequestIdRef.current = null;
-      Alert.alert(
-        'Could not add inspection point',
-        error?.message || 'Please try again',
-      );
-    },
-  });
-
-  const deleteCustomPoint = useMutation({
-    mutationFn: async (data: { sectionId: string; fieldId: string }) => {
-      return inspectionsService.deleteCustomPoint(inspectionId, data);
-    },
-    onSuccess: (data: any) => {
-      if (data.templateSnapshotJson) {
-        queryClient.setQueryData([`/api/inspections/${inspectionId}`], (prev: any) =>
-          prev
-            ? { ...prev, templateSnapshotJson: data.templateSnapshotJson }
-            : prev,
-        );
-      } else {
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
-      }
-      const ids = new Set(
-        data.removedFieldIds?.length ? data.removedFieldIds : data.fieldId ? [data.fieldId] : [],
-      );
-      if (ids.size > 0) {
-        setEntries((prev) => {
-          const next = { ...prev };
-          for (const key of Object.keys(next)) {
-            if (ids.has(next[key]?.fieldKey)) {
-              delete next[key];
-            }
-          }
-          return next;
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      Alert.alert('Inspection point removed', 'The custom inspection point was deleted from this inspection.');
-    },
-    onError: (error: any) => {
-      Alert.alert('Could not remove inspection point', error?.message || 'Please try again');
-    },
-  });
-
-  const openAddPointModal = (
-    parent?: { id: string; label: string } | null,
-    instanceSectionRef?: string | null,
-  ) => {
-    setNewPointName('');
-    setAddPointKind('photo_condition');
-    setAddPointOptions(['Yes', 'No']);
-    setAddPointOptionDraft('');
-    addPointRequestIdRef.current = null;
-    setAddPointParent(parent || null);
-    setAddPointInstanceRef(instanceSectionRef?.trim() || null);
-    setShowAddPointModal(true);
-  };
-
-  const addChoiceOptionMobile = () => {
-    const trimmed = addPointOptionDraft.trim().replace(/\s+/g, ' ');
-    if (!trimmed) return;
-    if (addPointOptions.some((o) => o.toLowerCase() === trimmed.toLowerCase())) {
-      Alert.alert('Duplicate option', 'That option is already in the list');
-      return;
-    }
-    if (addPointOptions.length >= 50) {
-      Alert.alert('Limit reached', 'You can add up to 50 options');
-      return;
-    }
-    setAddPointOptions((prev) => [...prev, trimmed]);
-    setAddPointOptionDraft('');
-  };
-
-  const requestDeleteCustomPoint = (sectionId: string, field: TemplateField) => {
-    const isParent = isCustomPointField(field) && !(field as any).parentFieldId;
-    Alert.alert(
-      'Remove inspection point?',
-      isParent
-        ? `Remove "${field.label}" and any sub-points? Photos and notes for these points will be deleted.`
-        : `Remove "${field.label}" from this inspection? Any photos and notes for this point will be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => deleteCustomPoint.mutate({ sectionId, fieldId: field.id }),
-        },
-      ],
-    );
-  };
-
   const sections = useMemo(() => {
     const inspectionToUse = effectiveInspection;
     if (!inspectionToUse?.templateSnapshotJson) {
@@ -522,6 +387,13 @@ export default function InspectionCaptureScreen() {
     effectiveInspection?.templateId,
     effectiveInspection?.propertyRoomCountsSnapshot,
   ]);
+
+  const templateSnapshot = effectiveInspection?.templateSnapshotJson as any;
+
+  const sectionCipsFor = React.useCallback(
+    (section: TemplateSection | null | undefined) => getCipsForSection(templateSnapshot, section as any),
+    [templateSnapshot],
+  );
 
   // Load existing entries into state
   // Always update entries when existingEntries changes (to support copy from check-in)
@@ -1037,7 +909,8 @@ export default function InspectionCaptureScreen() {
     note?: string,
     photos?: string[],
     markedForReview?: boolean,
-    instanceIndex?: number
+    instanceIndex?: number,
+    options?: { explicitSectionRef?: string; fieldType?: string },
   ) => {
     // Prevent changes if inspection is completed
     if (effectiveInspection?.status === 'completed') {
@@ -1061,13 +934,18 @@ export default function InspectionCaptureScreen() {
 
     // For repeatable sections, use instance-specific sectionRef
     const currentSection = sections.find(s => s.id === sectionRef);
-    const finalSectionRef = instanceIndex !== undefined && currentSection
-      ? `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
-      : sectionRef;
+    const finalSectionRef =
+      options?.explicitSectionRef ??
+      (instanceIndex !== undefined && currentSection
+        ? `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
+        : sectionRef);
 
     const key = `${finalSectionRef}-${fieldKey}`;
     const existingEntry = entries[key];
-    const fieldType = currentSection?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type || 'text';
+    const fieldType =
+      options?.fieldType ||
+      currentSection?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type ||
+      'text';
 
     // CRITICAL FIX: Use the entry key (sectionRef-fieldKey) as the entry ID
     // This ensures photos uploaded before entry creation can be associated correctly
@@ -1096,6 +974,251 @@ export default function InspectionCaptureScreen() {
     // Auto-save mutation
     updateEntry.mutate(newEntry);
   }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted, entries]);
+
+  const handleCipCountChange = React.useCallback(
+    (sectionRef: string, cip: CustomInspectionPoint, count: number) => {
+      if (effectiveInspection?.status === 'completed' || isDeleted) return;
+      const newCount = Math.max(0, Math.min(50, Math.floor(Number(count) || 0)));
+      const countFieldKey = cipCountFieldKey(cip.id);
+      const countEntryKey = `${sectionRef}-${countFieldKey}`;
+      const prevCount = parseCipCountValue(entries[countEntryKey]?.valueJson);
+
+      const countEntry: InspectionEntry = {
+        inspectionId,
+        id: entries[countEntryKey]?.id,
+        sectionRef,
+        fieldKey: countFieldKey,
+        fieldType: 'number',
+        valueJson: newCount,
+      };
+
+      setEntries((prev) => ({ ...prev, [countEntryKey]: countEntry }));
+      updateEntry.mutate(countEntry);
+
+      if (newCount < prevCount) {
+        setEntries((prev) => {
+          const updated = { ...prev };
+          for (let i = newCount + 1; i <= prevCount; i++) {
+            for (const field of cip.fields || []) {
+              const baseId = String(field.id || field.key || '').trim();
+              if (!baseId) continue;
+              const fk = cipExpandedFieldKey(cip.id, i, baseId);
+              delete updated[`${sectionRef}-${fk}`];
+            }
+          }
+          return updated;
+        });
+      }
+    },
+    [effectiveInspection?.status, isDeleted, entries, inspectionId, updateEntry],
+  );
+
+  const renderCipCountInputs = (sectionRef: string, sectionCips: CustomInspectionPoint[]) => {
+    const repeatableCips = sectionCips.filter((cip) => isCipRepeatable(cip));
+    if (!repeatableCips.length) return null;
+    return (
+      <Card style={[styles.fieldContainer, { borderColor: themeColors.border.DEFAULT }]}>
+        {repeatableCips.map((cip) => {
+          const countFieldKey = cipCountFieldKey(cip.id);
+          const countValue = parseCipCountValue(entries[`${sectionRef}-${countFieldKey}`]?.valueJson);
+          return (
+            <View key={`cip-count-${sectionRef}-${cip.id}`} style={{ marginBottom: spacing[4] }}>
+              <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
+                {`How many ${cip.label} are there?`}
+              </Text>
+              <View
+                style={{
+                  flexDirection: actionStack === 'column' ? 'column' : 'row',
+                  alignItems: actionStack === 'column' ? 'stretch' : 'center',
+                  flexWrap: 'wrap',
+                  gap: spacing[3],
+                  marginTop: spacing[2],
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => handleCipCountChange(sectionRef, cip, countValue - 1)}
+                  disabled={countValue <= 0}
+                  style={[
+                    styles.countButton,
+                    {
+                      backgroundColor: themeColors.primary.DEFAULT,
+                      opacity: countValue <= 0 ? 0.5 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: themeColors.primary.foreground || '#ffffff', fontSize: 18, fontWeight: 'bold' }}>-</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={[
+                    styles.countInput,
+                    {
+                      backgroundColor: themeColors.card.DEFAULT,
+                      borderColor: themeColors.border.DEFAULT,
+                      color: themeColors.text.primary,
+                    },
+                  ]}
+                  value={String(countValue)}
+                  onChangeText={(text) => {
+                    const n = parseInt(text, 10);
+                    handleCipCountChange(sectionRef, cip, Number.isFinite(n) ? n : 0);
+                  }}
+                  keyboardType="number-pad"
+                />
+                <TouchableOpacity
+                  onPress={() => handleCipCountChange(sectionRef, cip, countValue + 1)}
+                  disabled={countValue >= 50}
+                  style={[
+                    styles.countButton,
+                    {
+                      backgroundColor: themeColors.primary.DEFAULT,
+                      opacity: countValue >= 50 ? 0.5 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: themeColors.primary.foreground || '#ffffff', fontSize: 18, fontWeight: 'bold' }}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
+      </Card>
+    );
+  };
+
+  const renderCipInstanceCards = (
+    sectionRef: string,
+    instanceName: string,
+    sectionTitle: string,
+    sectionCips: CustomInspectionPoint[],
+  ) => {
+    if (!sectionCips.length) return null;
+
+    const openMaintenance = (fieldLabel: string, photos: string[] | undefined, pointEntry: any, pointEntryId: string) => {
+      try {
+        const fieldPhotos = (photos?.length ? photos : pointEntry?.photos || []).filter(Boolean);
+        const rootNavigator = navigation.getParent()?.getParent();
+        if (rootNavigator) {
+          rootNavigator.dispatch(
+            CommonActions.navigate('Main', {
+              screen: 'Maintenance',
+              params: {
+                screen: 'CreateMaintenance',
+                params: {
+                  inspectionId,
+                  propertyId: effectiveInspection?.propertyId,
+                  blockId: effectiveInspection?.blockId,
+                  fieldLabel,
+                  photos: fieldPhotos,
+                  entryId: pointEntry?.id || pointEntryId,
+                  sectionTitle,
+                },
+              },
+            }),
+          );
+        }
+      } catch (error) {
+        console.error('[InspectionCapture] Navigation error:', error);
+      }
+    };
+
+    return (
+      <>
+        {sectionCips.map((cip) => {
+          const count = resolveCipInstanceCount(
+            cip,
+            entries[`${sectionRef}-${cipCountFieldKey(cip.id)}`]?.valueJson,
+          );
+          if (count < 1) return null;
+          return Array.from({ length: count }, (_, idx) => idx + 1).map((instanceIndex) => {
+            const expandedForInstance = expandCipFieldsForCount(cip, count).filter(
+              (f) => f.cipInstanceIndex === instanceIndex,
+            );
+            return (
+              <View
+                key={`cip-card-${sectionRef}-${cip.id}-${instanceIndex}`}
+                style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, marginTop: spacing[4] }]}
+              >
+                <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>
+                  {cipInstanceLabel(cip.label, instanceIndex)}
+                </Text>
+                {expandedForInstance.map((expanded) => {
+                  const parsed = parseCipExpandedFieldKey(expanded.id);
+                  const baseField = (cip.fields || []).find(
+                    (f) => String(f.id || f.key || '') === parsed?.fieldId,
+                  );
+                  const fieldForWidget: TemplateField = {
+                    ...(baseField as TemplateField),
+                    id: expanded.id,
+                    key: expanded.id,
+                    label: (baseField?.label as string) || expanded.label,
+                  };
+                  const entryKey = `${sectionRef}-${expanded.id}`;
+                  const entry = entries[entryKey];
+                  const entryId = entry?.id || entryKey;
+                  return (
+                    <View key={expanded.id} style={styles.fieldContainer}>
+                      <FieldWidget
+                        field={fieldForWidget}
+                        value={entry?.valueJson}
+                        note={entry?.note}
+                        photos={entry?.photos}
+                        inspectionId={inspectionId}
+                        entryId={entryId}
+                        sectionRef={sectionRef}
+                        sectionName={instanceName}
+                        isCheckOut={effectiveInspection?.type === 'check_out'}
+                        markedForReview={entry?.markedForReview || false}
+                        disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                        autoContext={{
+                          inspectorName: resolvedInspectorName,
+                          address: property
+                            ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                            : block
+                              ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                              : '',
+                          tenantNames: '',
+                          inspectionDate: new Date(
+                            effectiveInspection?.scheduledDate ||
+                              (effectiveInspection as any)?.startedAt ||
+                              new Date().toISOString(),
+                          )
+                            .toISOString()
+                            .split('T')[0],
+                        }}
+                        onChange={(value, note, photos) =>
+                          handleFieldChange(currentSection!.id, expanded.id, value, note, photos, undefined, undefined, {
+                            explicitSectionRef: sectionRef,
+                            fieldType: fieldForWidget.type,
+                          })
+                        }
+                        onMarkedForReviewChange={(marked) =>
+                          handleFieldChange(
+                            currentSection!.id,
+                            expanded.id,
+                            undefined,
+                            undefined,
+                            undefined,
+                            marked,
+                            undefined,
+                            { explicitSectionRef: sectionRef, fieldType: fieldForWidget.type },
+                          )
+                        }
+                        onLogMaintenance={
+                          maintenanceEnabled
+                            ? (fieldLabel, photos) => openMaintenance(fieldLabel, photos, entry, entryId)
+                            : undefined
+                        }
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          });
+        })}
+      </>
+    );
+  };
 
   const handleComplete = async () => {
     // Check if progress is less than 100%
@@ -1410,7 +1533,7 @@ export default function InspectionCaptureScreen() {
           </Card>
         )}
 
-        {/* Content — keyboard-safe FormScreen with sticky Prev/Next footer */}
+        {/* Content â€” keyboard-safe FormScreen with sticky Prev/Next footer */}
         <FormScreen
           style={{ flex: 1 }}
           edges={{ bottom: true }}
@@ -1512,7 +1635,7 @@ export default function InspectionCaptureScreen() {
               </View>
             </View>
 
-            {/* Main Action Buttons — always one row, half / half */}
+            {/* Main Action Buttons â€” always one row, half / half */}
             <View style={[styles.mainActionsRow, { paddingHorizontal: 0, flexDirection: 'row' }]}>
               {/* AI Analysis Button */}
               {aiAnalysisStatus?.status === 'processing' ? (
@@ -1826,49 +1949,33 @@ export default function InspectionCaptureScreen() {
                 {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
                   // Render instances for repeatable sections
                   Array.from({ length: repeatableCounts[currentSection.id] ?? 1 }).map((_, instanceIndex) => {
-                    const instanceName = `${currentSection.title} ${instanceIndex + 1}`;
+                    // Keep sectionRef stable for entry keys; display title is always numbered (Bedroom 1…).
+                    const sectionRefPath = `${currentSection.title} ${instanceIndex + 1}`;
+                    const instanceName = numberedRoomInstanceTitle(
+                      undefined,
+                      currentSection.title,
+                      instanceIndex,
+                    );
                     return (
                       <View key={`instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
                         <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>{instanceName}</Text>
-                        {getTopLevelFields(currentSection.fields).map((field, fieldIndex) => {
+                        {(() => {
+                          const sectionCips = sectionCipsFor(currentSection);
+                          return sectionCips.length
+                            ? renderCipCountInputs(
+                                `${currentSection.id}/${sectionRefPath}`,
+                                sectionCips,
+                              )
+                            : null;
+                        })()}
+                        {currentSection.fields.map((field, fieldIndex) => {
                           if (!field || !field.id && !field.key) {
                             console.warn('Invalid field found:', field);
                             return null;
                           }
 
                           try {
-                            const sectionRef = `${currentSection.id}/${instanceName}`;
-                            const entryRefsForField = Object.values(entries)
-                              .filter(
-                                (e) =>
-                                  e.fieldKey === (field.id || field.key) &&
-                                  typeof e.sectionRef === 'string' &&
-                                  e.sectionRef.startsWith(`${currentSection.id}/`),
-                              )
-                              .map((e) => e.sectionRef);
-                            if (
-                              !fieldVisibleForInstance(
-                                field,
-                                sectionRef,
-                                currentSection.fields,
-                                entryRefsForField,
-                              )
-                            ) {
-                              return null;
-                            }
-                            if (
-                              isCustomPointField(field) &&
-                              !(field as any).instanceSectionRef &&
-                              entryRefsForField.length === 0
-                            ) {
-                              const unscopedTop = getTopLevelFields(currentSection.fields).filter(
-                                (f) => isCustomPointField(f) && !(f as any).instanceSectionRef,
-                              );
-                              const ordinal = unscopedTop.findIndex((f) => f.id === field.id);
-                              if (ordinal >= 0 && ordinal !== instanceIndex) {
-                                return null;
-                              }
-                            }
+                            const sectionRef = `${currentSection.id}/${sectionRefPath}`;
                             const key = `${sectionRef}-${field.id || field.key}`;
                             const entry = entries[key];
                             
@@ -1876,22 +1983,6 @@ export default function InspectionCaptureScreen() {
 
                             return (
                               <View key={`${instanceIndex}-${field.id || field.key || `field-${Math.random()}`}`} style={styles.fieldContainer}>
-                                                {isCustomPointField(field) &&
-                                  effectiveInspection?.status !== 'completed' &&
-                                  !isDeleted && (
-                                  <TouchableOpacity
-                                    onPress={() => requestDeleteCustomPoint(currentSection.id, field)}
-                                    disabled={deleteCustomPoint.isPending}
-                                    style={styles.removeCustomPointButton}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={`Remove ${field.label}`}
-                                  >
-                                    <Trash2 size={16} color={themeColors.destructive?.DEFAULT || '#dc2626'} />
-                                    <Text style={{ color: themeColors.destructive?.DEFAULT || '#dc2626', fontWeight: '600' }}>
-                                      Remove
-                                    </Text>
-                                  </TouchableOpacity>
-                                )}
                                 <FieldWidget
                                   field={field}
                                   value={entry?.valueJson}
@@ -1975,22 +2066,6 @@ export default function InspectionCaptureScreen() {
                                   }
                                       : undefined
                                   }
-                                  onAddSubPoint={
-                                    isCustomPointField(field) &&
-                                    !(field as any).parentFieldId &&
-                                    effectiveInspection?.status !== 'completed' &&
-                                    !isDeleted
-                                      ? () =>
-                                          openAddPointModal(
-                                            { id: field.id, label: field.label },
-                                            sectionRef,
-                                          )
-                                      : undefined
-                                  }
-                                  addingSubPoint={
-                                    addCustomPoint.isPending &&
-                                    addCustomPoint.variables?.parentFieldId === field.id
-                                  }
                                 />
                               </View>
                             );
@@ -2003,55 +2078,35 @@ export default function InspectionCaptureScreen() {
                             );
                           }
                         })}
-                        {canAddCustomPointsToSection(currentSection) &&
-                          effectiveInspection?.status !== 'completed' &&
-                          !isDeleted && (
-                          <View style={[styles.addPointContainer, { borderTopColor: themeColors.border?.DEFAULT || '#e5e7eb' }]}>
-                            <TouchableOpacity
-                              onPress={() =>
-                                openAddPointModal(null, `${currentSection.id}/${instanceName}`)
-                              }
-                              disabled={addCustomPoint.isPending || !isOnline}
-                              style={[
-                                styles.addPointButton,
-                                {
-                                  borderColor: themeColors.border?.DEFAULT || '#e5e7eb',
-                                  backgroundColor: themeColors.card.DEFAULT,
-                                  opacity: addCustomPoint.isPending || !isOnline ? 0.6 : 1,
-                                  minHeight: mdBtnHeight,
-                                },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add Inspection Point for ${instanceName}`}
-                            >
-                              <Plus size={18} color={themeColors.text.primary} />
-                              <Text style={[styles.addPointButtonText, { color: themeColors.text.primary }]}>
-                                Add Inspection Point · {instanceName}
-                              </Text>
-                            </TouchableOpacity>
-                            {!isOnline && (
-                              <Text style={[styles.addPointHint, { color: themeColors.text.muted }]}>
-                                Connect to the internet to add a new inspection point.
-                              </Text>
-                            )}
-                          </View>
-                        )}
+                        {(() => {
+                          const sectionCips = sectionCipsFor(currentSection);
+                          return sectionCips.length
+                            ? renderCipInstanceCards(
+                                `${currentSection.id}/${sectionRefPath}`,
+                                instanceName,
+                                currentSection.title,
+                                sectionCips,
+                              )
+                            : null;
+                        })()}
                       </View>
                     );
                   })
                 ) : !currentSection.repeatable ? (
-                  // Render top-level fields; nest custom sub-points under parent
-                  getTopLevelFields(currentSection.fields).map((field, fieldIndex) => {
+                  <>
+                  {(() => {
+                    const sectionCips = sectionCipsFor(currentSection);
+                    return sectionCips.length
+                      ? renderCipCountInputs(currentSection.id, sectionCips)
+                      : null;
+                  })()}
+                  {currentSection.fields.map((field, fieldIndex) => {
                     if (!field || !field.id && !field.key) {
                       console.warn('Invalid field found:', field);
                       return null;
                     }
 
                     try {
-                      const childFields = isCustomPointField(field)
-                        ? getChildFields(currentSection.fields, field.id)
-                        : [];
-
                       const lockBedroomCount =
                         roomsLockedFromProperty && isBedroomCountField(field);
 
@@ -2122,98 +2177,51 @@ export default function InspectionCaptureScreen() {
                         }
                       };
 
-                      const renderMobilePoint = (point: TemplateField) => {
-                        const pointKey = `${currentSection.id}-${point.id || point.key}`;
-                        const pointEntry = entries[pointKey];
-                        const pointEntryId = pointEntry?.id || pointKey;
-                        return (
-                          <View key={point.id || point.key} style={styles.fieldContainer}>
-                            {isCustomPointField(point) &&
-                              effectiveInspection?.status !== 'completed' &&
-                              !isDeleted && (
-                              <TouchableOpacity
-                                onPress={() => requestDeleteCustomPoint(currentSection.id, point)}
-                                disabled={deleteCustomPoint.isPending}
-                                style={styles.removeCustomPointButton}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Remove ${point.label}`}
-                              >
-                                <Trash2 size={16} color={themeColors.destructive?.DEFAULT || '#dc2626'} />
-                                <Text style={{ color: themeColors.destructive?.DEFAULT || '#dc2626', fontWeight: '600' }}>
-                                  Remove
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                            <FieldWidget
-                              field={point}
-                              value={pointEntry?.valueJson}
-                              note={pointEntry?.note}
-                              photos={pointEntry?.photos}
-                              inspectionId={inspectionId}
-                              entryId={pointEntryId}
-                              sectionRef={currentSection.id}
-                              sectionName={currentSection.title}
-                              isCheckOut={effectiveInspection?.type === 'check_out'}
-                              markedForReview={pointEntry?.markedForReview || false}
-                              disabled={
-                                effectiveInspection?.status === 'completed' ||
-                                isDeleted ||
-                                (lockBedroomCount && point.id === field.id)
-                              }
-                              autoContext={{
-                                inspectorName: resolvedInspectorName,
-                                address: property
-                                  ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
-                                  : block
-                                    ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
-                                    : '',
-                                tenantNames: getTenantNames(),
-                                inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
-                              }}
-                              onChange={(value, note, photos) =>
-                                handleFieldChange(currentSection.id, point.id || point.key || '', value, note, photos)
-                              }
-                              onMarkedForReviewChange={(marked) => {
-                                handleFieldChange(currentSection.id, point.id || point.key || '', undefined, undefined, undefined, marked);
-                              }}
-                              onLogMaintenance={
-                                maintenanceEnabled
-                                  ? (fieldLabel, photos) =>
-                                      navigateToMaintenance(fieldLabel, photos, pointEntry, pointEntryId)
-                                  : undefined
-                              }
-                              onAddSubPoint={
-                                isCustomPointField(point) &&
-                                !point.parentFieldId &&
-                                effectiveInspection?.status !== 'completed' &&
-                                !isDeleted
-                                  ? () => openAddPointModal({ id: point.id, label: point.label })
-                                  : undefined
-                              }
-                              addingSubPoint={
-                                addCustomPoint.isPending &&
-                                addCustomPoint.variables?.parentFieldId === point.id
-                              }
-                            />
-                          </View>
-                        );
-                      };
+                      const entryKey = `${currentSection.id}-${field.id || field.key}`;
+                      const entry = entries[entryKey];
+                      const entryId = entry?.id || entryKey;
 
                       return (
-                        <View key={field.id || field.key || `field-${fieldIndex}`}>
-                          {renderMobilePoint(field)}
-                          {childFields.length > 0 && (
-                            <View
-                              style={{
-                                marginLeft: spacing[3],
-                                paddingLeft: spacing[3],
-                                borderLeftWidth: 2,
-                                borderLeftColor: themeColors.border?.DEFAULT || '#e5e7eb',
-                              }}
-                            >
-                              {childFields.map((child) => renderMobilePoint(child))}
-                            </View>
-                          )}
+                        <View key={field.id || field.key || `field-${fieldIndex}`} style={styles.fieldContainer}>
+                          <FieldWidget
+                            field={field}
+                            value={entry?.valueJson}
+                            note={entry?.note}
+                            photos={entry?.photos}
+                            inspectionId={inspectionId}
+                            entryId={entryId}
+                            sectionRef={currentSection.id}
+                            sectionName={currentSection.title}
+                            isCheckOut={effectiveInspection?.type === 'check_out'}
+                            markedForReview={entry?.markedForReview || false}
+                            disabled={
+                              effectiveInspection?.status === 'completed' ||
+                              isDeleted ||
+                              lockBedroomCount
+                            }
+                            autoContext={{
+                              inspectorName: resolvedInspectorName,
+                              address: property
+                                ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                                : block
+                                  ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                                  : '',
+                              tenantNames: getTenantNames(),
+                              inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                            }}
+                            onChange={(value, note, photos) =>
+                              handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
+                            }
+                            onMarkedForReviewChange={(marked) => {
+                              handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked);
+                            }}
+                            onLogMaintenance={
+                              maintenanceEnabled
+                                ? (fieldLabel, photos) =>
+                                    navigateToMaintenance(fieldLabel, photos, entry, entryId)
+                                : undefined
+                            }
+                          />
                         </View>
                       );
                     } catch (error) {
@@ -2224,44 +2232,20 @@ export default function InspectionCaptureScreen() {
                         </Card>
                       );
                     }
-                  })
+                  })}
+                  {(() => {
+                    const sectionCips = sectionCipsFor(currentSection);
+                    return sectionCips.length
+                      ? renderCipInstanceCards(
+                          currentSection.id,
+                          currentSection.title,
+                          currentSection.title,
+                          sectionCips,
+                        )
+                      : null;
+                  })()}
+                  </>
                 ) : null}
-              </>
-
-                {/* Non-repeatable only — repeatable rooms get Add inside each instance card */}
-                {currentSection &&
-                  !currentSection.repeatable &&
-                  canAddCustomPointsToSection(currentSection) &&
-                  effectiveInspection?.status !== 'completed' &&
-                  !isDeleted && (
-                  <View style={[styles.addPointContainer, { borderTopColor: themeColors.border?.DEFAULT || '#e5e7eb' }]}>
-                    <TouchableOpacity
-                      onPress={() => openAddPointModal(null)}
-                      disabled={addCustomPoint.isPending || !isOnline}
-                      style={[
-                        styles.addPointButton,
-                        {
-                          borderColor: themeColors.border?.DEFAULT || '#e5e7eb',
-                          backgroundColor: themeColors.card.DEFAULT,
-                          opacity: addCustomPoint.isPending || !isOnline ? 0.6 : 1,
-                          minHeight: mdBtnHeight,
-                        },
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Add Inspection Point"
-                    >
-                      <Plus size={18} color={themeColors.text.primary} />
-                      <Text style={[styles.addPointButtonText, { color: themeColors.text.primary }]}>
-                        Add Inspection Point
-                      </Text>
-                    </TouchableOpacity>
-                    {!isOnline && (
-                      <Text style={[styles.addPointHint, { color: themeColors.text.muted }]}>
-                        Connect to the internet to add a new inspection point.
-                      </Text>
-                    )}
-                  </View>
-                )}
               </>
             )}
             {!currentSection && (
@@ -2273,262 +2257,6 @@ export default function InspectionCaptureScreen() {
             )}
         </FormScreen>
 
-        <Modal
-          visible={showAddPointModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            if (!addCustomPoint.isPending) {
-              setShowAddPointModal(false);
-              setNewPointName('');
-              setAddPointKind('photo_condition');
-              setAddPointOptions(['Yes', 'No']);
-              setAddPointOptionDraft('');
-              setAddPointParent(null);
-              addPointRequestIdRef.current = null;
-            }
-          }}
-        >
-          <View style={styles.addPointModalOverlay}>
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
-            >
-              <View style={[styles.addPointModalCard, { backgroundColor: themeColors.card.DEFAULT }]}>
-                <Text style={[styles.addPointModalTitle, { color: themeColors.text.primary }]}>
-                  {addPointParent ? 'Add Sub Inspection Point' : 'Add Inspection Point'}
-                </Text>
-                <Text style={[styles.addPointModalDescription, { color: themeColors.text.muted }]}>
-                  {addPointParent
-                    ? `Create a sub-point under "${addPointParent.label}".`
-                    : addPointInstanceRef
-                      ? `Create a custom point for this room only (${addPointInstanceRef.split('/').slice(1).join('/') || 'this instance'}).`
-                      : `Create a custom point in ${currentSection?.title || 'this section'}.`}
-                </Text>
-
-                <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
-                  Point type
-                </Text>
-                <View style={{ gap: spacing[2], marginBottom: spacing[4] }}>
-                  <TouchableOpacity
-                    onPress={() => setAddPointKind('photo_condition')}
-                    disabled={addCustomPoint.isPending}
-                    style={[
-                      styles.kindCard,
-                      {
-                        borderColor:
-                          addPointKind === 'photo_condition'
-                            ? themeColors.primary.DEFAULT
-                            : themeColors.border.DEFAULT,
-                        backgroundColor:
-                          addPointKind === 'photo_condition'
-                            ? (themeColors.primary.DEFAULT + '14')
-                            : themeColors.card.DEFAULT,
-                      },
-                    ]}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Camera size={16} color={themeColors.text.primary} />
-                      <Text style={{ fontWeight: '700', color: themeColors.text.primary }}>
-                        Photo & Condition
-                      </Text>
-                    </View>
-                    <Text style={{ marginTop: 4, fontSize: 12, color: themeColors.text.muted }}>
-                      Photos, condition, cleanliness, voice notes, and AI tools.
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setAddPointKind('choice')}
-                    disabled={addCustomPoint.isPending}
-                    style={[
-                      styles.kindCard,
-                      {
-                        borderColor:
-                          addPointKind === 'choice'
-                            ? themeColors.primary.DEFAULT
-                            : themeColors.border.DEFAULT,
-                        backgroundColor:
-                          addPointKind === 'choice'
-                            ? (themeColors.primary.DEFAULT + '14')
-                            : themeColors.card.DEFAULT,
-                      },
-                    ]}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <ListChecks size={16} color={themeColors.text.primary} />
-                      <Text style={{ fontWeight: '700', color: themeColors.text.primary }}>
-                        Choice list
-                      </Text>
-                    </View>
-                    <Text style={{ marginTop: 4, fontSize: 12, color: themeColors.text.muted }}>
-                      A dropdown with options you define (Yes/No or any choices).
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
-                  {addPointParent ? 'Sub-Point Name' : 'Inspection Point Name'}
-                </Text>
-                <TextInput
-                  value={newPointName}
-                  onChangeText={setNewPointName}
-                  placeholder={
-                    addPointKind === 'choice'
-                      ? 'e.g. Meter Readings Taken'
-                      : addPointParent
-                        ? 'e.g. Door Knob'
-                        : 'e.g. Ceiling Condition'
-                  }
-                  placeholderTextColor={themeColors.text.muted}
-                  editable={!addCustomPoint.isPending}
-                  maxLength={200}
-                  style={[
-                    styles.addPointModalInput,
-                    {
-                      borderColor: themeColors.border.DEFAULT,
-                      color: themeColors.text.primary,
-                      backgroundColor: themeColors.background?.DEFAULT || themeColors.card.DEFAULT,
-                    },
-                  ]}
-                />
-
-                {addPointKind === 'choice' && (
-                  <View style={{ marginBottom: spacing[4] }}>
-                    <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
-                      Options
-                    </Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                      {addPointOptions.map((opt) => (
-                        <View
-                          key={opt}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                            paddingVertical: 4,
-                            paddingLeft: 10,
-                            paddingRight: 4,
-                            borderRadius: 999,
-                            backgroundColor: themeColors.muted?.DEFAULT || '#f3f4f6',
-                          }}
-                        >
-                          <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>{opt}</Text>
-                          <TouchableOpacity
-                            onPress={() => setAddPointOptions((prev) => prev.filter((o) => o !== opt))}
-                            disabled={addCustomPoint.isPending}
-                            hitSlop={8}
-                          >
-                            <X size={14} color={themeColors.text.muted} />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <TextInput
-                        value={addPointOptionDraft}
-                        onChangeText={setAddPointOptionDraft}
-                        placeholder="e.g. Yes, No, N/A…"
-                        placeholderTextColor={themeColors.text.muted}
-                        editable={!addCustomPoint.isPending}
-                        maxLength={100}
-                        onSubmitEditing={addChoiceOptionMobile}
-                        style={[
-                          styles.addPointModalInput,
-                          {
-                            flex: 1,
-                            marginBottom: 0,
-                            borderColor: themeColors.border.DEFAULT,
-                            color: themeColors.text.primary,
-                            backgroundColor: themeColors.background?.DEFAULT || themeColors.card.DEFAULT,
-                          },
-                        ]}
-                      />
-                      <TouchableOpacity
-                        onPress={addChoiceOptionMobile}
-                        disabled={addCustomPoint.isPending || !addPointOptionDraft.trim()}
-                        style={[
-                          styles.addPointModalCancel,
-                          {
-                            borderColor: themeColors.border.DEFAULT,
-                            justifyContent: 'center',
-                            opacity: !addPointOptionDraft.trim() ? 0.5 : 1,
-                          },
-                        ]}
-                      >
-                        <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>Add</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.addPointModalActions}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (addCustomPoint.isPending) return;
-                      setShowAddPointModal(false);
-                      setNewPointName('');
-                      setAddPointKind('photo_condition');
-                      setAddPointOptions(['Yes', 'No']);
-                      setAddPointOptionDraft('');
-                      setAddPointParent(null);
-                      setAddPointInstanceRef(null);
-                      addPointRequestIdRef.current = null;
-                    }}
-                    disabled={addCustomPoint.isPending}
-                    style={[styles.addPointModalCancel, { borderColor: themeColors.border.DEFAULT }]}
-                  >
-                    <Text style={{ color: themeColors.text.primary }}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      const trimmed = newPointName.trim();
-                      if (!trimmed) {
-                        Alert.alert('Name required', 'Enter a name for this inspection point');
-                        return;
-                      }
-                      if (addPointKind === 'choice') {
-                        const cleaned = addPointOptions.map((o) => o.trim()).filter(Boolean);
-                        if (cleaned.length < 1) {
-                          Alert.alert('Options required', 'Add at least one option for the choice list');
-                          return;
-                        }
-                      }
-                      if (!currentSection) return;
-                      if (!addPointRequestIdRef.current) {
-                        addPointRequestIdRef.current = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                      }
-                      addCustomPoint.mutate({
-                        sectionId: currentSection.id,
-                        label: trimmed,
-                        kind: addPointKind,
-                        options: addPointKind === 'choice' ? addPointOptions : undefined,
-                        clientRequestId: addPointRequestIdRef.current,
-                        parentFieldId: addPointParent?.id,
-                        instanceSectionRef: addPointInstanceRef || undefined,
-                      });
-                    }}
-                    disabled={addCustomPoint.isPending}
-                    style={[
-                      styles.addPointModalConfirm,
-                      {
-                        backgroundColor: themeColors.primary.DEFAULT,
-                        opacity: addCustomPoint.isPending ? 0.7 : 1,
-                      },
-                    ]}
-                  >
-                    {addCustomPoint.isPending ? (
-                      <ActivityIndicator color={themeColors.primary.foreground || '#fff'} />
-                    ) : (
-                      <Text style={{ color: themeColors.primary.foreground || '#fff', fontWeight: '600' }}>
-                        {addPointParent ? 'Add Sub-Point' : 'Add Inspection Point'}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        </Modal>
       </View>
     </ErrorBoundary>
   );

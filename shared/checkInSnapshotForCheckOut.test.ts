@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import {
   buildCheckOutSnapshotFromCheckIn,
   buildSeedEntriesFromCheckOutSnapshot,
-  checkoutSnapshotMissingCheckInCustoms,
   mapCheckInIdToCheckOutId,
   mapCheckInSectionRefToCheckOut,
 } from "./checkInSnapshotForCheckOut";
 
 assert.equal(mapCheckInIdToCheckOutId("field_checkin_entry_door_condition"), "field_checkout_entry_door_condition");
 assert.equal(mapCheckInIdToCheckOutId("section_checkin_general_info"), "section_checkout_general_info");
-assert.equal(mapCheckInIdToCheckOutId("field_custom_abc"), "field_custom_abc");
+assert.equal(mapCheckInIdToCheckOutId("cip_abc-123"), "cip_abc-123");
+assert.equal(mapCheckInIdToCheckOutId("__cip_count_cip_abc"), "__cip_count_cip_abc");
 assert.equal(
   mapCheckInSectionRefToCheckOut("section_checkin_bedrooms/room-uuid-1"),
   "section_checkout_bedrooms/room-uuid-1",
@@ -28,21 +28,13 @@ const checkIn = {
           type: "photo_array",
           includeCondition: true,
         },
-        {
-          id: "field_custom_ceiling_1",
-          key: "field_custom_ceiling_1",
-          label: "Ceiling Condition",
-          type: "photo_array",
-          custom: true,
-          includeCondition: true,
-          includeCleanliness: true,
-        },
       ],
     },
     {
       id: "section_checkin_bedrooms",
       title: "Bedrooms",
       repeatable: true,
+      customInspectionPointIds: ["cip_door_1"],
       fields: [
         {
           id: "field_checkin_bedroom_floor",
@@ -52,16 +44,17 @@ const checkIn = {
         },
       ],
     },
+  ],
+  customInspectionPoints: [
     {
-      id: "section_garden_auto",
-      title: "Garden",
+      id: "cip_door_1",
+      label: "Door",
       fields: [
         {
-          id: "field_custom_fence_1",
-          key: "field_custom_fence_1",
-          label: "Garden Fence",
+          id: "field_door_top",
+          key: "field_door_top",
+          label: "Top of Door",
           type: "photo_array",
-          custom: true,
         },
       ],
     },
@@ -76,14 +69,13 @@ const checkIn = {
 };
 
 const checkOut = buildCheckOutSnapshotFromCheckIn(checkIn);
-assert.equal(checkOut.sections!.length, 3);
+assert.equal(checkOut.sections!.length, 2);
 assert.equal(checkOut.sections![0].id, "section_checkout_entry_hallway");
 assert.equal(checkOut.sections![0].fields[0].id, "field_checkout_entry_door_condition");
-assert.equal(checkOut.sections![0].fields[1].id, "field_custom_ceiling_1");
-assert.equal(checkOut.sections![0].fields[1].label, "Ceiling Condition");
-assert.equal(checkOut.sections![0].fields[1].custom, true);
-assert.equal(checkOut.sections![2].id, "section_garden_auto");
-assert.equal(checkOut.sections![2].fields[0].id, "field_custom_fence_1");
+assert.equal(checkOut.customInspectionPoints![0].id, "cip_door_1");
+assert.equal(checkOut.customInspectionPoints![0].label, "Door");
+assert.equal(checkOut.customInspectionPoints![0].fields[0].id, "field_door_top");
+assert.deepEqual(checkOut.sections![1].customInspectionPointIds, ["cip_door_1"]);
 assert.equal(
   checkOut.propertyRoomInstances![0].sectionRef,
   "section_checkout_bedrooms/room-uuid-1",
@@ -95,18 +87,6 @@ assert.equal(seeds.length, 1);
 assert.equal(seeds[0].fieldKey, "__repeatable_count_section_checkout_bedrooms");
 assert.equal(seeds[0].valueJson, 1);
 
-const thinCheckout = {
-  sections: [
-    {
-      id: "section_checkout_entry_hallway",
-      fields: [{ id: "field_checkout_entry_door_condition", type: "photo_array" }],
-    },
-  ],
-};
-assert.equal(checkoutSnapshotMissingCheckInCustoms(checkIn, thinCheckout), true);
-assert.equal(checkoutSnapshotMissingCheckInCustoms(checkIn, checkOut), false);
-
-// Default-style shared section ids (no checkin token) stay stable
 const sharedIds = buildCheckOutSnapshotFromCheckIn({
   sections: [
     {

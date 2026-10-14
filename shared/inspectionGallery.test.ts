@@ -84,7 +84,7 @@ assert.equal(customDests.length, 1);
 assert.equal(customDests[0].sectionRef, "custom_lobby");
 assert.ok(assertDestinationValid(custom, "custom_lobby", "photo_doors", {}));
 
-// Nested custom sub-points expose parentFieldKey for assign UI filtering
+// Template fields with parentFieldId still list as flat photo destinations
 const withSubs = {
   sections: [
     {
@@ -110,16 +110,9 @@ const withSubs = {
 };
 const subDests = listPhotoDestinations(withSubs, {});
 assert.equal(subDests.length, 3);
-const doorsDest = subDests.find((d) => d.fieldKey === "field_doors");
 const knobDest = subDests.find((d) => d.fieldKey === "field_custom_knob");
-assert.ok(doorsDest);
-assert.equal(doorsDest?.parentFieldKey ?? null, null);
-assert.equal(knobDest?.parentFieldKey, "field_doors");
-assert.equal(knobDest?.parentFieldLabel, "Doors");
-assert.equal(
-  formatDestinationLabel(knobDest!),
-  "Entry / Hallway → Doors › Door Knob",
-);
+assert.ok(knobDest);
+assert.equal(formatDestinationLabel(knobDest!), "Entry / Hallway → Door Knob");
 
 // Idempotent destination listing: same inputs → same unique keys
 const keys = dests2.map((d) => `${d.sectionRef}::${d.fieldKey}`);

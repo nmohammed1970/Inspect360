@@ -1,13 +1,12 @@
 /**
  * Build a check-out inspection snapshot from the latest check-in snapshot.
- * Preserves sections, custom points, and property-room instances from check-in,
+ * Preserves sections, customInspectionPoints, and property-room instances from check-in,
  * remapping checkin→checkout ids where applicable.
  */
 
-import { isCustomPointField } from "./inspectionCustomPoints";
-
 export type SnapshotLike = {
   sections?: Array<Record<string, any>>;
+  customInspectionPoints?: Array<Record<string, any>>;
   propertyRoomInstances?: Array<{
     roomId?: string;
     sectionRef?: string;
@@ -30,8 +29,9 @@ function mapCheckInTokenToCheckOut(value: string): string {
 
 export function mapCheckInIdToCheckOutId(id: string | undefined | null): string {
   if (!id) return "";
-  // Custom points keep stable ids so comparison / copy-by-id works
-  if (id.startsWith("field_custom_")) return id;
+  // Template CIP ids and expanded instance keys stay stable across check-in/out
+  if (id.startsWith("cip_") || id.startsWith("__cip_count_")) return id;
+  if (id.includes("__i") && id.includes("__")) return id;
   return mapCheckInTokenToCheckOut(id);
 }
 
@@ -40,18 +40,17 @@ export function mapCheckInSectionRefToCheckOut(sectionRef: string | undefined | 
   const [base, ...rest] = String(sectionRef).split("/");
   const mappedBase = mapCheckInIdToCheckOutId(base);
   if (rest.length === 0) return mappedBase;
-  // Room UUID / instance suffix stays unchanged
   return `${mappedBase}/${rest.join("/")}`;
 }
 
 function mapFieldForCheckOut(field: Record<string, any>): Record<string, any> {
   const next = { ...field };
   const originalId = typeof field.id === "string" ? field.id : typeof field.key === "string" ? field.key : "";
-  const mappedId = isCustomPointField(field) ? originalId : mapCheckInIdToCheckOutId(originalId);
+  const mappedId = mapCheckInIdToCheckOutId(originalId);
   if (mappedId) {
     next.id = mappedId;
     next.key = mappedId;
-  } else if (typeof field.key === "string" && !isCustomPointField(field)) {
+  } else if (typeof field.key === "string") {
     next.key = mapCheckInIdToCheckOutId(field.key);
   }
   return next;
@@ -68,9 +67,18 @@ function mapSectionForCheckOut(section: Record<string, any>): Record<string, any
   };
 }
 
+function mapCustomInspectionPointForCheckOut(cip: Record<string, any>): Record<string, any> {
+  return {
+    ...cip,
+    fields: Array.isArray(cip.fields)
+      ? cip.fields.map((f: Record<string, any>) => mapFieldForCheckOut(f || {}))
+      : [],
+  };
+}
+
 /**
  * Deep-clone check-in templateSnapshotJson into a check-out snapshot.
- * Keeps the same sections/points (including customs and property-room metadata).
+ * Keeps sections, template customInspectionPoints, and property-room metadata.
  */
 export function buildCheckOutSnapshotFromCheckIn(
   checkInSnapshot: SnapshotLike | null | undefined,
@@ -97,10 +105,17 @@ export function buildCheckOutSnapshotFromCheckIn(
       }))
     : raw.propertyRoomInstances;
 
+  const customInspectionPoints = Array.isArray(raw.customInspectionPoints)
+    ? raw.customInspectionPoints.map((c: Record<string, any>) =>
+        mapCustomInspectionPointForCheckOut(c || {}),
+      )
+    : raw.customInspectionPoints;
+
   return {
     ...raw,
     sections,
     propertyRoomInstances,
+    customInspectionPoints,
   };
 }
 
@@ -142,29 +157,4 @@ export function buildSeedEntriesFromCheckOutSnapshot(snapshot: SnapshotLike | nu
   }
 
   return seeds;
-}
-
-/**
- * True when checkout snapshot is missing any custom field that exists on check-in.
- */
-export function checkoutSnapshotMissingCheckInCustoms(
-  checkInSnapshot: SnapshotLike | null | undefined,
-  checkOutSnapshot: SnapshotLike | null | undefined,
-): boolean {
-  if (!checkInSnapshot?.sections?.length) return false;
-  const checkoutIds = new Set<string>();
-  for (const section of checkOutSnapshot?.sections || []) {
-    for (const field of section.fields || []) {
-      const id = String(field.id || field.key || "");
-      if (id) checkoutIds.add(id);
-    }
-  }
-  for (const section of checkInSnapshot.sections) {
-    for (const field of section.fields || []) {
-      if (!isCustomPointField(field)) continue;
-      const id = String(field.id || field.key || "");
-      if (id && !checkoutIds.has(id)) return true;
-    }
-  }
-  return false;
 }

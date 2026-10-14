@@ -4,9 +4,12 @@ import {
   defaultLengthUnitForCountry,
   floorAreaM2,
   fromMillimetres,
+  hydrateRoomsFromCounts,
   metresToMm,
   normalizeAiRoomsResult,
   normalizeCategoryName,
+  numberedRoomInstanceTitle,
+  singularizeSectionTitle,
   slugifyCategoryName,
   toMillimetres,
   applyPropertyRoomsToTemplateSnapshot,
@@ -135,5 +138,27 @@ assert.ok(
     (e) => e.fieldKey === "__repeatable_count_section_garden" && e.valueJson === 1,
   ),
 );
+
+assert.equal(singularizeSectionTitle("Bedrooms"), "Bedroom");
+assert.equal(singularizeSectionTitle("Bathrooms"), "Bathroom");
+assert.equal(numberedRoomInstanceTitle("Bedroom", "Bedrooms", 0), "Bedroom 1");
+assert.equal(numberedRoomInstanceTitle("Bedroom", "Bedrooms", 1), "Bedroom 2");
+// Legacy: first bare "Bedroom", second stored as "Bedroom 1" → still 1 then 2 by index
+assert.equal(numberedRoomInstanceTitle("Bedroom", "Bedrooms", 0), "Bedroom 1");
+assert.equal(numberedRoomInstanceTitle("Bedroom 1", "Bedrooms", 1), "Bedroom 2");
+assert.equal(numberedRoomInstanceTitle("Bedroom 2", "Bedrooms", 0), "Bedroom 1");
+assert.equal(numberedRoomInstanceTitle("Master Bedroom", "Bedrooms", 0), "Master Bedroom");
+assert.equal(numberedRoomInstanceTitle(undefined, "Bedrooms", 0), "Bedroom 1");
+
+const hydrated = hydrateRoomsFromCounts(
+  { bedrooms: 1, bathrooms: 2, kitchens: 0, livingRooms: 0 },
+  {
+    bedrooms: { id: "c-bed", name: "Bedroom", slug: "bedroom" },
+    bathrooms: { id: "c-bath", name: "Bathroom", slug: "bathroom" },
+  },
+);
+assert.equal(hydrated[0]!.name, "Bedroom 1");
+assert.equal(hydrated[1]!.name, "Bathroom 1");
+assert.equal(hydrated[2]!.name, "Bathroom 2");
 
 console.log("propertyRooms.test.ts: all assertions passed");
