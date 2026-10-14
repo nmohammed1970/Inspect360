@@ -383,16 +383,10 @@ import { setupAuth, isAuthenticated, requireRole, requireCompanyModule, hashPass
 import { isCompanyModuleEnabled, normalizeCompanyModuleFlags, reportModuleSurfaces } from "@shared/companyModules";
 import { validateNewPassword } from "@shared/passwordPolicy";
 import { INSPECTION_NOTE_STRUCTURE_PROMPT, formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
-import {
-  appendCustomPointToSnapshot,
-  CustomPointValidationError,
-  removeCustomPointFromSnapshot,
-  resolveFieldLabelFromSnapshot,
-} from "@shared/inspectionCustomPoints";
+import { resolveFieldLabelFromTemplateStructure } from "@shared/templateCustomInspectionPoints";
 import {
   buildCheckOutSnapshotFromCheckIn,
   buildSeedEntriesFromCheckOutSnapshot,
-  checkoutSnapshotMissingCheckInCustoms,
 } from "@shared/checkInSnapshotForCheckOut";
 
 // Middleware that allows both regular users and admins
@@ -911,7 +905,7 @@ async function processInspectionAIAnalysis(
       // Build the field label from sectionRef and fieldKey
       // Prefer template snapshot label (human-readable) over opaque field ids
       const category = entry.sectionRef || "General";
-      const snapshotLabel = resolveFieldLabelFromSnapshot(
+      const snapshotLabel = resolveFieldLabelFromTemplateStructure(
         inspection.templateSnapshotJson as any,
         entry.fieldKey,
       );
@@ -7133,8 +7127,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Copy] Current checkout entries count: ${currentEntries.length}`);
       console.log(`[Copy] Check-in entries:`, checkInEntries.map(e => ({ sectionRef: e.sectionRef, fieldKey: e.fieldKey, photos: e.photos?.length || 0, hasNote: !!e.note })));
 
-      // Legacy check-outs may lack custom points / floor-plan sections from check-in.
-      // Align checkout snapshot to the latest check-in before copying entries.
+      // Align checkout snapshot when missing sections / property-room instances from check-in.
       let checkInSnap: any = checkInInspection.templateSnapshotJson;
       if (typeof checkInSnap === "string") {
         try {
@@ -7153,8 +7146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (
         checkInSnap?.sections?.length &&
-        (checkoutSnapshotMissingCheckInCustoms(checkInSnap, checkoutSnap) ||
-          !checkoutSnap?.sections?.length ||
+        (!checkoutSnap?.sections?.length ||
           (Array.isArray(checkInSnap.propertyRoomInstances) &&
             checkInSnap.propertyRoomInstances.length > 0 &&
             !(checkoutSnap?.propertyRoomInstances?.length > 0)))
@@ -8056,237 +8048,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to generate PDF report" });
     }
   });
-
-  // Add a custom inspection point to this inspection's template snapshot only
-  app.post("/api/inspections/:id/custom-points", isAuthenticated, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-      const user = await storage.getUser(req.user.id);
-
-      if (!user?.organizationId) {
-        return res.status(403).json({ message: "No organization found" });
-      }
-
-      const inspection = await storage.getInspection(id);
-      if (!inspection) {
-        return res.status(404).json({ message: "Inspection not found" });
-      }
-
-      let ownerOrgId: string | null = null;
-      if (inspection.propertyId) {
-        const property = await storage.getProperty(inspection.propertyId);
-        if (!property) {
-          return res.status(404).json({ message: "Property not found" });
-        }
-        ownerOrgId = property.organizationId;
-      } else if (inspection.blockId) {
-        const block = await storage.getBlock(inspection.blockId);
-        if (!block) {
-          return res.status(404).json({ message: "Block not found" });
-        }
-        ownerOrgId = block.organizationId;
-      }
-
-      if (ownerOrgId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      if (user.role !== "owner" && user.role !== "compliance") {
-        if (inspection.inspectorId !== user.id) {
-          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
-        }
-      }
-
-      if (inspection.status === "completed") {
-        return res.status(400).json({
-          message: "Cannot add inspection points to a completed inspection",
-        });
-      }
-
-      const sectionId = typeof req.body?.sectionId === "string" ? req.body.sectionId : "";
-      const label = req.body?.label;
-      const kind =
-        typeof req.body?.kind === "string" && req.body.kind.trim()
-          ? req.body.kind.trim()
-          : typeof req.body?.type === "string" && req.body.type.trim()
-            ? req.body.type.trim()
-            : undefined;
-      const options = Array.isArray(req.body?.options) ? req.body.options : undefined;
-      const clientRequestId =
-        typeof req.body?.clientRequestId === "string" && req.body.clientRequestId.trim()
-          ? req.body.clientRequestId.trim()
-          : undefined;
-      const parentFieldId =
-        typeof req.body?.parentFieldId === "string" && req.body.parentFieldId.trim()
-          ? req.body.parentFieldId.trim()
-          : undefined;
-      const instanceSectionRef =
-        typeof req.body?.instanceSectionRef === "string" && req.body.instanceSectionRef.trim()
-          ? req.body.instanceSectionRef.trim()
-          : undefined;
-
-      let snapshot =
-        typeof inspection.templateSnapshotJson === "string"
-          ? JSON.parse(inspection.templateSnapshotJson)
-          : (inspection.templateSnapshotJson as any);
-
-      if (!snapshot || !Array.isArray(snapshot.sections)) {
-        return res.status(400).json({ message: "Inspection template snapshot is missing or invalid" });
-      }
-
-      const result = appendCustomPointToSnapshot(snapshot, {
-        sectionId,
-        label,
-        kind,
-        options,
-        clientRequestId,
-        parentFieldId,
-        instanceSectionRef,
-      });
-
-      if (result.created) {
-        await storage.updateInspection(id, {
-          templateSnapshotJson: result.snapshot as any,
-        });
-      }
-
-      return res.status(result.created ? 201 : 200).json({
-        field: result.field,
-        created: result.created,
-        templateSnapshotJson: result.snapshot,
-      });
-    } catch (error: any) {
-      if (error instanceof CustomPointValidationError) {
-        return res.status(400).json({ message: error.message });
-      }
-      if (error?.name === "CustomPointValidationError") {
-        return res.status(400).json({ message: error.message });
-      }
-      console.error("Error adding custom inspection point:", error);
-      return res.status(500).json({ message: "Failed to add inspection point" });
-    }
-  });
-
-  // Remove a custom inspection point from this inspection's template snapshot only
-  const removeCustomPointHandler = async (req: any, res: any) => {
-    try {
-      const { id } = req.params;
-      const fieldId =
-        typeof req.params?.fieldId === "string" && req.params.fieldId
-          ? req.params.fieldId
-          : typeof req.body?.fieldId === "string"
-            ? req.body.fieldId
-            : typeof req.query?.fieldId === "string"
-              ? req.query.fieldId
-              : "";
-      const user = await storage.getUser(req.user.id);
-
-      if (!user?.organizationId) {
-        return res.status(403).json({ message: "No organization found" });
-      }
-
-      const inspection = await storage.getInspection(id);
-      if (!inspection) {
-        return res.status(404).json({ message: "Inspection not found" });
-      }
-
-      let ownerOrgId: string | null = null;
-      if (inspection.propertyId) {
-        const property = await storage.getProperty(inspection.propertyId);
-        if (!property) {
-          return res.status(404).json({ message: "Property not found" });
-        }
-        ownerOrgId = property.organizationId;
-      } else if (inspection.blockId) {
-        const block = await storage.getBlock(inspection.blockId);
-        if (!block) {
-          return res.status(404).json({ message: "Block not found" });
-        }
-        ownerOrgId = block.organizationId;
-      }
-
-      if (ownerOrgId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      if (user.role !== "owner" && user.role !== "compliance") {
-        if (inspection.inspectorId !== user.id) {
-          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
-        }
-      }
-
-      if (inspection.status === "completed") {
-        return res.status(400).json({
-          message: "Cannot remove inspection points from a completed inspection",
-        });
-      }
-
-      const sectionId =
-        typeof req.body?.sectionId === "string"
-          ? req.body.sectionId
-          : typeof req.query?.sectionId === "string"
-            ? req.query.sectionId
-            : "";
-
-      if (!sectionId) {
-        return res.status(400).json({ message: "Section is required" });
-      }
-      if (!fieldId) {
-        return res.status(400).json({ message: "Inspection point is required" });
-      }
-
-      let snapshot =
-        typeof inspection.templateSnapshotJson === "string"
-          ? JSON.parse(inspection.templateSnapshotJson)
-          : (inspection.templateSnapshotJson as any);
-
-      if (!snapshot || !Array.isArray(snapshot.sections)) {
-        return res.status(400).json({ message: "Inspection template snapshot is missing or invalid" });
-      }
-
-      const result = removeCustomPointFromSnapshot(snapshot, {
-        sectionId,
-        fieldId,
-      });
-
-      let deletedEntryCount = 0;
-      const removedFieldIds = result.removedFieldIds || (result.removed ? [fieldId] : []);
-      if (result.removed) {
-        await storage.updateInspection(id, {
-          templateSnapshotJson: result.snapshot as any,
-        });
-
-        const removeKeys = new Set(removedFieldIds);
-        const entries = await storage.getInspectionEntries(id);
-        const toDelete = entries.filter((e: any) => removeKeys.has(e.fieldKey));
-        for (const entry of toDelete) {
-          await storage.deleteInspectionEntry(entry.id);
-          deletedEntryCount += 1;
-        }
-      }
-
-      return res.json({
-        fieldId,
-        removed: result.removed,
-        removedFieldIds,
-        deletedEntryCount,
-        templateSnapshotJson: result.snapshot,
-      });
-    } catch (error: any) {
-      if (error instanceof CustomPointValidationError) {
-        return res.status(400).json({ message: error.message });
-      }
-      if (error?.name === "CustomPointValidationError") {
-        return res.status(400).json({ message: error.message });
-      }
-      console.error("Error removing custom inspection point:", error);
-      return res.status(500).json({ message: "Failed to remove inspection point" });
-    }
-  };
-
-  // Prefer POST so body parsing is reliable and hot-reload/route matching is simpler
-  app.post("/api/inspections/:id/custom-points/delete", isAuthenticated, removeCustomPointHandler);
-  app.delete("/api/inspections/:id/custom-points/:fieldId", isAuthenticated, removeCustomPointHandler);
 
   // General PATCH endpoint for updating inspection fields
   app.patch("/api/inspections/:id", isAuthenticated, async (req: any, res) => {

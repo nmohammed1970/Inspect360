@@ -1,5 +1,14 @@
 /** Inspection gallery destinations + validation helpers (template snapshot driven). */
 
+import {
+  expandCipFieldsForCount,
+  getCipsForSection,
+  isMetaSection,
+  parseCipCountValue,
+  resolveCipInstanceCount,
+  type CustomInspectionPoint,
+} from "./templateCustomInspectionPoints";
+
 export const GALLERY_ALLOWED_MIME_TYPES = [
   "image/jpeg",
   "image/jpg",
@@ -21,21 +30,19 @@ export type GalleryTemplateField = {
   key?: string;
   label?: string;
   type?: string;
-  /** Nested under a custom parent inspection point when set. */
-  parentFieldId?: string;
-  /** Repeatable room scope — only assignable on that instance. */
-  instanceSectionRef?: string;
 };
 
 export type GalleryTemplateSection = {
   id: string;
   title?: string;
   repeatable?: boolean;
+  customInspectionPointIds?: string[];
   fields?: GalleryTemplateField[];
 };
 
 export type GalleryTemplateStructure = {
   sections?: GalleryTemplateSection[];
+  customInspectionPoints?: CustomInspectionPoint[];
   /** Stable property-room instance paths: `{sectionId}/{roomId}` */
   propertyRoomInstances?: Array<{
     roomId?: string;
@@ -52,8 +59,6 @@ export type PhotoDestination = {
   fieldKey: string;
   fieldLabel: string;
   fieldType: "photo" | "photo_array";
-  parentFieldKey?: string | null;
-  parentFieldLabel?: string | null;
 };
 
 export function isPhotoFieldType(type: string | undefined | null): type is "photo" | "photo_array" {
@@ -93,11 +98,6 @@ function fieldKeyOf(field: GalleryTemplateField): string | null {
   return key || null;
 }
 
-function parentFieldKeyOf(field: GalleryTemplateField): string | null {
-  const parent = typeof field.parentFieldId === "string" ? field.parentFieldId.trim() : "";
-  return parent || null;
-}
-
 function pushPhotoDestination(
   destinations: PhotoDestination[],
   opts: {
@@ -105,23 +105,10 @@ function pushPhotoDestination(
     sectionRef: string;
     sectionLabel: string;
     field: GalleryTemplateField;
-    fieldsByKey: Map<string, GalleryTemplateField>;
   },
 ) {
   const fk = fieldKeyOf(opts.field);
   if (!fk || !isPhotoFieldType(opts.field.type)) return;
-  const parentKey = parentFieldKeyOf(opts.field);
-  const parent = parentKey ? opts.fieldsByKey.get(parentKey) : undefined;
-  const ownScope =
-    typeof opts.field.instanceSectionRef === "string"
-      ? opts.field.instanceSectionRef.trim()
-      : "";
-  const parentScope =
-    parent && typeof parent.instanceSectionRef === "string"
-      ? parent.instanceSectionRef.trim()
-      : "";
-  const effectiveScope = ownScope || parentScope;
-  if (effectiveScope && effectiveScope !== opts.sectionRef) return;
   destinations.push({
     sectionId: opts.sectionId,
     sectionRef: opts.sectionRef,
@@ -129,20 +116,61 @@ function pushPhotoDestination(
     fieldKey: fk,
     fieldLabel: (opts.field.label || fk).trim() || fk,
     fieldType: opts.field.type,
-    parentFieldKey: parentKey,
-    parentFieldLabel: parent
-      ? (parent.label || parentKey || "").trim() || parentKey
-      : null,
   });
+}
+
+/**
+ * Optional per-sectionRef CIP counts: key = `${sectionRef}::${cipId}` → count
+ * (or just cipId when count is global — prefer sectionRef-scoped).
+ */
+export type CipCountMap = Record<string, number>;
+
+function cipCountFor(
+  cip: CustomInspectionPoint,
+  cipCounts: CipCountMap | undefined,
+  sectionRef: string,
+): number {
+  const scoped = cipCounts?.[`${sectionRef}::${cip.id}`];
+  const raw = scoped != null ? scoped : cipCounts?.[cip.id];
+  return resolveCipInstanceCount(cip, raw);
+}
+
+function pushCipDestinations(
+  destinations: PhotoDestination[],
+  structure: GalleryTemplateStructure,
+  sectionId: string,
+  sectionRef: string,
+  sectionLabel: string,
+  cipCounts?: CipCountMap,
+) {
+  if (isMetaSection({ id: sectionId, title: sectionLabel })) return;
+  const section =
+    (structure.sections || []).find((s) => s.id === sectionId) ||
+    ({ id: sectionId, title: sectionLabel } as GalleryTemplateSection);
+  const cips = getCipsForSection(structure, section);
+  for (const cip of cips) {
+    const count = cipCountFor(cip, cipCounts, sectionRef);
+    if (count < 1) continue;
+    for (const field of expandCipFieldsForCount(cip, count)) {
+      pushPhotoDestination(destinations, {
+        sectionId,
+        sectionRef,
+        sectionLabel,
+        field,
+      });
+    }
+  }
 }
 
 /**
  * Build assignable photo destinations from a frozen template snapshot and
  * current repeatable instance counts (sectionId → count).
+ * Pass `cipCounts` keyed by `${sectionRef}::${cipId}` for template CIP expansions.
  */
 export function listPhotoDestinations(
   structure: GalleryTemplateStructure | null | undefined,
   repeatableCounts: Record<string, number> = {},
+  cipCounts?: CipCountMap,
 ): PhotoDestination[] {
   const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
   const destinations: PhotoDestination[] = [];
@@ -169,29 +197,29 @@ export function listPhotoDestinations(
   for (const section of sections) {
     if (!section?.id) continue;
     const photoFields = (section.fields || []).filter((f) => isPhotoFieldType(f.type));
-    if (!photoFields.length) continue;
-
-    const fieldsByKey = new Map<string, GalleryTemplateField>();
-    for (const field of section.fields || []) {
-      const key = fieldKeyOf(field);
-      if (key) fieldsByKey.set(key, field);
-    }
-
     const title = (section.title || section.id).trim() || section.id;
 
     if (section.repeatable) {
       const propertyRooms = roomsBySection.get(section.id);
       if (propertyRooms?.length) {
-        // Property rooms: stable sectionRef = `{sectionId}/{roomId}`
         for (const room of propertyRooms) {
           for (const field of photoFields) {
             pushPhotoDestination(destinations, {
               sectionId: section.id,
               sectionRef: room.sectionRef,
               sectionLabel: room.title,
-              field: field,
-              fieldsByKey,
+              field,
             });
+          }
+          if (structure) {
+            pushCipDestinations(
+              destinations,
+              structure,
+              section.id,
+              room.sectionRef,
+              room.title,
+              cipCounts,
+            );
           }
         }
       } else {
@@ -207,9 +235,18 @@ export function listPhotoDestinations(
               sectionId: section.id,
               sectionRef,
               sectionLabel: instanceLabel,
-              field: field,
-              fieldsByKey,
+              field,
             });
+          }
+          if (structure) {
+            pushCipDestinations(
+              destinations,
+              structure,
+              section.id,
+              sectionRef,
+              instanceLabel,
+              cipCounts,
+            );
           }
         }
       }
@@ -219,9 +256,18 @@ export function listPhotoDestinations(
           sectionId: section.id,
           sectionRef: section.id,
           sectionLabel: title,
-          field: field,
-          fieldsByKey,
+          field,
         });
+      }
+      if (structure) {
+        pushCipDestinations(
+          destinations,
+          structure,
+          section.id,
+          section.id,
+          title,
+          cipCounts,
+        );
       }
     }
   }
@@ -234,15 +280,13 @@ export function assertDestinationValid(
   sectionRef: string,
   fieldKey: string,
   repeatableCounts: Record<string, number> = {},
+  cipCounts?: CipCountMap,
 ): PhotoDestination | null {
-  const dest = listPhotoDestinations(structure, repeatableCounts).find(
+  const dest = listPhotoDestinations(structure, repeatableCounts, cipCounts).find(
     (d) => d.sectionRef === sectionRef && d.fieldKey === fieldKey,
   );
   if (dest) return dest;
 
-  // Fallback: accept stable property-room refs (`sectionId/roomId`) even when
-  // propertyRoomInstances is missing from an older snapshot. Reject Title-N
-  // refs (e.g. "Bedrooms 9") — those must match listPhotoDestinations counts.
   const ref = String(sectionRef || "").trim();
   const slash = ref.indexOf("/");
   if (slash <= 0) return null;
@@ -262,11 +306,6 @@ export function assertDestinationValid(
   const field = (section.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
   if (!field || !isPhotoFieldType(field.type)) return null;
 
-  const parentKey = parentFieldKeyOf(field);
-  const parent = parentKey
-    ? (section.fields || []).find((f) => fieldKeyOf(f) === parentKey)
-    : undefined;
-
   return {
     sectionId,
     sectionRef: ref,
@@ -274,10 +313,6 @@ export function assertDestinationValid(
     fieldKey,
     fieldLabel: (field.label || fieldKey).trim() || fieldKey,
     fieldType: field.type,
-    parentFieldKey: parentKey,
-    parentFieldLabel: parent
-      ? (parent.label || parentKey || "").trim() || parentKey
-      : null,
   };
 }
 
@@ -286,12 +321,9 @@ function escapeRegExp(value: string): string {
 }
 
 export function formatDestinationLabel(
-  dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel" | "parentFieldLabel">,
+  dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel">,
 ): string {
-  const pointLabel = dest.parentFieldLabel
-    ? `${dest.parentFieldLabel} › ${dest.fieldLabel}`
-    : dest.fieldLabel;
-  return `${dest.sectionLabel} → ${pointLabel}`;
+  return `${dest.sectionLabel} → ${dest.fieldLabel}`;
 }
 
 export function extractRepeatableCountsFromEntries(
@@ -312,6 +344,27 @@ export function extractRepeatableCountsFromEntries(
     if (Number.isFinite(raw) && raw >= 1) {
       counts[sectionId] = Math.max(1, Math.min(50, Math.floor(raw)));
     }
+  }
+  return counts;
+}
+
+/** Build `${sectionRef}::${cipId}` → count from CIP count entries. */
+export function extractCipCountsFromEntries(
+  entries: Array<{
+    sectionRef?: string | null;
+    fieldKey?: string | null;
+    valueJson?: unknown;
+  }> | null | undefined,
+): CipCountMap {
+  const counts: CipCountMap = {};
+  if (!entries) return counts;
+  for (const entry of entries) {
+    const fk = entry.fieldKey || "";
+    if (!fk.startsWith("__cip_count_")) continue;
+    const cipId = fk.replace("__cip_count_", "");
+    const sectionRef = String(entry.sectionRef || "").trim();
+    if (!cipId || !sectionRef) continue;
+    counts[`${sectionRef}::${cipId}`] = parseCipCountValue(entry.valueJson);
   }
   return counts;
 }

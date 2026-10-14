@@ -91,9 +91,6 @@ interface FieldWidgetProps {
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
-  /** Add a nested sub-point under this custom inspection point. */
-  onAddSubPoint?: () => void;
-  addingSubPoint?: boolean;
 }
 
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
@@ -225,8 +222,6 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     onChange,
     onMarkedForReviewChange,
     onLogMaintenance,
-    onAddSubPoint,
-    addingSubPoint = false,
   } = props;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
@@ -2069,51 +2064,17 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       </View>
       )}
 
-      {/* Point actions — Log Maintenance + Add Sub on one responsive row */}
-      {(((safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance) ||
-        (onAddSubPoint && !disabled)) && (
-        <View
-          style={{
-            flexDirection: isSmall ? 'column' : 'row',
-            gap: spacing[2],
-            marginTop: spacing[2],
+      {(safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance && (
+        <TouchableOpacity
+          style={[styles.maintenanceButton, { marginTop: spacing[2] }]}
+          onPress={() => {
+            const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
+            onLogMaintenance?.(safeField.label, fieldPhotos);
           }}
         >
-          {(safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance && (
-            <TouchableOpacity
-              style={[styles.maintenanceButton, { flex: isSmall ? undefined : 1, marginTop: 0 }]}
-              onPress={() => {
-                const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
-                onLogMaintenance?.(safeField.label, fieldPhotos);
-              }}
-            >
-              <Wrench size={16} color={themeColors.warning} />
-              <Text style={styles.maintenanceButtonText}>Log Maintenance</Text>
-            </TouchableOpacity>
-          )}
-          {onAddSubPoint && !disabled && (
-            <TouchableOpacity
-              style={[
-                styles.addSubPointButton,
-                {
-                  flex: isSmall ? undefined : 1,
-                  borderColor: themeColors.border.DEFAULT,
-                  backgroundColor: themeColors.card.DEFAULT,
-                  opacity: addingSubPoint || !isOnline ? 0.6 : 1,
-                },
-              ]}
-              onPress={onAddSubPoint}
-              disabled={addingSubPoint || !isOnline}
-              accessibilityRole="button"
-              accessibilityLabel="Add Sub Inspection Point"
-            >
-              <Plus size={16} color={themeColors.text.primary} />
-              <Text style={[styles.addSubPointButtonText, { color: themeColors.text.primary }]}>
-                Add Sub Inspection Point
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+          <Wrench size={16} color={themeColors.warning} />
+          <Text style={styles.maintenanceButtonText}>Log Maintenance</Text>
+        </TouchableOpacity>
       )}
       </View>
 

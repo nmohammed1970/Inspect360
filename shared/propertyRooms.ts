@@ -487,7 +487,8 @@ export function hydrateRoomsFromCounts(
     for (let i = 1; i <= n; i++) {
       out.push({
         categoryId: cat.id,
-        name: n === 1 ? label : `${label} ${i}`,
+        // Always number: Bedroom 1, Bedroom 2 (never bare "Bedroom" for the first).
+        name: `${label} ${i}`,
         sortOrder: order++,
         source: "manual",
       });
@@ -539,6 +540,44 @@ export function formatPropertyRoomsSummary(
   return Array.from(byCategory.entries())
     .map(([label, n]) => (n === 1 ? label : `${n} ${label}${/s$/i.test(label) ? "" : "s"}`))
     .join(" · ");
+}
+
+/** Singularize a section title for instance labels (Bedrooms → Bedroom). */
+export function singularizeSectionTitle(title: string): string {
+  const t = String(title || "").trim();
+  if (!t) return "Room";
+  if (/ies$/i.test(t)) return t.replace(/ies$/i, "y");
+  if (/ses$/i.test(t)) return t.replace(/es$/i, "");
+  if (/s$/i.test(t) && !/ss$/i.test(t)) return t.replace(/s$/i, "");
+  return t;
+}
+
+/**
+ * Display title for a repeatable room instance.
+ * Type labels (Bedroom, Bedroom 1, Bedrooms 2, …) are always renumbered by
+ * instance index so the first is Bedroom 1, second Bedroom 2, etc.
+ * Custom names like "Master Bedroom" are left unchanged.
+ */
+export function numberedRoomInstanceTitle(
+  roomTitle: string | null | undefined,
+  sectionTitle: string,
+  instanceIndex: number,
+): string {
+  const ordinal = Math.max(1, Math.floor(instanceIndex) + 1);
+  const singular = singularizeSectionTitle(sectionTitle);
+  const raw = String(roomTitle || "").trim();
+  if (!raw) return `${singular} ${ordinal}`;
+
+  // Strip a trailing instance number ("Bedroom 1" → "Bedroom") before matching type.
+  const withoutNumber = raw.replace(/\s+\d+\s*$/, "").trim() || raw;
+  const bare = singularizeSectionTitle(withoutNumber);
+  if (
+    normalizeCategoryName(withoutNumber) === normalizeCategoryName(singular) ||
+    normalizeCategoryName(bare) === normalizeCategoryName(singular)
+  ) {
+    return `${singular} ${ordinal}`;
+  }
+  return raw;
 }
 
 /** True when room instances sit under General/Overview (legacy buggy seed). */

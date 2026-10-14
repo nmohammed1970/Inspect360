@@ -57,65 +57,28 @@ export function AssignDestinationDialog({
   const [sectionRef, setSectionRef] = useState(
     initialSectionRef || sectionOptions[0]?.sectionRef || "",
   );
-  const [inspectionPointKey, setInspectionPointKey] = useState("");
-  const [subPointKey, setSubPointKey] = useState("");
+  const [fieldKey, setFieldKey] = useState("");
 
-  const destinationsForSection = useMemo(
+  const fieldsForSection = useMemo(
     () => destinations.filter((d) => d.sectionRef === sectionRef),
     [destinations, sectionRef],
   );
 
-  const inspectionPoints = useMemo(
-    () => destinationsForSection.filter((d) => !d.parentFieldKey),
-    [destinationsForSection],
-  );
-
-  const effectiveInspectionPointKey =
-    inspectionPointKey && inspectionPoints.some((f) => f.fieldKey === inspectionPointKey)
-      ? inspectionPointKey
-      : inspectionPoints[0]?.fieldKey || "";
-
-  const subPoints = useMemo(
-    () =>
-      destinationsForSection.filter(
-        (d) => d.parentFieldKey === effectiveInspectionPointKey,
-      ),
-    [destinationsForSection, effectiveInspectionPointKey],
-  );
-
-  const hasSubPoints = subPoints.length > 0;
-
-  const effectiveSubPointKey =
-    hasSubPoints && subPoints.some((s) => s.fieldKey === subPointKey)
-      ? subPointKey
-      : subPoints[0]?.fieldKey || "";
-
-  const assignFieldKey = hasSubPoints ? effectiveSubPointKey : effectiveInspectionPointKey;
+  const effectiveFieldKey =
+    fieldKey && fieldsForSection.some((f) => f.fieldKey === fieldKey)
+      ? fieldKey
+      : fieldsForSection[0]?.fieldKey || "";
 
   useEffect(() => {
     if (!open) return;
     const nextSection = initialSectionRef || sectionOptions[0]?.sectionRef || "";
     setSectionRef(nextSection);
     const sectionDests = destinations.filter((d) => d.sectionRef === nextSection);
-    const tops = sectionDests.filter((d) => !d.parentFieldKey);
-    let nextPoint = tops[0]?.fieldKey || "";
-    let nextSub = "";
-    if (initialFieldKey) {
-      const initial = sectionDests.find((d) => d.fieldKey === initialFieldKey);
-      if (initial?.parentFieldKey) {
-        nextPoint = initial.parentFieldKey;
-        nextSub = initial.fieldKey;
-      } else if (initial && !initial.parentFieldKey) {
-        nextPoint = initial.fieldKey;
-        const kids = sectionDests.filter((d) => d.parentFieldKey === nextPoint);
-        nextSub = kids[0]?.fieldKey || "";
-      }
-    } else {
-      const kids = sectionDests.filter((d) => d.parentFieldKey === nextPoint);
-      nextSub = kids[0]?.fieldKey || "";
-    }
-    setInspectionPointKey(nextPoint);
-    setSubPointKey(nextSub);
+    const nextField =
+      initialFieldKey && sectionDests.some((d) => d.fieldKey === initialFieldKey)
+        ? initialFieldKey
+        : sectionDests[0]?.fieldKey || "";
+    setFieldKey(nextField);
   }, [open, initialSectionRef, initialFieldKey, destinations, sectionOptions]);
 
   return (
@@ -142,8 +105,7 @@ export function AssignDestinationDialog({
               value={sectionRef}
               onValueChange={(v) => {
                 setSectionRef(v);
-                setInspectionPointKey("");
-                setSubPointKey("");
+                setFieldKey("");
               }}
             >
               <SelectTrigger data-testid="gallery-assign-section">
@@ -160,19 +122,12 @@ export function AssignDestinationDialog({
           </div>
           <div className="space-y-2">
             <Label>Inspection Point</Label>
-            <Select
-              value={effectiveInspectionPointKey}
-              onValueChange={(v) => {
-                setInspectionPointKey(v);
-                const kids = destinationsForSection.filter((d) => d.parentFieldKey === v);
-                setSubPointKey(kids[0]?.fieldKey || "");
-              }}
-            >
+            <Select value={effectiveFieldKey} onValueChange={setFieldKey}>
               <SelectTrigger data-testid="gallery-assign-field">
                 <SelectValue placeholder="Select inspection point" />
               </SelectTrigger>
               <SelectContent>
-                {inspectionPoints.map((f) => (
+                {fieldsForSection.map((f) => (
                   <SelectItem key={`${f.sectionRef}-${f.fieldKey}`} value={f.fieldKey}>
                     {f.fieldLabel}
                   </SelectItem>
@@ -180,23 +135,6 @@ export function AssignDestinationDialog({
               </SelectContent>
             </Select>
           </div>
-          {hasSubPoints && (
-            <div className="space-y-2">
-              <Label>Sub Inspection Point</Label>
-              <Select value={effectiveSubPointKey} onValueChange={setSubPointKey}>
-                <SelectTrigger data-testid="gallery-assign-sub-field">
-                  <SelectValue placeholder="Select sub inspection point" />
-                </SelectTrigger>
-                <SelectContent>
-                  {subPoints.map((f) => (
-                    <SelectItem key={`${f.sectionRef}-${f.fieldKey}`} value={f.fieldKey}>
-                      {f.fieldLabel}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </div>
         <DialogFooter className="gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
@@ -207,10 +145,10 @@ export function AssignDestinationDialog({
             disabled={
               busy ||
               !sectionRef ||
-              !assignFieldKey ||
+              !effectiveFieldKey ||
               selectedCount > GALLERY_FIELD_PHOTO_MAX
             }
-            onClick={() => onConfirm(sectionRef, assignFieldKey)}
+            onClick={() => onConfirm(sectionRef, effectiveFieldKey)}
             data-testid="gallery-assign-confirm"
           >
             {busy ? "Saving…" : confirmLabel}

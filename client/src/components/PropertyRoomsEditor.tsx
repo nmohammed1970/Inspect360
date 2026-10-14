@@ -223,12 +223,13 @@ export function PropertyRoomsEditor({
       });
       return;
     }
+    const sameCategoryCount = rooms.filter((r) => r.categoryId === fallback.id).length;
     onChange([
       ...rooms,
       {
         clientKey: newClientKey(),
         categoryId: fallback.id,
-        name: fallback.name,
+        name: `${fallback.name} ${sameCategoryCount + 1}`,
         widthMm: null,
         lengthMm: null,
         ceilingHeightMm: null,
@@ -361,9 +362,16 @@ export function PropertyRoomsEditor({
                       disabled={disabled}
                       onValueChange={(v) => {
                         const cat = categories.find((c) => c.id === v);
+                        const nextIndex =
+                          rooms.filter((r) => r.categoryId === v && r.clientKey !== room.clientKey)
+                            .length + 1;
                         updateRoom(room.clientKey, {
                           categoryId: v,
-                          name: room.name.trim() ? room.name : cat?.name || room.name,
+                          name: room.name.trim()
+                            ? room.name
+                            : cat
+                              ? `${cat.name} ${nextIndex}`
+                              : room.name,
                         });
                       }}
                     >

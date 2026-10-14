@@ -59,8 +59,6 @@ export function InspectionGalleryPanel({
   const [filter, setFilter] = useState<FilterKey>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignSectionRef, setAssignSectionRef] = useState<string | null>(null);
-  const [assignPointKey, setAssignPointKey] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -199,42 +197,6 @@ export function InspectionGalleryPanel({
       'Delete Photos',
       `Remove ${selected.size} photo(s) from the gallery and all field assignments?`,
       [
-        `An inspection point can have at most ${GALLERY_FIELD_PHOTO_MAX} photos. Deselect some and try again.`,
-      );
-      return;
-    }
-    setBusy(true);
-    try {
-      await inspectionGalleryService.assign(
-        inspectionId,
-        Array.from(selected),
-        dest.sectionRef,
-        dest.fieldKey,
-      );
-      setSelected(new Set());
-      setAssignOpen(false);
-      setAssignSectionRef(null);
-      setAssignPointKey(null);
-      await invalidate();
-    } catch (e: any) {
-      Alert.alert('Assign Failed', e?.message || 'Could not assign photos');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const openAssignModal = () => {
-    setAssignSectionRef(null);
-    setAssignPointKey(null);
-    setAssignOpen(true);
-  };
-
-  const handleDelete = () => {
-    if (!selected.size) return;
-    Alert.alert(
-      'Delete Photos',
-      `Remove ${selected.size} photo(s) from the gallery and all field assignments?`,
-      [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
@@ -335,13 +297,24 @@ export function InspectionGalleryPanel({
               </Text>
             )}
           </View>
-          <TouchableOpacity
-            onPress={() => {
-              if (selected.size > GALLERY_FIELD_PHOTO_MAX) return;
-              openAssignModal();
-          <TouchableOpacity onPress={() => setSelected(new Set())}>
-            <Text style={{ color: themeColors.text.secondary }}>Clear</Text>
-          </TouchableOpacity>
+          <View style={styles.selAction}>
+            <TouchableOpacity
+              onPress={() => {
+                if (selected.size > GALLERY_FIELD_PHOTO_MAX) return;
+                setAssignOpen(true);
+              }}
+              disabled={busy || selected.size > GALLERY_FIELD_PHOTO_MAX}
+              style={{ marginRight: spacing[3] }}
+            >
+              <Text style={{ color: themeColors.primary.DEFAULT, fontWeight: '600' }}>Assign</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDelete} disabled={busy} style={{ marginRight: spacing[3] }}>
+              <Trash2 size={18} color={themeColors.destructive.DEFAULT} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setSelected(new Set())}>
+              <Text style={{ color: themeColors.text.secondary }}>Clear</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -433,121 +406,49 @@ export function InspectionGalleryPanel({
             <Button title="Cancel" onPress={() => setAssignOpen(false)} variant="outline" />
           </View>
         </View>
-      <Modal
-        visible={assignOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          setAssignOpen(false);
-          setAssignSectionRef(null);
-          setAssignPointKey(null);
-        }}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: themeColors.card.DEFAULT }]}>
-            <Text style={[styles.modalTitle, { color: themeColors.text.primary }]}>
-              {!assignSectionRef
-                ? 'Select Section'
-                : !assignPointKey
-                  ? 'Select Inspection Point'
-                  : assignSubPoints.length > 0
-                    ? 'Select Sub Inspection Point'
-                    : 'Assign Photos'}
-            </Text>
-            {destinationsQuery.isLoading && <ActivityIndicator color={themeColors.primary.DEFAULT} />}
-            <ScrollView style={{ maxHeight: 360 }}>
-              {!assignSectionRef &&
-                assignSections.map((s) => (
-                  <TouchableOpacity
-                    key={s.sectionRef}
-                    style={[styles.destRow, { borderColor: themeColors.border.DEFAULT }]}
-                    onPress={() => {
-                      setAssignSectionRef(s.sectionRef);
-                      setAssignPointKey(null);
-                    }}
-                    disabled={busy}
-                  >
-                    <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>
-                      {s.sectionLabel}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              {!!assignSectionRef &&
-                !assignPointKey &&
-                assignInspectionPoints.map((dest) => (
-                  <TouchableOpacity
-                    key={`${dest.sectionRef}-${dest.fieldKey}`}
-                    style={[styles.destRow, { borderColor: themeColors.border.DEFAULT }]}
-                    onPress={() => {
-                      const kids = destinations.filter(
-                        (d) =>
-                          d.sectionRef === dest.sectionRef &&
-                          d.parentFieldKey === dest.fieldKey,
-                      );
-                      if (kids.length > 0) {
-                        setAssignPointKey(dest.fieldKey);
-                      } else {
-                        void handleAssign(dest);
-                      }
-                    }}
-                    disabled={busy}
-                  >
-                    <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>
-                      {dest.fieldLabel}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              {!!assignSectionRef &&
-                !!assignPointKey &&
-                assignSubPoints.map((dest) => (
-                  <TouchableOpacity
-                    key={`${dest.sectionRef}-${dest.fieldKey}`}
-                    style={[styles.destRow, { borderColor: themeColors.border.DEFAULT }]}
-                    onPress={() => void handleAssign(dest)}
-                    disabled={busy}
-                  >
-                    <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>
-                      {dest.fieldLabel}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              {!destinationsQuery.isLoading && destinations.length === 0 && (
-                <Text style={{ color: themeColors.text.secondary, textAlign: 'center', padding: spacing[4] }}>
-                  No inspection points available in this template.
-                </Text>
-              )}
-            </ScrollView>
-            <View style={{ gap: spacing[2] }}>
-              {!!assignPointKey && (
-                <Button
-                  title="Back"
-                  onPress={() => setAssignPointKey(null)}
-                  variant="outline"
-                />
-              )}
-              {!assignPointKey && !!assignSectionRef && (
-                <Button
-                  title="Back"
-                  onPress={() => setAssignSectionRef(null)}
-                  variant="outline"
-                />
-              )}
-              <Button
-                title="Cancel"
-                onPress={() => {
-                  setAssignOpen(false);
-                  setAssignSectionRef(null);
-                  setAssignPointKey(null);
-                }}
-                variant="outline"
-              />
-            </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  centered: { alignItems: 'center', justifyContent: 'center', padding: spacing[4] },
+  toolbar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+    marginBottom: spacing[3],
+  },
+  filterChip: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2],
+    borderRadius: borderRadius.full || 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: spacing[2],
+    marginBottom: spacing[3],
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.md || 8,
+  },
+  actionBtnText: { fontWeight: '600', fontSize: typography.fontSize.sm },
+  selectionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: spacing[3],
     padding: spacing[2],
     borderRadius: borderRadius.md || 8,
+    marginBottom: spacing[2],
   },
   selAction: { flexDirection: 'row', alignItems: 'center' },
   loadingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing[2] },

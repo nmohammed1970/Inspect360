@@ -362,7 +362,7 @@ export default function PropertyDetail() {
       for (let i = 1; i <= count; i++) {
         fromCounts.push({
           id: `layout-${label}-${i}`,
-          name: count === 1 ? label : `${label} ${i}`,
+          name: `${label} ${i}`,
           categoryName: label,
           hasDetails: false,
         });

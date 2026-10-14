@@ -3,6 +3,14 @@ import puppeteer from "puppeteer";
 import chromium from "@sparticuz/chromium";
 import { format } from "date-fns";
 import { parseSignatureValue, isTenantSignatureField, formatSignerDisplayName } from "@shared/signature";
+import {
+  cipCountFieldKey,
+  expandCipFieldsForCount,
+  getCipsForSection,
+  isMetaSection,
+  parseCipExpandedFieldKey,
+  resolveCipInstanceCount,
+} from "@shared/templateCustomInspectionPoints";
 import { parseInspectionNote } from "@shared/inspectionNoteSections";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 import {
@@ -921,6 +929,64 @@ function generateInspectionHTML(
     return { rowHTML, photoHTML };
   };
 
+  const appendCipFieldsForSectionRef = (
+    section: TemplateSection,
+    sectionRef: string,
+    fieldCounter: number,
+    sectionIndex: number,
+    sectionHasCondition: boolean,
+    sectionHasCleanliness: boolean,
+  ): { rowsHTML: string; photosHTML: string; fieldCounter: number } => {
+    let rowsHTML = "";
+    let photosHTML = "";
+    let counter = fieldCounter;
+    const sectionCips = getCipsForSection(templateStructure as any, section as any);
+    if (isMetaSection(section) || !sectionCips.length) {
+      return { rowsHTML, photosHTML, fieldCounter: counter };
+    }
+
+    for (const cip of sectionCips) {
+      const countKey = `${sectionRef}-${cipCountFieldKey(cip.id)}`;
+      const count = resolveCipInstanceCount(cip, entriesMap.get(countKey)?.valueJson);
+      if (count < 1) continue;
+
+      const expanded = expandCipFieldsForCount(cip, count);
+      for (const exp of expanded) {
+        const parsed = parseCipExpandedFieldKey(exp.id);
+        const baseField = (cip.fields || []).find(
+          (f) => String(f.id || f.key || "") === parsed?.fieldId,
+        );
+        const fieldForRow: TemplateField = {
+          ...(baseField as TemplateField),
+          id: exp.id,
+          key: exp.id,
+          label: exp.label,
+          type: (baseField?.type as string) || "short_text",
+        };
+        if (
+          !includeTenantSurfaces &&
+          fieldForRow.type === "signature" &&
+          isTenantSignatureField(fieldForRow)
+        ) {
+          continue;
+        }
+        counter++;
+        const { rowHTML, photoHTML } = renderFieldRow(
+          fieldForRow,
+          sectionRef,
+          counter,
+          sectionIndex,
+          sectionHasCondition,
+          sectionHasCleanliness,
+        );
+        rowsHTML += rowHTML;
+        if (photoHTML) photosHTML += photoHTML;
+      }
+    }
+
+    return { rowsHTML, photosHTML, fieldCounter: counter };
+  };
+
   // Generate sections HTML - Table format matching UI
   let sectionsHTML = "";
   sections.forEach((section, sectionIndex) => {
@@ -987,6 +1053,18 @@ function generateInspectionHTML(
           }
         });
 
+        const cipRendered = appendCipFieldsForSectionRef(
+          section,
+          instanceSectionRef,
+          fieldCounter,
+          sectionIndex,
+          sectionHasCondition,
+          sectionHasCleanliness,
+        );
+        fieldCounter = cipRendered.fieldCounter;
+        instanceTableRowsHTML += cipRendered.rowsHTML;
+        instancePhotosGalleryHTML += cipRendered.photosHTML;
+
         // Build HTML for this instance: table + photos immediately after
         // Allow page breaks inside large sections — avoid only on small units (rows/photos)
         sectionHTML += `
@@ -1048,6 +1126,18 @@ function generateInspectionHTML(
           photosGalleryHTML += photoHTML;
         }
       });
+
+      const cipRendered = appendCipFieldsForSectionRef(
+        section,
+        section.id,
+        fieldCounter,
+        sectionIndex,
+        sectionHasCondition,
+        sectionHasCleanliness,
+      );
+      fieldCounter = cipRendered.fieldCounter;
+      tableRowsHTML += cipRendered.rowsHTML;
+      photosGalleryHTML += cipRendered.photosHTML;
 
       // Build section HTML with table format - always include all sections
       sectionsHTML += `

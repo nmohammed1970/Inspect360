@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Star, Upload, Calendar, Clock, MapPin, X, Sparkles, Trash2, Save, Eye, Wrench, ZoomIn, Mic, Square, Loader2, Play, Plus } from "lucide-react";
+import { Star, Upload, Calendar, Clock, MapPin, X, Sparkles, Trash2, Save, Eye, Wrench, ZoomIn, Mic, Square, Loader2, Play } from "lucide-react";
 import { GalleryPickDialog } from "@/components/inspection-gallery/GalleryPickDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -70,12 +70,6 @@ interface FieldWidgetProps {
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[], note?: string) => void;
-  /** Add a nested sub-point under this custom inspection point. */
-  onAddSubPoint?: () => void;
-  addingSubPoint?: boolean;
-  /** Remove a custom inspection point added during capture. */
-  onDeleteCustomPoint?: () => void;
-  deletingCustomPoint?: boolean;
 }
 
 export function FieldWidget({
@@ -94,10 +88,6 @@ export function FieldWidget({
   onChange,
   onMarkedForReviewChange,
   onLogMaintenance,
-  onAddSubPoint,
-  addingSubPoint = false,
-  onDeleteCustomPoint,
-  deletingCustomPoint = false,
 }: FieldWidgetProps) {
   const isOnline = useOnlineStatus();
   const locale = useLocale();
@@ -1972,24 +1962,6 @@ export function FieldWidget({
           <span className="break-words min-w-0">{field.label}</span>
           {field.required && <span className="text-destructive shrink-0">*</span>}
         </Label>
-        {onDeleteCustomPoint && !disabled && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 min-h-9"
-            onClick={onDeleteCustomPoint}
-            disabled={deletingCustomPoint}
-            data-testid={`button-delete-custom-point-${field.id}`}
-          >
-            {deletingCustomPoint ? (
-              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-            ) : (
-              <Trash2 className="w-4 h-4 mr-1" />
-            )}
-            Remove
-          </Button>
-        )}
       </div>
 
       <div className="space-y-3 p-4 sm:p-5">
@@ -2390,42 +2362,21 @@ export function FieldWidget({
         </div>
       )}
 
-      {/* Point actions — Log Maintenance + Add Sub on one responsive row */}
-      {((inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array")) ||
-        (onAddSubPoint && !disabled)) && (
-        <div className="pt-2 flex flex-col sm:flex-row gap-2">
-          {inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array") && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
-                onLogMaintenance(field.label, fieldPhotos, localNote || note || undefined);
-              }}
-              data-testid={`button-log-maintenance-${field.id}`}
-              className="w-full sm:flex-1 min-h-11 justify-center"
-            >
-              <Wrench className="w-4 h-4 mr-2 shrink-0" />
-              Log Maintenance
-            </Button>
-          )}
-          {onAddSubPoint && !disabled && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onAddSubPoint}
-              disabled={addingSubPoint || !isOnline}
-              data-testid={`button-add-sub-point-${field.id}`}
-              className="w-full sm:flex-1 min-h-11 justify-center border-dashed"
-            >
-              {addingSubPoint ? (
-                <Loader2 className="w-4 h-4 mr-2 shrink-0 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4 mr-2 shrink-0" />
-              )}
-              Add Sub Inspection Point
-            </Button>
-          )}
+      {inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array") && (
+        <div className="pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
+              onLogMaintenance(field.label, fieldPhotos, localNote || note || undefined);
+            }}
+            data-testid={`button-log-maintenance-${field.id}`}
+            className="w-full min-h-11 justify-center"
+          >
+            <Wrench className="w-4 h-4 mr-2 shrink-0" />
+            Log Maintenance
+          </Button>
         </div>
       )}
 

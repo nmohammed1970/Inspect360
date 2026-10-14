@@ -874,7 +874,7 @@ export default function Settings() {
                             <div className="flex flex-wrap gap-2">
                               <Button
                                 type="button"
-                                variant="outline"
+                                variant="brand"
                                 disabled={
                                   extractBrandColorsMutation.isPending ||
                                   !brandingWebsite.trim()
