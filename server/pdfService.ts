@@ -665,23 +665,39 @@ function generateInspectionHTML(
     </span>`;
   };
 
-  // Helper function to extract repeatable instances from entries
-  const getRepeatableInstances = (sectionId: string): string[] => {
-    const instanceSet = new Set<string>();
+  // Prefer property-floor-plan instances (stable sectionRef + display title), else entry-derived.
+  type SectionInstance = { sectionRef: string; title: string };
+  const getRepeatableInstances = (sectionId: string): SectionInstance[] => {
+    const roomInstances = Array.isArray((templateStructure as any)?.propertyRoomInstances)
+      ? ((templateStructure as any).propertyRoomInstances as Array<{
+          sectionRef?: string;
+          title?: string;
+        }>)
+      : [];
+    const fromRooms = roomInstances
+      .filter((r) => String(r.sectionRef || "").startsWith(`${sectionId}/`))
+      .map((r) => ({
+        sectionRef: String(r.sectionRef),
+        title: String(r.title || r.sectionRef?.split("/")[1] || sectionId).trim(),
+      }));
+    if (fromRooms.length > 0) return fromRooms;
+
+    const instanceMap = new Map<string, string>();
     entries.forEach((entry) => {
       if (entry.sectionRef.startsWith(`${sectionId}/`)) {
-        const instanceName = entry.sectionRef.split('/')[1];
+        const instanceName = entry.sectionRef.split("/")[1];
         if (instanceName) {
-          instanceSet.add(instanceName);
+          instanceMap.set(entry.sectionRef, instanceName);
         }
       }
     });
-    // Sort instances by number (e.g., "Bedroom 1", "Bedroom 2", ...)
-    return Array.from(instanceSet).sort((a, b) => {
-      const numA = parseInt(a.match(/\d+$/)?.[0] || '0', 10);
-      const numB = parseInt(b.match(/\d+$/)?.[0] || '0', 10);
-      return numA - numB;
-    });
+    return Array.from(instanceMap.entries())
+      .map(([sectionRef, title]) => ({ sectionRef, title }))
+      .sort((a, b) => {
+        const numA = parseInt(a.title.match(/\d+$/)?.[0] || "0", 10);
+        const numB = parseInt(b.title.match(/\d+$/)?.[0] || "0", 10);
+        return numA - numB;
+      });
   };
 
   // Helper function to render a field row (used for both repeatable and non-repeatable sections)
@@ -866,14 +882,14 @@ function generateInspectionHTML(
     let photoHTML = '';
     if (photoCount > 0) {
       photoHTML = `
-        <div style="margin-top: 20px; page-break-inside: avoid;">
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-left: 4px;">
+        <div style="margin-top: 20px;">
+          <div class="keep-with-next" style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-left: 4px;">
             <span style="font-size: 16px;">&#128247;</span>
             <span style="font-weight: 600; color: #333; font-size: 15px;">${escapeHtml(field.label)} Photos</span>
           </div>
           <div style="display: flex; flex-wrap: wrap; gap: 20px;">
             ${photos.map((photo, photoIndex) => `
-              <div style="width: 300px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white;">
+              <div class="photo-card" style="width: 300px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: white;">
                 <div style="height: 200px; background: #f9fafb; position: relative;">
                   <img src="${sanitizeUrl(photo, baseUrl)}" alt="Photo" style="width: 100%; height: 100%; object-fit: cover;" />
                 </div>
@@ -930,8 +946,9 @@ function generateInspectionHTML(
       // Render each instance separately with photos inline
       let sectionHTML = '';
       
-      instances.forEach((instanceName, instanceIndex) => {
-        const instanceSectionRef = `${section.id}/${instanceName}`;
+      instances.forEach((instance, instanceIndex) => {
+        const instanceSectionRef = instance.sectionRef;
+        const instanceName = instance.title;
         let instanceTableRowsHTML = '';
         let instancePhotosGalleryHTML = '';
         let fieldCounter = 0;
@@ -971,8 +988,9 @@ function generateInspectionHTML(
         });
 
         // Build HTML for this instance: table + photos immediately after
+        // Allow page breaks inside large sections — avoid only on small units (rows/photos)
         sectionHTML += `
-          <div style="margin-bottom: 24px; page-break-inside: avoid;">
+          <div class="report-section-block" style="margin-bottom: 24px;">
             <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
               <thead>
                 <tr style="background: #f9fafb;">
@@ -994,8 +1012,8 @@ function generateInspectionHTML(
 
       // Build section HTML with all instances (each with inline photos)
       sectionsHTML += `
-        <div style="margin-bottom: 32px; page-break-inside: avoid;">
-          <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+        <div class="report-section report-section-room" style="margin-bottom: 32px;">
+          <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
             ${escapeHtml(section.title)}
           </h2>
           ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${escapeHtml(section.description)}</p>` : ""}
@@ -1033,8 +1051,8 @@ function generateInspectionHTML(
 
       // Build section HTML with table format - always include all sections
       sectionsHTML += `
-        <div style="margin-bottom: 32px; page-break-inside: avoid;">
-          <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+        <div class="report-section report-section-room" style="margin-bottom: 32px;">
+          <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
             ${escapeHtml(section.title)}
           </h2>
           ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${escapeHtml(section.description)}</p>` : ""}
@@ -1096,8 +1114,8 @@ function generateInspectionHTML(
   // Build glossary HTML conditionally
   const glossaryHTML = config.showGlossary ? `
     <!-- Glossary of Terms - Landscape optimized 2-column layout -->
-    <div style="margin-bottom: 32px; page-break-inside: avoid;">
-      <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+    <div class="report-section keep-together" style="margin-bottom: 32px;">
+      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
         Glossary of Terms
       </h2>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
@@ -1239,8 +1257,8 @@ function generateInspectionHTML(
   // Build maintenance log HTML conditionally
   const maintenanceLogHTML = config.showMaintenanceLog && maintenanceRequests && maintenanceRequests.length > 0 ? `
     <!-- Outstanding Maintenance Requests -->
-    <div style="margin-bottom: 32px; page-break-inside: avoid;">
-      <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+    <div class="report-section" style="margin-bottom: 32px;">
+      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
         Outstanding Maintenance Requests
       </h2>
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
@@ -1291,8 +1309,8 @@ function generateInspectionHTML(
   // Build Terms and Conditions HTML conditionally
   const termsConditionsHTML = config.showTermsConditions && config.termsConditionsText ? `
     <!-- Terms and Conditions -->
-    <div style="margin-bottom: 32px; page-break-inside: avoid;">
-      <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+    <div class="report-section" style="margin-bottom: 32px;">
+      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
         Terms and Conditions
       </h2>
       <div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
@@ -1304,9 +1322,9 @@ function generateInspectionHTML(
   // Build Closing Section HTML conditionally
   const closingSectionHTML = config.showClosingSection && config.closingSectionText ? `
     <!-- Closing Section -->
-    <div style="margin-bottom: 32px; page-break-inside: avoid;">
+    <div class="report-section" style="margin-bottom: 32px;">
       ${config.closingSectionTitle ? `
-        <h2 style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+        <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
           ${escapeHtml(config.closingSectionTitle)}
         </h2>
       ` : ''}
@@ -1561,6 +1579,7 @@ function generateInspectionHTML(
       grid-template-columns: repeat(3, 1fr);
       gap: 16px;
       margin-bottom: 24px;
+      break-inside: avoid;
       page-break-inside: avoid;
     }
 
@@ -1591,10 +1610,31 @@ function generateInspectionHTML(
     }
 
 
-    /* Section styles - Landscape optimized */
-    .section {
+    /* Section styles - Landscape optimized.
+       Do NOT set page-break-inside:avoid on whole sections — tall rooms/photos
+       force Chromium to leave nearly blank pages. Keep titles with content and
+       avoid breaks only inside small units (rows, photo cards).
+       Each room/space section starts on its own page. */
+    .section,
+    .report-section {
       margin-bottom: 28px;
-      page-break-inside: avoid;
+    }
+
+    .report-section-room {
+      break-before: page;
+      page-break-before: always;
+    }
+
+    .report-section-block + .report-section-block {
+      break-before: page;
+      page-break-before: always;
+    }
+
+    .section-title,
+    .report-section-title,
+    .keep-with-next {
+      break-after: avoid;
+      page-break-after: avoid;
     }
 
     .section-title {
@@ -1604,6 +1644,26 @@ function generateInspectionHTML(
       margin-bottom: 14px;
       padding-bottom: 8px;
       border-bottom: 2px solid #00D5CC;
+    }
+
+    .photo-card,
+    .keep-together {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    table {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+
+    thead {
+      display: table-header-group;
+    }
+
+    tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     /* Photo grid - Landscape optimized for more columns */
@@ -1617,6 +1677,8 @@ function generateInspectionHTML(
       border: 1px solid #e5e7eb;
       border-radius: 8px;
       overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     .photo-item img {

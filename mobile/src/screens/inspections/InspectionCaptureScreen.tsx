@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
+  Modal,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -41,13 +42,19 @@ import {
   repeatableCountsFromPropertyLayout,
 } from '../../../../shared/propertyLayout';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, Trash2, Camera, ListChecks, X } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import FormScreen from '../../components/ui/FormScreen';
+import {
+  canAddCustomPointsToSection,
+  getChildFields,
+  getTopLevelFields,
+  isCustomPointField,
+} from '../../../../shared/inspectionCustomPoints';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
@@ -72,6 +79,8 @@ interface TemplateField {
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  custom?: boolean;
+  parentFieldId?: string;
 }
 
 export default function InspectionCaptureScreen() {
@@ -107,6 +116,13 @@ export default function InspectionCaptureScreen() {
   const [copyNotes, setCopyNotes] = useState(false);
   const [syncStats, setSyncStats] = useState({ pendingEntries: 0, pendingImages: 0, queuedOperations: 0 });
 
+  const [showAddPointModal, setShowAddPointModal] = useState(false);
+  const [newPointName, setNewPointName] = useState('');
+  const [addPointKind, setAddPointKind] = useState<'photo_condition' | 'choice'>('photo_condition');
+  const [addPointOptions, setAddPointOptions] = useState<string[]>(['Yes', 'No']);
+  const [addPointOptionDraft, setAddPointOptionDraft] = useState('');
+  const [addPointParent, setAddPointParent] = useState<{ id: string; label: string } | null>(null);
+  const addPointRequestIdRef = useRef<string | null>(null);
   // Load sync stats periodically
   useEffect(() => {
     const loadSyncStats = async () => {
@@ -305,6 +321,129 @@ export default function InspectionCaptureScreen() {
   }, [aiAnalysisStatus?.status, inspectionId]); // Removed queryClient from dependencies - it's stable from useQueryClient()
 
   // Parse template structure (memoized to prevent re-parsing on every render)
+  const addCustomPoint = useMutation({
+    mutationFn: async (data: {
+      sectionId: string;
+      label: string;
+      kind: 'photo_condition' | 'choice';
+      options?: string[];
+      clientRequestId: string;
+      parentFieldId?: string;
+    }) => {
+      return inspectionsService.addCustomPoint(inspectionId, data);
+    },
+    onSuccess: (data, variables) => {
+      if (data.templateSnapshotJson) {
+        queryClient.setQueryData([`/api/inspections/${inspectionId}`], (prev: any) =>
+          prev
+            ? { ...prev, templateSnapshotJson: data.templateSnapshotJson }
+            : prev,
+        );
+      } else {
+        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
+      }
+      setShowAddPointModal(false);
+      setNewPointName('');
+      setAddPointKind('photo_condition');
+      setAddPointOptions(['Yes', 'No']);
+      setAddPointOptionDraft('');
+      setAddPointParent(null);
+      addPointRequestIdRef.current = null;
+      Alert.alert(
+        variables.parentFieldId ? 'Sub-point added' : 'Inspection point added',
+        data.field?.label
+          ? `"${data.field.label}" is ready to inspect`
+          : 'Custom inspection point added',
+      );
+    },
+    onError: (error: any) => {
+      addPointRequestIdRef.current = null;
+      Alert.alert(
+        'Could not add inspection point',
+        error?.message || 'Please try again',
+      );
+    },
+  });
+
+  const deleteCustomPoint = useMutation({
+    mutationFn: async (data: { sectionId: string; fieldId: string }) => {
+      return inspectionsService.deleteCustomPoint(inspectionId, data);
+    },
+    onSuccess: (data: any) => {
+      if (data.templateSnapshotJson) {
+        queryClient.setQueryData([`/api/inspections/${inspectionId}`], (prev: any) =>
+          prev
+            ? { ...prev, templateSnapshotJson: data.templateSnapshotJson }
+            : prev,
+        );
+      } else {
+        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
+      }
+      const ids = new Set(
+        data.removedFieldIds?.length ? data.removedFieldIds : data.fieldId ? [data.fieldId] : [],
+      );
+      if (ids.size > 0) {
+        setEntries((prev) => {
+          const next = { ...prev };
+          for (const key of Object.keys(next)) {
+            if (ids.has(next[key]?.fieldKey)) {
+              delete next[key];
+            }
+          }
+          return next;
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      Alert.alert('Inspection point removed', 'The custom inspection point was deleted from this inspection.');
+    },
+    onError: (error: any) => {
+      Alert.alert('Could not remove inspection point', error?.message || 'Please try again');
+    },
+  });
+
+  const openAddPointModal = (parent?: { id: string; label: string } | null) => {
+    setNewPointName('');
+    setAddPointKind('photo_condition');
+    setAddPointOptions(['Yes', 'No']);
+    setAddPointOptionDraft('');
+    addPointRequestIdRef.current = null;
+    setAddPointParent(parent || null);
+    setShowAddPointModal(true);
+  };
+
+  const addChoiceOptionMobile = () => {
+    const trimmed = addPointOptionDraft.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return;
+    if (addPointOptions.some((o) => o.toLowerCase() === trimmed.toLowerCase())) {
+      Alert.alert('Duplicate option', 'That option is already in the list');
+      return;
+    }
+    if (addPointOptions.length >= 50) {
+      Alert.alert('Limit reached', 'You can add up to 50 options');
+      return;
+    }
+    setAddPointOptions((prev) => [...prev, trimmed]);
+    setAddPointOptionDraft('');
+  };
+
+  const requestDeleteCustomPoint = (sectionId: string, field: TemplateField) => {
+    const isParent = isCustomPointField(field) && !(field as any).parentFieldId;
+    Alert.alert(
+      'Remove inspection point?',
+      isParent
+        ? `Remove "${field.label}" and any sub-points? Photos and notes for these points will be deleted.`
+        : `Remove "${field.label}" from this inspection? Any photos and notes for this point will be deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => deleteCustomPoint.mutate({ sectionId, fieldId: field.id }),
+        },
+      ],
+    );
+  };
+
   const sections = useMemo(() => {
     const inspectionToUse = effectiveInspection;
     if (!inspectionToUse?.templateSnapshotJson) {
@@ -1697,6 +1836,23 @@ export default function InspectionCaptureScreen() {
 
                             return (
                               <View key={`${instanceIndex}-${field.id || field.key || `field-${Math.random()}`}`} style={styles.fieldContainer}>
+                                {isCustomPointField(field) &&
+                                  instanceIndex === 0 &&
+                                  effectiveInspection?.status !== 'completed' &&
+                                  !isDeleted && (
+                                  <TouchableOpacity
+                                    onPress={() => requestDeleteCustomPoint(currentSection.id, field)}
+                                    disabled={deleteCustomPoint.isPending}
+                                    style={styles.removeCustomPointButton}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Remove ${field.label}`}
+                                  >
+                                    <Trash2 size={16} color={themeColors.destructive?.DEFAULT || '#dc2626'} />
+                                    <Text style={{ color: themeColors.destructive?.DEFAULT || '#dc2626', fontWeight: '600' }}>
+                                      Remove
+                                    </Text>
+                                  </TouchableOpacity>
+                                )}
                                 <FieldWidget
                                   field={field}
                                   value={entry?.valueJson}
@@ -1796,140 +1952,180 @@ export default function InspectionCaptureScreen() {
                     );
                   })
                 ) : !currentSection.repeatable ? (
-                  // Render normally for non-repeatable sections
-                  currentSection.fields.map((field, fieldIndex) => {
+                  // Render top-level fields; nest custom sub-points under parent
+                  getTopLevelFields(currentSection.fields).map((field, fieldIndex) => {
                     if (!field || !field.id && !field.key) {
                       console.warn('Invalid field found:', field);
                       return null;
                     }
 
                     try {
-                      const key = `${currentSection.id}-${field.id || field.key}`;
-                      const entry = entries[key];
-                      
-                      // CRITICAL FIX: Always use the key format (sectionRef-fieldKey) as entryId
-                      // This ensures consistency between entries and photos
-                      const properEntryId = entry?.id || key;
+                      const childFields = isCustomPointField(field)
+                        ? getChildFields(currentSection.fields, field.id)
+                        : [];
 
                       const lockBedroomCount =
                         roomsLockedFromProperty && isBedroomCountField(field);
 
-                      return (
-                        <View key={field.id || field.key || `field-${Math.random()}`} style={styles.fieldContainer}>
-                          <FieldWidget
-                            field={field}
-                            value={entry?.valueJson}
-                            note={entry?.note}
-                            photos={entry?.photos}
-                            inspectionId={inspectionId}
-                            entryId={properEntryId}
-                            sectionRef={currentSection.id}
-                            sectionName={currentSection.title}
-                            isCheckOut={effectiveInspection?.type === 'check_out'}
-                            markedForReview={entry?.markedForReview || false}
-                            disabled={
-                              effectiveInspection?.status === 'completed' ||
-                              isDeleted ||
-                              lockBedroomCount
+                      const getTenantNames = () => {
+                        if (!Array.isArray(tenants) || tenants.length === 0) return '';
+                        const tenantNames = tenants
+                          .map((t: any) => {
+                            return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName ||
+                                   (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` :
+                                   t.firstName || t.lastName || '');
+                          })
+                          .filter(Boolean);
+                        if (tenantNames.length > 0) return tenantNames.join(', ');
+                        const hasAnyTenant = tenants.some((t: any) =>
+                          t.tenantName || t.name || t.tenant || t.firstName || t.lastName
+                        );
+                        return hasAnyTenant ? 'Tenant assigned' : '';
+                      };
+
+                      const navigateToMaintenance = (
+                        fieldLabel: string,
+                        photos: string[] | undefined,
+                        pointEntry: any,
+                        pointEntryId: string,
+                      ) => {
+                        try {
+                          const fieldPhotos = (photos?.length ? photos : pointEntry?.photos || []).filter(Boolean);
+                          const rootNavigator = navigation.getParent()?.getParent();
+                          if (rootNavigator) {
+                            rootNavigator.dispatch(
+                              CommonActions.navigate('Main', {
+                                screen: 'Maintenance',
+                                params: {
+                                  screen: 'CreateMaintenance',
+                                  params: {
+                                    inspectionId,
+                                    propertyId: effectiveInspection?.propertyId,
+                                    blockId: effectiveInspection?.blockId,
+                                    fieldLabel,
+                                    photos: fieldPhotos,
+                                    entryId: pointEntry?.id || pointEntryId,
+                                    sectionTitle: currentSection?.title,
+                                  },
+                                },
+                              })
+                            );
+                          } else {
+                            const tabNavigator = navigation.getParent();
+                            if (tabNavigator) {
+                              (tabNavigator as any).navigate('Maintenance', {
+                                screen: 'CreateMaintenance',
+                                params: {
+                                  inspectionId,
+                                  propertyId: effectiveInspection?.propertyId,
+                                  blockId: effectiveInspection?.blockId,
+                                  fieldLabel,
+                                  photos,
+                                  entryId: pointEntry?.id || pointEntryId,
+                                  sectionTitle: currentSection?.title,
+                                },
+                              });
+                            } else {
+                              console.error('[InspectionCapture] Could not find navigator');
                             }
-                            autoContext={{
-                              inspectorName: resolvedInspectorName,
-                              address: property
-                                ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
-                                : block
-                                  ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
-                                  : '',
-                              tenantNames: Array.isArray(tenants) && tenants.length > 0
-                                ? (() => {
-                                    // Try to get tenant names from various possible data structures
-                                    const tenantNames = tenants
-                                      .map((t: any) => {
-                                        // Check various possible field names for tenant name
-                                        return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
-                                               (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
-                                               t.firstName || t.lastName || "");
-                                      })
-                                      .filter(Boolean);
-                                    
-                                    if (tenantNames.length > 0) {
-                                      return tenantNames.join(", ");
-                                    }
-                                    
-                                    // If no names found but tenants exist, check if they have any identifying info
-                                    const hasAnyTenant = tenants.some((t: any) => 
-                                      t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                                    );
-                                    
-                                    if (hasAnyTenant) {
-                                      // Return a generic message if we have tenant data but no names
-                                      return "Tenant assigned";
-                                    }
-                                    
-                                    return "";
-                                  })()
-                                : '',
-                              inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
-                            }}
-                            onChange={(value, note, photos) =>
-                              handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
-                            }
-                            onMarkedForReviewChange={(marked) => {
-                              handleFieldChange(currentSection.id, field.id || field.key || '', undefined, undefined, undefined, marked);
-                            }}
-                            onLogMaintenance={
-                              maintenanceEnabled
-                                ? (fieldLabel, photos) => {
-                              // Navigate to maintenance creation with context from inspection
-                              // Navigate from RootStack -> Main -> Maintenance -> CreateMaintenance
-                              try {
-                                const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(Boolean);
-                                // Get the root navigator (RootStack)
-                                const rootNavigator = navigation.getParent()?.getParent();
-                                if (rootNavigator) {
-                                  rootNavigator.dispatch(
-                                    CommonActions.navigate('Main', {
-                                      screen: 'Maintenance',
-                                      params: {
-                                        screen: 'CreateMaintenance',
-                                        params: {
-                                          inspectionId,
-                                          propertyId: effectiveInspection?.propertyId,
-                                          blockId: effectiveInspection?.blockId,
-                                          fieldLabel,
-                                          photos: fieldPhotos,
-                                          entryId: entry?.id || properEntryId,
-                                          sectionTitle: currentSection?.title,
-                                        },
-                                      },
-                                    })
-                                  );
-                                } else {
-                                  // Fallback: try tab navigator directly
-                                  const tabNavigator = navigation.getParent();
-                                  if (tabNavigator) {
-                                    (tabNavigator as any).navigate('Maintenance', {
-                                      screen: 'CreateMaintenance',
-                                      params: {
-                                        inspectionId,
-                                        propertyId: effectiveInspection?.propertyId,
-                                        blockId: effectiveInspection?.blockId,
-                                        fieldLabel,
-                                        photos,
-                                        entryId: entry?.id,
-                                        sectionTitle: currentSection?.title,
-                                      },
-                                    });
-                                  } else {
-                                    console.error('[InspectionCapture] Could not find navigator');
-                                  }
-                                }
-                              } catch (error) {
-                                console.error('[InspectionCapture] Navigation error:', error);
+                          }
+                        } catch (error) {
+                          console.error('[InspectionCapture] Navigation error:', error);
+                        }
+                      };
+
+                      const renderMobilePoint = (point: TemplateField) => {
+                        const pointKey = `${currentSection.id}-${point.id || point.key}`;
+                        const pointEntry = entries[pointKey];
+                        const pointEntryId = pointEntry?.id || pointKey;
+                        return (
+                          <View key={point.id || point.key} style={styles.fieldContainer}>
+                            {isCustomPointField(point) &&
+                              effectiveInspection?.status !== 'completed' &&
+                              !isDeleted && (
+                              <TouchableOpacity
+                                onPress={() => requestDeleteCustomPoint(currentSection.id, point)}
+                                disabled={deleteCustomPoint.isPending}
+                                style={styles.removeCustomPointButton}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove ${point.label}`}
+                              >
+                                <Trash2 size={16} color={themeColors.destructive?.DEFAULT || '#dc2626'} />
+                                <Text style={{ color: themeColors.destructive?.DEFAULT || '#dc2626', fontWeight: '600' }}>
+                                  Remove
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            <FieldWidget
+                              field={point}
+                              value={pointEntry?.valueJson}
+                              note={pointEntry?.note}
+                              photos={pointEntry?.photos}
+                              inspectionId={inspectionId}
+                              entryId={pointEntryId}
+                              sectionRef={currentSection.id}
+                              sectionName={currentSection.title}
+                              isCheckOut={effectiveInspection?.type === 'check_out'}
+                              markedForReview={pointEntry?.markedForReview || false}
+                              disabled={
+                                effectiveInspection?.status === 'completed' ||
+                                isDeleted ||
+                                (lockBedroomCount && point.id === field.id)
                               }
-                            }
-                                : undefined
-                            }
-                          />
+                              autoContext={{
+                                inspectorName: resolvedInspectorName,
+                                address: property
+                                  ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                                  : block
+                                    ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                                    : '',
+                                tenantNames: getTenantNames(),
+                                inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                              }}
+                              onChange={(value, note, photos) =>
+                                handleFieldChange(currentSection.id, point.id || point.key || '', value, note, photos)
+                              }
+                              onMarkedForReviewChange={(marked) => {
+                                handleFieldChange(currentSection.id, point.id || point.key || '', undefined, undefined, undefined, marked);
+                              }}
+                              onLogMaintenance={
+                                maintenanceEnabled
+                                  ? (fieldLabel, photos) =>
+                                      navigateToMaintenance(fieldLabel, photos, pointEntry, pointEntryId)
+                                  : undefined
+                              }
+                              onAddSubPoint={
+                                isCustomPointField(point) &&
+                                !point.parentFieldId &&
+                                effectiveInspection?.status !== 'completed' &&
+                                !isDeleted
+                                  ? () => openAddPointModal({ id: point.id, label: point.label })
+                                  : undefined
+                              }
+                              addingSubPoint={
+                                addCustomPoint.isPending &&
+                                addCustomPoint.variables?.parentFieldId === point.id
+                              }
+                            />
+                          </View>
+                        );
+                      };
+
+                      return (
+                        <View key={field.id || field.key || `field-${fieldIndex}`}>
+                          {renderMobilePoint(field)}
+                          {childFields.length > 0 && (
+                            <View
+                              style={{
+                                marginLeft: spacing[3],
+                                paddingLeft: spacing[3],
+                                borderLeftWidth: 2,
+                                borderLeftColor: themeColors.border?.DEFAULT || '#e5e7eb',
+                              }}
+                            >
+                              {childFields.map((child) => renderMobilePoint(child))}
+                            </View>
+                          )}
                         </View>
                       );
                     } catch (error) {
@@ -1943,6 +2139,40 @@ export default function InspectionCaptureScreen() {
                   })
                 ) : null}
               </>
+
+                {currentSection &&
+                  canAddCustomPointsToSection(currentSection) &&
+                  effectiveInspection?.status !== 'completed' &&
+                  !isDeleted && (
+                  <View style={[styles.addPointContainer, { borderTopColor: themeColors.border?.DEFAULT || '#e5e7eb' }]}>
+                    <TouchableOpacity
+                      onPress={() => openAddPointModal(null)}
+                      disabled={addCustomPoint.isPending || !isOnline}
+                      style={[
+                        styles.addPointButton,
+                        {
+                          borderColor: themeColors.border?.DEFAULT || '#e5e7eb',
+                          backgroundColor: themeColors.card.DEFAULT,
+                          opacity: addCustomPoint.isPending || !isOnline ? 0.6 : 1,
+                          minHeight: mdBtnHeight,
+                        },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Add Inspection Point"
+                    >
+                      <Plus size={18} color={themeColors.text.primary} />
+                      <Text style={[styles.addPointButtonText, { color: themeColors.text.primary }]}>
+                        Add Inspection Point
+                      </Text>
+                    </TouchableOpacity>
+                    {!isOnline && (
+                      <Text style={[styles.addPointHint, { color: themeColors.text.muted }]}>
+                        Connect to the internet to add a new inspection point.
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </>
             )}
             {!currentSection && (
               <View style={styles.centerContent}>
@@ -1953,6 +2183,258 @@ export default function InspectionCaptureScreen() {
             )}
         </FormScreen>
 
+        <Modal
+          visible={showAddPointModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            if (!addCustomPoint.isPending) {
+              setShowAddPointModal(false);
+              setNewPointName('');
+              setAddPointKind('photo_condition');
+              setAddPointOptions(['Yes', 'No']);
+              setAddPointOptionDraft('');
+              setAddPointParent(null);
+              addPointRequestIdRef.current = null;
+            }
+          }}
+        >
+          <View style={styles.addPointModalOverlay}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+            >
+              <View style={[styles.addPointModalCard, { backgroundColor: themeColors.card.DEFAULT }]}>
+                <Text style={[styles.addPointModalTitle, { color: themeColors.text.primary }]}>
+                  {addPointParent ? 'Add Sub Inspection Point' : 'Add Inspection Point'}
+                </Text>
+                <Text style={[styles.addPointModalDescription, { color: themeColors.text.muted }]}>
+                  {addPointParent
+                    ? `Create a sub-point under "${addPointParent.label}".`
+                    : `Create a custom point in ${currentSection?.title || 'this section'}.`}
+                </Text>
+
+                <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
+                  Point type
+                </Text>
+                <View style={{ gap: spacing[2], marginBottom: spacing[4] }}>
+                  <TouchableOpacity
+                    onPress={() => setAddPointKind('photo_condition')}
+                    disabled={addCustomPoint.isPending}
+                    style={[
+                      styles.kindCard,
+                      {
+                        borderColor:
+                          addPointKind === 'photo_condition'
+                            ? themeColors.primary.DEFAULT
+                            : themeColors.border.DEFAULT,
+                        backgroundColor:
+                          addPointKind === 'photo_condition'
+                            ? (themeColors.primary.DEFAULT + '14')
+                            : themeColors.card.DEFAULT,
+                      },
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Camera size={16} color={themeColors.text.primary} />
+                      <Text style={{ fontWeight: '700', color: themeColors.text.primary }}>
+                        Photo & Condition
+                      </Text>
+                    </View>
+                    <Text style={{ marginTop: 4, fontSize: 12, color: themeColors.text.muted }}>
+                      Photos, condition, cleanliness, voice notes, and AI tools.
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setAddPointKind('choice')}
+                    disabled={addCustomPoint.isPending}
+                    style={[
+                      styles.kindCard,
+                      {
+                        borderColor:
+                          addPointKind === 'choice'
+                            ? themeColors.primary.DEFAULT
+                            : themeColors.border.DEFAULT,
+                        backgroundColor:
+                          addPointKind === 'choice'
+                            ? (themeColors.primary.DEFAULT + '14')
+                            : themeColors.card.DEFAULT,
+                      },
+                    ]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <ListChecks size={16} color={themeColors.text.primary} />
+                      <Text style={{ fontWeight: '700', color: themeColors.text.primary }}>
+                        Choice list
+                      </Text>
+                    </View>
+                    <Text style={{ marginTop: 4, fontSize: 12, color: themeColors.text.muted }}>
+                      A dropdown with options you define (Yes/No or any choices).
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
+                  {addPointParent ? 'Sub-Point Name' : 'Inspection Point Name'}
+                </Text>
+                <TextInput
+                  value={newPointName}
+                  onChangeText={setNewPointName}
+                  placeholder={
+                    addPointKind === 'choice'
+                      ? 'e.g. Meter Readings Taken'
+                      : addPointParent
+                        ? 'e.g. Door Knob'
+                        : 'e.g. Ceiling Condition'
+                  }
+                  placeholderTextColor={themeColors.text.muted}
+                  editable={!addCustomPoint.isPending}
+                  maxLength={200}
+                  style={[
+                    styles.addPointModalInput,
+                    {
+                      borderColor: themeColors.border.DEFAULT,
+                      color: themeColors.text.primary,
+                      backgroundColor: themeColors.background?.DEFAULT || themeColors.card.DEFAULT,
+                    },
+                  ]}
+                />
+
+                {addPointKind === 'choice' && (
+                  <View style={{ marginBottom: spacing[4] }}>
+                    <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
+                      Options
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                      {addPointOptions.map((opt) => (
+                        <View
+                          key={opt}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                            paddingVertical: 4,
+                            paddingLeft: 10,
+                            paddingRight: 4,
+                            borderRadius: 999,
+                            backgroundColor: themeColors.muted?.DEFAULT || '#f3f4f6',
+                          }}
+                        >
+                          <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>{opt}</Text>
+                          <TouchableOpacity
+                            onPress={() => setAddPointOptions((prev) => prev.filter((o) => o !== opt))}
+                            disabled={addCustomPoint.isPending}
+                            hitSlop={8}
+                          >
+                            <X size={14} color={themeColors.text.muted} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TextInput
+                        value={addPointOptionDraft}
+                        onChangeText={setAddPointOptionDraft}
+                        placeholder="e.g. Yes, No, N/A…"
+                        placeholderTextColor={themeColors.text.muted}
+                        editable={!addCustomPoint.isPending}
+                        maxLength={100}
+                        onSubmitEditing={addChoiceOptionMobile}
+                        style={[
+                          styles.addPointModalInput,
+                          {
+                            flex: 1,
+                            marginBottom: 0,
+                            borderColor: themeColors.border.DEFAULT,
+                            color: themeColors.text.primary,
+                            backgroundColor: themeColors.background?.DEFAULT || themeColors.card.DEFAULT,
+                          },
+                        ]}
+                      />
+                      <TouchableOpacity
+                        onPress={addChoiceOptionMobile}
+                        disabled={addCustomPoint.isPending || !addPointOptionDraft.trim()}
+                        style={[
+                          styles.addPointModalCancel,
+                          {
+                            borderColor: themeColors.border.DEFAULT,
+                            justifyContent: 'center',
+                            opacity: !addPointOptionDraft.trim() ? 0.5 : 1,
+                          },
+                        ]}
+                      >
+                        <Text style={{ color: themeColors.text.primary, fontWeight: '600' }}>Add</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.addPointModalActions}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (addCustomPoint.isPending) return;
+                      setShowAddPointModal(false);
+                      setNewPointName('');
+                      setAddPointKind('photo_condition');
+                      setAddPointOptions(['Yes', 'No']);
+                      setAddPointOptionDraft('');
+                      setAddPointParent(null);
+                      addPointRequestIdRef.current = null;
+                    }}
+                    disabled={addCustomPoint.isPending}
+                    style={[styles.addPointModalCancel, { borderColor: themeColors.border.DEFAULT }]}
+                  >
+                    <Text style={{ color: themeColors.text.primary }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const trimmed = newPointName.trim();
+                      if (!trimmed) {
+                        Alert.alert('Name required', 'Enter a name for this inspection point');
+                        return;
+                      }
+                      if (addPointKind === 'choice') {
+                        const cleaned = addPointOptions.map((o) => o.trim()).filter(Boolean);
+                        if (cleaned.length < 1) {
+                          Alert.alert('Options required', 'Add at least one option for the choice list');
+                          return;
+                        }
+                      }
+                      if (!currentSection) return;
+                      if (!addPointRequestIdRef.current) {
+                        addPointRequestIdRef.current = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                      }
+                      addCustomPoint.mutate({
+                        sectionId: currentSection.id,
+                        label: trimmed,
+                        kind: addPointKind,
+                        options: addPointKind === 'choice' ? addPointOptions : undefined,
+                        clientRequestId: addPointRequestIdRef.current,
+                        parentFieldId: addPointParent?.id,
+                      });
+                    }}
+                    disabled={addCustomPoint.isPending}
+                    style={[
+                      styles.addPointModalConfirm,
+                      {
+                        backgroundColor: themeColors.primary.DEFAULT,
+                        opacity: addCustomPoint.isPending ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    {addCustomPoint.isPending ? (
+                      <ActivityIndicator color={themeColors.primary.foreground || '#fff'} />
+                    ) : (
+                      <Text style={{ color: themeColors.primary.foreground || '#fff', fontWeight: '600' }}>
+                        {addPointParent ? 'Add Sub-Point' : 'Add Inspection Point'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </Modal>
       </View>
     </ErrorBoundary>
   );
@@ -2130,7 +2612,7 @@ const styles = StyleSheet.create({
     // Color applied dynamically via themeColors
   },
   fieldContainer: {
-    marginBottom: spacing[5],
+    marginBottom: spacing[8],
   },
   fieldLabel: {
     fontSize: typography.fontSize.base,
@@ -2440,5 +2922,98 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     lineHeight: typography.lineHeight.relaxed * typography.fontSize.xs,
     // Color applied dynamically via themeColors
+  },
+  removeCustomPointButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: spacing[1],
+    marginBottom: spacing[2],
+    paddingVertical: spacing[1],
+    paddingHorizontal: spacing[2],
+  },
+  addPointContainer: {
+    marginTop: spacing[4],
+    paddingTop: spacing[4],
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+  },
+  addPointButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    borderWidth: 2,
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    ...shadows.sm,
+  },
+  addPointButtonText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  addPointHint: {
+    marginTop: spacing[2],
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+  },
+  addPointModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: spacing[4],
+  },
+  addPointModalCard: {
+    borderRadius: borderRadius.lg,
+    padding: spacing[4],
+    ...shadows.md,
+  },
+  kindCard: {
+    borderWidth: 2,
+    borderRadius: borderRadius.lg,
+    padding: spacing[3],
+  },
+  addPointModalTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: spacing[2],
+  },
+  addPointModalDescription: {
+    fontSize: typography.fontSize.sm,
+    marginBottom: spacing[4],
+    lineHeight: typography.lineHeight.relaxed * typography.fontSize.sm,
+  },
+  addPointModalLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing[2],
+  },
+  addPointModalInput: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3],
+    fontSize: typography.fontSize.base,
+    marginBottom: spacing[4],
+  },
+  addPointModalActions: {
+    flexDirection: 'row',
+    gap: spacing[2],
+    justifyContent: 'flex-end',
+  },
+  addPointModalCancel: {
+    borderWidth: 1,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+  },
+  addPointModalConfirm: {
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

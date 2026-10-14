@@ -390,10 +390,14 @@ export function sharedCss(themeInput?: ReportTheme | OrgBrandThemeSource | null)
     ${coverSubjectImageCss()}
     .page {
       padding: 40px;
-      page-break-after: always;
-    }
-    .page:last-child {
+      /* Flow sections onto shared pages; forced breaks caused large blank regions */
       page-break-after: auto;
+      break-after: auto;
+    }
+    .page + .page {
+      margin-top: 8px;
+      padding-top: 32px;
+      border-top: 1px solid #e5e7eb;
     }
     .section-title {
       font-size: 26px;
@@ -406,6 +410,8 @@ export function sharedCss(themeInput?: ReportTheme | OrgBrandThemeSource | null)
       text-transform: uppercase;
       letter-spacing: 0.5px;
       position: relative;
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .section-title::before {
       content: '';
@@ -422,6 +428,8 @@ export function sharedCss(themeInput?: ReportTheme | OrgBrandThemeSource | null)
       grid-template-columns: repeat(5, 1fr);
       gap: 18px;
       margin-bottom: 28px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .stats-grid.cols-6 {
       grid-template-columns: repeat(6, 1fr);
@@ -433,6 +441,13 @@ export function sharedCss(themeInput?: ReportTheme | OrgBrandThemeSource | null)
       padding: 24px;
       text-align: center;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    thead { display: table-header-group; }
+    tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .stat-value {
       font-size: 32px;

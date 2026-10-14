@@ -44,7 +44,7 @@ import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 export default function PropertiesReport() {
   const { toast } = useToast();
-  const { maintenanceEnabled } = useCompanyModules();
+  const { maintenanceEnabled, tenanciesEnabled } = useCompanyModules();
   const [filterBlock, setFilterBlock] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -64,6 +64,7 @@ export default function PropertiesReport() {
 
   const { data: tenantAssignments = [], isLoading: tenantAssignmentsLoading } = useQuery<any[]>({
     queryKey: ["/api/tenant-assignments"],
+    enabled: tenanciesEnabled,
   });
 
   const { data: maintenanceRequests = [], isLoading: maintenanceLoading } = useQuery<any[]>({
@@ -71,7 +72,7 @@ export default function PropertiesReport() {
     enabled: maintenanceEnabled,
   });
 
-  const isLoading = propertiesLoading || blocksLoading || inspectionsLoading || tenantAssignmentsLoading || (maintenanceEnabled && maintenanceLoading);
+  const isLoading = propertiesLoading || blocksLoading || inspectionsLoading || (tenanciesEnabled && tenantAssignmentsLoading) || (maintenanceEnabled && maintenanceLoading);
 
   // Calculate statistics for each property
   const propertiesWithStats = useMemo(() => {
@@ -233,18 +234,22 @@ export default function PropertiesReport() {
             <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-properties">{totalProperties}</CardTitle>
           </CardHeader>
         </Card>
+        {tenanciesEnabled && (
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="text-xs sm:text-sm">Occupied</CardDescription>
             <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-occupied">{occupiedProperties}</CardTitle>
           </CardHeader>
         </Card>
+        )}
+        {tenanciesEnabled && (
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="text-xs sm:text-sm">Vacant</CardDescription>
             <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-vacant">{vacantProperties}</CardTitle>
           </CardHeader>
         </Card>
+        )}
         {maintenanceEnabled && (
         <Card>
           <CardHeader className="pb-2">
@@ -397,8 +402,8 @@ export default function PropertiesReport() {
                       <TableHead className="min-w-[120px]">Block</TableHead>
                       <TableHead className="min-w-[100px]">Unit</TableHead>
                       <TableHead className="min-w-[150px] hidden sm:table-cell">Address</TableHead>
-                      <TableHead className="min-w-[90px]">Status</TableHead>
-                      <TableHead className="min-w-[120px] hidden md:table-cell">Tenant</TableHead>
+                      {tenanciesEnabled && <TableHead className="min-w-[90px]">Status</TableHead>}
+                      {tenanciesEnabled && <TableHead className="min-w-[120px] hidden md:table-cell">Tenant</TableHead>}
                       <TableHead className="min-w-[100px] hidden lg:table-cell">Inspections</TableHead>
                       {maintenanceEnabled && (
                       <TableHead className="min-w-[110px] hidden lg:table-cell">Maintenance</TableHead>
@@ -434,6 +439,7 @@ export default function PropertiesReport() {
                         <TableCell className="max-w-xs truncate hidden sm:table-cell" data-testid={`text-address-${property.id}`}>
                           <span className="text-sm">{property.address}</span>
                         </TableCell>
+                        {tenanciesEnabled && (
                         <TableCell data-testid={`badge-status-${property.id}`}>
                           <Badge
                             variant={occupancyBadgeVariant(property.isOccupied ? "Occupied" : "Vacant")}
@@ -442,6 +448,8 @@ export default function PropertiesReport() {
                             {property.isOccupied ? "Occupied" : "Vacant"}
                           </Badge>
                         </TableCell>
+                        )}
+                        {tenanciesEnabled && (
                         <TableCell className="hidden md:table-cell" data-testid={`text-tenant-${property.id}`}>
                           {property.tenant ? (
                             <span className="text-sm">
@@ -451,6 +459,7 @@ export default function PropertiesReport() {
                             <span className="text-muted-foreground text-sm">-</span>
                           )}
                         </TableCell>
+                        )}
                         <TableCell className="hidden lg:table-cell" data-testid={`badge-inspections-${property.id}`}>
                           <Badge variant="outline" className="text-xs">
                             {property.totalInspections}

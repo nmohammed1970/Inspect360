@@ -380,9 +380,20 @@ function detectImageMimeType(buffer: Buffer): string {
   return 'image/jpeg';
 }
 import { setupAuth, isAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
-import { isCompanyModuleEnabled, normalizeCompanyModuleFlags } from "@shared/companyModules";
+import { isCompanyModuleEnabled, normalizeCompanyModuleFlags, reportModuleSurfaces } from "@shared/companyModules";
 import { validateNewPassword } from "@shared/passwordPolicy";
 import { INSPECTION_NOTE_STRUCTURE_PROMPT, formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
+import {
+  appendCustomPointToSnapshot,
+  CustomPointValidationError,
+  removeCustomPointFromSnapshot,
+  resolveFieldLabelFromSnapshot,
+} from "@shared/inspectionCustomPoints";
+import {
+  buildCheckOutSnapshotFromCheckIn,
+  buildSeedEntriesFromCheckOutSnapshot,
+  checkoutSnapshotMissingCheckInCustoms,
+} from "@shared/checkInSnapshotForCheckOut";
 
 // Middleware that allows both regular users and admins
 const isUserOrAdmin = (req: any, res: any, next: any) => {
@@ -898,10 +909,13 @@ async function processInspectionAIAnalysis(
       }
 
       // Build the field label from sectionRef and fieldKey
-      // sectionRef = Category (e.g., "Kitchen", "Bathroom", "Living Room")
-      // fieldKey = Inspection Point Title (e.g., "Oven Condition", "Sink and Taps")
+      // Prefer template snapshot label (human-readable) over opaque field ids
       const category = entry.sectionRef || "General";
-      const inspectionPointTitle = entry.fieldKey || "Item";
+      const snapshotLabel = resolveFieldLabelFromSnapshot(
+        inspection.templateSnapshotJson as any,
+        entry.fieldKey,
+      );
+      const inspectionPointTitle = snapshotLabel || entry.fieldKey || "Item";
       const fieldLabel = `${category}${entry.itemRef ? ` - ${entry.itemRef}` : ''} - ${inspectionPointTitle}`;
 
       // Build prompt with explicit Category and Inspection Point context
@@ -6648,6 +6662,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Property = source of truth for rooms / counts on NEW property inspections
+      // Check-out with a prior check-in inherits that check-in's sections/points (incl. customs + floor plan).
       let propertyRoomCountsSnapshot: any = null;
       let propertyRoomsSnapshot: any = null;
       let seedEntries: Array<{
@@ -6656,54 +6671,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fieldType: string;
         valueJson: unknown;
       }> = [];
-
       if (propertyId) {
         const property = await storage.getProperty(propertyId);
         if (!property || property.organizationId !== currentUser.organizationId) {
           return res.status(404).json({ message: "Property not found or access denied" });
         }
-        const {
-          applyPropertyCountsToTemplateSnapshot,
-          buildPropertyRoomCountsSnapshot,
-          parseRoomCounts,
-        } = await import("@shared/propertyLayout");
-        const {
-          applyPropertyRoomsToTemplateSnapshot,
-          buildPropertyRoomsSnapshot,
-        } = await import("@shared/propertyRooms");
-        const { listPropertyRooms, toSnapshotItems } = await import("./propertyRoomsService");
 
-        const rooms = await listPropertyRooms(currentUser.organizationId, propertyId);
-        const snapshotItems = toSnapshotItems(rooms);
-        propertyRoomsSnapshot =
-          snapshotItems.length > 0 ? buildPropertyRoomsSnapshot(snapshotItems) : null;
+        const latestCheckIn =
+          type === "check_out"
+            ? await storage.getMostRecentCheckInInspection(propertyId)
+            : undefined;
+        const checkInSnapshotRaw = latestCheckIn?.templateSnapshotJson;
+        const checkInHasSnapshot =
+          !!checkInSnapshotRaw &&
+          !!(
+            (typeof checkInSnapshotRaw === "string"
+              ? (() => {
+                  try {
+                    return JSON.parse(checkInSnapshotRaw);
+                  } catch {
+                    return null;
+                  }
+                })()
+              : checkInSnapshotRaw) as any
+          )?.sections?.length;
 
-        const counts = parseRoomCounts({
-          bedrooms: property.bedrooms,
-          kitchens: property.kitchens,
-          bathrooms: property.bathrooms,
-          livingRooms: property.livingRooms,
-        });
-        propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(counts);
+        if (type === "check_out" && latestCheckIn && checkInHasSnapshot) {
+          const checkInSnap =
+            typeof checkInSnapshotRaw === "string"
+              ? JSON.parse(checkInSnapshotRaw)
+              : checkInSnapshotRaw;
+          templateSnapshotJson = buildCheckOutSnapshotFromCheckIn(checkInSnap as any) as any;
+          propertyRoomsSnapshot =
+            (latestCheckIn as any).propertyRoomsSnapshot ?? null;
+          propertyRoomCountsSnapshot =
+            (latestCheckIn as any).propertyRoomCountsSnapshot ?? null;
+          seedEntries = buildSeedEntriesFromCheckOutSnapshot(templateSnapshotJson as any);
+          console.log(
+            `[CreateInspection] Check-out snapshot inherited from check-in ${latestCheckIn.id}`,
+          );
+        } else {
+          const {
+            applyPropertyCountsToTemplateSnapshot,
+            buildPropertyRoomCountsSnapshot,
+            parseRoomCounts,
+          } = await import("@shared/propertyLayout");
+          const {
+            applyPropertyRoomsToTemplateSnapshot,
+            buildPropertyRoomsSnapshot,
+          } = await import("@shared/propertyRooms");
+          const { listPropertyRooms, toSnapshotItems } = await import("./propertyRoomsService");
 
-        if (templateSnapshotJson) {
-          if (snapshotItems.length > 0) {
-            const applied = applyPropertyRoomsToTemplateSnapshot(
-              templateSnapshotJson as any,
-              snapshotItems,
-              { propertyType: (property as any).propertyType },
+          const rooms = await listPropertyRooms(currentUser.organizationId, propertyId);
+          const snapshotItems = toSnapshotItems(rooms);
+          propertyRoomsSnapshot =
+            snapshotItems.length > 0 ? buildPropertyRoomsSnapshot(snapshotItems) : null;
+
+          const counts = parseRoomCounts({
+            bedrooms: property.bedrooms,
+            kitchens: property.kitchens,
+            bathrooms: property.bathrooms,
+            livingRooms: property.livingRooms,
+          });
+          propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(counts);
+
+          if (templateSnapshotJson) {
+            if (snapshotItems.length > 0) {
+              const applied = applyPropertyRoomsToTemplateSnapshot(
+                templateSnapshotJson as any,
+                snapshotItems,
+                { propertyType: (property as any).propertyType },
+              );
+              templateSnapshotJson = applied.structure as any;
+              seedEntries = applied.seedEntries;
+              propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(applied.counts);
+            } else {
+              const applied = applyPropertyCountsToTemplateSnapshot(
+                templateSnapshotJson as any,
+                counts,
+                { propertyType: (property as any).propertyType },
+              );
+              templateSnapshotJson = applied.structure as any;
+              seedEntries = applied.seedEntries;
+            }
+          }
+
+          if (type === "check_out") {
+            console.log(
+              `[CreateInspection] Check-out using default/org template (no prior check-in snapshot for property ${propertyId})`,
             );
-            templateSnapshotJson = applied.structure as any;
-            seedEntries = applied.seedEntries;
-            propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(applied.counts);
-          } else {
-            const applied = applyPropertyCountsToTemplateSnapshot(
-              templateSnapshotJson as any,
-              counts,
-              { propertyType: (property as any).propertyType },
-            );
-            templateSnapshotJson = applied.structure as any;
-            seedEntries = applied.seedEntries;
           }
         }
       }
@@ -6913,6 +6969,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateVersion = sourceInspection.templateVersion;
       }
 
+      // Check-out should inherit latest check-in sections/points when available
+      let copyPropertyRoomsSnapshot: any = undefined;
+      let copyPropertyRoomCountsSnapshot: any = undefined;
+      if (type === "check_out" && sourceInspection.propertyId) {
+        const sourceIsCheckIn = sourceInspection.type === "check_in";
+        const latestCheckIn = sourceIsCheckIn
+          ? sourceInspection
+          : await storage.getMostRecentCheckInInspection(sourceInspection.propertyId);
+        const snap = latestCheckIn?.templateSnapshotJson;
+        if (snap && (typeof snap === "object" ? (snap as any).sections : true)) {
+          const checkInSnap =
+            typeof snap === "string" ? JSON.parse(snap) : snap;
+          if (checkInSnap?.sections?.length) {
+            templateSnapshotJson = buildCheckOutSnapshotFromCheckIn(checkInSnap as any) as any;
+            copyPropertyRoomsSnapshot = (latestCheckIn as any).propertyRoomsSnapshot;
+            copyPropertyRoomCountsSnapshot = (latestCheckIn as any).propertyRoomCountsSnapshot;
+          }
+        }
+      }
+
       // Create new inspection
       const newInspection = await storage.createInspection({
         organizationId: user.organizationId,
@@ -6925,7 +7001,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateId,
         templateVersion,
         templateSnapshotJson: templateSnapshotJson as any,
-      });
+        propertyRoomsSnapshot: copyPropertyRoomsSnapshot,
+        propertyRoomCountsSnapshot: copyPropertyRoomCountsSnapshot,
+      } as any);
 
       // Copy entries if requested
       if (copyImages || copyText) {
@@ -7055,9 +7133,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Copy] Current checkout entries count: ${currentEntries.length}`);
       console.log(`[Copy] Check-in entries:`, checkInEntries.map(e => ({ sectionRef: e.sectionRef, fieldKey: e.fieldKey, photos: e.photos?.length || 0, hasNote: !!e.note })));
 
+      // Legacy check-outs may lack custom points / floor-plan sections from check-in.
+      // Align checkout snapshot to the latest check-in before copying entries.
+      let checkInSnap: any = checkInInspection.templateSnapshotJson;
+      if (typeof checkInSnap === "string") {
+        try {
+          checkInSnap = JSON.parse(checkInSnap);
+        } catch {
+          checkInSnap = null;
+        }
+      }
+      let checkoutSnap: any = inspection.templateSnapshotJson;
+      if (typeof checkoutSnap === "string") {
+        try {
+          checkoutSnap = JSON.parse(checkoutSnap);
+        } catch {
+          checkoutSnap = null;
+        }
+      }
+      if (
+        checkInSnap?.sections?.length &&
+        (checkoutSnapshotMissingCheckInCustoms(checkInSnap, checkoutSnap) ||
+          !checkoutSnap?.sections?.length ||
+          (Array.isArray(checkInSnap.propertyRoomInstances) &&
+            checkInSnap.propertyRoomInstances.length > 0 &&
+            !(checkoutSnap?.propertyRoomInstances?.length > 0)))
+      ) {
+        const inherited = buildCheckOutSnapshotFromCheckIn(checkInSnap);
+        await storage.updateInspection(id, {
+          templateSnapshotJson: inherited as any,
+        } as any);
+        try {
+          const roomPatch: Record<string, unknown> = {};
+          if ((checkInInspection as any).propertyRoomsSnapshot != null) {
+            roomPatch.propertyRoomsSnapshot = (checkInInspection as any).propertyRoomsSnapshot;
+          }
+          if ((checkInInspection as any).propertyRoomCountsSnapshot != null) {
+            roomPatch.propertyRoomCountsSnapshot = (checkInInspection as any).propertyRoomCountsSnapshot;
+          }
+          if (Object.keys(roomPatch).length > 0) {
+            await db.update(inspections).set(roomPatch as any).where(eq(inspections.id, id));
+          }
+        } catch (roomSnapErr) {
+          console.warn("[Copy] Could not update property room snapshots:", roomSnapErr);
+        }
+        checkoutSnap = inherited;
+        console.log(`[Copy] Aligned check-out snapshot to check-in ${checkInInspection.id}`);
+      }
+
       // Parse template structure
       let sections: any[] = [];
-      if (inspection.templateSnapshotJson) {
+      if (checkoutSnap?.sections) {
+        sections = checkoutSnap.sections || [];
+      } else if (inspection.templateSnapshotJson) {
         const templateStructure = typeof inspection.templateSnapshotJson === 'string'
           ? JSON.parse(inspection.templateSnapshotJson)
           : inspection.templateSnapshotJson;
@@ -7861,10 +7989,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get inspection entries
       const entries = await storage.getInspectionEntries(id);
 
-      // Fetch outstanding maintenance requests for this property
+      // Fetch outstanding maintenance requests for this property (when Maintenance module is on)
       let maintenanceRequests: any[] = [];
       try {
-        if (inspection.propertyId) {
+        if (inspection.propertyId && isCompanyModuleEnabled(organization, "maintenance")) {
           const allRequests = await storage.getMaintenanceRequestsByProperty(inspection.propertyId);
           // Filter to only show open/pending/in_progress requests
           maintenanceRequests = allRequests.filter((r: any) =>
@@ -7928,6 +8056,232 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to generate PDF report" });
     }
   });
+
+  // Add a custom inspection point to this inspection's template snapshot only
+  app.post("/api/inspections/:id/custom-points", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(req.user.id);
+
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+
+      const inspection = await storage.getInspection(id);
+      if (!inspection) {
+        return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      let ownerOrgId: string | null = null;
+      if (inspection.propertyId) {
+        const property = await storage.getProperty(inspection.propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+        ownerOrgId = property.organizationId;
+      } else if (inspection.blockId) {
+        const block = await storage.getBlock(inspection.blockId);
+        if (!block) {
+          return res.status(404).json({ message: "Block not found" });
+        }
+        ownerOrgId = block.organizationId;
+      }
+
+      if (ownerOrgId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (user.role !== "owner" && user.role !== "compliance") {
+        if (inspection.inspectorId !== user.id) {
+          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+        }
+      }
+
+      if (inspection.status === "completed") {
+        return res.status(400).json({
+          message: "Cannot add inspection points to a completed inspection",
+        });
+      }
+
+      const sectionId = typeof req.body?.sectionId === "string" ? req.body.sectionId : "";
+      const label = req.body?.label;
+      const kind =
+        typeof req.body?.kind === "string" && req.body.kind.trim()
+          ? req.body.kind.trim()
+          : typeof req.body?.type === "string" && req.body.type.trim()
+            ? req.body.type.trim()
+            : undefined;
+      const options = Array.isArray(req.body?.options) ? req.body.options : undefined;
+      const clientRequestId =
+        typeof req.body?.clientRequestId === "string" && req.body.clientRequestId.trim()
+          ? req.body.clientRequestId.trim()
+          : undefined;
+      const parentFieldId =
+        typeof req.body?.parentFieldId === "string" && req.body.parentFieldId.trim()
+          ? req.body.parentFieldId.trim()
+          : undefined;
+
+      let snapshot =
+        typeof inspection.templateSnapshotJson === "string"
+          ? JSON.parse(inspection.templateSnapshotJson)
+          : (inspection.templateSnapshotJson as any);
+
+      if (!snapshot || !Array.isArray(snapshot.sections)) {
+        return res.status(400).json({ message: "Inspection template snapshot is missing or invalid" });
+      }
+
+      const result = appendCustomPointToSnapshot(snapshot, {
+        sectionId,
+        label,
+        kind,
+        options,
+        clientRequestId,
+        parentFieldId,
+      });
+
+      if (result.created) {
+        await storage.updateInspection(id, {
+          templateSnapshotJson: result.snapshot as any,
+        });
+      }
+
+      return res.status(result.created ? 201 : 200).json({
+        field: result.field,
+        created: result.created,
+        templateSnapshotJson: result.snapshot,
+      });
+    } catch (error: any) {
+      if (error instanceof CustomPointValidationError) {
+        return res.status(400).json({ message: error.message });
+      }
+      if (error?.name === "CustomPointValidationError") {
+        return res.status(400).json({ message: error.message });
+      }
+      console.error("Error adding custom inspection point:", error);
+      return res.status(500).json({ message: "Failed to add inspection point" });
+    }
+  });
+
+  // Remove a custom inspection point from this inspection's template snapshot only
+  const removeCustomPointHandler = async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const fieldId =
+        typeof req.params?.fieldId === "string" && req.params.fieldId
+          ? req.params.fieldId
+          : typeof req.body?.fieldId === "string"
+            ? req.body.fieldId
+            : typeof req.query?.fieldId === "string"
+              ? req.query.fieldId
+              : "";
+      const user = await storage.getUser(req.user.id);
+
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+
+      const inspection = await storage.getInspection(id);
+      if (!inspection) {
+        return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      let ownerOrgId: string | null = null;
+      if (inspection.propertyId) {
+        const property = await storage.getProperty(inspection.propertyId);
+        if (!property) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+        ownerOrgId = property.organizationId;
+      } else if (inspection.blockId) {
+        const block = await storage.getBlock(inspection.blockId);
+        if (!block) {
+          return res.status(404).json({ message: "Block not found" });
+        }
+        ownerOrgId = block.organizationId;
+      }
+
+      if (ownerOrgId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (user.role !== "owner" && user.role !== "compliance") {
+        if (inspection.inspectorId !== user.id) {
+          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+        }
+      }
+
+      if (inspection.status === "completed") {
+        return res.status(400).json({
+          message: "Cannot remove inspection points from a completed inspection",
+        });
+      }
+
+      const sectionId =
+        typeof req.body?.sectionId === "string"
+          ? req.body.sectionId
+          : typeof req.query?.sectionId === "string"
+            ? req.query.sectionId
+            : "";
+
+      if (!sectionId) {
+        return res.status(400).json({ message: "Section is required" });
+      }
+      if (!fieldId) {
+        return res.status(400).json({ message: "Inspection point is required" });
+      }
+
+      let snapshot =
+        typeof inspection.templateSnapshotJson === "string"
+          ? JSON.parse(inspection.templateSnapshotJson)
+          : (inspection.templateSnapshotJson as any);
+
+      if (!snapshot || !Array.isArray(snapshot.sections)) {
+        return res.status(400).json({ message: "Inspection template snapshot is missing or invalid" });
+      }
+
+      const result = removeCustomPointFromSnapshot(snapshot, {
+        sectionId,
+        fieldId,
+      });
+
+      let deletedEntryCount = 0;
+      const removedFieldIds = result.removedFieldIds || (result.removed ? [fieldId] : []);
+      if (result.removed) {
+        await storage.updateInspection(id, {
+          templateSnapshotJson: result.snapshot as any,
+        });
+
+        const removeKeys = new Set(removedFieldIds);
+        const entries = await storage.getInspectionEntries(id);
+        const toDelete = entries.filter((e: any) => removeKeys.has(e.fieldKey));
+        for (const entry of toDelete) {
+          await storage.deleteInspectionEntry(entry.id);
+          deletedEntryCount += 1;
+        }
+      }
+
+      return res.json({
+        fieldId,
+        removed: result.removed,
+        removedFieldIds,
+        deletedEntryCount,
+        templateSnapshotJson: result.snapshot,
+      });
+    } catch (error: any) {
+      if (error instanceof CustomPointValidationError) {
+        return res.status(400).json({ message: error.message });
+      }
+      if (error?.name === "CustomPointValidationError") {
+        return res.status(400).json({ message: error.message });
+      }
+      console.error("Error removing custom inspection point:", error);
+      return res.status(500).json({ message: "Failed to remove inspection point" });
+    }
+  };
+
+  // Prefer POST so body parsing is reliable and hot-reload/route matching is simpler
+  app.post("/api/inspections/:id/custom-points/delete", isAuthenticated, removeCustomPointHandler);
+  app.delete("/api/inspections/:id/custom-points/:fieldId", isAuthenticated, removeCustomPointHandler);
 
   // General PATCH endpoint for updating inspection fields
   app.patch("/api/inspections/:id", isAuthenticated, async (req: any, res) => {
@@ -12219,10 +12573,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     }
     .page {
       padding: 40px;
-      page-break-after: always;
-    }
-    .page:last-child {
       page-break-after: auto;
+      break-after: auto;
+    }
+    .page + .page {
+      margin-top: 8px;
+      padding-top: 32px;
+      border-top: 1px solid #e5e7eb;
     }
     .section-title {
       font-size: 26px;
@@ -12235,7 +12592,11 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       text-transform: uppercase;
       letter-spacing: 0.5px;
       position: relative;
+      break-after: avoid;
+      page-break-after: avoid;
     }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     .section-title::before {
       content: '';
       position: absolute;
@@ -13301,8 +13662,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       const checkOutPhotos = aiAnalysis.checkOutPhotos || [];
 
       return `
-        <div class="item-card" style="page-break-inside: avoid; margin-bottom: 20px;">
-          <div class="item-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f9fafb; border-radius: 8px 8px 0 0; border: 1px solid #e5e7eb; border-bottom: none;">
+        <div class="item-card" style="margin-bottom: 20px;">
+          <div class="item-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f9fafb; border-radius: 8px 8px 0 0; border: 1px solid #e5e7eb; border-bottom: none; break-after: avoid; page-break-after: avoid;">
             <div style="display: flex; align-items: center; gap: 12px;">
               <span style="font-weight: 700; color: #00D5CC; font-size: 14px;">#${index + 1}</span>
               <span style="font-weight: 600; font-size: 14px;">${escapeHtml(item.itemRef || item.fieldKey || 'Item')}</span>
@@ -13620,7 +13981,9 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px; }
     .info-card { padding: 16px; background: #f9fafb; border-radius: 8px; }
     .info-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }
@@ -32102,7 +32465,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -32179,8 +32544,10 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     blocks: any[],
     properties: any[],
     tenantAssignments: any[],
-    branding?: ReportBrandingInfo
+    branding?: ReportBrandingInfo,
+    modules?: { includeTenancies?: boolean },
   ): string {
+    const includeTenancies = modules?.includeTenancies !== false;
     const escapeHtml = (str: string) => {
       if (!str) return '';
       return String(str)
@@ -32263,13 +32630,14 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             ${block.postcode ? `<div style="color: #666; font-size: 12px;">${escapeHtml(block.postcode)}</div>` : ""}
           </td>
           <td style="padding: 10px 12px; text-align: center;">${block.totalUnits}</td>
+          ${includeTenancies ? `
           <td style="padding: 10px 12px; text-align: center;">${block.occupiedUnits}</td>
           <td style="padding: 10px 12px; text-align: center;">${block.vacantUnits}</td>
           <td style="padding: 10px 12px; text-align: center;">
             <span style="background: ${colors.bg}; color: ${colors.color}; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">
               ${block.occupancyRate}%
             </span>
-          </td>
+          </td>` : ""}
         </tr>
       `;
     }).join("");
@@ -32373,7 +32741,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #3B7A8C; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #3B7A8C; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -32405,6 +32775,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         <div class="stat-label">Total Properties</div>
         <div class="stat-value">${totalProperties}</div>
       </div>
+      ${includeTenancies ? `
       <div class="stat-card">
         <div class="stat-label">Avg Occupancy</div>
         <div class="stat-value">${avgOccupancyRate}%</div>
@@ -32412,7 +32783,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       <div class="stat-card">
         <div class="stat-label">Active Tenants</div>
         <div class="stat-value">${totalActiveTenants}</div>
-      </div>
+      </div>` : ""}
     </div>
 
     <h2 class="section-title">Block Details</h2>
@@ -32424,9 +32795,10 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             <th>Block Name</th>
             <th>Address</th>
             <th style="text-align: center;">Total Units</th>
+            ${includeTenancies ? `
             <th style="text-align: center;">Occupied</th>
             <th style="text-align: center;">Vacant</th>
-            <th style="text-align: center;">Occupancy Rate</th>
+            <th style="text-align: center;">Occupancy Rate</th>` : ""}
           </tr>
         </thead>
         <tbody>
@@ -32452,12 +32824,15 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         return res.status(403).json({ message: "Access denied" });
       }
 
+      const organization = await storage.getOrganization(user.organizationId);
+      const modules = reportModuleSurfaces(organization);
       const blocks = await storage.getBlocksByOrganization(user.organizationId);
       const properties = await storage.getPropertiesByOrganization(user.organizationId);
-      const tenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
+      const tenantAssignments = modules.includeTenancies
+        ? await storage.getTenantAssignmentsByOrganization(user.organizationId)
+        : [];
 
       // Fetch organization branding and trademarks
-      const organization = await storage.getOrganization(user.organizationId);
       const organizationTrademarks = await storage.getOrganizationTrademarks(user.organizationId);
       const trademarksArray = organizationTrademarks.map(tm => ({
         imageUrl: tm.imageUrl,
@@ -32475,7 +32850,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         trademarks: trademarksArray,
       } : {};
 
-      const html = generateBlocksReportHTML(blocks, properties, tenantAssignments, branding);
+      const html = generateBlocksReportHTML(blocks, properties, tenantAssignments, branding, modules);
 
       let browser;
       try {
@@ -32621,7 +32996,17 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // HTML generation function for Properties Report
-  function generatePropertiesReportHTML(properties: any[], blocks: any[], inspections: any[], tenantAssignments: any[], maintenanceRequests: any[], branding?: ReportBrandingInfo) {
+  function generatePropertiesReportHTML(
+    properties: any[],
+    blocks: any[],
+    inspections: any[],
+    tenantAssignments: any[],
+    maintenanceRequests: any[],
+    branding?: ReportBrandingInfo,
+    modules?: { includeTenancies?: boolean; includeMaintenance?: boolean },
+  ) {
+    const includeTenancies = modules?.includeTenancies !== false;
+    const includeMaintenance = modules?.includeMaintenance !== false;
     const escapeHtml = (str: string) => {
       if (!str) return '';
       return String(str)
@@ -32693,14 +33078,15 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         <td style="padding: 10px 12px;">${escapeHtml(property.block?.name || "N/A")}</td>
         <td style="padding: 10px 12px;">${escapeHtml(property.name || "N/A")}</td>
         <td style="padding: 10px 12px;">${escapeHtml(property.address || "")}</td>
+        ${includeTenancies ? `
         <td style="padding: 10px 12px; text-align: center;">
           <span style="padding: 3px 10px; border-radius: 4px; background: ${property.isOccupied ? '#00D5CC' : '#e5e7eb'}; color: ${property.isOccupied ? 'white' : '#374151'}; font-size: 11px;">
             ${property.isOccupied ? 'Occupied' : 'Vacant'}
           </span>
         </td>
-        <td style="padding: 10px 12px;">${property.tenant ? escapeHtml(`${property.tenant.tenantFirstName} ${property.tenant.tenantLastName}`) : '-'}</td>
+        <td style="padding: 10px 12px;">${property.tenant ? escapeHtml(`${property.tenant.tenantFirstName} ${property.tenant.tenantLastName}`) : '-'}</td>` : ""}
         <td style="padding: 10px 12px; text-align: center;">${property.totalInspections}</td>
-        <td style="padding: 10px 12px; text-align: center;">${property.openMaintenanceCount}</td>
+        ${includeMaintenance ? `<td style="padding: 10px 12px; text-align: center;">${property.openMaintenanceCount}</td>` : ""}
         <td style="padding: 10px 12px;">${property.lastInspection ? new Date(property.lastInspection.scheduledDate || property.lastInspection.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never'}</td>
       </tr>
     `).join('');
@@ -32805,7 +33191,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
@@ -32834,6 +33222,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         <div class="stat-label">Total Properties</div>
         <div class="stat-value">${totalProperties}</div>
       </div>
+      ${includeTenancies ? `
       <div class="stat-card">
         <div class="stat-label">Occupied</div>
         <div class="stat-value">${occupiedProperties}</div>
@@ -32841,11 +33230,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       <div class="stat-card">
         <div class="stat-label">Vacant</div>
         <div class="stat-value">${vacantProperties}</div>
-      </div>
+      </div>` : ""}
+      ${includeMaintenance ? `
       <div class="stat-card">
         <div class="stat-label">Open Maintenance</div>
         <div class="stat-value">${totalOpenMaintenance}</div>
-      </div>
+      </div>` : ""}
     </div>
 
     <h2 class="section-title">Property Records</h2>
@@ -32857,10 +33247,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             <th>Block</th>
             <th>Unit</th>
             <th>Address</th>
-            <th style="text-align: center;">Status</th>
-            <th>Tenant</th>
+            ${includeTenancies ? `<th style="text-align: center;">Status</th><th>Tenant</th>` : ""}
             <th style="text-align: center;">Inspections</th>
-            <th style="text-align: center;">Open Maint.</th>
+            ${includeMaintenance ? `<th style="text-align: center;">Open Maint.</th>` : ""}
             <th>Last Inspection</th>
           </tr>
         </thead>
@@ -32893,18 +33282,24 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
       const { blockId, status, searchTerm } = req.body;
 
+      const organization = await storage.getOrganization(user.organizationId);
+      const modules = reportModuleSurfaces(organization);
       let properties = await storage.getPropertiesByOrganization(user.organizationId);
       const blocks = await storage.getBlocksByOrganization(user.organizationId);
       const inspections = await storage.getInspectionsByOrganization(user.organizationId);
-      const tenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
-      const maintenanceRequests = await storage.getMaintenanceByOrganization(user.organizationId);
+      const tenantAssignments = modules.includeTenancies
+        ? await storage.getTenantAssignmentsByOrganization(user.organizationId)
+        : [];
+      const maintenanceRequests = modules.includeMaintenance
+        ? await storage.getMaintenanceByOrganization(user.organizationId)
+        : [];
 
       // Apply filters
       if (blockId && blockId !== "all") {
         properties = properties.filter(p => p.blockId === blockId);
       }
 
-      if (status && status !== "all") {
+      if (modules.includeTenancies && status && status !== "all") {
         if (status === "occupied") {
           const occupiedPropertyIds = tenantAssignments
             .filter(t => t.status === "active")
@@ -32927,7 +33322,6 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       }
 
       // Fetch organization branding
-      const organization = await storage.getOrganization(user.organizationId);
       const branding: ReportBrandingInfo = organization ? {
         logoUrl: organization.logoUrl,
         brandingName: organization.brandingName,
@@ -32938,7 +33332,15 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         brandingReportPalette: (organization as any).brandingReportPalette,
       } : {};
 
-      const html = generatePropertiesReportHTML(properties, blocks, inspections, tenantAssignments, maintenanceRequests, branding);
+      const html = generatePropertiesReportHTML(
+        properties,
+        blocks,
+        inspections,
+        tenantAssignments,
+        maintenanceRequests,
+        branding,
+        modules,
+      );
 
       let browser;
       try {
@@ -33145,7 +33547,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
@@ -33499,7 +33903,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
@@ -33860,7 +34266,9 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; }
+    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
@@ -34317,15 +34725,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Fetch all data
+      // Fetch data (skip disabled company modules)
+      const organization = await storage.getOrganization(user.organizationId);
+      const modules = reportModuleSurfaces(organization);
       const blocks = await storage.getBlocksByOrganization(user.organizationId);
       const properties = await storage.getPropertiesByOrganization(user.organizationId);
       const inspections = await storage.getInspectionsByOrganization(user.organizationId);
-      const maintenanceRequests = await storage.getMaintenanceByOrganization(user.organizationId);
-      const complianceDocuments = await storage.getComplianceDocuments(user.organizationId);
+      const maintenanceRequests = modules.includeMaintenance
+        ? await storage.getMaintenanceByOrganization(user.organizationId)
+        : [];
+      const complianceDocuments = modules.includeCompliance
+        ? await storage.getComplianceDocuments(user.organizationId)
+        : [];
       const assetInventory = await storage.getAssetInventoryByOrganization(user.organizationId);
-      const tenantAssignments = await storage.getTenantAssignmentsByOrganization(user.organizationId);
-      const organization = await storage.getOrganization(user.organizationId);
+      const tenantAssignments = modules.includeTenancies
+        ? await storage.getTenantAssignmentsByOrganization(user.organizationId)
+        : [];
       const { formatCurrency, getCurrencyForCountry } = await import("@shared/countryUtils");
       const reportCurrency = getCurrencyForCountry(organization?.countryCode || "GB");
       const formatMoney = (value: unknown) => {
@@ -34417,17 +34832,25 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         return expiry.getTime() < Date.now();
       }).length;
 
-      const stats = [
+      const stats: Array<[string, number]> = [
         ['Total Blocks', totalBlocks],
         ['Total Properties', totalProperties],
         ['Total Inspections', totalInspections],
-        ['Total Maintenance Requests', totalMaintenance],
-        ['Open Maintenance Requests', openMaintenance],
-        ['Total Assets', totalAssets],
-        ['Total Compliance Documents', totalCompliance],
-        ['Expiring Soon (≤30 days)', expiringCompliance],
-        ['Expired Documents', expiredCompliance]
       ];
+      if (modules.includeMaintenance) {
+        stats.push(
+          ['Total Maintenance Requests', totalMaintenance],
+          ['Open Maintenance Requests', openMaintenance],
+        );
+      }
+      stats.push(['Total Assets', totalAssets]);
+      if (modules.includeCompliance) {
+        stats.push(
+          ['Total Compliance Documents', totalCompliance],
+          ['Expiring Soon (≤30 days)', expiringCompliance],
+          ['Expired Documents', expiredCompliance],
+        );
+      }
 
       summarySheet.getCell(summaryRow, 1).value = 'Statistics';
       summarySheet.getCell(summaryRow, 1).font = { bold: true, size: 14 };
@@ -34443,24 +34866,23 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
       // Blocks Sheet with nested data
       const blocksSheet = workbook.addWorksheet('Blocks & Properties');
-      blocksSheet.columns = [
-        { width: 25 }, // Block Name
-        { width: 30 }, // Block Address
-        { width: 25 }, // Property Name
-        { width: 30 }, // Property Address
-        { width: 15 }, // Property Type
-        { width: 20 }, // Tenant Status
-        { width: 15 }, // Monthly Rent
-        { width: 15 }, // Inspections
-        { width: 15 }, // Maintenance
-        { width: 15 }, // Assets
-        { width: 15 }  // Compliance
+      const blocksHeaders = [
+        'Block Name',
+        'Block Address',
+        'Property Name',
+        'Property Address',
+        'Property Type',
+        ...(modules.includeTenancies ? ['Tenant Status', 'Monthly Rent'] : []),
+        'Inspections',
+        ...(modules.includeMaintenance ? ['Maintenance'] : []),
+        'Assets',
+        ...(modules.includeCompliance ? ['Compliance'] : []),
       ];
+      blocksSheet.columns = blocksHeaders.map(() => ({ width: 20 }));
 
       let row = 1;
       // Header
-      const headers = ['Block Name', 'Block Address', 'Property Name', 'Property Address', 'Property Type', 'Tenant Status', 'Monthly Rent', 'Inspections', 'Maintenance', 'Assets', 'Compliance'];
-      headers.forEach((header, idx) => {
+      blocksHeaders.forEach((header, idx) => {
         const cell = blocksSheet.getCell(row, idx + 1);
         cell.value = header;
         Object.assign(cell, headerStyle);
@@ -34503,21 +34925,26 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
             }
 
             // Property data
-            blocksSheet.getCell(row, 3).value = property.name || '';
-            blocksSheet.getCell(row, 4).value = property.address || '';
-            // Property Type - access from property object
-            const propertyTypeValue = (property as any).propertyType || '';
-            blocksSheet.getCell(row, 5).value = propertyTypeValue;
-            blocksSheet.getCell(row, 6).value = tenantAssignment ? 'Occupied' : 'Vacant';
-            blocksSheet.getCell(row, 7).value = formatMoney(tenantAssignment?.monthlyRent);
-            blocksSheet.getCell(row, 8).value = propertyInspections.length;
-            blocksSheet.getCell(row, 9).value = propertyMaintenance.length;
-            blocksSheet.getCell(row, 10).value = propertyAssets.length;
-            blocksSheet.getCell(row, 11).value = propertyCompliance.length;
+            let col = 3;
+            blocksSheet.getCell(row, col++).value = property.name || '';
+            blocksSheet.getCell(row, col++).value = property.address || '';
+            blocksSheet.getCell(row, col++).value = (property as any).propertyType || '';
+            if (modules.includeTenancies) {
+              blocksSheet.getCell(row, col++).value = tenantAssignment ? 'Occupied' : 'Vacant';
+              blocksSheet.getCell(row, col++).value = formatMoney(tenantAssignment?.monthlyRent);
+            }
+            blocksSheet.getCell(row, col++).value = propertyInspections.length;
+            if (modules.includeMaintenance) {
+              blocksSheet.getCell(row, col++).value = propertyMaintenance.length;
+            }
+            blocksSheet.getCell(row, col++).value = propertyAssets.length;
+            if (modules.includeCompliance) {
+              blocksSheet.getCell(row, col++).value = propertyCompliance.length;
+            }
 
             // Apply cell styles
-            for (let col = 1; col <= 11; col++) {
-              Object.assign(blocksSheet.getCell(row, col), cellStyle);
+            for (let c = 1; c < col; c++) {
+              Object.assign(blocksSheet.getCell(row, c), cellStyle);
             }
 
             row++;
@@ -34576,7 +35003,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         row++;
       });
 
-      // Maintenance Sheet
+      // Maintenance Sheet (skipped when Maintenance module is disabled)
+      if (modules.includeMaintenance) {
       const maintenanceSheet = workbook.addWorksheet('Maintenance');
       maintenanceSheet.columns = [
         { width: 20 }, // Date
@@ -34636,6 +35064,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         }
         row++;
       });
+      }
 
       // Assets Sheet
       const assetsSheet = workbook.addWorksheet('Assets');
@@ -34682,7 +35111,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         row++;
       });
 
-      // Compliance Sheet
+      // Compliance Sheet (skipped when Compliance module is disabled)
+      if (modules.includeCompliance) {
       const complianceSheet = workbook.addWorksheet('Compliance');
       complianceSheet.columns = [
         { width: 25 }, // Block
@@ -34741,8 +35171,10 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         }
         row++;
       });
+      }
 
-      // Tenants Sheet
+      // Tenants Sheet (skipped when Tenancies module is disabled)
+      if (modules.includeTenancies) {
       const tenantsSheet = workbook.addWorksheet('Tenants');
       tenantsSheet.columns = [
         { width: 25 }, // Block
@@ -34794,6 +35226,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         }
         row++;
       });
+      }
 
       // At Risk Sheet
       const atRiskSheet = workbook.addWorksheet('At Risk Items');
@@ -35086,6 +35519,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       }
 
       const orgId = user.organizationId;
+      const organization = await storage.getOrganization(orgId);
+      const modules = reportModuleSurfaces(organization);
       const [
         blocks,
         properties,
@@ -35094,16 +35529,14 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         complianceDocuments,
         assetInventory,
         tenantAssignments,
-        organization,
       ] = await Promise.all([
         storage.getBlocksByOrganization(orgId),
         storage.getPropertiesByOrganization(orgId),
         storage.getInspectionsByOrganization(orgId),
-        storage.getMaintenanceByOrganization(orgId),
-        storage.getComplianceDocuments(orgId),
+        modules.includeMaintenance ? storage.getMaintenanceByOrganization(orgId) : Promise.resolve([]),
+        modules.includeCompliance ? storage.getComplianceDocuments(orgId) : Promise.resolve([]),
         storage.getAssetInventoryByOrganization(orgId),
-        storage.getTenantAssignmentsByOrganization(orgId),
-        storage.getOrganization(orgId),
+        modules.includeTenancies ? storage.getTenantAssignmentsByOrganization(orgId) : Promise.resolve([]),
       ]);
 
       const { generatePortfolioReportHTML } = await import("./portfolioReportPdf");
@@ -35136,6 +35569,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         branding,
         baseUrl,
         countryCode: organization?.countryCode || "GB",
+        modules,
       });
 
       let browser;
@@ -35200,6 +35634,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         return res.status(404).json({ message: "Property not found" });
       }
 
+      const organization = await storage.getOrganization(orgId);
+      const modules = reportModuleSurfaces(organization);
       const [
         block,
         inspections,
@@ -35209,18 +35645,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         workOrders,
         comparisonReports,
         assetInventory,
-        organization,
         orgUsers,
       ] = await Promise.all([
         property.blockId ? storage.getBlock(property.blockId) : Promise.resolve(null),
         storage.getInspectionsByProperty(propertyId),
-        storage.getTenantAssignmentsByProperty(propertyId, orgId),
-        storage.getComplianceDocuments(orgId),
-        storage.getMaintenanceRequestsByProperty(propertyId),
-        storage.getWorkOrdersByOrganization(orgId),
+        modules.includeTenancies
+          ? storage.getTenantAssignmentsByProperty(propertyId, orgId)
+          : Promise.resolve([]),
+        modules.includeCompliance ? storage.getComplianceDocuments(orgId) : Promise.resolve([]),
+        modules.includeMaintenance
+          ? storage.getMaintenanceRequestsByProperty(propertyId)
+          : Promise.resolve([]),
+        modules.includeMaintenance
+          ? storage.getWorkOrdersByOrganization(orgId)
+          : Promise.resolve([]),
         storage.getComparisonReportsByProperty(propertyId),
         storage.getAssetInventoryByProperty(propertyId),
-        storage.getOrganization(orgId),
         storage.getUsersByOrganization(orgId),
       ]);
 
@@ -35296,6 +35736,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         branding,
         baseUrl,
         countryCode: organization?.countryCode || "GB",
+        modules,
       });
 
       let browser;

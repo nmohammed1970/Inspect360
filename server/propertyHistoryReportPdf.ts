@@ -151,6 +151,11 @@ export async function generatePropertyHistoryReportHTML(params: {
   branding?: PropertyHistoryReportBranding;
   baseUrl?: string;
   countryCode?: string | null;
+  modules?: {
+    includeTenancies?: boolean;
+    includeCompliance?: boolean;
+    includeMaintenance?: boolean;
+  };
 }): Promise<string> {
   const {
     organizationName,
@@ -160,10 +165,7 @@ export async function generatePropertyHistoryReportHTML(params: {
     inspections,
     inspectorById,
     assignedUserById,
-    tenantAssignments,
     comparisonTenantsById,
-    complianceDocuments,
-    maintenanceRequests,
     workOrders,
     disputeItems,
     assetInventory,
@@ -171,6 +173,12 @@ export async function generatePropertyHistoryReportHTML(params: {
     baseUrl,
     countryCode,
   } = params;
+  const includeTenancies = params.modules?.includeTenancies !== false;
+  const includeCompliance = params.modules?.includeCompliance !== false;
+  const includeMaintenance = params.modules?.includeMaintenance !== false;
+  const tenantAssignments = includeTenancies ? params.tenantAssignments : [];
+  const complianceDocuments = includeCompliance ? params.complianceDocuments : [];
+  const maintenanceRequests = includeMaintenance ? params.maintenanceRequests : [];
 
   const currency = getCurrencyForCountry(countryCode || "GB");
   const reportDate = new Date().toLocaleDateString();
@@ -211,9 +219,13 @@ export async function generatePropertyHistoryReportHTML(params: {
       escapeHtml(prettyLabel(property.propertyType || property.type)),
       property.sqft != null ? escapeHtml(String(property.sqft)) : "—",
       escapeHtml(block?.name || "—"),
-      occupancyStatus === "Occupied"
-        ? statusBadge("Occupied", "success")
-        : statusBadge("Vacant", "info"),
+      ...(includeTenancies
+        ? [
+            occupancyStatus === "Occupied"
+              ? statusBadge("Occupied", "success")
+              : statusBadge("Vacant", "info"),
+          ]
+        : []),
       escapeHtml(formatDate(property.createdAt) || "—"),
     ],
   ];
@@ -225,7 +237,9 @@ export async function generatePropertyHistoryReportHTML(params: {
       stackedCell(formatDate(inspection.scheduledDate) || "—", formatDate(inspection.completedDate) || ""),
       escapeHtml(personName(inspector)),
       statusBadge(prettyLabel(inspection.status), inspectionKind(inspection.status)),
-      escapeHtml(inferInspectionTenant(inspection, tenantAssignments)),
+      ...(includeTenancies
+        ? [escapeHtml(inferInspectionTenant(inspection, tenantAssignments))]
+        : []),
       inspection.id
         ? `<a href="${sanitizeReportUrl(`/inspections/${inspection.id}/report`, baseUrl)}" style="color:#00D5CC;font-weight:600;text-decoration:none;">View inspection</a>`
         : "—",
@@ -328,9 +342,9 @@ export async function generatePropertyHistoryReportHTML(params: {
     <div class="info-row" style="margin-bottom: 16px;"><strong>Report Date:</strong> ${escapeHtml(reportDate)}</div>
     <div class="stats-grid cols-6">
       <div class="stat-card"><div class="stat-value">${inspections.length}</div><div class="stat-label">Inspections</div></div>
-      <div class="stat-card"><div class="stat-value">${tenantAssignments.length}</div><div class="stat-label">Tenants</div></div>
-      <div class="stat-card"><div class="stat-value">${complianceDocuments.length}</div><div class="stat-label">Compliance</div></div>
-      <div class="stat-card"><div class="stat-value">${maintenanceRequests.length}</div><div class="stat-label">Maintenance</div></div>
+      ${includeTenancies ? `<div class="stat-card"><div class="stat-value">${tenantAssignments.length}</div><div class="stat-label">Tenants</div></div>` : ""}
+      ${includeCompliance ? `<div class="stat-card"><div class="stat-value">${complianceDocuments.length}</div><div class="stat-label">Compliance</div></div>` : ""}
+      ${includeMaintenance ? `<div class="stat-card"><div class="stat-value">${maintenanceRequests.length}</div><div class="stat-label">Maintenance</div></div>` : ""}
       <div class="stat-card"><div class="stat-value">${disputeItems.length}</div><div class="stat-label">Disputes</div></div>
       <div class="stat-card"><div class="stat-value">${assetInventory.length}</div><div class="stat-label">Assets</div></div>
     </div>
@@ -339,24 +353,24 @@ export async function generatePropertyHistoryReportHTML(params: {
   <div class="page compact">
     <h2 class="section-title">Property Overview</h2>
     ${renderTable(
-      ["Property", "Type", "Sqft", "Block", "Occupancy", "Created"],
+      ["Property", "Type", "Sqft", "Block", ...(includeTenancies ? ["Occupancy"] : []), "Created"],
       overviewRows,
       "No property found.",
-      ["left", "center", "center", "left", "center", "center"]
+      ["left", "center", "center", "left", ...(includeTenancies ? ["center"] : []), "center"] as any
     )}
   </div>
 
   <div class="page compact">
     <h2 class="section-title">Inspection History</h2>
     ${renderTable(
-      ["Type", "Dates", "Inspector", "Status", "Tenant", "Report"],
+      ["Type", "Dates", "Inspector", "Status", ...(includeTenancies ? ["Tenant"] : []), "Report"],
       inspectionRows,
       "No inspections found.",
-      ["left", "left", "left", "center", "left", "left"]
+      ["left", "left", "left", "center", ...(includeTenancies ? ["left"] : []), "left"] as any
     )}
   </div>
 
-  <div class="page compact">
+  ${includeTenancies ? `<div class="page compact">
     <h2 class="section-title">Tenant History</h2>
     ${renderTable(
       ["Tenant", "Lease", "Rent", "Deposit", "Status"],
@@ -364,9 +378,9 @@ export async function generatePropertyHistoryReportHTML(params: {
       "No tenant assignments found.",
       ["left", "left", "right", "right", "center"]
     )}
-  </div>
+  </div>` : ""}
 
-  <div class="page compact">
+  ${includeCompliance ? `<div class="page compact">
     <h2 class="section-title">Compliance History</h2>
     ${renderTable(
       ["Document", "Uploaded", "Expiry", "Status"],
@@ -374,9 +388,9 @@ export async function generatePropertyHistoryReportHTML(params: {
       "No compliance documents found.",
       ["left", "center", "center", "center"]
     )}
-  </div>
+  </div>` : ""}
 
-  <div class="page compact">
+  ${includeMaintenance ? `<div class="page compact">
     <h2 class="section-title">Maintenance History</h2>
     ${renderTable(
       ["Title", "Dates", "Status", "Assigned", "Contractor", "Completed", "Cost"],
@@ -384,7 +398,7 @@ export async function generatePropertyHistoryReportHTML(params: {
       "No maintenance requests found.",
       ["left", "left", "center", "left", "left", "center", "right"]
     )}
-  </div>
+  </div>` : ""}
 
   <div class="page compact">
     <h2 class="section-title">Dispute History</h2>

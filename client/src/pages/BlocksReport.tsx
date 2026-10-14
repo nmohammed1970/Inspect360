@@ -31,9 +31,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
 import { reportTableClass } from "@/components/data-table";
 import { cn } from "@/lib/utils";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 export default function BlocksReport() {
   const { toast } = useToast();
+  const { tenanciesEnabled } = useCompanyModules();
   const [searchTerm, setSearchTerm] = useState("");
   const [isExporting, setIsExporting] = useState(false);
 
@@ -47,6 +49,7 @@ export default function BlocksReport() {
 
   const { data: tenantAssignments = [] } = useQuery<any[]>({
     queryKey: ["/api/tenant-assignments"],
+    enabled: tenanciesEnabled,
   });
 
   // Calculate statistics for each block
@@ -221,6 +224,7 @@ export default function BlocksReport() {
             <div className="text-xl sm:text-2xl font-bold">{totalProperties}</div>
           </CardContent>
         </Card>
+        {tenanciesEnabled && (
         <Card>
           <CardHeader className="pb-2 sm:pb-3">
             <CardDescription className="text-xs sm:text-sm">Avg Occupancy Rate</CardDescription>
@@ -229,6 +233,8 @@ export default function BlocksReport() {
             <div className="text-xl sm:text-2xl font-bold">{avgOccupancyRate}%</div>
           </CardContent>
         </Card>
+        )}
+        {tenanciesEnabled && (
         <Card>
           <CardHeader className="pb-2 sm:pb-3">
             <CardDescription className="text-xs sm:text-sm">Total Tenants</CardDescription>
@@ -239,6 +245,7 @@ export default function BlocksReport() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Blocks Table */}
@@ -270,9 +277,15 @@ export default function BlocksReport() {
                       <TableHead className="min-w-[150px]">Block Name</TableHead>
                       <TableHead className="min-w-[150px] hidden sm:table-cell">Address</TableHead>
                       <TableHead className="text-center min-w-[100px]">Units</TableHead>
+                      {tenanciesEnabled && (
                       <TableHead className="text-center min-w-[100px] hidden md:table-cell">Occupied</TableHead>
+                      )}
+                      {tenanciesEnabled && (
                       <TableHead className="text-center min-w-[80px] hidden lg:table-cell">Vacant</TableHead>
+                      )}
+                      {tenanciesEnabled && (
                       <TableHead className="text-center min-w-[120px]">Rate</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -309,20 +322,26 @@ export default function BlocksReport() {
                               {block.totalUnits}
                             </Badge>
                           </TableCell>
+                          {tenanciesEnabled && (
                           <TableCell className="text-center hidden md:table-cell">
                             <Badge variant="default" className="text-xs">
                               <Users className="h-3 w-3 mr-1" />
                               {block.occupiedUnits}
                             </Badge>
                           </TableCell>
+                          )}
+                          {tenanciesEnabled && (
                           <TableCell className="text-center hidden lg:table-cell">
                             <span className="text-sm">{block.vacantUnits}</span>
                           </TableCell>
+                          )}
+                          {tenanciesEnabled && (
                           <TableCell className="text-center">
                             <Badge variant={occupancyColor} className="text-xs">
                               {block.occupancyRate}%
                             </Badge>
                           </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}

@@ -21,6 +21,8 @@ export type GalleryTemplateField = {
   key?: string;
   label?: string;
   type?: string;
+  /** Nested under a custom parent inspection point when set. */
+  parentFieldId?: string;
 };
 
 export type GalleryTemplateSection = {
@@ -90,6 +92,42 @@ function fieldKeyOf(field: GalleryTemplateField): string | null {
 /**
  * Build assignable photo destinations from a frozen template snapshot and
  * current repeatable instance counts (sectionId → count).
+function parentFieldKeyOf(field: GalleryTemplateField): string | null {
+  const parent = typeof field.parentFieldId === "string" ? field.parentFieldId.trim() : "";
+  return parent || null;
+}
+
+function pushPhotoDestination(
+  destinations: PhotoDestination[],
+  opts: {
+    sectionId: string;
+    sectionRef: string;
+    sectionLabel: string;
+    field: GalleryTemplateField;
+    fieldsByKey: Map<string, GalleryTemplateField>;
+  },
+) {
+  const fk = fieldKeyOf(opts.field);
+  if (!fk || !isPhotoFieldType(opts.field.type)) return;
+  const parentKey = parentFieldKeyOf(opts.field);
+  const parent = parentKey ? opts.fieldsByKey.get(parentKey) : undefined;
+  destinations.push({
+    sectionId: opts.sectionId,
+    sectionRef: opts.sectionRef,
+    sectionLabel: opts.sectionLabel,
+    fieldKey: fk,
+    fieldLabel: (opts.field.label || fk).trim() || fk,
+    fieldType: opts.field.type,
+    parentFieldKey: parentKey,
+    parentFieldLabel: parent
+      ? (parent.label || parentKey || "").trim() || parentKey
+      : null,
+  });
+}
+
+/**
+ * Build assignable photo destinations from a frozen template snapshot and
+ * current repeatable instance counts (sectionId → count).
  */
 export function listPhotoDestinations(
   structure: GalleryTemplateStructure | null | undefined,
@@ -122,6 +160,12 @@ export function listPhotoDestinations(
     const photoFields = (section.fields || []).filter((f) => isPhotoFieldType(f.type));
     if (!photoFields.length) continue;
 
+    const fieldsByKey = new Map<string, GalleryTemplateField>();
+    for (const field of section.fields || []) {
+      const key = fieldKeyOf(field);
+      if (key) fieldsByKey.set(key, field);
+    }
+
     const title = (section.title || section.id).trim() || section.id;
 
     if (section.repeatable) {
@@ -130,15 +174,12 @@ export function listPhotoDestinations(
         // Property rooms: stable sectionRef = `{sectionId}/{roomId}`
         for (const room of propertyRooms) {
           for (const field of photoFields) {
-            const fk = fieldKeyOf(field);
-            if (!fk || !isPhotoFieldType(field.type)) continue;
-            destinations.push({
+            pushPhotoDestination(destinations, {
               sectionId: section.id,
               sectionRef: room.sectionRef,
               sectionLabel: room.title,
-              fieldKey: fk,
-              fieldLabel: (field.label || fk).trim() || fk,
-              fieldType: field.type,
+              field: field,
+              fieldsByKey,
             });
           }
         }
@@ -151,33 +192,24 @@ export function listPhotoDestinations(
           const instanceLabel = `${title} ${i}`;
           const sectionRef = `${section.id}/${instanceLabel}`;
           for (const field of photoFields) {
-            const fk = fieldKeyOf(field);
-            if (!fk || !isPhotoFieldType(field.type)) continue;
-            destinations.push({
+            pushPhotoDestination(destinations, {
               sectionId: section.id,
               sectionRef,
               sectionLabel: instanceLabel,
-              fieldKey: fk,
-              fieldLabel: (field.label || fk).trim() || fk,
-              fieldType: field.type,
+              field: field,
+              fieldsByKey,
             });
           }
         }
       }
     } else {
       for (const field of photoFields) {
-        const fk = fieldKeyOf(field);
-        if (!fk || !isPhotoFieldType(field.type)) continue;
-        destinations.push({
+        pushPhotoDestination(destinations, {
           sectionId: section.id,
           sectionRef: section.id,
           sectionLabel: title,
-          fieldKey: fk,
-          fieldLabel: (field.label || fk).trim() || fk,
-          fieldType: field.type,
-        });
-      }
-    }
+          field: field,
+          fieldsByKey,
   }
 
   return destinations;
@@ -219,10 +251,22 @@ export function assertDestinationValid(
   return {
     sectionId,
     sectionRef: ref,
+  const parentKey = parentFieldKeyOf(field);
+  const parent = parentKey
+    ? (section.fields || []).find((f) => fieldKeyOf(f) === parentKey)
+    : undefined;
+
+  return {
+    sectionId,
+    sectionRef: ref,
     sectionLabel: instancePart,
     fieldKey,
     fieldLabel: (field.label || fieldKey).trim() || fieldKey,
     fieldType: field.type,
+    parentFieldKey: parentKey,
+    parentFieldLabel: parent
+      ? (parent.label || parentKey || "").trim() || parentKey
+      : null,
   };
 }
 
@@ -230,11 +274,13 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function formatDestinationLabel(dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel">): string {
-  return `${dest.sectionLabel} → ${dest.fieldLabel}`;
-}
-
-/** Extract repeatable counts from seeded inspection entries. */
+export function formatDestinationLabel(
+  dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel" | "parentFieldLabel">,
+): string {
+  const pointLabel = dest.parentFieldLabel
+    ? `${dest.parentFieldLabel} › ${dest.fieldLabel}`
+    : dest.fieldLabel;
+  return `${dest.sectionLabel} → ${pointLabel}`;
 export function extractRepeatableCountsFromEntries(
   entries: Array<{ fieldKey?: string | null; valueJson?: unknown }> | null | undefined,
 ): Record<string, number> {

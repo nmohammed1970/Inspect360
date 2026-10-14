@@ -20,7 +20,7 @@ import Card from '../ui/Card';
 import Button from '../ui/Button';
 import DatePicker from '../ui/DatePicker';
 import Select from '../ui/Select';
-import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Trash2, Calendar, Clock, Eye, CheckCircle2, AlertCircle, Mic, Square, Play } from 'lucide-react-native';
+import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Trash2, Calendar, Clock, Eye, CheckCircle2, AlertCircle, Mic, Square, Play, Plus } from 'lucide-react-native';
 import { requestRecordingPermissionsAsync, RecordingPresets, AudioQuality, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
@@ -91,6 +91,9 @@ interface FieldWidgetProps {
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
+  /** Add a nested sub-point under this custom inspection point. */
+  onAddSubPoint?: () => void;
+  addingSubPoint?: boolean;
 }
 
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
@@ -222,6 +225,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     onChange,
     onMarkedForReviewChange,
     onLogMaintenance,
+    onAddSubPoint,
+    addingSubPoint = false,
   } = props;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
@@ -1648,9 +1653,34 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   };
 
   return (
-    <Card style={[styles.card, { padding: padMd }]}>
+    <Card
+      variant="elevated"
+      padding="none"
+      style={[
+        styles.card,
+        {
+          borderWidth: 2,
+          borderColor: themeColors.border.DEFAULT,
+          overflow: 'hidden',
+        },
+      ]}
+    >
       {/* Field Label and Mark for Review */}
-      <View style={[styles.fieldHeader, { flexDirection: actionStack, alignItems: actionStack === 'column' ? 'flex-start' : 'center', gap: padSm }]}>
+      <View
+        style={[
+          styles.fieldHeader,
+          {
+            flexDirection: actionStack,
+            alignItems: actionStack === 'column' ? 'flex-start' : 'center',
+            gap: padSm,
+            backgroundColor: themeColors.muted?.DEFAULT || themeColors.border.light || '#f3f4f6',
+            borderBottomWidth: 2,
+            borderBottomColor: themeColors.border.DEFAULT,
+            paddingHorizontal: padMd,
+            paddingVertical: padSm + 4,
+          },
+        ]}
+      >
         <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
           {safeField.label}
           {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
@@ -1668,6 +1698,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         )}
       </View>
 
+      <View style={{ padding: padMd, gap: spacing[3] }}>
       {renderFieldInput()}
 
       {/* Condition Dropdown */}
@@ -2038,19 +2069,53 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       </View>
       )}
 
-      {/* Maintenance Logging — pass current field photos into create-maintenance */}
-      {(safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance && (
-        <TouchableOpacity
-          style={styles.maintenanceButton}
-          onPress={() => {
-            const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
-            onLogMaintenance?.(safeField.label, fieldPhotos);
+      {/* Point actions — Log Maintenance + Add Sub on one responsive row */}
+      {(((safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance) ||
+        (onAddSubPoint && !disabled)) && (
+        <View
+          style={{
+            flexDirection: isSmall ? 'column' : 'row',
+            gap: spacing[2],
+            marginTop: spacing[2],
           }}
         >
-          <Wrench size={16} color={themeColors.warning} />
-          <Text style={styles.maintenanceButtonText}>Log Maintenance</Text>
-        </TouchableOpacity>
+          {(safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance && (
+            <TouchableOpacity
+              style={[styles.maintenanceButton, { flex: isSmall ? undefined : 1, marginTop: 0 }]}
+              onPress={() => {
+                const fieldPhotos = (localPhotos?.length ? localPhotos : photos || []).filter(Boolean);
+                onLogMaintenance?.(safeField.label, fieldPhotos);
+              }}
+            >
+              <Wrench size={16} color={themeColors.warning} />
+              <Text style={styles.maintenanceButtonText}>Log Maintenance</Text>
+            </TouchableOpacity>
+          )}
+          {onAddSubPoint && !disabled && (
+            <TouchableOpacity
+              style={[
+                styles.addSubPointButton,
+                {
+                  flex: isSmall ? undefined : 1,
+                  borderColor: themeColors.border.DEFAULT,
+                  backgroundColor: themeColors.card.DEFAULT,
+                  opacity: addingSubPoint || !isOnline ? 0.6 : 1,
+                },
+              ]}
+              onPress={onAddSubPoint}
+              disabled={addingSubPoint || !isOnline}
+              accessibilityRole="button"
+              accessibilityLabel="Add Sub Inspection Point"
+            >
+              <Plus size={16} color={themeColors.text.primary} />
+              <Text style={[styles.addSubPointButtonText, { color: themeColors.text.primary }]}>
+                Add Sub Inspection Point
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       )}
+      </View>
 
       {/* Signature Modal */}
       {safeField.type === 'signature' && showSignature && (
@@ -2390,18 +2455,16 @@ const voiceCardStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: spacing[4],
-    padding: spacing[4],
+    marginBottom: 0,
   },
   fieldHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing[3],
   },
   fieldLabel: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
     flex: 1,
     // Color applied dynamically via themeColors
   },
@@ -2815,17 +2878,35 @@ const styles = StyleSheet.create({
   maintenanceButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.warning + '20',
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
+    paddingVertical: spacing[3],
     borderRadius: borderRadius.md,
     gap: spacing[2],
     borderWidth: 1,
     borderColor: colors.warning,
     marginTop: spacing[2],
+    minHeight: 44,
   },
   maintenanceButtonText: {
     color: colors.warning,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  addSubPointButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    borderRadius: borderRadius.md,
+    gap: spacing[2],
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    minHeight: 44,
+  },
+  addSubPointButtonText: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
   },

@@ -228,7 +228,7 @@ function searchPropertyId(search: string): string {
 export default function PropertyHistoryReport() {
   const { toast } = useToast();
   const { formatCurrency } = useLocale();
-  const { maintenanceEnabled } = useCompanyModules();
+  const { maintenanceEnabled, tenanciesEnabled, complianceEnabled } = useCompanyModules();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const propertyId = searchPropertyId(search);
@@ -258,11 +258,11 @@ export default function PropertyHistoryReport() {
   });
   const { data: complianceDocuments = [], isLoading: complianceLoading } = useQuery<any[]>({
     queryKey: ["/api/compliance"],
-    enabled: !!propertyId,
+    enabled: !!propertyId && complianceEnabled,
   });
   const { data: tenantAssignments = [], isLoading: tenantsLoading } = useQuery<any[]>({
     queryKey: ["/api/tenant-assignments"],
-    enabled: !!propertyId,
+    enabled: !!propertyId && tenanciesEnabled,
   });
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/properties", propertyId, "stats"],
@@ -360,8 +360,8 @@ export default function PropertyHistoryReport() {
       (inspectionsLoading ||
         (maintenanceEnabled && maintenanceLoading) ||
         assetsLoading ||
-        complianceLoading ||
-        tenantsLoading ||
+        (complianceEnabled && complianceLoading) ||
+        (tenanciesEnabled && tenantsLoading) ||
         disputesLoading));
 
   const handleSelectProperty = (id: string) => {

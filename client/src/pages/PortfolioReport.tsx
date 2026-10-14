@@ -76,7 +76,7 @@ function formatMoneyValue(
 export default function PortfolioReport() {
   const { toast } = useToast();
   const { formatCurrency } = useLocale();
-  const { maintenanceEnabled } = useCompanyModules();
+  const { maintenanceEnabled, tenanciesEnabled, complianceEnabled } = useCompanyModules();
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
@@ -99,9 +99,11 @@ export default function PortfolioReport() {
   });
   const { data: complianceDocuments = [], isLoading: complianceLoading } = useQuery<any[]>({
     queryKey: ["/api/compliance"],
+    enabled: complianceEnabled,
   });
   const { data: tenantAssignments = [], isLoading: tenantsLoading } = useQuery<any[]>({
     queryKey: ["/api/tenant-assignments"],
+    enabled: tenanciesEnabled,
   });
 
   const isLoading =
@@ -110,8 +112,8 @@ export default function PortfolioReport() {
     inspectionsLoading ||
     (maintenanceEnabled && maintenanceLoading) ||
     assetsLoading ||
-    complianceLoading ||
-    tenantsLoading;
+    (complianceEnabled && complianceLoading) ||
+    (tenanciesEnabled && tenantsLoading);
 
   const now = useMemo(() => new Date(), []);
 
@@ -838,24 +840,30 @@ export default function PortfolioReport() {
                 <CardTitle className="text-2xl tabular-nums">{assetInventory.length}</CardTitle>
               </CardHeader>
             </Card>
+            {complianceEnabled && (
             <Card className="glass-card shadow-sm">
               <CardHeader className="pb-2">
                 <CardDescription>Compliance Docs</CardDescription>
                 <CardTitle className="text-2xl tabular-nums">{complianceDocuments.length}</CardTitle>
               </CardHeader>
             </Card>
+            )}
+            {complianceEnabled && (
             <Card className="glass-card shadow-sm">
               <CardHeader className="pb-2">
                 <CardDescription>Expiring ≤30 days</CardDescription>
                 <CardTitle className="text-2xl tabular-nums text-orange-600">{expiringCompliance}</CardTitle>
               </CardHeader>
             </Card>
+            )}
+            {complianceEnabled && (
             <Card className="glass-card shadow-sm">
               <CardHeader className="pb-2">
                 <CardDescription>Expired Documents</CardDescription>
                 <CardTitle className="text-2xl tabular-nums text-destructive">{expiredCompliance}</CardTitle>
               </CardHeader>
             </Card>
+            )}
           </div>
 
           {/* 1. Blocks & Properties */}
@@ -866,12 +874,12 @@ export default function PortfolioReport() {
                   <TableHead>Block</TableHead>
                   <TableHead>Property</TableHead>
                   <TableHead className="text-center hidden sm:table-cell">Type</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-right hidden md:table-cell">Rent</TableHead>
+                  {tenanciesEnabled && <TableHead className="text-center">Status</TableHead>}
+                  {tenanciesEnabled && <TableHead className="text-right hidden md:table-cell">Rent</TableHead>}
                   <TableHead className="text-center hidden md:table-cell">Insp</TableHead>
-                  <TableHead className="text-center hidden md:table-cell">Maint</TableHead>
+                  {maintenanceEnabled && <TableHead className="text-center hidden md:table-cell">Maint</TableHead>}
                   <TableHead className="text-center hidden lg:table-cell">Assets</TableHead>
-                  <TableHead className="text-center hidden lg:table-cell">Comp</TableHead>
+                  {complianceEnabled && <TableHead className="text-center hidden lg:table-cell">Comp</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -901,6 +909,7 @@ export default function PortfolioReport() {
                         )}
                       </TableCell>
                       <TableCell className="text-center hidden sm:table-cell">{row.type}</TableCell>
+                      {tenanciesEnabled && (
                       <TableCell className="text-center">
                         {row.status === "—" ? (
                           "—"
@@ -910,11 +919,18 @@ export default function PortfolioReport() {
                           </Badge>
                         )}
                       </TableCell>
+                      )}
+                      {tenanciesEnabled && (
                       <TableCell className="text-right tabular-nums hidden md:table-cell">{row.rent}</TableCell>
+                      )}
                       <TableCell className="text-center tabular-nums hidden md:table-cell">{row.insp}</TableCell>
+                      {maintenanceEnabled && (
                       <TableCell className="text-center tabular-nums hidden md:table-cell">{row.maint}</TableCell>
+                      )}
                       <TableCell className="text-center tabular-nums hidden lg:table-cell">{row.assets}</TableCell>
+                      {complianceEnabled && (
                       <TableCell className="text-center tabular-nums hidden lg:table-cell">{row.comp}</TableCell>
+                      )}
                     </TableRow>
                   ))
                 )}
@@ -1094,6 +1110,7 @@ export default function PortfolioReport() {
           </SectionTable>
 
           {/* 5. Compliance */}
+          {complianceEnabled && (
           <SectionTable title="Compliance" icon={ShieldCheck} count={complianceRows.length}>
             <Table className={reportTableClass}>
               <TableHeader>
@@ -1144,8 +1161,10 @@ export default function PortfolioReport() {
               </TableBody>
             </Table>
           </SectionTable>
+          )}
 
           {/* 6. Tenants */}
+          {tenanciesEnabled && (
           <SectionTable title="Tenants" icon={Users} count={tenantRows.length}>
             <Table className={reportTableClass}>
               <TableHeader>
@@ -1198,6 +1217,7 @@ export default function PortfolioReport() {
               </TableBody>
             </Table>
           </SectionTable>
+          )}
 
           {/* 7. At Risk */}
           <SectionTable title="At Risk Items" icon={ShieldAlert} count={atRiskRows.length}>

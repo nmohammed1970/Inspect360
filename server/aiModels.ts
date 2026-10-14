@@ -15,17 +15,17 @@ function readModel(envName: string, fallback: string): string {
   return value;
 }
 
-/** Vision / inspection write-up / photo analyse (was hardcoded gpt-5). */
+/** Vision / inspection write-up / photo analyse. Override with AI_INSPECTION_MODEL. */
 export function getInspectionModel(): string {
-  return readModel("AI_INSPECTION_MODEL", "gpt-5");
+  return readModel("AI_INSPECTION_MODEL", "gpt-5-mini");
 }
 
-/** Chat, Ivy, maintenance analyse, certificates, comparison notes (was gpt-4o). */
+/** Chat, Ivy, maintenance analyse, certificates, comparison notes. Override with AI_CHAT_MODEL. */
 export function getChatModel(): string {
-  return readModel("AI_CHAT_MODEL", "gpt-4o");
+  return readModel("AI_CHAT_MODEL", "gpt-4o-mini");
 }
 
-/** Lightweight chat titles etc. (was gpt-4o-mini). */
+/** Lightweight chat titles etc. Override with AI_CHAT_MINI_MODEL. */
 export function getChatMiniModel(): string {
   return readModel("AI_CHAT_MINI_MODEL", "gpt-4o-mini");
 }
