@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   appendCustomPointToSnapshot,
   canAddCustomPointsToSection,
+  fieldVisibleForInstance,
   getChildFields,
   getTopLevelFields,
   isGeneralInfoSection,
@@ -240,5 +241,33 @@ assert.deepEqual(cascade.removedFieldIds.sort(), [
 ].sort());
 const afterCascade = cascade.snapshot.sections!.find((s) => s.id === "section_entry_hallway")!;
 assert.equal(afterCascade.fields!.length, 1);
+
+const bedroomSnap = {
+  sections: [
+    {
+      id: "section_bedrooms",
+      title: "Bedrooms",
+      repeatable: true,
+      fields: [] as Array<Record<string, unknown>>,
+    },
+  ],
+};
+const bedroom1Point = appendCustomPointToSnapshot(bedroomSnap, {
+  sectionId: "section_bedrooms",
+  label: "Ensuite Check",
+  kind: "choice",
+  options: ["Yes", "No"],
+  fieldId: "field_custom_ensuite_1",
+  instanceSectionRef: "section_bedrooms/Bedroom 1",
+});
+assert.equal((bedroom1Point.field as any).instanceSectionRef, "section_bedrooms/Bedroom 1");
+assert.equal(
+  fieldVisibleForInstance(bedroom1Point.field, "section_bedrooms/Bedroom 1"),
+  true,
+);
+assert.equal(
+  fieldVisibleForInstance(bedroom1Point.field, "section_bedrooms/Bedroom 2"),
+  false,
+);
 
 console.log("inspectionCustomPoints.test.ts: ok");

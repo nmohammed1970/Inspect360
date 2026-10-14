@@ -51,6 +51,7 @@ import { useResponsive } from '../../hooks/useResponsive';
 import FormScreen from '../../components/ui/FormScreen';
 import {
   canAddCustomPointsToSection,
+  fieldVisibleForInstance,
   getChildFields,
   getTopLevelFields,
   isCustomPointField,
@@ -81,6 +82,7 @@ interface TemplateField {
   includeCleanliness?: boolean;
   custom?: boolean;
   parentFieldId?: string;
+  instanceSectionRef?: string;
 }
 
 export default function InspectionCaptureScreen() {
@@ -122,6 +124,7 @@ export default function InspectionCaptureScreen() {
   const [addPointOptions, setAddPointOptions] = useState<string[]>(['Yes', 'No']);
   const [addPointOptionDraft, setAddPointOptionDraft] = useState('');
   const [addPointParent, setAddPointParent] = useState<{ id: string; label: string } | null>(null);
+  const [addPointInstanceRef, setAddPointInstanceRef] = useState<string | null>(null);
   const addPointRequestIdRef = useRef<string | null>(null);
   // Load sync stats periodically
   useEffect(() => {
@@ -329,6 +332,7 @@ export default function InspectionCaptureScreen() {
       options?: string[];
       clientRequestId: string;
       parentFieldId?: string;
+      instanceSectionRef?: string;
     }) => {
       return inspectionsService.addCustomPoint(inspectionId, data);
     },
@@ -348,6 +352,7 @@ export default function InspectionCaptureScreen() {
       setAddPointOptions(['Yes', 'No']);
       setAddPointOptionDraft('');
       setAddPointParent(null);
+      setAddPointInstanceRef(null);
       addPointRequestIdRef.current = null;
       Alert.alert(
         variables.parentFieldId ? 'Sub-point added' : 'Inspection point added',
@@ -401,13 +406,17 @@ export default function InspectionCaptureScreen() {
     },
   });
 
-  const openAddPointModal = (parent?: { id: string; label: string } | null) => {
+  const openAddPointModal = (
+    parent?: { id: string; label: string } | null,
+    instanceSectionRef?: string | null,
+  ) => {
     setNewPointName('');
     setAddPointKind('photo_condition');
     setAddPointOptions(['Yes', 'No']);
     setAddPointOptionDraft('');
     addPointRequestIdRef.current = null;
     setAddPointParent(parent || null);
+    setAddPointInstanceRef(instanceSectionRef?.trim() || null);
     setShowAddPointModal(true);
   };
 
@@ -1821,7 +1830,7 @@ export default function InspectionCaptureScreen() {
                     return (
                       <View key={`instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
                         <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>{instanceName}</Text>
-                        {currentSection.fields.map((field, fieldIndex) => {
+                        {getTopLevelFields(currentSection.fields).map((field, fieldIndex) => {
                           if (!field || !field.id && !field.key) {
                             console.warn('Invalid field found:', field);
                             return null;
@@ -1829,6 +1838,37 @@ export default function InspectionCaptureScreen() {
 
                           try {
                             const sectionRef = `${currentSection.id}/${instanceName}`;
+                            const entryRefsForField = Object.values(entries)
+                              .filter(
+                                (e) =>
+                                  e.fieldKey === (field.id || field.key) &&
+                                  typeof e.sectionRef === 'string' &&
+                                  e.sectionRef.startsWith(`${currentSection.id}/`),
+                              )
+                              .map((e) => e.sectionRef);
+                            if (
+                              !fieldVisibleForInstance(
+                                field,
+                                sectionRef,
+                                currentSection.fields,
+                                entryRefsForField,
+                              )
+                            ) {
+                              return null;
+                            }
+                            if (
+                              isCustomPointField(field) &&
+                              !(field as any).instanceSectionRef &&
+                              entryRefsForField.length === 0
+                            ) {
+                              const unscopedTop = getTopLevelFields(currentSection.fields).filter(
+                                (f) => isCustomPointField(f) && !(f as any).instanceSectionRef,
+                              );
+                              const ordinal = unscopedTop.findIndex((f) => f.id === field.id);
+                              if (ordinal >= 0 && ordinal !== instanceIndex) {
+                                return null;
+                              }
+                            }
                             const key = `${sectionRef}-${field.id || field.key}`;
                             const entry = entries[key];
                             
@@ -1940,7 +1980,11 @@ export default function InspectionCaptureScreen() {
                                     !(field as any).parentFieldId &&
                                     effectiveInspection?.status !== 'completed' &&
                                     !isDeleted
-                                      ? () => openAddPointModal({ id: field.id, label: field.label })
+                                      ? () =>
+                                          openAddPointModal(
+                                            { id: field.id, label: field.label },
+                                            sectionRef,
+                                          )
                                       : undefined
                                   }
                                   addingSubPoint={
@@ -1964,7 +2008,9 @@ export default function InspectionCaptureScreen() {
                           !isDeleted && (
                           <View style={[styles.addPointContainer, { borderTopColor: themeColors.border?.DEFAULT || '#e5e7eb' }]}>
                             <TouchableOpacity
-                              onPress={() => openAddPointModal(null)}
+                              onPress={() =>
+                                openAddPointModal(null, `${currentSection.id}/${instanceName}`)
+                              }
                               disabled={addCustomPoint.isPending || !isOnline}
                               style={[
                                 styles.addPointButton,
@@ -2255,8 +2301,8 @@ export default function InspectionCaptureScreen() {
                 <Text style={[styles.addPointModalDescription, { color: themeColors.text.muted }]}>
                   {addPointParent
                     ? `Create a sub-point under "${addPointParent.label}".`
-                    : currentSection?.repeatable
-                      ? `Create a custom point for ${currentSection.title}. It will appear on every ${(currentSection.title || '').toLowerCase().replace(/s$/, '')} in this section.`
+                    : addPointInstanceRef
+                      ? `Create a custom point for this room only (${addPointInstanceRef.split('/').slice(1).join('/') || 'this instance'}).`
                       : `Create a custom point in ${currentSection?.title || 'this section'}.`}
                 </Text>
 
@@ -2425,6 +2471,7 @@ export default function InspectionCaptureScreen() {
                       setAddPointOptions(['Yes', 'No']);
                       setAddPointOptionDraft('');
                       setAddPointParent(null);
+                      setAddPointInstanceRef(null);
                       addPointRequestIdRef.current = null;
                     }}
                     disabled={addCustomPoint.isPending}
@@ -2457,6 +2504,7 @@ export default function InspectionCaptureScreen() {
                         options: addPointKind === 'choice' ? addPointOptions : undefined,
                         clientRequestId: addPointRequestIdRef.current,
                         parentFieldId: addPointParent?.id,
+                        instanceSectionRef: addPointInstanceRef || undefined,
                       });
                     }}
                     disabled={addCustomPoint.isPending}

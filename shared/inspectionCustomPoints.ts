@@ -19,6 +19,12 @@ export interface CustomPointFieldBase {
   clientRequestId?: string;
   /** When set, this point is nested under another custom point in the same section. */
   parentFieldId?: string;
+  /**
+   * For repeatable rooms (Bedroom 1, Kitchen 2, …): full sectionRef this point
+   * belongs to (e.g. `section_bedrooms/room-uuid` or `section_bedrooms/Bedroom 1`).
+   * When set, the point is shown only on that instance — not on every bedroom.
+   */
+  instanceSectionRef?: string;
 }
 
 export interface CustomPhotoConditionPointField extends CustomPointFieldBase {
@@ -167,6 +173,63 @@ export function getParentFieldId(field: { parentFieldId?: unknown } | null | und
   return id || null;
 }
 
+export function getInstanceSectionRef(
+  field: { instanceSectionRef?: unknown } | null | undefined,
+): string | null {
+  if (!field || typeof field.instanceSectionRef !== "string") return null;
+  const ref = field.instanceSectionRef.trim();
+  return ref || null;
+}
+
+/**
+ * Whether a field should render for a repeatable instance.
+ * Template (non-custom) fields always show. Custom points with
+ * `instanceSectionRef` only show on that instance.
+ * Legacy unscoped custom points: if entries exist for specific instances,
+ * only show on those; otherwise show on every instance.
+ */
+export function fieldVisibleForInstance(
+  field: {
+    custom?: unknown;
+    instanceSectionRef?: unknown;
+    parentFieldId?: unknown;
+    id?: unknown;
+    key?: unknown;
+  } | null | undefined,
+  instanceSectionRef: string,
+  allFields?: Array<{
+    id?: unknown;
+    key?: unknown;
+    instanceSectionRef?: unknown;
+    parentFieldId?: unknown;
+    custom?: unknown;
+  }> | null,
+  entrySectionRefsForField?: string[] | null,
+): boolean {
+  if (!field) return false;
+  if (!isCustomPointField(field as any)) return true;
+
+  const ownScope = getInstanceSectionRef(field);
+  if (ownScope) return ownScope === instanceSectionRef;
+
+  const parentId = getParentFieldId(field);
+  if (parentId && allFields?.length) {
+    const parent = allFields.find((f) => getFieldId(f) === parentId);
+    const parentScope = getInstanceSectionRef(parent as any);
+    if (parentScope) return parentScope === instanceSectionRef;
+  }
+
+  const refs = (entrySectionRefsForField || [])
+    .map((r) => String(r || "").trim())
+    .filter(Boolean);
+  if (refs.length > 0) {
+    return refs.includes(instanceSectionRef);
+  }
+
+  // Legacy unscoped with no entries yet — keep visible everywhere
+  return true;
+}
+
 /** Top-level fields only (excludes nested sub-points). */
 export function getTopLevelFields<T extends { parentFieldId?: unknown }>(
   fields: T[] | null | undefined,
@@ -206,10 +269,13 @@ export function buildCustomPointField(opts: {
   clientRequestId?: string;
   addedAt?: string;
   parentFieldId?: string;
+  instanceSectionRef?: string;
 }): CustomPointField {
   const label = normalizeCustomPointLabel(opts.label);
   const id = opts.fieldId || generateCustomFieldId();
   const kind = normalizeCustomPointKind(opts.kind);
+  const instanceSectionRef =
+    typeof opts.instanceSectionRef === "string" ? opts.instanceSectionRef.trim() : "";
   const base = {
     id,
     key: id,
@@ -219,6 +285,7 @@ export function buildCustomPointField(opts: {
     addedAt: opts.addedAt || new Date().toISOString(),
     ...(opts.clientRequestId ? { clientRequestId: opts.clientRequestId } : {}),
     ...(opts.parentFieldId ? { parentFieldId: opts.parentFieldId } : {}),
+    ...(instanceSectionRef ? { instanceSectionRef } : {}),
   };
 
   if (kind === "choice") {
@@ -290,6 +357,8 @@ export function appendCustomPointToSnapshot(
     fieldId?: string;
     clientRequestId?: string;
     parentFieldId?: string;
+    /** Full sectionRef for a repeatable room instance (Bedroom 1, etc.). */
+    instanceSectionRef?: string;
   },
 ): { snapshot: TemplateSnapshotLike; field: CustomPointField; created: boolean } {
   if (!snapshot || !Array.isArray(snapshot.sections)) {
@@ -316,6 +385,8 @@ export function appendCustomPointToSnapshot(
 
   const existingFields = Array.isArray(section.fields) ? [...section.fields] : [];
   const parentFieldId = opts.parentFieldId?.trim() || undefined;
+  let instanceSectionRef =
+    typeof opts.instanceSectionRef === "string" ? opts.instanceSectionRef.trim() : "";
 
   if (parentFieldId) {
     const parent = existingFields.find((f) => getFieldId(f) === parentFieldId);
@@ -325,6 +396,20 @@ export function appendCustomPointToSnapshot(
     if (getParentFieldId(parent as any)) {
       throw new CustomPointValidationError(
         "Sub-points can only be added under a top-level custom inspection point",
+      );
+    }
+    // Sub-points inherit the parent's room instance scope
+    const parentScope = getInstanceSectionRef(parent as any);
+    if (parentScope) {
+      instanceSectionRef = parentScope;
+    }
+  }
+
+  if (instanceSectionRef) {
+    const baseSectionId = instanceSectionRef.split("/")[0] || "";
+    if (baseSectionId && baseSectionId !== opts.sectionId) {
+      throw new CustomPointValidationError(
+        "Room instance does not belong to this section",
       );
     }
   }
@@ -349,6 +434,7 @@ export function appendCustomPointToSnapshot(
     fieldId: opts.fieldId,
     clientRequestId: opts.clientRequestId,
     parentFieldId,
+    instanceSectionRef: instanceSectionRef || undefined,
   });
 
   let nextFields: Array<Record<string, unknown>>;

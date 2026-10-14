@@ -51,6 +51,7 @@ import {
 } from "@shared/propertyLayout";
 import {
   canAddCustomPointsToSection,
+  fieldVisibleForInstance,
   getChildFields,
   getTopLevelFields,
   isCustomPointField,
@@ -87,6 +88,8 @@ interface TemplateField {
   includeCleanliness?: boolean;
   custom?: boolean;
   parentFieldId?: string;
+  /** Repeatable room scope (e.g. section_bedrooms/Bedroom 1) */
+  instanceSectionRef?: string;
 }
 
 interface InspectionEntry {
@@ -156,6 +159,8 @@ export default function InspectionCapture() {
   const [addPointOptions, setAddPointOptions] = useState<string[]>(["Yes", "No"]);
   const [addPointOptionDraft, setAddPointOptionDraft] = useState("");
   const [addPointParent, setAddPointParent] = useState<{ id: string; label: string } | null>(null);
+  /** When adding from a bedroom/kitchen card, scope the new point to that instance. */
+  const [addPointInstanceRef, setAddPointInstanceRef] = useState<string | null>(null);
   const addPointRequestIdRef = useRef<string | null>(null);
   const pendingScrollFieldIdRef = useRef<string | null>(null);
 
@@ -665,6 +670,7 @@ export default function InspectionCapture() {
       options?: string[];
       clientRequestId: string;
       parentFieldId?: string;
+      instanceSectionRef?: string;
     }) => {
       const response = await apiRequest("POST", `/api/inspections/${id}/custom-points`, data);
       return response.json();
@@ -692,6 +698,7 @@ export default function InspectionCapture() {
       setAddPointOptions(["Yes", "No"]);
       setAddPointOptionDraft("");
       setAddPointParent(null);
+      setAddPointInstanceRef(null);
       addPointRequestIdRef.current = null;
       toast({
         title: variables.parentFieldId ? "Sub-point added" : "Inspection point added",
@@ -756,7 +763,10 @@ export default function InspectionCapture() {
     },
   });
 
-  const openAddPointDialog = (parent?: { id: string; label: string } | null) => {
+  const openAddPointDialog = (
+    parent?: { id: string; label: string } | null,
+    instanceSectionRef?: string | null,
+  ) => {
     setNewPointName("");
     setAddPointNameError(null);
     setAddPointKind("photo_condition");
@@ -764,6 +774,7 @@ export default function InspectionCapture() {
     setAddPointOptionDraft("");
     addPointRequestIdRef.current = null;
     setAddPointParent(parent || null);
+    setAddPointInstanceRef(instanceSectionRef?.trim() || null);
     setShowAddPointDialog(true);
   };
 
@@ -811,6 +822,7 @@ export default function InspectionCapture() {
       options: addPointKind === "choice" ? addPointOptions : undefined,
       clientRequestId: addPointRequestIdRef.current,
       parentFieldId: addPointParent?.id,
+      instanceSectionRef: addPointInstanceRef || undefined,
     });
   };
 
@@ -1874,8 +1886,8 @@ export default function InspectionCapture() {
             <DialogDescription>
               {addPointParent
                 ? `Create a sub-point under "${addPointParent.label}".`
-                : currentSection?.repeatable
-                  ? `Create a custom point for ${currentSection.title}. It will appear on every ${currentSection.title.toLowerCase().replace(/s$/, "")} in this section.`
+                : addPointInstanceRef
+                  ? `Create a custom point for this room only (${addPointInstanceRef.split("/").slice(1).join("/") || "this instance"}).`
                   : `Create a custom point in ${currentSection?.title || "this section"}.`}
             </DialogDescription>
           </DialogHeader>
@@ -2035,7 +2047,11 @@ export default function InspectionCapture() {
               type="button"
               variant="outline"
               disabled={addCustomPoint.isPending}
-              onClick={() => setShowAddPointDialog(false)}
+              onClick={() => {
+                setShowAddPointDialog(false);
+                setAddPointInstanceRef(null);
+                setAddPointParent(null);
+              }}
             >
               Cancel
             </Button>
@@ -2461,10 +2477,58 @@ export default function InspectionCapture() {
                       const sectionRef =
                         roomInst?.sectionRef ||
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                      const entryRefsForField = Object.values(entries)
+                        .filter(
+                          (e) =>
+                            e.fieldKey === field.id &&
+                            typeof e.sectionRef === "string" &&
+                            e.sectionRef.startsWith(`${currentSection.id}/`),
+                        )
+                        .map((e) => e.sectionRef);
+                      if (
+                        !fieldVisibleForInstance(
+                          field,
+                          sectionRef,
+                          currentSection.fields,
+                          entryRefsForField,
+                        )
+                      ) {
+                        return null;
+                      }
+                      // Legacy unscoped customs (no instanceSectionRef, no entries):
+                      // pin each to one room by order so they don't duplicate on every bedroom.
+                      if (
+                        isCustomPointField(field) &&
+                        !field.instanceSectionRef &&
+                        entryRefsForField.length === 0
+                      ) {
+                        const unscopedTop = getTopLevelFields(currentSection.fields).filter(
+                          (f) => isCustomPointField(f) && !f.instanceSectionRef,
+                        );
+                        const ordinal = unscopedTop.findIndex((f) => f.id === field.id);
+                        if (ordinal >= 0 && ordinal !== instanceIndex) {
+                          return null;
+                        }
+                      }
                       const entryKey = `${sectionRef}-${field.id}`;
                       const entry = entries[entryKey];
                       const childFields = isCustomPointField(field)
-                        ? getChildFields(currentSection.fields, field.id)
+                        ? getChildFields(currentSection.fields, field.id).filter((child) => {
+                            const childEntryRefs = Object.values(entries)
+                              .filter(
+                                (e) =>
+                                  e.fieldKey === child.id &&
+                                  typeof e.sectionRef === "string" &&
+                                  e.sectionRef.startsWith(`${currentSection.id}/`),
+                              )
+                              .map((e) => e.sectionRef);
+                            return fieldVisibleForInstance(
+                              child,
+                              sectionRef,
+                              currentSection.fields,
+                              childEntryRefs,
+                            );
+                          })
                         : [];
 
                       const getAddress = () => {
@@ -2559,7 +2623,11 @@ export default function InspectionCapture() {
                                 isCustomPointField(point) &&
                                 !point.parentFieldId &&
                                 inspection?.status !== "completed"
-                                  ? () => openAddPointDialog({ id: point.id, label: point.label })
+                                  ? () =>
+                                      openAddPointDialog(
+                                        { id: point.id, label: point.label },
+                                        sectionRef,
+                                      )
                                   : undefined
                               }
                               addingSubPoint={
@@ -2599,7 +2667,13 @@ export default function InspectionCapture() {
                           type="button"
                           variant="outline"
                           className="w-full min-h-11 justify-center gap-2 border-2 font-semibold"
-                          onClick={() => openAddPointDialog(null)}
+                          onClick={() =>
+                            openAddPointDialog(
+                              null,
+                              roomInst?.sectionRef ||
+                                `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`,
+                            )
+                          }
                           disabled={addCustomPoint.isPending || !isOnline}
                           data-testid={`button-add-inspection-point-instance-${instanceIndex}`}
                         >

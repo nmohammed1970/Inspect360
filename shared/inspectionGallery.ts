@@ -23,6 +23,8 @@ export type GalleryTemplateField = {
   type?: string;
   /** Nested under a custom parent inspection point when set. */
   parentFieldId?: string;
+  /** Repeatable room scope — only assignable on that instance. */
+  instanceSectionRef?: string;
 };
 
 export type GalleryTemplateSection = {
@@ -110,6 +112,16 @@ function pushPhotoDestination(
   if (!fk || !isPhotoFieldType(opts.field.type)) return;
   const parentKey = parentFieldKeyOf(opts.field);
   const parent = parentKey ? opts.fieldsByKey.get(parentKey) : undefined;
+  const ownScope =
+    typeof opts.field.instanceSectionRef === "string"
+      ? opts.field.instanceSectionRef.trim()
+      : "";
+  const parentScope =
+    parent && typeof parent.instanceSectionRef === "string"
+      ? parent.instanceSectionRef.trim()
+      : "";
+  const effectiveScope = ownScope || parentScope;
+  if (effectiveScope && effectiveScope !== opts.sectionRef) return;
   destinations.push({
     sectionId: opts.sectionId,
     sectionRef: opts.sectionRef,

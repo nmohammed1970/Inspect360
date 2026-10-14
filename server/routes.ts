@@ -8120,6 +8120,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         typeof req.body?.parentFieldId === "string" && req.body.parentFieldId.trim()
           ? req.body.parentFieldId.trim()
           : undefined;
+      const instanceSectionRef =
+        typeof req.body?.instanceSectionRef === "string" && req.body.instanceSectionRef.trim()
+          ? req.body.instanceSectionRef.trim()
+          : undefined;
 
       let snapshot =
         typeof inspection.templateSnapshotJson === "string"
@@ -8137,6 +8141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         options,
         clientRequestId,
         parentFieldId,
+        instanceSectionRef,
       });
 
       if (result.created) {

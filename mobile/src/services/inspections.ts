@@ -273,6 +273,7 @@ export const inspectionsService = {
       options?: string[];
       clientRequestId?: string;
       parentFieldId?: string;
+      instanceSectionRef?: string;
     }
   ): Promise<{
     field: { id: string; key: string; label: string; type: string; parentFieldId?: string; options?: string[] };
