@@ -50,6 +50,8 @@ export type PhotoDestination = {
   fieldKey: string;
   fieldLabel: string;
   fieldType: "photo" | "photo_array";
+  parentFieldKey?: string | null;
+  parentFieldLabel?: string | null;
 };
 
 export function isPhotoFieldType(type: string | undefined | null): type is "photo" | "photo_array" {
@@ -89,9 +91,6 @@ function fieldKeyOf(field: GalleryTemplateField): string | null {
   return key || null;
 }
 
-/**
- * Build assignable photo destinations from a frozen template snapshot and
- * current repeatable instance counts (sectionId → count).
 function parentFieldKeyOf(field: GalleryTemplateField): string | null {
   const parent = typeof field.parentFieldId === "string" ? field.parentFieldId.trim() : "";
   return parent || null;
@@ -210,6 +209,9 @@ export function listPhotoDestinations(
           sectionLabel: title,
           field: field,
           fieldsByKey,
+        });
+      }
+    }
   }
 
   return destinations;
@@ -248,9 +250,6 @@ export function assertDestinationValid(
   const field = (section.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
   if (!field || !isPhotoFieldType(field.type)) return null;
 
-  return {
-    sectionId,
-    sectionRef: ref,
   const parentKey = parentFieldKeyOf(field);
   const parent = parentKey
     ? (section.fields || []).find((f) => fieldKeyOf(f) === parentKey)
@@ -281,6 +280,8 @@ export function formatDestinationLabel(
     ? `${dest.parentFieldLabel} › ${dest.fieldLabel}`
     : dest.fieldLabel;
   return `${dest.sectionLabel} → ${pointLabel}`;
+}
+
 export function extractRepeatableCountsFromEntries(
   entries: Array<{ fieldKey?: string | null; valueJson?: unknown }> | null | undefined,
 ): Record<string, number> {
