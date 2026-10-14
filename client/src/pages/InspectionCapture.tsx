@@ -1874,7 +1874,9 @@ export default function InspectionCapture() {
             <DialogDescription>
               {addPointParent
                 ? `Create a sub-point under "${addPointParent.label}".`
-                : `Create a custom point in ${currentSection?.title || "this section"}.`}
+                : currentSection?.repeatable
+                  ? `Create a custom point for ${currentSection.title}. It will appear on every ${currentSection.title.toLowerCase().replace(/s$/, "")} in this section.`
+                  : `Create a custom point in ${currentSection?.title || "this section"}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -2556,8 +2558,7 @@ export default function InspectionCapture() {
                               onAddSubPoint={
                                 isCustomPointField(point) &&
                                 !point.parentFieldId &&
-                                inspection?.status !== "completed" &&
-                                instanceIndex === 0
+                                inspection?.status !== "completed"
                                   ? () => openAddPointDialog({ id: point.id, label: point.label })
                                   : undefined
                               }
@@ -2567,8 +2568,7 @@ export default function InspectionCapture() {
                               }
                               onDeleteCustomPoint={
                                 isCustomPointField(point) &&
-                                inspection?.status !== "completed" &&
-                                instanceIndex === 0
+                                inspection?.status !== "completed"
                                   ? () => requestDeleteCustomPoint(currentSection.id, point)
                                   : undefined
                               }
@@ -2592,6 +2592,30 @@ export default function InspectionCapture() {
                         </div>
                       );
                     })}
+                    {canAddCustomPointsToSection(currentSection) &&
+                      inspection?.status !== "completed" && (
+                      <div className="pt-3 mt-1 border-t border-dashed border-border">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full min-h-11 justify-center gap-2 border-2 font-semibold"
+                          onClick={() => openAddPointDialog(null)}
+                          disabled={addCustomPoint.isPending || !isOnline}
+                          data-testid={`button-add-inspection-point-instance-${instanceIndex}`}
+                        >
+                          <Plus className="h-4 w-4 shrink-0" />
+                          Add Inspection Point
+                          <span className="font-normal text-muted-foreground truncate max-w-[40%]">
+                            · {instanceName}
+                          </span>
+                        </Button>
+                        {!isOnline && (
+                          <p className="mt-2 text-xs text-muted-foreground text-center">
+                            Connect to the internet to add a new inspection point.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
                 });
@@ -2739,7 +2763,10 @@ export default function InspectionCapture() {
               })
             ) : null}
 
+            {/* Non-repeatable sections: one Add control at the end.
+                Repeatable rooms (Bedroom / Kitchen / Bathroom…) get Add inside each instance card. */}
             {currentSection &&
+              !currentSection.repeatable &&
               canAddCustomPointsToSection(currentSection) &&
               inspection?.status !== "completed" && (
               <div className="pt-4 mt-1 border-t border-dashed border-border">

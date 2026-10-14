@@ -1836,8 +1836,7 @@ export default function InspectionCaptureScreen() {
 
                             return (
                               <View key={`${instanceIndex}-${field.id || field.key || `field-${Math.random()}`}`} style={styles.fieldContainer}>
-                                {isCustomPointField(field) &&
-                                  instanceIndex === 0 &&
+                                                {isCustomPointField(field) &&
                                   effectiveInspection?.status !== 'completed' &&
                                   !isDeleted && (
                                   <TouchableOpacity
@@ -1936,6 +1935,18 @@ export default function InspectionCaptureScreen() {
                                   }
                                       : undefined
                                   }
+                                  onAddSubPoint={
+                                    isCustomPointField(field) &&
+                                    !(field as any).parentFieldId &&
+                                    effectiveInspection?.status !== 'completed' &&
+                                    !isDeleted
+                                      ? () => openAddPointModal({ id: field.id, label: field.label })
+                                      : undefined
+                                  }
+                                  addingSubPoint={
+                                    addCustomPoint.isPending &&
+                                    addCustomPoint.variables?.parentFieldId === field.id
+                                  }
                                 />
                               </View>
                             );
@@ -1948,6 +1959,37 @@ export default function InspectionCaptureScreen() {
                             );
                           }
                         })}
+                        {canAddCustomPointsToSection(currentSection) &&
+                          effectiveInspection?.status !== 'completed' &&
+                          !isDeleted && (
+                          <View style={[styles.addPointContainer, { borderTopColor: themeColors.border?.DEFAULT || '#e5e7eb' }]}>
+                            <TouchableOpacity
+                              onPress={() => openAddPointModal(null)}
+                              disabled={addCustomPoint.isPending || !isOnline}
+                              style={[
+                                styles.addPointButton,
+                                {
+                                  borderColor: themeColors.border?.DEFAULT || '#e5e7eb',
+                                  backgroundColor: themeColors.card.DEFAULT,
+                                  opacity: addCustomPoint.isPending || !isOnline ? 0.6 : 1,
+                                  minHeight: mdBtnHeight,
+                                },
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Add Inspection Point for ${instanceName}`}
+                            >
+                              <Plus size={18} color={themeColors.text.primary} />
+                              <Text style={[styles.addPointButtonText, { color: themeColors.text.primary }]}>
+                                Add Inspection Point · {instanceName}
+                              </Text>
+                            </TouchableOpacity>
+                            {!isOnline && (
+                              <Text style={[styles.addPointHint, { color: themeColors.text.muted }]}>
+                                Connect to the internet to add a new inspection point.
+                              </Text>
+                            )}
+                          </View>
+                        )}
                       </View>
                     );
                   })
@@ -2140,7 +2182,9 @@ export default function InspectionCaptureScreen() {
                 ) : null}
               </>
 
+                {/* Non-repeatable only — repeatable rooms get Add inside each instance card */}
                 {currentSection &&
+                  !currentSection.repeatable &&
                   canAddCustomPointsToSection(currentSection) &&
                   effectiveInspection?.status !== 'completed' &&
                   !isDeleted && (
@@ -2211,7 +2255,9 @@ export default function InspectionCaptureScreen() {
                 <Text style={[styles.addPointModalDescription, { color: themeColors.text.muted }]}>
                   {addPointParent
                     ? `Create a sub-point under "${addPointParent.label}".`
-                    : `Create a custom point in ${currentSection?.title || 'this section'}.`}
+                    : currentSection?.repeatable
+                      ? `Create a custom point for ${currentSection.title}. It will appear on every ${(currentSection.title || '').toLowerCase().replace(/s$/, '')} in this section.`
+                      : `Create a custom point in ${currentSection?.title || 'this section'}.`}
                 </Text>
 
                 <Text style={[styles.addPointModalLabel, { color: themeColors.text.primary }]}>
