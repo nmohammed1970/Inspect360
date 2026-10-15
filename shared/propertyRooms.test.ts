@@ -8,6 +8,7 @@ import {
   metresToMm,
   normalizeAiRoomsResult,
   normalizeCategoryName,
+  formatDisplayHeading,
   numberedRoomInstanceTitle,
   resolveSystemCategoryForLabel,
   roomTypeFromRoomLike,
@@ -156,8 +157,12 @@ assert.ok(gardenSection);
 assert.equal(gardenSection!.title, "Garden");
 assert.equal(gardenSection!.repeatable, true);
 assert.ok(
-  (gardenSection!.fields || []).some((f) => /Overall condition/i.test(f.label || "")),
+  (gardenSection!.fields || []).some((f) => f.label === "Overall Condition"),
 );
+assert.equal(formatDisplayHeading("bathroom"), "Bathroom");
+assert.equal(formatDisplayHeading("overall condition"), "Overall Condition");
+assert.equal(formatDisplayHeading("walls and paint"), "Walls and Paint");
+assert.equal(numberedRoomInstanceTitle("bathroom 1", "bathroom", 0), "Bathroom 1");
 const gardenIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_garden");
 const bathIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_bathrooms");
 const signIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_signoff");

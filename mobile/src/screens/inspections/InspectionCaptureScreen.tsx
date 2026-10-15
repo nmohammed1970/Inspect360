@@ -42,7 +42,10 @@ import {
   parseRepeatableCountValue,
   repeatableCountsFromPropertyLayout,
 } from '../../../../shared/propertyLayout';
-import { numberedRoomInstanceTitle } from '../../../../shared/propertyRooms';
+import {
+  formatDisplayHeading,
+  numberedRoomInstanceTitle,
+} from '../../../../shared/propertyRooms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
@@ -1890,7 +1893,7 @@ export default function InspectionCaptureScreen() {
                         ]}
                         numberOfLines={1}
                       >
-                        {section.title}
+                        {formatDisplayHeading(section.title)}
                       </Text>
                       {index === currentSectionIndex && <View style={styles.tabIndicator} />}
                     </TouchableOpacity>

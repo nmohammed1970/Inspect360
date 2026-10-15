@@ -38,6 +38,7 @@ import {
 } from '../../services/inspectionGallery';
 import { addToSyncQueue } from '../../services/offline/database';
 // No offline functionality - app requires server connection
+import { formatDisplayHeading } from '../../../../shared/propertyRooms';
 import { format } from 'date-fns';
 import {
   createSignatureValue,
@@ -1774,7 +1775,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         ]}
       >
         <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
-          {safeField.label}
+          {formatDisplayHeading(safeField.label)}
           {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
         </Text>
         {!!isCheckOut && (safeField.type === 'photo' || safeField.type === 'photo_array') && (

@@ -31,6 +31,7 @@ import { fileUploadSync } from "@/lib/fileUploadSync";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { prepareImageForUpload } from "@/lib/compressImage";
+import { formatDisplayHeading } from "@shared/propertyRooms";
 
 interface TemplateField {
   id: string;
@@ -2037,7 +2038,7 @@ export function FieldWidget({
     >
       <div className="flex flex-wrap items-start justify-between gap-2 min-w-0 border-b-2 border-border bg-muted/50 px-4 py-3.5 sm:px-5">
         <Label className="text-base sm:text-lg font-semibold leading-snug flex flex-wrap items-center gap-2 break-words min-w-0">
-          <span className="break-words min-w-0">{field.label}</span>
+          <span className="break-words min-w-0">{formatDisplayHeading(field.label)}</span>
           {field.required && <span className="text-destructive shrink-0">*</span>}
         </Label>
       </div>
