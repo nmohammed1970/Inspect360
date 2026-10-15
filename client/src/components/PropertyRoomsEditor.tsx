@@ -32,6 +32,8 @@ import {
   toMillimetres,
   metresToMm,
   countsFromRooms,
+  resolveSystemCategoryForLabel,
+  roomTypeFromCategorySlug,
   type LengthUnit,
   type AiProposedRoom,
 } from "@shared/propertyRooms";
@@ -117,7 +119,11 @@ export function PropertyRoomsEditor({
     const counts = countsFromRooms(
       rooms.map((r) => {
         const cat = categories.find((c) => c.id === r.categoryId);
-        return { categorySlug: cat?.slug, categoryName: cat?.name || r.name };
+        return {
+          categorySlug: cat?.slug,
+          categoryName: cat?.name,
+          name: r.name,
+        };
       }),
     );
     const key = `${counts.bedrooms}-${counts.kitchens}-${counts.bathrooms}-${counts.livingRooms}`;
@@ -146,25 +152,34 @@ export function PropertyRoomsEditor({
     },
   });
 
-  const findCategoryForAi = (categoryName: string): Category | undefined => {
-    const norm = categoryName.trim().toLowerCase();
+  const findCategoryForAi = (
+    cats: Category[],
+    categoryName: string,
+    roomName?: string,
+  ): Category | undefined => {
+    const resolved = resolveSystemCategoryForLabel(roomName || categoryName, categoryName);
+    const roomType = resolved.roomType;
     return (
-      categories.find((c) => c.name.toLowerCase() === norm) ||
-      categories.find((c) => c.slug === norm.replace(/\s+/g, "-")) ||
-      categories.find((c) => norm.includes(c.name.toLowerCase())) ||
-      categories.find((c) => c.slug === "other")
+      cats.find((c) => c.slug === resolved.slug) ||
+      cats.find((c) => c.name.toLowerCase() === resolved.name.toLowerCase()) ||
+      (roomType !== "other"
+        ? cats.find((c) => roomTypeFromCategorySlug(c.slug) === roomType)
+        : undefined) ||
+      cats.find((c) => c.slug === "other") ||
+      cats[0]
     );
   };
 
   const applyAiReview = async () => {
-    // Create missing categories first
+    // Create missing categories first (rare — system seeds usually cover AI labels)
     const ensured = [...categories];
     for (const pr of reviewRooms) {
-      const hit = findCategoryForAi(pr.category);
-      if (!hit) {
+      const resolved = resolveSystemCategoryForLabel(pr.name, pr.category);
+      const hit = findCategoryForAi(ensured, resolved.name, pr.name);
+      if (!hit || (hit.slug === "other" && resolved.slug !== "other")) {
         try {
           const res = await apiRequest("POST", "/api/room-categories", {
-            name: pr.category.trim().slice(0, 120) || "Other",
+            name: resolved.name.slice(0, 120) || "Other",
           });
           const cat = await res.json();
           ensured.push(cat);
@@ -178,10 +193,8 @@ export function PropertyRoomsEditor({
     const freshCats: Category[] = freshRes.ok ? await freshRes.json() : ensured;
 
     const mapped: DraftRoom[] = reviewRooms.map((pr, idx) => {
-      const cat =
-        freshCats.find((c) => c.name.toLowerCase() === pr.category.trim().toLowerCase()) ||
-        freshCats.find((c) => c.slug === "other") ||
-        freshCats[0];
+      const resolved = resolveSystemCategoryForLabel(pr.name, pr.category);
+      const cat = findCategoryForAi(freshCats, resolved.name, pr.name);
       return {
         clientKey: newClientKey(),
         categoryId: cat?.id || "",

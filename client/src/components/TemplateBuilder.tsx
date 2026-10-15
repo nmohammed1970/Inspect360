@@ -290,10 +290,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
   };
 
   const [structure, setStructure] = useState<TemplateStructure>(initialStructure);
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
-    const gi = initialStructure.sections.find((s) => isGeneralInformationSection(s));
-    return gi ? new Set([gi.id]) : new Set();
-  });
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
 
   const form = useForm<TemplateMetaForm>({
     resolver: zodResolver(templateMetaSchema),

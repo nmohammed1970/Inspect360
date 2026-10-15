@@ -5230,12 +5230,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "No organization found" });
       }
 
-      const property = await storage.getProperty(id);
+      let property = await storage.getProperty(id);
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
       }
       if (property.organizationId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Repair AI rooms misclassified as Other and sync layout counts (bedrooms etc.)
+      try {
+        const { listPropertyRoomsRepaired } = await import("./propertyRoomsService");
+        await listPropertyRoomsRepaired(user.organizationId, property.id);
+        property = (await storage.getProperty(id)) || property;
+      } catch (repairErr) {
+        console.warn("Property room category repair skipped:", repairErr);
       }
 
       res.json(property);
@@ -5523,8 +5532,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!property || property.organizationId !== user.organizationId) {
         return res.status(404).json({ message: "Property not found" });
       }
-      const { listPropertyRooms } = await import("./propertyRoomsService");
-      res.json(await listPropertyRooms(user.organizationId, property.id));
+      const { listPropertyRoomsRepaired } = await import("./propertyRoomsService");
+      res.json(await listPropertyRoomsRepaired(user.organizationId, property.id));
     } catch (error: any) {
       console.error("Error listing property rooms:", error);
       res.status(error?.status || 500).json({ message: error?.message || "Failed to list rooms" });
@@ -6714,9 +6723,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             applyPropertyRoomsToTemplateSnapshot,
             buildPropertyRoomsSnapshot,
           } = await import("@shared/propertyRooms");
-          const { listPropertyRooms, toSnapshotItems } = await import("./propertyRoomsService");
+          const { listPropertyRoomsRepaired, toSnapshotItems } = await import("./propertyRoomsService");
 
-          const rooms = await listPropertyRooms(currentUser.organizationId, propertyId);
+          const rooms = await listPropertyRoomsRepaired(currentUser.organizationId, propertyId);
           const snapshotItems = toSnapshotItems(rooms);
           propertyRoomsSnapshot =
             snapshotItems.length > 0 ? buildPropertyRoomsSnapshot(snapshotItems) : null;

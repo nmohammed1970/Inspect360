@@ -15,6 +15,8 @@ import {
   SYSTEM_ROOM_CATEGORIES,
   countsFromRooms,
   normalizeCategoryName,
+  resolveSystemCategoryForLabel,
+  roomTypeFromCategorySlug,
   slugifyCategoryName,
   type PropertyRoomSnapshotItem,
 } from "@shared/propertyRooms";
@@ -215,14 +217,60 @@ export async function listPropertyRooms(
   }));
 }
 
+/**
+ * Reassign rooms stuck on "Other" when the room name clearly implies Bedroom / Kitchen / etc.
+ * Floor-plan AI often labels category as Other while naming rooms correctly.
+ */
+export async function repairMisclassifiedPropertyRooms(
+  organizationId: string,
+  propertyId: string,
+): Promise<boolean> {
+  const categories = await ensureOrganizationRoomCategories(organizationId);
+  const rooms = await listPropertyRooms(organizationId, propertyId);
+  let changed = false;
+
+  for (const room of rooms) {
+    const currentType = roomTypeFromCategorySlug(room.categorySlug);
+    if (currentType !== "other" && room.categorySlug !== "other") continue;
+
+    const resolved = resolveSystemCategoryForLabel(room.name, room.categoryName);
+    if (resolved.slug === "other") continue;
+    if (resolved.slug === room.categorySlug) continue;
+
+    const target =
+      categories.find((c) => c.slug === resolved.slug) ||
+      categories.find((c) => normalizeCategoryName(c.name) === normalizeCategoryName(resolved.name));
+    if (!target || target.id === room.categoryId) continue;
+
+    await db
+      .update(propertyRooms)
+      .set({ categoryId: target.id, updatedAt: new Date() })
+      .where(
+        and(
+          eq(propertyRooms.id, room.id),
+          eq(propertyRooms.organizationId, organizationId),
+          eq(propertyRooms.propertyId, propertyId),
+        ),
+      );
+    changed = true;
+  }
+
+  return changed;
+}
+
 export async function syncPropertyLayoutCounts(
   organizationId: string,
   propertyId: string,
 ): Promise<void> {
+  await repairMisclassifiedPropertyRooms(organizationId, propertyId);
   const rooms = await listPropertyRooms(organizationId, propertyId);
   if (rooms.length === 0) return;
   const counts = countsFromRooms(
-    rooms.map((r) => ({ categorySlug: r.categorySlug, categoryName: r.categoryName })),
+    rooms.map((r) => ({
+      categorySlug: r.categorySlug,
+      categoryName: r.categoryName,
+      name: r.name,
+    })),
   );
   await db
     .update(properties)
@@ -236,6 +284,68 @@ export async function syncPropertyLayoutCounts(
     .where(
       and(eq(properties.id, propertyId), eq(properties.organizationId, organizationId)),
     );
+}
+
+/** List rooms and repair misclassified AI categories + layout counts when needed. */
+export async function listPropertyRoomsRepaired(
+  organizationId: string,
+  propertyId: string,
+): Promise<PropertyRoomWithCategory[]> {
+  const before = await listPropertyRooms(organizationId, propertyId);
+  if (before.length === 0) return before;
+
+  const needsRepair = before.some((r) => {
+    if (roomTypeFromCategorySlug(r.categorySlug) !== "other") return false;
+    return resolveSystemCategoryForLabel(r.name, r.categoryName).slug !== "other";
+  });
+
+  if (needsRepair) {
+    await syncPropertyLayoutCounts(organizationId, propertyId);
+    return listPropertyRooms(organizationId, propertyId);
+  }
+
+  // Still refresh legacy counts if rooms exist but columns look unsynced (all-Other → 1s)
+  const counts = countsFromRooms(
+    before.map((r) => ({
+      categorySlug: r.categorySlug,
+      categoryName: r.categoryName,
+      name: r.name,
+    })),
+  );
+  const [prop] = await db
+    .select({
+      bedrooms: properties.bedrooms,
+      kitchens: properties.kitchens,
+      bathrooms: properties.bathrooms,
+      livingRooms: properties.livingRooms,
+    })
+    .from(properties)
+    .where(
+      and(eq(properties.id, propertyId), eq(properties.organizationId, organizationId)),
+    )
+    .limit(1);
+  if (
+    prop &&
+    (prop.bedrooms !== counts.bedrooms ||
+      prop.kitchens !== counts.kitchens ||
+      prop.bathrooms !== counts.bathrooms ||
+      prop.livingRooms !== counts.livingRooms)
+  ) {
+    await db
+      .update(properties)
+      .set({
+        bedrooms: counts.bedrooms,
+        kitchens: counts.kitchens,
+        bathrooms: counts.bathrooms,
+        livingRooms: counts.livingRooms,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(properties.id, propertyId), eq(properties.organizationId, organizationId)),
+      );
+  }
+
+  return before;
 }
 
 export async function replacePropertyRooms(
