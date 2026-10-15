@@ -97,8 +97,36 @@ export default function InspectionReview() {
     const value = entry.valueJson;
 
     switch (field.type) {
-      case "boolean":
-        return <Badge variant={value ? "default" : "secondary"}>{value ? "Yes" : "No"}</Badge>;
+      case "boolean": {
+        const isYes = value === true || value === "true" || value === "Yes";
+        const isNo = value === false || value === "false" || value === "No";
+        return (
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] ${
+                  isYes ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+                }`}
+                aria-hidden
+              >
+                {isYes ? "✓" : ""}
+              </span>
+              Yes
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] ${
+                  isNo ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+                }`}
+                aria-hidden
+              >
+                {isNo ? "✓" : ""}
+              </span>
+              No
+            </span>
+          </div>
+        );
+      }
       
       case "rating":
         return (

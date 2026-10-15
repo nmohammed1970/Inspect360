@@ -2,10 +2,13 @@
 // These templates are automatically created when a new organization is set up
 // Comprehensive BTR (Build-to-Rent) templates covering all operational inspection needs
 
+import { DEFAULT_REPORT_SECTION_ORDER } from "@shared/reportSectionOrder";
+
 // Default report configuration for all templates
 export const DEFAULT_REPORT_CONFIG = {
   showCover: true,
   showContentsPage: true,
+  showFloorPlan: true,
   showTradeMarks: true,
   showGlossary: true,
   showMaintenanceLog: true,
@@ -13,6 +16,7 @@ export const DEFAULT_REPORT_CONFIG = {
   showInventory: true,
   showTermsConditions: true,
   showClosingSection: true,
+  sectionOrder: [...DEFAULT_REPORT_SECTION_ORDER],
   coverPageTitle: "",
   coverPageSubtitle: "",
   termsConditionsText: "",
@@ -65,7 +69,14 @@ export const DEFAULT_TEMPLATES = [
               id: "field_checkin_num_bedrooms",
               key: "field_checkin_num_bedrooms",
               label: "Number of Bedrooms",
-              type: "number",
+              type: "auto_bedroom_count",
+              required: true,
+            },
+            {
+              id: "field_checkin_num_bathrooms",
+              key: "field_checkin_num_bathrooms",
+              label: "Number of Bathrooms",
+              type: "auto_bathroom_count",
               required: true,
             },
             {
@@ -261,7 +272,14 @@ export const DEFAULT_TEMPLATES = [
               id: "field_checkout_num_bedrooms",
               key: "field_checkout_num_bedrooms",
               label: "Number of Bedrooms",
-              type: "number",
+              type: "auto_bedroom_count",
+              required: false,
+            },
+            {
+              id: "field_checkout_num_bathrooms",
+              key: "field_checkout_num_bathrooms",
+              label: "Number of Bathrooms",
+              type: "auto_bathroom_count",
               required: false,
             },
           ],

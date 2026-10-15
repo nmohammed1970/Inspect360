@@ -180,7 +180,9 @@ export function matchSectionToRoomType(section: TemplateSectionLike): RoomTypeKe
   const hay = `${title} ${id}`;
 
   // Order matters: bathroom before bath-as-substring of other words; bedroom before bed
-  if (hay.includes("bedroom")) return "bedrooms";
+  if (hay.includes("bedroom") || hay.includes("bed room") || hay.includes("bed_room")) {
+    return "bedrooms";
+  }
   if (hay.includes("bathroom") || hay.includes("ensuite") || /\bbath\b/.test(hay) || hay.includes("wc")) {
     return "bathrooms";
   }
@@ -202,12 +204,17 @@ export function matchTemplateSectionsToRoomTypes(
   return map;
 }
 
+export const AUTO_BEDROOM_COUNT_TYPE = "auto_bedroom_count";
+export const AUTO_BATHROOM_COUNT_TYPE = "auto_bathroom_count";
+
 export function isBedroomCountField(field: {
   id?: string;
   key?: string;
   label?: string;
+  type?: string;
 } | null | undefined): boolean {
   if (!field) return false;
+  if (field.type === AUTO_BEDROOM_COUNT_TYPE) return true;
   const label = (field.label || "").toLowerCase();
   const id = (field.id || "").toLowerCase();
   const key = (field.key || "").toLowerCase();
@@ -215,6 +222,27 @@ export function isBedroomCountField(field: {
     (label.includes("number") && label.includes("bedroom")) ||
     id.includes("num_bedroom") ||
     key.includes("num_bedroom")
+  );
+}
+
+export function isBathroomCountField(field: {
+  id?: string;
+  key?: string;
+  label?: string;
+  type?: string;
+} | null | undefined): boolean {
+  if (!field) return false;
+  if (field.type === AUTO_BATHROOM_COUNT_TYPE) return true;
+  const label = (field.label || "").toLowerCase();
+  const id = (field.id || "").toLowerCase();
+  const key = (field.key || "").toLowerCase();
+  return (
+    (label.includes("number") &&
+      (label.includes("bathroom") || label.includes("washroom"))) ||
+    id.includes("num_bathroom") ||
+    key.includes("num_bathroom") ||
+    id.includes("num_washroom") ||
+    key.includes("num_washroom")
   );
 }
 
@@ -282,16 +310,39 @@ export function matchPropertyTypeToOption(
   return other || null;
 }
 
-function findBedroomCountField(sections: TemplateSectionLike[]) {
-  const general = sections.find(
-    (s) =>
-      (s.title || "").toLowerCase().includes("general") ||
-      (s.id || "").toLowerCase().includes("general"),
+function findGeneralInfoSection(sections: TemplateSectionLike[]) {
+  return (
+    sections.find(
+      (s) =>
+        (s.title || "").toLowerCase().includes("general") ||
+        (s.id || "").toLowerCase().includes("general"),
+    ) || null
   );
-  if (!general?.fields) return null;
-  const field = general.fields.find((f) => isBedroomCountField(f));
-  if (!field) return null;
-  return { section: general, field };
+}
+
+function findCountField(
+  sections: TemplateSectionLike[],
+  matcher: (field: NonNullable<TemplateSectionLike["fields"]>[number]) => boolean,
+): { section: TemplateSectionLike; field: NonNullable<TemplateSectionLike["fields"]>[number] } | null {
+  const general = findGeneralInfoSection(sections);
+  const ordered = general
+    ? [general, ...sections.filter((s) => s !== general)]
+    : sections;
+  for (const section of ordered) {
+    const field = section.fields?.find((f) => matcher(f));
+    if (field) return { section, field };
+  }
+  return null;
+}
+
+/** Prefer General Information, then first matching field anywhere in the template. */
+export function findBedroomCountField(sections: TemplateSectionLike[]) {
+  return findCountField(sections, isBedroomCountField);
+}
+
+/** Prefer General Information, then first matching field anywhere in the template. */
+export function findBathroomCountField(sections: TemplateSectionLike[]) {
+  return findCountField(sections, isBathroomCountField);
 }
 
 function findPropertyTypeField(sections: TemplateSectionLike[]) {
@@ -360,6 +411,16 @@ export function applyPropertyCountsToTemplateSnapshot(
       fieldKey: bedroomField.field.id,
       fieldType: bedroomField.field.type || "number",
       valueJson: { value: counts.bedrooms },
+    });
+  }
+
+  const bathroomField = findBathroomCountField(sections);
+  if (bathroomField) {
+    seedEntries.push({
+      sectionRef: bathroomField.section.id,
+      fieldKey: bathroomField.field.id,
+      fieldType: bathroomField.field.type || "number",
+      valueJson: { value: counts.bathrooms },
     });
   }
 

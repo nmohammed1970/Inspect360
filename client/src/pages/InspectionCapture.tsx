@@ -34,9 +34,11 @@ import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet"
 import { formatSignerDisplayName, isTenantSignatureField } from "@shared/signature";
 import {
   applyPropertyCountsToTemplateSnapshot,
-  isBedroomCountField,
+  findBathroomCountField,
+  findBedroomCountField,
   isPropertyTypeField,
   matchPropertyTypeToOption,
+  matchSectionToRoomType,
   parseRepeatableCountValue,
   repeatableCountsFromPropertyLayout,
   type PropertyRoomCountsSnapshot,
@@ -185,6 +187,15 @@ export default function InspectionCapture() {
     queryKey: [`/api/properties/${inspection?.propertyId}`],
     enabled: !!inspection?.propertyId,
   });
+
+  const propertyLayoutCounts = {
+    bedroomCount:
+      propertyRoomCountsSnapshot?.bedrooms ??
+      (typeof property?.bedrooms === "number" ? property.bedrooms : undefined),
+    bathroomCount:
+      propertyRoomCountsSnapshot?.bathrooms ??
+      (typeof property?.bathrooms === "number" ? property.bathrooms : undefined),
+  };
 
   // Fetch block details if inspection has a blockId
   const { data: block } = useQuery<any>({
@@ -1006,48 +1017,40 @@ export default function InspectionCapture() {
   }, [property?.propertyType, sections, existingEntries, id, isOnline, updateEntry]);
 
   useEffect(() => {
-    // Property-seeded inspections freeze room counts; do not resync from General.
-    if (roomsLockedFromProperty) return;
+    const syncCountToSection = (
+      found: ReturnType<typeof findBedroomCountField>,
+      roomType: "bedrooms" | "bathrooms",
+    ) => {
+      if (!found) return;
+      const targetSection = sections.find(
+        (section) =>
+          (section.repeatable ||
+            matchSectionToRoomType(section) === roomType) &&
+          matchSectionToRoomType(section) === roomType,
+      );
+      if (!targetSection) return;
 
-    const generalInfoSection = sections.find((section) =>
-      section.title?.toLowerCase().includes("general") ||
-      section.id?.toLowerCase().includes("general")
-    );
-    const bedroomsSection = sections.find((section) =>
-      section.repeatable && (
-        section.title?.toLowerCase().includes("bedroom") ||
-        section.id?.toLowerCase().includes("bedroom")
-      )
-    );
+      const countEntry = entries[`${found.section.id}-${found.field.id}`];
+      const rawValue =
+        typeof countEntry?.valueJson === "object" && countEntry?.valueJson !== null
+          ? (countEntry.valueJson as any).value
+          : countEntry?.valueJson;
+      const parsedCount = Number(rawValue);
+      if (!Number.isFinite(parsedCount) || parsedCount < 1) return;
 
-    if (!generalInfoSection || !bedroomsSection) return;
+      const desiredCount = Math.max(1, Math.min(50, Math.floor(parsedCount)));
+      const currentCount = repeatableCounts[targetSection.id] ?? 1;
+      if (currentCount !== desiredCount) {
+        handleRepeatableCountChange(targetSection.id, desiredCount);
+      }
+    };
 
-    const bedroomCountField = generalInfoSection.fields.find((field) =>
-      isBedroomCountField(field),
-    );
+    syncCountToSection(findBedroomCountField(sections), "bedrooms");
+    syncCountToSection(findBathroomCountField(sections), "bathrooms");
+  }, [entries, sections, repeatableCounts]);
 
-    if (!bedroomCountField) return;
-
-    const bedroomCountEntry = entries[`${generalInfoSection.id}-${bedroomCountField.id}`];
-    const rawValue =
-      typeof bedroomCountEntry?.valueJson === "object" && bedroomCountEntry?.valueJson !== null
-        ? (bedroomCountEntry.valueJson as any).value
-        : bedroomCountEntry?.valueJson;
-    const parsedCount = Number(rawValue);
-
-    if (!Number.isFinite(parsedCount) || parsedCount < 1) return;
-
-    const desiredCount = Math.max(1, Math.min(50, Math.floor(parsedCount)));
-    const currentCount = repeatableCounts[bedroomsSection.id] ?? 1;
-
-    if (currentCount !== desiredCount) {
-      handleRepeatableCountChange(bedroomsSection.id, desiredCount);
-    }
-  }, [entries, sections, repeatableCounts, roomsLockedFromProperty]);
-
-  // Handle repeatable count change
+  // Handle repeatable count change (also used when user overrides floor-plan counts)
   const handleRepeatableCountChange = (sectionId: string, count: number) => {
-    if (roomsLockedFromProperty) return;
     const newCount = Math.max(1, Math.min(50, count)); // Limit between 1 and 50
     const prevCount = repeatableCounts[sectionId] ?? 1;
     
@@ -1113,24 +1116,16 @@ export default function InspectionCapture() {
     if (!checkInData?.entries?.length) return;
     if (!sections.length) return;
 
-    const generalInfoSection = sections.find(
-      (section) =>
-        section.title?.toLowerCase().includes("general") || section.id?.toLowerCase().includes("general"),
-    );
+    const foundBedroom = findBedroomCountField(sections);
     const bedroomsSection = sections.find(
-      (section) =>
-        section.repeatable &&
-        (section.title?.toLowerCase().includes("bedroom") || section.id?.toLowerCase().includes("bedroom")),
+      (section) => matchSectionToRoomType(section) === "bedrooms",
     );
-    if (!generalInfoSection || !bedroomsSection) return;
-
-    const bedroomCountField = generalInfoSection.fields.find((field) =>
-      isBedroomCountField(field),
-    );
-    if (!bedroomCountField) return;
+    if (!foundBedroom || !bedroomsSection) return;
 
     const alreadySaved = existingEntries.some((e: any) => {
-      if (e.sectionRef !== generalInfoSection.id || e.fieldKey !== bedroomCountField.id) return false;
+      if (e.sectionRef !== foundBedroom.section.id || e.fieldKey !== foundBedroom.field.id) {
+        return false;
+      }
       const n = entryNumericFieldValue(e.valueJson);
       return n != null && n >= 1;
     });
@@ -1142,7 +1137,8 @@ export default function InspectionCapture() {
 
     const checkInBedroomEntry = checkInData.entries.find((e: any) => {
       const fk = String(e.fieldKey || "").toLowerCase();
-      return fk.includes("num_bedroom");
+      const ft = String(e.fieldType || "").toLowerCase();
+      return fk.includes("num_bedroom") || ft === "auto_bedroom_count";
     });
     if (!checkInBedroomEntry) {
       bedroomCountSeededFromCheckInRef.current = true;
@@ -1164,15 +1160,15 @@ export default function InspectionCapture() {
         : desiredCount;
 
     const entry: InspectionEntry = {
-      sectionRef: generalInfoSection.id,
-      fieldKey: bedroomCountField.id,
-      fieldType: bedroomCountField.type as any,
+      sectionRef: foundBedroom.section.id,
+      fieldKey: foundBedroom.field.id,
+      fieldType: (foundBedroom.field.type || "number") as any,
       valueJson,
     };
 
     bedroomCountSeededFromCheckInRef.current = true;
 
-    const entryKey = `${generalInfoSection.id}-${bedroomCountField.id}`;
+    const entryKey = `${foundBedroom.section.id}-${foundBedroom.field.id}`;
     setEntries((prev) => ({ ...prev, [entryKey]: entry }));
 
     if (isOnline) {
@@ -1601,6 +1597,8 @@ export default function InspectionCapture() {
       inspectionDate: inspection?.scheduledDate
         ? new Date(inspection.scheduledDate).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
+      bedroomCount: propertyLayoutCounts.bedroomCount,
+      bathroomCount: propertyLayoutCounts.bathroomCount,
     };
 
     return (
@@ -2372,8 +2370,9 @@ export default function InspectionCapture() {
                 const sectionRoomInsts = propertyRoomInstances.filter((r) =>
                   r.sectionRef.startsWith(`${currentSection.id}/`),
                 );
+                // Prefer General Information / __repeatable_count override over floor-plan room list length
                 const count = repeatableCounts[currentSection.id] ?? 1;
-                const instanceCount = sectionRoomInsts.length > 0 ? sectionRoomInsts.length : count;
+                const instanceCount = Math.max(1, count);
                 return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
                 const roomInst = sectionRoomInsts[instanceIndex];
                 const snapRoom = propertyRoomsSnapshot?.rooms?.find(
@@ -2461,6 +2460,8 @@ export default function InspectionCapture() {
                         inspectionDate: inspection?.scheduledDate
                           ? new Date(inspection.scheduledDate).toISOString().split("T")[0]
                           : new Date().toISOString().split("T")[0],
+                        bedroomCount: propertyLayoutCounts.bedroomCount,
+                        bathroomCount: propertyLayoutCounts.bathroomCount,
                       };
 
                       return (
@@ -2578,10 +2579,9 @@ export default function InspectionCapture() {
                   inspectionDate: inspection?.scheduledDate
                     ? new Date(inspection.scheduledDate).toISOString().split("T")[0]
                     : new Date().toISOString().split("T")[0],
+                  bedroomCount: propertyLayoutCounts.bedroomCount,
+                  bathroomCount: propertyLayoutCounts.bathroomCount,
                 };
-
-                const lockBedroomCount =
-                  roomsLockedFromProperty && isBedroomCountField(field);
 
                 return (
                   <div key={field.id} className="min-w-0">
@@ -2596,10 +2596,9 @@ export default function InspectionCapture() {
                       markedForReview={entry?.markedForReview || false}
                       sectionName={currentSection.title}
                       sectionRef={currentSection.id}
-                      disabled={lockBedroomCount}
+                      disabled={false}
                       autoContext={autoContext}
                       onChange={(value: any, note?: string, photos?: string[]) => {
-                        if (lockBedroomCount) return;
                         handleFieldChange(field.id, value, note, photos);
                       }}
                       onMarkedForReviewChange={(marked: boolean) =>

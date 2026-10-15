@@ -66,6 +66,8 @@ interface FieldWidgetProps {
     address?: string;
     tenantNames?: string;
     inspectionDate?: string;
+    bedroomCount?: number;
+    bathroomCount?: number;
   };
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
@@ -282,7 +284,7 @@ export function FieldWidget({
     if (!isAutoField) return;
 
     // Get the auto-populated value
-    let autoValue = "";
+    let autoValue: string | number = "";
     switch (field.type) {
       case "auto_inspector":
         autoValue = autoContext.inspectorName || "";
@@ -296,12 +298,24 @@ export function FieldWidget({
       case "auto_inspection_date":
         autoValue = autoContext.inspectionDate || "";
         break;
+      case "auto_bedroom_count":
+        autoValue =
+          autoContext.bedroomCount != null && Number.isFinite(autoContext.bedroomCount)
+            ? autoContext.bedroomCount
+            : "";
+        break;
+      case "auto_bathroom_count":
+        autoValue =
+          autoContext.bathroomCount != null && Number.isFinite(autoContext.bathroomCount)
+            ? autoContext.bathroomCount
+            : "";
+        break;
     }
 
     // Wait until inspector name is resolved before locking this field
     if (field.type === "auto_inspector" && !autoValue) return;
 
-    if (!autoValue) {
+    if (autoValue === "" || autoValue == null) {
       autoSaveTriggeredRef.current = true;
       return;
     }
@@ -320,9 +334,19 @@ export function FieldWidget({
     autoSaveTriggeredRef.current = true;
 
     if (field.type === "auto_inspector") {
-      if (savedValue !== autoValue) {
+      if (savedValue !== String(autoValue)) {
         setLocalValue(autoValue);
         onChange(autoValue, undefined, undefined);
+      }
+      return;
+    }
+
+    if (field.type === "auto_bedroom_count" || field.type === "auto_bathroom_count") {
+      const savedNum = Number(savedValue);
+      const autoNum = Number(autoValue);
+      if (!Number.isFinite(savedNum) || savedNum < 1) {
+        setLocalValue(autoNum);
+        onChange({ value: autoNum }, undefined, undefined);
       }
       return;
     }
@@ -338,6 +362,8 @@ export function FieldWidget({
     autoContext?.address,
     autoContext?.tenantNames,
     autoContext?.inspectionDate,
+    autoContext?.bedroomCount,
+    autoContext?.bathroomCount,
     value,
     onChange,
   ]);
@@ -1514,20 +1540,32 @@ export function FieldWidget({
           </div>
         );
 
-      case "boolean":
+      case "boolean": {
+        const isYes = localValue === true || localValue === "true";
+        const isNo = localValue === false || localValue === "false";
         return (
-          <div className="flex items-center space-x-2 min-h-11">
-            <Checkbox
-              checked={localValue || false}
-              onCheckedChange={handleValueChange}
-              data-testid={`checkbox-${field.id}`}
-              className="h-5 w-5"
-            />
-            <label className="text-sm cursor-pointer break-words min-w-0">
-              {field.placeholder || "Yes"}
+          <div className="flex flex-wrap items-center gap-6 min-h-11">
+            <label className="flex items-center gap-2 cursor-pointer min-w-0">
+              <Checkbox
+                checked={isYes}
+                onCheckedChange={(checked) => handleValueChange(checked === true ? true : null)}
+                data-testid={`checkbox-yes-${field.id}`}
+                className="h-5 w-5"
+              />
+              <span className="text-sm break-words">Yes</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer min-w-0">
+              <Checkbox
+                checked={isNo}
+                onCheckedChange={(checked) => handleValueChange(checked === true ? false : null)}
+                data-testid={`checkbox-no-${field.id}`}
+                className="h-5 w-5"
+              />
+              <span className="text-sm break-words">No</span>
             </label>
           </div>
         );
+      }
 
       case "date":
         return (
@@ -1939,6 +1977,46 @@ export function FieldWidget({
             data-testid={`input-auto-date-${field.id}`}
           />
         );
+
+      case "auto_bedroom_count":
+      case "auto_bathroom_count": {
+        const fromContext =
+          field.type === "auto_bedroom_count"
+            ? autoContext?.bedroomCount
+            : autoContext?.bathroomCount;
+        const raw =
+          typeof localValue === "object" && localValue !== null && "value" in localValue
+            ? (localValue as any).value
+            : localValue;
+        const display =
+          raw !== undefined && raw !== null && raw !== ""
+            ? raw
+            : fromContext != null
+              ? fromContext
+              : "";
+        return (
+          <Input
+            type="number"
+            min={1}
+            max={30}
+            value={display}
+            onChange={(e) => {
+              if (disabled) return;
+              const n = parseInt(e.target.value, 10);
+              handleValueChange(Number.isFinite(n) ? { value: n } : { value: null });
+            }}
+            placeholder={
+              field.type === "auto_bedroom_count"
+                ? "From property floor plan (bedrooms)"
+                : "From property floor plan (bathrooms)"
+            }
+            disabled={disabled}
+            readOnly={disabled}
+            className={disabled ? "bg-muted cursor-not-allowed" : undefined}
+            data-testid={`input-${field.type}-${field.id}`}
+          />
+        );
+      }
 
       default:
         return (

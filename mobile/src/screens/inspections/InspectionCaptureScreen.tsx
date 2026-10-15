@@ -36,7 +36,9 @@ import { formatSignerDisplayName } from '../../../../shared/signature';
 import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
 import {
   applyPropertyCountsToTemplateSnapshot,
-  isBedroomCountField,
+  findBathroomCountField,
+  findBedroomCountField,
+  matchSectionToRoomType,
   parseRepeatableCountValue,
   repeatableCountsFromPropertyLayout,
 } from '../../../../shared/propertyLayout';
@@ -192,6 +194,15 @@ export default function InspectionCaptureScreen() {
     retry: 1,
     staleTime: 60000,
   });
+
+  const propertyLayoutCounts = {
+    bedroomCount:
+      propertyRoomCountsSnapshot?.bedrooms ??
+      (typeof (property as any)?.bedrooms === 'number' ? (property as any).bedrooms : undefined),
+    bathroomCount:
+      propertyRoomCountsSnapshot?.bathrooms ??
+      (typeof (property as any)?.bathrooms === 'number' ? (property as any).bathrooms : undefined),
+  };
 
   // Fetch block details (only when online and inspection exists)
   const { data: block } = useQuery({
@@ -851,9 +862,8 @@ export default function InspectionCaptureScreen() {
     setShowRightFade(sections.length > 2); // Show fade if more than 2 tabs (rough estimate)
   }, [sections.length]);
 
-  // Handle repeatable count change
+  // Handle repeatable count change (also used when user overrides floor-plan counts)
   const handleRepeatableCountChange = React.useCallback((sectionId: string, count: number) => {
-    if (roomsLockedFromProperty) return;
     const newCount = Math.max(1, Math.min(50, count)); // Limit between 1 and 50
     const prevCount = repeatableCounts[sectionId] ?? 1;
     
@@ -900,7 +910,40 @@ export default function InspectionCaptureScreen() {
         return updated;
       });
     }
-  }, [sections, repeatableCounts, inspectionId, updateEntry, roomsLockedFromProperty]);
+  }, [sections, repeatableCounts, inspectionId, updateEntry]);
+
+  // Sync bedroom/bathroom count fields (anywhere in template) → repeatable section instances
+  useEffect(() => {
+    const syncCountToSection = (
+      found: ReturnType<typeof findBedroomCountField>,
+      roomType: 'bedrooms' | 'bathrooms',
+    ) => {
+      if (!found) return;
+      const targetSection = sections.find(
+        (section) => matchSectionToRoomType(section) === roomType,
+      );
+      if (!targetSection) return;
+
+      const fieldId = found.field.id || found.field.key;
+      if (!fieldId) return;
+      const countEntry = entries[`${found.section.id}-${fieldId}`];
+      const rawValue =
+        typeof countEntry?.valueJson === 'object' && countEntry?.valueJson !== null
+          ? (countEntry.valueJson as any).value
+          : countEntry?.valueJson;
+      const parsedCount = Number(rawValue);
+      if (!Number.isFinite(parsedCount) || parsedCount < 1) return;
+
+      const desiredCount = Math.max(1, Math.min(50, Math.floor(parsedCount)));
+      const currentCount = repeatableCounts[targetSection.id] ?? 1;
+      if (currentCount !== desiredCount) {
+        handleRepeatableCountChange(targetSection.id, desiredCount);
+      }
+    };
+
+    syncCountToSection(findBedroomCountField(sections), 'bedrooms');
+    syncCountToSection(findBathroomCountField(sections), 'bathrooms');
+  }, [entries, sections, repeatableCounts, handleRepeatableCountChange]);
 
   const handleFieldChange = React.useCallback(async (
     sectionRef: string,
@@ -1184,6 +1227,8 @@ export default function InspectionCaptureScreen() {
                           )
                             .toISOString()
                             .split('T')[0],
+                          bedroomCount: propertyLayoutCounts.bedroomCount,
+                          bathroomCount: propertyLayoutCounts.bathroomCount,
                         }}
                         onChange={(value, note, photos) =>
                           handleFieldChange(currentSection!.id, expanded.id, value, note, photos, undefined, undefined, {
@@ -2028,6 +2073,8 @@ export default function InspectionCaptureScreen() {
                                         })()
                                       : '',
                                     inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                                    bedroomCount: propertyLayoutCounts.bedroomCount,
+                                    bathroomCount: propertyLayoutCounts.bathroomCount,
                                   }}
                                   onChange={(value, note, photos) =>
                                     handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos, undefined, instanceIndex)
@@ -2107,9 +2154,6 @@ export default function InspectionCaptureScreen() {
                     }
 
                     try {
-                      const lockBedroomCount =
-                        roomsLockedFromProperty && isBedroomCountField(field);
-
                       const getTenantNames = () => {
                         if (!Array.isArray(tenants) || tenants.length === 0) return '';
                         const tenantNames = tenants
@@ -2196,8 +2240,7 @@ export default function InspectionCaptureScreen() {
                             markedForReview={entry?.markedForReview || false}
                             disabled={
                               effectiveInspection?.status === 'completed' ||
-                              isDeleted ||
-                              lockBedroomCount
+                              isDeleted
                             }
                             autoContext={{
                               inspectorName: resolvedInspectorName,
@@ -2208,6 +2251,8 @@ export default function InspectionCaptureScreen() {
                                   : '',
                               tenantNames: getTenantNames(),
                               inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
+                              bedroomCount: propertyLayoutCounts.bedroomCount,
+                              bathroomCount: propertyLayoutCounts.bathroomCount,
                             }}
                             onChange={(value, note, photos) =>
                               handleFieldChange(currentSection.id, field.id || field.key || '', value, note, photos)
