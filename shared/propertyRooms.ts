@@ -127,9 +127,89 @@ export function roomTypeFromCategoryName(name: string | null | undefined): Categ
   return roomTypeFromCategorySlug(slugifyCategoryName(name || ""));
 }
 
+/**
+ * Resolve a room label (AI category and/or room name) to a system category.
+ * AI often returns category "Other" while naming rooms "Bedroom 1" / "Reception Room" —
+ * prefer the name when the category is untyped.
+ */
+export function resolveSystemCategoryForLabel(
+  roomName: string | null | undefined,
+  categoryHint?: string | null,
+): (typeof SYSTEM_ROOM_CATEGORIES)[number] {
+  const other = SYSTEM_ROOM_CATEGORIES.find((c) => c.slug === "other")!;
+  const labels = [categoryHint, roomName]
+    .map((v) => (v || "").trim())
+    .filter(Boolean);
+
+  const findExact = (label: string) => {
+    const norm = normalizeCategoryName(label);
+    const slug = slugifyCategoryName(label);
+    return SYSTEM_ROOM_CATEGORIES.find(
+      (c) => c.slug === slug || normalizeCategoryName(c.name) === norm,
+    );
+  };
+
+  for (const label of labels) {
+    const exact = findExact(label);
+    if (exact && exact.slug !== "other") return exact;
+  }
+
+  for (const label of labels) {
+    const type = roomTypeFromCategoryName(label);
+    if (type === "other") continue;
+    const byType = SYSTEM_ROOM_CATEGORIES.find((c) => c.roomType === type);
+    if (byType) return byType;
+  }
+
+  // Non-count system rooms (Garden, Hallway, Study, …) matched by substring
+  for (const label of labels) {
+    const hay = normalizeCategoryName(label);
+    const slug = slugifyCategoryName(label);
+    const hit = SYSTEM_ROOM_CATEGORIES.find((c) => {
+      if (c.slug === "other") return false;
+      return (
+        hay.includes(normalizeCategoryName(c.name)) ||
+        slug.includes(c.slug) ||
+        normalizeCategoryName(c.name).includes(hay)
+      );
+    });
+    if (hit) return hit;
+  }
+
+  for (const label of labels) {
+    const exact = findExact(label);
+    if (exact) return exact;
+  }
+  return other;
+}
+
+/** Effective room type from category, falling back to the room name when category is Other. */
+export function roomTypeFromRoomLike(room: {
+  categorySlug?: string | null;
+  categoryName?: string | null;
+  name?: string | null;
+}): CategoryRoomType {
+  const fromCat = room.categorySlug
+    ? roomTypeFromCategorySlug(room.categorySlug)
+    : roomTypeFromCategoryName(room.categoryName);
+  if (fromCat !== "other") return fromCat;
+  if (room.name) {
+    const fromName = roomTypeFromCategoryName(room.name);
+    if (fromName !== "other") return fromName;
+  }
+  // Category name may still help when slug is "other" but name is empty
+  if (room.categoryName) {
+    const fromHint = roomTypeFromCategoryName(room.categoryName);
+    if (fromHint !== "other") return fromHint;
+  }
+  return "other";
+}
+
 export type RoomLikeForCounts = {
   categorySlug?: string | null;
   categoryName?: string | null;
+  /** Used when category is Other / unknown (common after floor-plan AI). */
+  name?: string | null;
 };
 
 /** Recompute legacy property count columns from a room list. */
@@ -141,9 +221,7 @@ export function countsFromRooms(rooms: RoomLikeForCounts[]): PropertyRoomCounts 
     livingRooms: 0,
   };
   for (const room of rooms) {
-    const type = room.categorySlug
-      ? roomTypeFromCategorySlug(room.categorySlug)
-      : roomTypeFromCategoryName(room.categoryName);
+    const type = roomTypeFromRoomLike(room);
     if (type !== "other") tallies[type] += 1;
   }
   return {
@@ -220,7 +298,9 @@ export function normalizeAiRoomsResult(raw: unknown): {
       const m = item as Record<string, unknown>;
       const name = String(m.name ?? m.roomLabel ?? m.label ?? "").trim().slice(0, 160);
       if (!name) continue;
-      const category = String(m.category ?? m.roomType ?? m.type ?? "Other").trim().slice(0, 120) || "Other";
+      const rawCategory =
+        String(m.category ?? m.roomType ?? m.type ?? "").trim().slice(0, 120) || "Other";
+      const category = resolveSystemCategoryForLabel(name, rawCategory).name;
       const widthM = Number(m.widthM ?? m.width ?? m.width_m);
       const lengthM = Number(m.lengthM ?? m.length ?? m.length_m);
       const areaM2 = Number(m.areaM2 ?? m.area ?? m.area_m2);
@@ -238,7 +318,7 @@ export function normalizeAiRoomsResult(raw: unknown): {
   }
 
   const countsFromProposed = countsFromRooms(
-    rooms.map((r) => ({ categoryName: r.category })),
+    rooms.map((r) => ({ categoryName: r.category, name: r.name })),
   );
   const counts = parseRoomCounts({
     bedrooms: obj.bedrooms ?? countsFromProposed.bedrooms,
@@ -287,33 +367,21 @@ function pickRoomFieldTemplateSection(
 function createAutoRoomSection(
   categoryName: string,
   categorySlug: string,
-  fieldTemplate: TemplateSectionLike | null,
+  _fieldTemplate: TemplateSectionLike | null,
 ): TemplateSectionLike {
   const title = categoryName.trim() || "Other";
   const slug = (categorySlug || slugifyCategoryName(title)).slice(0, 60) || "other";
   const id = `section_${slug}`.replace(/[^a-z0-9_]+/g, "_").slice(0, 80);
-  const fields = (fieldTemplate?.fields || []).map((f, i) => {
-    const baseId = String(f.id || f.key || `field_${i}`);
-    const newId = `field_${slug}_${baseId}`.slice(0, 120);
-    const label = String(f.label || "Item").replace(
-      /\b(Kitchens?|Bathrooms?|Bedrooms?|Living Rooms?|Living Room)\b/gi,
-      title,
-    );
-    return {
-      ...f,
-      id: newId,
-      key: newId,
-      label,
-    };
-  });
-  if (fields.length === 0) {
-    fields.push({
-      id: `field_${slug}_condition`,
-      key: `field_${slug}_condition`,
-      label: `${title} Condition`,
+  // Auto/other categories (Garden, Porch, Hallway, …) get one generic point —
+  // do not clone Bedroom "Walls" etc. from the room field template.
+  const fields: NonNullable<TemplateSectionLike["fields"]> = [
+    {
+      id: `field_${slug}_overall_condition`,
+      key: `field_${slug}_overall_condition`,
+      label: "Overall condition",
       type: "photo_array",
-    });
-  }
+    },
+  ];
   return {
     id,
     title,
@@ -361,7 +429,11 @@ export function applyPropertyRoomsToTemplateSnapshot(
   roomInstancePaths: Array<{ roomId: string; sectionRef: string; title: string }>;
 } {
   const counts = countsFromRooms(
-    rooms.map((r) => ({ categorySlug: r.categorySlug, categoryName: r.categoryName })),
+    rooms.map((r) => ({
+      categorySlug: r.categorySlug,
+      categoryName: r.categoryName,
+      name: r.name,
+    })),
   );
 
   // Start from count-based apply for General fields + repeatable counts
@@ -390,9 +462,7 @@ export function applyPropertyRoomsToTemplateSnapshot(
   const sectionMap = matchTemplateSectionsToRoomTypes(sections);
 
   for (const room of rooms) {
-    const roomType = room.categorySlug
-      ? roomTypeFromCategorySlug(room.categorySlug)
-      : roomTypeFromCategoryName(room.categoryName);
+    const roomType = roomTypeFromRoomLike(room);
 
     let section: TemplateSectionLike | undefined;
     if (roomType !== "other") {
@@ -401,10 +471,11 @@ export function applyPropertyRoomsToTemplateSnapshot(
     }
 
     if (!section) {
+      const resolvedLabel = resolveSystemCategoryForLabel(room.name, room.categoryName);
       const matched = matchSectionForRoomCategory(
         sections,
-        room.categoryName,
-        room.categorySlug,
+        resolvedLabel.name !== "Other" ? resolvedLabel.name : room.categoryName,
+        resolvedLabel.slug !== "other" ? resolvedLabel.slug : room.categorySlug,
       );
       if (matched && !isGeneralOrSignoffSection(matched)) {
         section = matched;
@@ -412,16 +483,24 @@ export function applyPropertyRoomsToTemplateSnapshot(
     }
 
     if (!section) {
+      const resolved = resolveSystemCategoryForLabel(room.name, room.categoryName);
       const key =
-        (room.categorySlug || slugifyCategoryName(room.categoryName || "other")).toLowerCase() ||
-        "other";
+        (
+          (resolved.slug !== "other" ? resolved.slug : null) ||
+          room.categorySlug ||
+          slugifyCategoryName(room.categoryName || "other")
+        ).toLowerCase() || "other";
       section = autoSectionByKey.get(key);
       if (!section) {
         const existing = sections.find((s) => s.id === `section_${key.replace(/[^a-z0-9_]+/g, "_")}`);
         if (existing && !isGeneralOrSignoffSection(existing)) {
           section = existing;
         } else {
-          section = createAutoRoomSection(room.categoryName || "Other", key, fieldTemplate);
+          section = createAutoRoomSection(
+            resolved.slug !== "other" ? resolved.name : room.categoryName || "Other",
+            key,
+            fieldTemplate,
+          );
           insertSectionAfterBathrooms(sections, section);
         }
         autoSectionByKey.set(key, section);
@@ -593,9 +672,7 @@ export function propertyRoomsNeedSectionRepair(
   const byId = new Map(instances.map((i) => [i.roomId, i.sectionRef]));
   for (const room of rooms) {
     const ref = byId.get(room.id) || "";
-    const roomType = room.categorySlug
-      ? roomTypeFromCategorySlug(room.categorySlug)
-      : roomTypeFromCategoryName(room.categoryName);
+    const roomType = roomTypeFromRoomLike(room);
     if (roomType === "other") {
       if (!ref || /general|overview/i.test(ref.split("/")[0] || "")) return true;
       const sectionId = ref.split("/")[0] || "";
