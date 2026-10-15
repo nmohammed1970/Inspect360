@@ -87,6 +87,8 @@ interface FieldWidgetProps {
     address?: string;
     tenantNames?: string;
     inspectionDate?: string;
+    bedroomCount?: number;
+    bathroomCount?: number;
   };
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
@@ -466,7 +468,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     const isAutoField = safeField.type.startsWith('auto_');
     if (!isAutoField) return;
 
-    let autoValue = '';
+    let autoValue: string | number = '';
     switch (safeField.type) {
       case 'auto_inspector':
         autoValue = autoContext.inspectorName || '';
@@ -480,9 +482,21 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       case 'auto_inspection_date':
         autoValue = autoContext.inspectionDate || '';
         break;
+      case 'auto_bedroom_count':
+        autoValue =
+          autoContext.bedroomCount != null && Number.isFinite(autoContext.bedroomCount)
+            ? autoContext.bedroomCount
+            : '';
+        break;
+      case 'auto_bathroom_count':
+        autoValue =
+          autoContext.bathroomCount != null && Number.isFinite(autoContext.bathroomCount)
+            ? autoContext.bathroomCount
+            : '';
+        break;
     }
 
-    if (!autoValue) return;
+    if (autoValue === '' || autoValue == null) return;
 
     const savedValue =
       typeof value === 'string'
@@ -494,11 +508,23 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             : '';
 
     if (safeField.type === 'auto_inspector') {
-      if (savedValue !== autoValue) {
+      if (savedValue !== String(autoValue)) {
         setLocalValue(autoValue);
         onChange(autoValue, undefined, undefined);
       }
       autoSaveTriggeredRef.current = true;
+      return;
+    }
+
+    if (safeField.type === 'auto_bedroom_count' || safeField.type === 'auto_bathroom_count') {
+      if (autoSaveTriggeredRef.current) return;
+      const savedNum = Number(savedValue);
+      const autoNum = Number(autoValue);
+      autoSaveTriggeredRef.current = true;
+      if (!Number.isFinite(savedNum) || savedNum < 1) {
+        setLocalValue(autoNum);
+        onChange({ value: autoNum }, undefined, undefined);
+      }
       return;
     }
 
@@ -1312,9 +1338,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           </View>
         );
 
-      case 'checkbox':
-      case 'boolean':
-        // Ensure localValue is a boolean for checkbox
+      case 'checkbox': {
         const boolValue = !!localValue;
         return (
           <TouchableOpacity
@@ -1328,6 +1352,36 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>{safeField.label}</Text>
           </TouchableOpacity>
         );
+      }
+
+      case 'boolean': {
+        const isYes = localValue === true || localValue === 'true';
+        const isNo = localValue === false || localValue === 'false';
+        return (
+          <View style={[styles.booleanRow, disabled && styles.checkboxContainerDisabled]}>
+            <TouchableOpacity
+              style={[styles.checkboxContainer, { marginBottom: 0 }]}
+              onPress={() => handleValueChange(isYes ? null : true)}
+              disabled={disabled}
+            >
+              <View style={[styles.checkbox, isYes && styles.checkboxChecked]}>
+                {isYes && <Text style={[styles.checkmark, { color: themeColors.primary.foreground || '#ffffff' }]}>✓</Text>}
+              </View>
+              <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>Yes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.checkboxContainer, { marginBottom: 0 }]}
+              onPress={() => handleValueChange(isNo ? null : false)}
+              disabled={disabled}
+            >
+              <View style={[styles.checkbox, isNo && styles.checkboxChecked]}>
+                {isNo && <Text style={[styles.checkmark, { color: themeColors.primary.foreground || '#ffffff' }]}>✓</Text>}
+              </View>
+              <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>No</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
 
       case 'date':
         return (
@@ -1465,6 +1519,49 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             ]}
           />
         );
+
+      case 'auto_bedroom_count':
+      case 'auto_bathroom_count': {
+        const fromContext =
+          safeField.type === 'auto_bedroom_count'
+            ? autoContext?.bedroomCount
+            : autoContext?.bathroomCount;
+        const raw =
+          typeof localValue === 'object' && localValue !== null && 'value' in localValue
+            ? (localValue as any).value
+            : localValue;
+        const display =
+          raw !== undefined && raw !== null && raw !== ''
+            ? String(raw)
+            : fromContext != null
+              ? String(fromContext)
+              : '';
+        return (
+          <Input
+            label={safeField.label}
+            value={display}
+            onChangeText={(text) => {
+              const n = parseInt(text, 10);
+              handleValueChange(Number.isFinite(n) ? { value: n } : { value: null });
+            }}
+            keyboardType="number-pad"
+            placeholder={
+              safeField.type === 'auto_bedroom_count'
+                ? 'From property floor plan (bedrooms)'
+                : 'From property floor plan (bathrooms)'
+            }
+            required={!!safeField.required}
+            editable={!disabled}
+            style={[
+              {
+                backgroundColor: disabled ? themeColors.input : undefined,
+                borderColor: themeColors.border.DEFAULT,
+                color: themeColors.text.primary,
+              },
+            ]}
+          />
+        );
+      }
 
       case 'photo':
       case 'photo_array':
@@ -2486,6 +2583,13 @@ const styles = StyleSheet.create({
   optionTextSelected: {
     color: colors.primary.foreground,
     fontWeight: typography.fontWeight.semibold,
+  },
+  booleanRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing[6],
+    marginBottom: spacing[4],
   },
   checkboxContainer: {
     flexDirection: 'row',

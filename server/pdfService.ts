@@ -12,6 +12,12 @@ import {
   resolveCipInstanceCount,
 } from "@shared/templateCustomInspectionPoints";
 import { parseInspectionNote } from "@shared/inspectionNoteSections";
+import {
+  normalizeReportSectionOrder,
+  REPORT_SECTION_META,
+  type ReportSectionId,
+} from "@shared/reportSectionOrder";
+import { formatFloorArea, fromMillimetres } from "@shared/propertyRooms";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 import {
   coverSubjectImageCss,
@@ -319,6 +325,7 @@ interface MaintenanceRequest {
 interface ReportConfig {
   showCover?: boolean;
   showContentsPage?: boolean;
+  showFloorPlan?: boolean;
   showTradeMarks?: boolean;
   showGlossary?: boolean;
   showMaintenanceLog?: boolean;
@@ -326,6 +333,7 @@ interface ReportConfig {
   showInventory?: boolean;
   showTermsConditions?: boolean;
   showClosingSection?: boolean;
+  sectionOrder?: ReportSectionId[] | string[];
   // Custom content fields
   coverPageTitle?: string;
   coverPageSubtitle?: string;
@@ -333,6 +341,28 @@ interface ReportConfig {
   closingSectionTitle?: string;
   closingSectionText?: string;
 }
+
+export type FloorPlanReportRoom = {
+  name: string;
+  categoryName: string;
+  widthMm?: number | null;
+  lengthMm?: number | null;
+  ceilingHeightMm?: number | null;
+};
+
+export type FloorPlanReportData = {
+  floorPlanUrl?: string | null;
+  floorPlanMimeType?: string | null;
+  floorPlanFileName?: string | null;
+  /** Embedded data URL when the floor plan is an image. */
+  floorPlanImageDataUrl?: string | null;
+  sqft?: number | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  kitchens?: number | null;
+  livingRooms?: number | null;
+  rooms: FloorPlanReportRoom[];
+};
 
 export type InspectionPdfOptions = {
   /** When false, omit tenant signature fields (tenancies module off). Default true. */
@@ -347,6 +377,7 @@ export async function generateInspectionPDF(
   maintenanceRequests?: MaintenanceRequest[],
   reportConfig?: ReportConfig,
   options?: InspectionPdfOptions,
+  floorPlanData?: FloorPlanReportData | null,
 ): Promise<Buffer> {
   // Convert branding images to base64 for embedding in PDF
   let processedBranding = branding;
@@ -431,6 +462,26 @@ export async function generateInspectionPDF(
     console.warn("[PDF] Cover subject image failed; continuing without it:", coverError);
   }
   
+  let processedFloorPlan: FloorPlanReportData | null = floorPlanData
+    ? { ...floorPlanData, rooms: floorPlanData.rooms ?? [] }
+    : null;
+  if (processedFloorPlan?.floorPlanUrl) {
+    const mime = (processedFloorPlan.floorPlanMimeType || "").toLowerCase();
+    const fileName = (processedFloorPlan.floorPlanFileName || "").toLowerCase();
+    const looksLikePdf = mime.includes("pdf") || fileName.endsWith(".pdf");
+    if (!looksLikePdf) {
+      try {
+        const dataUrl = await imageUrlToBase64(processedFloorPlan.floorPlanUrl, baseUrl);
+        if (dataUrl) {
+          processedFloorPlan = { ...processedFloorPlan, floorPlanImageDataUrl: dataUrl };
+          console.log("[PDF] Floor plan image embedded");
+        }
+      } catch (floorPlanError) {
+        console.warn("[PDF] Floor plan image conversion failed:", floorPlanError);
+      }
+    }
+  }
+
   const html = generateInspectionHTML(
     inspection,
     entries,
@@ -440,6 +491,7 @@ export async function generateInspectionPDF(
     reportConfig,
     options,
     coverSubjectImageHtml,
+    processedFloorPlan,
   );
 
   let browser;
@@ -518,8 +570,19 @@ function renderFieldValue(value: any, field: TemplateField): string {
       return `<pre style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-size: 12px; overflow-x: auto;">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
     }
 
-    if (field.type === "checkbox" || field.type === "toggle") {
-      return value ? "✓ Yes" : "✗ No";
+    if (field.type === "boolean" || field.type === "checkbox" || field.type === "toggle") {
+      const isYes = value === true || value === "true" || value === "Yes";
+      const isNo = value === false || value === "false" || value === "No";
+      const box = (checked: boolean) =>
+        checked
+          ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1.5px solid #00D5CC;border-radius:3px;background:#00D5CC;color:#fff;font-size:10px;line-height:1;vertical-align:middle;">✓</span>`
+          : `<span style="display:inline-block;width:14px;height:14px;border:1.5px solid #94a3b8;border-radius:3px;background:#fff;vertical-align:middle;"></span>`;
+      return `
+        <span style="display:inline-flex;align-items:center;gap:18px;font-size:13px;color:#334155;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">${box(isYes)} Yes</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">${box(isNo)} No</span>
+        </span>
+      `;
     }
 
     if (field.type === "date" && typeof value === "string") {
@@ -539,6 +602,168 @@ function renderFieldValue(value: any, field: TemplateField): string {
   }
 }
 
+function formatRoomDimensionLine(room: FloorPlanReportRoom): string {
+  const w = fromMillimetres(room.widthMm, "m");
+  const l = fromMillimetres(room.lengthMm, "m");
+  if (w == null || l == null) return "Dimensions not set";
+  const parts = [`${w} m × ${l} m`];
+  const area = formatFloorArea(room.widthMm, room.lengthMm, "m2");
+  if (area) parts.push(area);
+  const ceiling = fromMillimetres(room.ceilingHeightMm, "m");
+  if (ceiling != null) parts.push(`Ceiling ${ceiling} m`);
+  return parts.join(" · ");
+}
+
+function buildFloorPlanSectionHTML(
+  config: { showFloorPlan: boolean },
+  floorPlanData: FloorPlanReportData | null | undefined,
+): string {
+  if (!config.showFloorPlan || !floorPlanData) return "";
+
+  const rooms = floorPlanData.rooms ?? [];
+  const hasImage = Boolean(floorPlanData.floorPlanImageDataUrl);
+  const mime = (floorPlanData.floorPlanMimeType || "").toLowerCase();
+  const fileName = (floorPlanData.floorPlanFileName || "").toLowerCase();
+  const isPdf =
+    Boolean(floorPlanData.floorPlanUrl) &&
+    (mime.includes("pdf") || fileName.endsWith(".pdf"));
+  const hasLayoutSummary =
+    (floorPlanData.bedrooms ?? 0) > 0 ||
+    (floorPlanData.bathrooms ?? 0) > 0 ||
+    (floorPlanData.kitchens ?? 0) > 0 ||
+    (floorPlanData.livingRooms ?? 0) > 0 ||
+    (floorPlanData.sqft ?? 0) > 0;
+
+  if (!hasImage && !isPdf && rooms.length === 0 && !hasLayoutSummary) {
+    return "";
+  }
+
+  const statChips: Array<{ label: string; value: string }> = [];
+  if (floorPlanData.bedrooms != null) {
+    statChips.push({ label: "Bedrooms", value: String(floorPlanData.bedrooms) });
+  }
+  if (floorPlanData.bathrooms != null) {
+    statChips.push({ label: "Bathrooms", value: String(floorPlanData.bathrooms) });
+  }
+  if (floorPlanData.kitchens != null) {
+    statChips.push({ label: "Kitchens", value: String(floorPlanData.kitchens) });
+  }
+  if (floorPlanData.livingRooms != null) {
+    statChips.push({ label: "Living rooms", value: String(floorPlanData.livingRooms) });
+  }
+  if (floorPlanData.sqft != null && floorPlanData.sqft > 0) {
+    statChips.push({ label: "Total area", value: `${floorPlanData.sqft.toLocaleString()} sq ft` });
+  }
+
+  const roomsByCategory = new Map<string, FloorPlanReportRoom[]>();
+  for (const room of rooms) {
+    const key = room.categoryName || "Other";
+    const list = roomsByCategory.get(key) ?? [];
+    list.push(room);
+    roomsByCategory.set(key, list);
+  }
+
+  const imageBlock = hasImage
+    ? `
+      <div style="background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 100%); border: 1px solid #ccfbf1; border-radius: 12px; padding: 20px; margin-bottom: 20px; text-align: center;">
+        <img
+          src="${sanitizeUrl(floorPlanData.floorPlanImageDataUrl!)}"
+          alt="Property floor plan"
+          style="max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 8px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); background: white;"
+        />
+        ${
+          floorPlanData.floorPlanFileName
+            ? `<div style="margin-top: 12px; font-size: 12px; color: #64748b;">${escapeHtml(floorPlanData.floorPlanFileName)}</div>`
+            : ""
+        }
+      </div>
+    `
+    : isPdf
+      ? `
+      <div style="background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 12px; padding: 28px 20px; margin-bottom: 20px; text-align: center;">
+        <div style="font-size: 14px; font-weight: 600; color: #334155; margin-bottom: 6px;">Floor plan uploaded as PDF</div>
+        <div style="font-size: 13px; color: #64748b;">
+          ${escapeHtml(floorPlanData.floorPlanFileName || "Floor plan document")} — open the property record to view the full document.
+        </div>
+      </div>
+    `
+      : "";
+
+  const statsBlock =
+    statChips.length > 0
+      ? `
+      <div style="display: grid; grid-template-columns: repeat(${Math.min(statChips.length, 5)}, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px;">
+        ${statChips
+          .map(
+            (chip) => `
+          <div style="background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 12px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; margin-bottom: 4px;">${escapeHtml(chip.label)}</div>
+            <div style="font-size: 20px; font-weight: 700; color: #0f766e; font-variant-numeric: tabular-nums;">${escapeHtml(chip.value)}</div>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+    `
+      : "";
+
+  const roomsBlock =
+    roomsByCategory.size > 0
+      ? `
+      <div style="margin-top: 4px;">
+        <h3 style="font-size: 14px; font-weight: 600; color: #3B7A8C; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px;">
+          Room dimensions
+        </h3>
+        ${Array.from(roomsByCategory.entries())
+          .map(([category, categoryRooms]) => {
+            const rows = categoryRooms
+              .map((room) => {
+                const dims = formatRoomDimensionLine(room);
+                const hasDims = dims !== "Dimensions not set";
+                return `
+                  <tr>
+                    <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #1e293b; font-weight: 500; width: 38%;">
+                      ${escapeHtml(room.name)}
+                    </td>
+                    <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: ${hasDims ? "#475569" : "#94a3b8"}; font-size: 13px; font-variant-numeric: tabular-nums;">
+                      ${escapeHtml(dims)}
+                    </td>
+                  </tr>
+                `;
+              })
+              .join("");
+            return `
+              <div style="margin-bottom: 16px;">
+                <div style="font-size: 13px; font-weight: 600; color: #64748b; margin-bottom: 8px;">
+                  ${escapeHtml(category)}
+                  <span style="font-weight: 400; font-variant-numeric: tabular-nums;"> · ${categoryRooms.length}</span>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;">
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `
+      : "";
+
+  return `
+    <!-- Floor Plan & Dimensions -->
+    <div class="report-section" style="margin-bottom: 32px; page-break-inside: avoid;">
+      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+        Floor Plan &amp; Dimensions
+      </h2>
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px;">
+        ${imageBlock}
+        ${statsBlock}
+        ${roomsBlock}
+      </div>
+    </div>
+  `;
+}
+
 function generateInspectionHTML(
   inspection: Inspection,
   entries: InspectionEntry[],
@@ -548,12 +773,14 @@ function generateInspectionHTML(
   reportConfig?: ReportConfig,
   options?: InspectionPdfOptions,
   coverSubjectImageHtml = "",
+  floorPlanData?: FloorPlanReportData | null,
 ): string {
   const includeTenantSurfaces = options?.includeTenantSurfaces !== false;
   // Default all report sections to true if not specified
-  const config: Required<ReportConfig> = {
+  const config = {
     showCover: reportConfig?.showCover ?? true,
     showContentsPage: reportConfig?.showContentsPage ?? true,
+    showFloorPlan: reportConfig?.showFloorPlan ?? true,
     showTradeMarks: reportConfig?.showTradeMarks ?? true,
     showGlossary: reportConfig?.showGlossary ?? true,
     showMaintenanceLog: reportConfig?.showMaintenanceLog ?? true,
@@ -561,6 +788,7 @@ function generateInspectionHTML(
     showInventory: reportConfig?.showInventory ?? true,
     showTermsConditions: reportConfig?.showTermsConditions ?? true,
     showClosingSection: reportConfig?.showClosingSection ?? true,
+    sectionOrder: normalizeReportSectionOrder(reportConfig?.sectionOrder),
     // Custom content fields
     coverPageTitle: reportConfig?.coverPageTitle || '',
     coverPageSubtitle: reportConfig?.coverPageSubtitle || '',
@@ -742,13 +970,16 @@ function generateInspectionHTML(
           description = (valueData as any).value !== undefined && (valueData as any).value !== null
             ? (valueData as any).value
             : valueData;
+        } else if ("value" in (valueData as object)) {
+          // Keep false / 0 — do not coalesce with ||
+          description = (valueData as any).value;
         } else {
-          description = (valueData as any).value || null;
+          description = null;
         }
       } else if (typeof valueData === 'string') {
         description = valueData;
       } else if (typeof valueData === 'boolean') {
-        description = valueData ? 'Yes' : 'No';
+        description = valueData;
       } else {
         description = String(valueData);
       }
@@ -779,8 +1010,25 @@ function generateInspectionHTML(
     const isSignature = !!signaturePayload ||
                        (typeof description === 'string' && description.startsWith('data:image'));
     
+    const formatBooleanCheckboxesHTML = (value: unknown): string => {
+      const isYes = value === true || value === "true" || value === "Yes";
+      const isNo = value === false || value === "false" || value === "No";
+      const box = (checked: boolean) =>
+        checked
+          ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1.5px solid #00D5CC;border-radius:3px;background:#00D5CC;color:#fff;font-size:10px;line-height:1;vertical-align:middle;">✓</span>`
+          : `<span style="display:inline-block;width:14px;height:14px;border:1.5px solid #94a3b8;border-radius:3px;background:#fff;vertical-align:middle;"></span>`;
+      return `
+        <span style="display:inline-flex;align-items:center;gap:18px;font-size:13px;color:#334155;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">${box(isYes)} Yes</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">${box(isNo)} No</span>
+        </span>
+      `;
+    };
+
     let descriptionHTML = '-';
-    if (signaturePayload || (description !== null && description !== '')) {
+    if (field.type === "boolean") {
+      descriptionHTML = formatBooleanCheckboxesHTML(description);
+    } else if (signaturePayload || (description !== null && description !== '')) {
       if (isSignature) {
         const sigImage = signaturePayload?.image || (typeof description === 'string' ? description : '');
         const isTenant = isTenantSignatureField(field);
@@ -1424,6 +1672,88 @@ function generateInspectionHTML(
     </div>
   ` : '';
 
+  const tradeMarksSectionHTML =
+    config.showTradeMarks && trademarkHtml
+      ? `
+    <!-- Trade Marks -->
+    <div class="report-section keep-together" style="margin-bottom: 32px;">
+      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+        Trade Marks
+      </h2>
+      <div style="display: flex; justify-content: center; padding: 16px 0;">
+        ${trademarkHtml}
+      </div>
+    </div>
+  `
+      : "";
+
+  const floorPlanSectionHTML = buildFloorPlanSectionHTML(config, floorPlanData);
+  const inspectionBodyHTML = config.showInspection ? sectionsHTML : "";
+
+  const contentsEntries = config.sectionOrder
+    .filter((id) => id !== "cover" && id !== "contents")
+    .filter((id) => {
+      switch (id) {
+        case "floorPlan":
+          return Boolean(floorPlanSectionHTML);
+        case "tradeMarks":
+          return Boolean(tradeMarksSectionHTML);
+        case "glossary":
+          return Boolean(glossaryHTML);
+        case "maintenanceLog":
+          return Boolean(maintenanceLogHTML);
+        case "inspection":
+          return Boolean(inspectionBodyHTML);
+        case "inventory":
+          return false;
+        case "termsConditions":
+          return Boolean(termsConditionsHTML);
+        case "closing":
+          return Boolean(closingSectionHTML);
+        default:
+          return false;
+      }
+    })
+    .map((id) => REPORT_SECTION_META[id].label);
+
+  const contentsPageHTML =
+    config.showContentsPage && contentsEntries.length > 0
+      ? `
+    <!-- Contents Page -->
+    <div class="report-section keep-together" style="margin-bottom: 32px;">
+      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+        Contents
+      </h2>
+      <ol style="margin: 0; padding-left: 24px; color: #333; font-size: 14px; line-height: 1.9;">
+        ${contentsEntries.map((label) => `<li>${escapeHtml(label)}</li>`).join("")}
+      </ol>
+    </div>
+  `
+      : "";
+
+  const sectionHtmlById: Record<ReportSectionId, string> = {
+    cover: coverPageHTML,
+    contents: contentsPageHTML,
+    floorPlan: floorPlanSectionHTML,
+    tradeMarks: tradeMarksSectionHTML,
+    glossary: glossaryHTML,
+    maintenanceLog: maintenanceLogHTML,
+    inspection: inspectionBodyHTML,
+    inventory: "",
+    termsConditions: termsConditionsHTML,
+    closing: closingSectionHTML,
+  };
+
+  // Cover stays a full-page lead-in when it is first; otherwise it follows the configured order in the body.
+  const coverIsFirst =
+    config.sectionOrder[0] === "cover" && Boolean(coverPageHTML);
+  const leadingCoverHTML = coverIsFirst ? coverPageHTML : "";
+  const orderedBodySectionsHTML = config.sectionOrder
+    .filter((id) => !(coverIsFirst && id === "cover"))
+    .map((id) => sectionHtmlById[id])
+    .filter(Boolean)
+    .join("\n");
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -1786,7 +2116,7 @@ function generateInspectionHTML(
 </head>
 <body>
   <div class="container">
-    ${coverPageHTML}
+    ${leadingCoverHTML}
 
     ${tradeAssociationsPageHTML}
 
@@ -1836,16 +2166,7 @@ function generateInspectionHTML(
         ` : ""}
       </div>
 
-      ${glossaryHTML}
-
-      ${maintenanceLogHTML}
-
-      <!-- Inspection Sections -->
-      ${config.showInspection ? sectionsHTML : ''}
-
-      ${termsConditionsHTML}
-
-      ${closingSectionHTML}
+      ${orderedBodySectionsHTML}
     </div>
   </div>
 </body>

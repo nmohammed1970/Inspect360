@@ -1010,9 +1010,37 @@ export default function InspectionReport() {
       case "number":
         displayValue = actualValue !== null && actualValue !== undefined ? actualValue.toString() : <span className="text-muted-foreground italic">Not filled</span>;
         break;
-      case "boolean":
-        displayValue = actualValue ? "Yes" : "No";
+      case "boolean": {
+        const isYes = actualValue === true || actualValue === "true" || actualValue === "Yes";
+        const isNo = actualValue === false || actualValue === "false" || actualValue === "No";
+        displayValue = (
+          <div className="flex flex-wrap items-center gap-6 text-sm">
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                  isYes ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+                }`}
+                aria-hidden
+              >
+                {isYes ? "✓" : ""}
+              </span>
+              Yes
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span
+                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                  isNo ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+                }`}
+                aria-hidden
+              >
+                {isNo ? "✓" : ""}
+              </span>
+              No
+            </span>
+          </div>
+        );
         break;
+      }
       case "select":
       case "radio":
         displayValue = actualValue || <span className="text-muted-foreground italic">Not selected</span>;

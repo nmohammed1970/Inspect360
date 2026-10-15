@@ -6784,7 +6784,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             valueJson: seed.valueJson as any,
           });
         } catch (seedErr) {
-          console.error("[Create Inspection] Failed to seed room count entry:", seed.fieldKey, seedErr);
+          const errMsg = seedErr instanceof Error ? seedErr.message : String(seedErr);
+          console.error("[Create Inspection] Failed to seed room count entry:", seed.fieldKey, errMsg);
         }
       }
 
@@ -8008,6 +8009,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Floor plan + room dimensions for the report Floor Plan section
+      let floorPlanData: {
+        floorPlanUrl?: string | null;
+        floorPlanMimeType?: string | null;
+        floorPlanFileName?: string | null;
+        sqft?: number | null;
+        bedrooms?: number | null;
+        bathrooms?: number | null;
+        kitchens?: number | null;
+        livingRooms?: number | null;
+        rooms: Array<{
+          name: string;
+          categoryName: string;
+          widthMm?: number | null;
+          lengthMm?: number | null;
+          ceilingHeightMm?: number | null;
+        }>;
+      } | null = null;
+      try {
+        if (property) {
+          const { listPropertyRooms } = await import("./propertyRoomsService");
+          const rooms = await listPropertyRooms(user.organizationId, property.id);
+          floorPlanData = {
+            floorPlanUrl: property.floorPlanUrl ?? null,
+            floorPlanMimeType: property.floorPlanMimeType ?? null,
+            floorPlanFileName: property.floorPlanFileName ?? null,
+            sqft: property.sqft ?? null,
+            bedrooms: property.bedrooms ?? null,
+            bathrooms: property.bathrooms ?? null,
+            kitchens: property.kitchens ?? null,
+            livingRooms: property.livingRooms ?? null,
+            rooms: rooms.map((r) => ({
+              name: r.name,
+              categoryName: r.categoryName,
+              widthMm: r.widthMm,
+              lengthMm: r.lengthMm,
+              ceilingHeightMm: r.ceilingHeightMm,
+            })),
+          };
+        }
+      } catch (e) {
+        console.log("Could not fetch floor plan data for PDF:", e);
+      }
+
       // Build base URL for converting relative image paths to absolute
       const protocol = req.protocol;
       const host = req.get('host');
@@ -8027,6 +8072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         maintenanceRequests,
         reportConfig,
         { includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies") },
+        floorPlanData,
       );
 
       // Set headers for PDF download: Location_Date_InspectorName.pdf
@@ -18784,7 +18830,8 @@ ${optionalNotes || "No details provided."}`;
         res.status(201).json(entry);
       }
     } catch (error) {
-      console.error("Error creating/updating inspection entry:", error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("Error creating/updating inspection entry:", errMsg);
       res.status(400).json({ message: "Failed to create/update inspection entry" });
     }
   });

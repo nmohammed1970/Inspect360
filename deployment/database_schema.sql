@@ -12,7 +12,7 @@ CREATE TYPE "public"."currency" AS ENUM('GBP', 'USD', 'AED');
 CREATE TYPE "public"."feedback_category" AS ENUM('bug', 'feature', 'improvement');
 CREATE TYPE "public"."feedback_priority" AS ENUM('low', 'medium', 'high');
 CREATE TYPE "public"."feedback_status" AS ENUM('new', 'in_review', 'in_progress', 'completed', 'rejected');
-CREATE TYPE "public"."field_type" AS ENUM('short_text', 'long_text', 'number', 'select', 'multiselect', 'boolean', 'rating', 'date', 'time', 'datetime', 'photo', 'photo_array', 'video', 'gps', 'signature');
+CREATE TYPE "public"."field_type" AS ENUM('short_text', 'long_text', 'number', 'select', 'multiselect', 'boolean', 'rating', 'date', 'time', 'datetime', 'photo', 'photo_array', 'video', 'gps', 'signature', 'auto_inspection_date', 'auto_inspector', 'auto_address', 'auto_tenant_names', 'auto_bedroom_count', 'auto_bathroom_count');
 CREATE TYPE "public"."inspection_point_data_type" AS ENUM('text', 'number', 'checkbox', 'photo', 'rating');
 CREATE TYPE "public"."inspection_status" AS ENUM('scheduled', 'in_progress', 'completed', 'reviewed');
 CREATE TYPE "public"."inspection_type" AS ENUM('check_in', 'check_out', 'routine', 'maintenance', 'esg_sustainability_inspection', 'fire_hazard_assessment', 'maintenance_inspection', 'damage', 'emergency', 'safety_compliance', 'compliance_regulatory', 'pre_purchase', 'specialized');

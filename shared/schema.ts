@@ -58,7 +58,7 @@ export const conditionRatingEnum = pgEnum("condition_rating", ["excellent", "goo
 export const cleanlinessRatingEnum = pgEnum("cleanliness_rating", ["very_clean", "clean", "acceptable", "needs_cleaning", "not_applicable"]);
 export const contactTypeEnum = pgEnum("contact_type", ["internal", "contractor", "lead", "company", "partner", "vendor", "tenant", "landlord", "other"]);
 export const templateScopeEnum = pgEnum("template_scope", ["block", "property", "both"]);
-export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature", "auto_inspection_date", "auto_inspector", "auto_address", "auto_tenant_names"]);
+export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature", "auto_inspection_date", "auto_inspector", "auto_address", "auto_tenant_names", "auto_bedroom_count", "auto_bathroom_count"]);
 export const maintenanceSourceEnum = pgEnum("maintenance_source", ["manual", "inspection", "tenant_portal", "routine"]);
 export const comparisonReportStatusEnum = pgEnum("comparison_report_status", ["draft", "under_review", "awaiting_signatures", "signed", "filed"]);
 export const comparisonItemStatusEnum = pgEnum("comparison_item_status", ["pending", "reviewed", "disputed", "resolved", "waived"]);
@@ -831,6 +831,7 @@ export const inspectionTemplates = pgTable("inspection_templates", {
   reportConfig: jsonb("report_config").$type<{
     showCover: boolean;
     showContentsPage: boolean;
+    showFloorPlan?: boolean;
     showTradeMarks: boolean;
     showGlossary: boolean;
     showMaintenanceLog: boolean;
@@ -838,6 +839,19 @@ export const inspectionTemplates = pgTable("inspection_templates", {
     showInventory: boolean;
     showTermsConditions: boolean;
     showClosingSection: boolean;
+    /** Order of built-in report sections in generated PDFs / report views. */
+    sectionOrder?: Array<
+      | "cover"
+      | "contents"
+      | "floorPlan"
+      | "tradeMarks"
+      | "glossary"
+      | "maintenanceLog"
+      | "inspection"
+      | "inventory"
+      | "termsConditions"
+      | "closing"
+    >;
     // Custom content fields
     coverPageTitle?: string;
     coverPageSubtitle?: string;
@@ -1034,7 +1048,7 @@ export const insertInspectionEntrySchema = createInsertSchema(inspectionEntries)
   createdAt: true,
   updatedAt: true,
 }).extend({
-  fieldType: z.enum(["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature", "auto_inspection_date", "auto_inspector", "auto_address", "auto_tenant_names"]),
+  fieldType: z.enum(["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature", "auto_inspection_date", "auto_inspector", "auto_address", "auto_tenant_names", "auto_bedroom_count", "auto_bathroom_count"]),
 });
 export type InspectionEntry = typeof inspectionEntries.$inferSelect;
 export type InsertInspectionEntry = z.infer<typeof insertInspectionEntrySchema>;

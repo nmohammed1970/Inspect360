@@ -4,6 +4,7 @@ import {
   clampRoomCount,
   formatRoomCountsSummary,
   isAllowedFloorPlanMime,
+  isBathroomCountField,
   isBedroomCountField,
   isPropertyTypeField,
   matchPropertyTypeToOption,
@@ -55,6 +56,7 @@ assert.equal(isAllowedFloorPlanMime("application/exe"), false);
 const sections = [
   { id: "section_general", title: "General Information", fields: [
     { id: "field_num_bedrooms", key: "num_bedrooms", label: "Number of Bedrooms", type: "number" },
+    { id: "field_num_bathrooms", key: "num_bathrooms", label: "Number of Bathrooms", type: "number" },
     {
       id: "field_property_type",
       key: "field_property_type",
@@ -101,6 +103,15 @@ assert.ok(
 );
 assert.ok(
   applied.seedEntries.some(
+    (e) =>
+      e.fieldKey === "field_num_bathrooms" &&
+      typeof e.valueJson === "object" &&
+      e.valueJson !== null &&
+      (e.valueJson as any).value === 2,
+  ),
+);
+assert.ok(
+  applied.seedEntries.some(
     (e) => e.fieldKey === "field_property_type" && e.valueJson === "Apartment",
   ),
 );
@@ -109,7 +120,60 @@ assert.match(formatRoomCountsSummary(applied.counts), /3 Bedrooms/);
 
 assert.equal(isBedroomCountField({ label: "Number of Bedrooms", id: "x" }), true);
 assert.equal(isBedroomCountField({ id: "field_num_bedrooms" }), true);
+assert.equal(isBedroomCountField({ type: "auto_bedroom_count", label: "Beds", id: "x" }), true);
 assert.equal(isBedroomCountField({ label: "Condition", id: "field_cond" }), false);
+assert.equal(isBathroomCountField({ label: "Number of Bathrooms", id: "x" }), true);
+assert.equal(isBathroomCountField({ id: "field_num_bathrooms" }), true);
+assert.equal(isBathroomCountField({ label: "Number of Washrooms", id: "x" }), true);
+assert.equal(isBathroomCountField({ type: "auto_bathroom_count", label: "Baths", id: "x" }), true);
+assert.equal(isBathroomCountField({ label: "Number of Bedrooms", id: "x" }), false);
+
+// Auto count fields outside General Information still get seeded
+const customOnly = applyPropertyCountsToTemplateSnapshot(
+  {
+    sections: [
+      {
+        id: "section_overview",
+        title: "Overview",
+        fields: [
+          {
+            id: "field_beds",
+            key: "field_beds",
+            label: "Beds",
+            type: "auto_bedroom_count",
+          },
+          {
+            id: "field_baths",
+            key: "field_baths",
+            label: "Baths",
+            type: "auto_bathroom_count",
+          },
+        ],
+      },
+      { id: "section_bed_room", title: "Bed Room", repeatable: false },
+      { id: "section_bathrooms", title: "Bathrooms", repeatable: true },
+    ],
+  },
+  { bedrooms: 3, bathrooms: 2 },
+);
+assert.ok(
+  customOnly.seedEntries.some(
+    (e) =>
+      e.fieldKey === "field_beds" &&
+      typeof e.valueJson === "object" &&
+      e.valueJson !== null &&
+      (e.valueJson as any).value === 3,
+  ),
+);
+assert.ok(
+  customOnly.seedEntries.some(
+    (e) => e.fieldKey === "__repeatable_count_section_bed_room" && e.valueJson === 3,
+  ),
+);
+assert.equal(
+  (customOnly.structure.sections as any[]).find((s) => s.id === "section_bed_room")?.repeatable,
+  true,
+);
 assert.equal(isPropertyTypeField({ label: "Property Type", id: "x" }), true);
 assert.equal(isPropertyTypeField({ id: "field_checkin_property_type" }), true);
 assert.equal(

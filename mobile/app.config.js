@@ -3,7 +3,7 @@ export default {
   expo: {
     name: "Inspect360",
     slug: "inspect360-mobile",
-    version: "1.0.6", // Increment this for each new App Store release (must be > last approved)
+    version: "1.0.7", // Increment this for each new App Store release (must be > last approved)
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "automatic", // Supports automatic dark mode based on system settings

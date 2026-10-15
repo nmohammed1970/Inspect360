@@ -13,6 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { Plus, Trash2, Copy, GripVertical, Save, X, Eye, Code, ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
@@ -25,6 +26,21 @@ import {
   sanitizeStructureSectionCipIds,
   TemplateCipValidationError,
 } from "@shared/templateCustomInspectionPoints";
+import {
+  defaultGeneralInformationSection,
+  isGeneralInformationSection,
+} from "@shared/defaultGeneralInformationSection";
+import {
+  AUTO_BATHROOM_COUNT_TYPE,
+  AUTO_BEDROOM_COUNT_TYPE,
+  matchSectionToRoomType,
+} from "@shared/propertyLayout";
+import {
+  DEFAULT_REPORT_SECTION_ORDER,
+  REPORT_SECTION_META,
+  normalizeReportSectionOrder,
+  type ReportSectionId,
+} from "@shared/reportSectionOrder";
 import { z } from "zod";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
@@ -46,6 +62,7 @@ type CustomSection = z.infer<typeof customSectionSchema>;
 const DEFAULT_REPORT_CONFIG = {
   showCover: true,
   showContentsPage: true,
+  showFloorPlan: true,
   showTradeMarks: true,
   showGlossary: true,
   showMaintenanceLog: true,
@@ -53,6 +70,7 @@ const DEFAULT_REPORT_CONFIG = {
   showInventory: true,
   showTermsConditions: true,
   showClosingSection: true,
+  sectionOrder: [...DEFAULT_REPORT_SECTION_ORDER] as ReportSectionId[],
   customSections: [] as CustomSection[],
 };
 
@@ -60,6 +78,7 @@ const DEFAULT_REPORT_CONFIG = {
 const reportConfigSchema = z.object({
   showCover: z.boolean().default(true),
   showContentsPage: z.boolean().default(true),
+  showFloorPlan: z.boolean().default(true),
   showTradeMarks: z.boolean().default(true),
   showGlossary: z.boolean().default(true),
   showMaintenanceLog: z.boolean().default(true),
@@ -67,6 +86,7 @@ const reportConfigSchema = z.object({
   showInventory: z.boolean().default(true),
   showTermsConditions: z.boolean().default(true),
   showClosingSection: z.boolean().default(true),
+  sectionOrder: z.array(z.string()).optional(),
   // Custom content fields
   coverPageTitle: z.string().optional(),
   coverPageSubtitle: z.string().optional(),
@@ -157,7 +177,47 @@ const FIELD_TYPES = [
   { value: "auto_address", label: "Auto: Property/Block Address" },
   { value: "auto_tenant_names", label: "Auto: Tenant Name(s)" },
   { value: "auto_inspection_date", label: "Auto: Inspection Date" },
+  { value: AUTO_BEDROOM_COUNT_TYPE, label: "Auto: Bedrooms" },
+  { value: AUTO_BATHROOM_COUNT_TYPE, label: "Auto: Bathrooms" },
 ];
+
+function stabilizeRoomCountFieldIds(
+  field: TemplateField,
+  type: string,
+): Partial<TemplateField> {
+  const looksGenerated = /^field_\d+/.test(field.id) || /^field_\d+/.test(field.key);
+  if (type === AUTO_BEDROOM_COUNT_TYPE) {
+    const next: Partial<TemplateField> = {
+      type,
+      label:
+        field.label === "New Field" || !field.label?.trim()
+          ? "Number of Bedrooms"
+          : field.label,
+    };
+    if (looksGenerated || !field.id.toLowerCase().includes("num_bedroom")) {
+      const id = `field_num_bedrooms_${Date.now()}`;
+      next.id = id;
+      next.key = id;
+    }
+    return next;
+  }
+  if (type === AUTO_BATHROOM_COUNT_TYPE) {
+    const next: Partial<TemplateField> = {
+      type,
+      label:
+        field.label === "New Field" || !field.label?.trim()
+          ? "Number of Bathrooms"
+          : field.label,
+    };
+    if (looksGenerated || !field.id.toLowerCase().includes("num_bathroom")) {
+      const id = `field_num_bathrooms_${Date.now()}`;
+      next.id = id;
+      next.key = id;
+    }
+    return next;
+  }
+  return { type };
+}
 
 interface TemplateBuilderProps {
   template: InspectionTemplate | null;
@@ -166,27 +226,57 @@ interface TemplateBuilderProps {
   onSave: (saved?: InspectionTemplate) => void;
 }
 
+type FieldDragState =
+  | { kind: "section"; parentId: string; fromIndex: number }
+  | { kind: "cip"; parentId: string; fromIndex: number };
+
+function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return list;
+  if (fromIndex >= list.length || toIndex >= list.length) return list;
+  const next = [...list];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item!);
+  return next;
+}
+
 export function TemplateBuilder({ template, categories, onClose, onSave }: TemplateBuilderProps) {
   const { toast } = useToast();
   const [previewMode, setPreviewMode] = useState(false);
   const [persistedTemplate, setPersistedTemplate] = useState<InspectionTemplate | null>(template);
+  const [fieldDrag, setFieldDrag] = useState<FieldDragState | null>(null);
+  const [fieldDropTarget, setFieldDropTarget] = useState<{
+    kind: "section" | "cip";
+    parentId: string;
+    index: number;
+  } | null>(null);
+  const [reportSectionDragIndex, setReportSectionDragIndex] = useState<number | null>(null);
+  const [reportSectionDropIndex, setReportSectionDropIndex] = useState<number | null>(null);
+  const [templateSectionDragIndex, setTemplateSectionDragIndex] = useState<number | null>(null);
+  const [templateSectionDropIndex, setTemplateSectionDropIndex] = useState<number | null>(null);
+  const [cipDragIndex, setCipDragIndex] = useState<number | null>(null);
+  const [cipDropIndex, setCipDropIndex] = useState<number | null>(null);
   
-  // Parse existing structure or create default
-  const rawStructure: TemplateStructure = template?.structureJson 
-    ? (typeof template.structureJson === 'string' ? JSON.parse(template.structureJson) : template.structureJson as TemplateStructure)
-    : { sections: [] };
-  
+  // Parse existing structure or seed General Information for brand-new templates
+  const rawStructure: TemplateStructure = template?.structureJson
+    ? (typeof template.structureJson === "string"
+        ? JSON.parse(template.structureJson)
+        : (template.structureJson as TemplateStructure))
+    : { sections: [defaultGeneralInformationSection() as TemplateSection] };
+
   // Migrate old templates: ensure all fields have both id and key
   const initialStructure: TemplateStructure = {
-    sections: rawStructure.sections.map(section => ({
+    sections: (rawStructure.sections.length
+      ? rawStructure.sections
+      : [defaultGeneralInformationSection() as TemplateSection]
+    ).map((section) => ({
       ...section,
       customInspectionPointIds: Array.isArray(section.customInspectionPointIds)
         ? section.customInspectionPointIds.filter((id): id is string => typeof id === "string")
         : [],
-      fields: section.fields.map(field => ({
+      fields: (section.fields || []).map((field) => ({
         ...field,
-        id: field.id || field.key, // Use existing id or fall back to key
-        key: field.key || field.id, // Ensure key exists too
+        id: field.id || field.key,
+        key: field.key || field.id,
       })),
     })),
     customInspectionPoints: (rawStructure.customInspectionPoints ?? []).map((cip) => ({
@@ -200,7 +290,10 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
   };
 
   const [structure, setStructure] = useState<TemplateStructure>(initialStructure);
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    const gi = initialStructure.sections.find((s) => isGeneralInformationSection(s));
+    return gi ? new Set([gi.id]) : new Set();
+  });
 
   const form = useForm<TemplateMetaForm>({
     resolver: zodResolver(templateMetaSchema),
@@ -214,21 +307,44 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       structureJson: initialStructure,
       aiMaxWords: template?.aiMaxWords ?? 150,
       aiInstruction: template?.aiInstruction || "",
-      reportConfig: template?.reportConfig ?? DEFAULT_REPORT_CONFIG,
+      reportConfig: template?.reportConfig
+        ? {
+            ...DEFAULT_REPORT_CONFIG,
+            ...template.reportConfig,
+            sectionOrder: normalizeReportSectionOrder(template.reportConfig.sectionOrder),
+            customSections: template.reportConfig.customSections ?? [],
+          }
+        : DEFAULT_REPORT_CONFIG,
     },
   });
+
+  const ensureGeneralInformationInStructure = (next: TemplateStructure): TemplateStructure => {
+    if (next.sections.some((s) => isGeneralInformationSection(s))) return next;
+    return {
+      ...next,
+      sections: [defaultGeneralInformationSection() as TemplateSection, ...next.sections],
+    };
+  };
 
   // Save mutation — modal stays open; first create switches to update mode.
   const saveMutation = useMutation({
     mutationFn: async (data: TemplateMetaForm) => {
       const payload = {
         ...data,
-        structureJson: sanitizeStructureSectionCipIds({
-          ...structure,
-          customInspectionPoints: normalizeCustomInspectionPoints(
-            structure.customInspectionPoints ?? [],
-          ),
-        }),
+        reportConfig: data.reportConfig
+          ? {
+              ...data.reportConfig,
+              sectionOrder: normalizeReportSectionOrder(data.reportConfig.sectionOrder),
+            }
+          : data.reportConfig,
+        structureJson: sanitizeStructureSectionCipIds(
+          ensureGeneralInformationInStructure({
+            ...structure,
+            customInspectionPoints: normalizeCustomInspectionPoints(
+              structure.customInspectionPoints ?? [],
+            ),
+          }),
+        ),
       };
       const res = persistedTemplate
         ? await apiRequest("PUT", `/api/inspection-templates/${persistedTemplate.id}`, payload)
@@ -274,6 +390,8 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
         });
         return;
       }
+      const withGi = ensureGeneralInformationInStructure(structure);
+      if (withGi !== structure) setStructure(withGi);
       saveMutation.mutate(data);
     })();
   };
@@ -298,6 +416,15 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
   };
 
   const deleteSection = (sectionId: string) => {
+    const target = structure.sections.find((s) => s.id === sectionId);
+    if (target && isGeneralInformationSection(target)) {
+      toast({
+        variant: "destructive",
+        title: "Cannot delete",
+        description: "General Information is required on every template.",
+      });
+      return;
+    }
     setStructure({
       ...structure,
       sections: structure.sections.filter((s) => s.id !== sectionId),
@@ -441,9 +568,13 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     if (!section) return;
 
     updateSection(sectionId, {
-      fields: section.fields.map((f) =>
-        f.key === fieldKey ? { ...f, ...updates } : f
-      ),
+      fields: section.fields.map((f) => {
+        if (f.key !== fieldKey) return f;
+        if (updates.type === AUTO_BEDROOM_COUNT_TYPE || updates.type === AUTO_BATHROOM_COUNT_TYPE) {
+          return { ...f, ...stabilizeRoomCountFieldIds(f, updates.type) };
+        }
+        return { ...f, ...updates };
+      }),
     });
   };
 
@@ -454,6 +585,97 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     updateSection(sectionId, {
       fields: section.fields.filter((f) => f.key !== fieldKey),
     });
+  };
+
+  const moveTemplateSection = (fromIndex: number, toIndex: number) => {
+    setStructure({
+      ...structure,
+      sections: reorderList(structure.sections, fromIndex, toIndex),
+    });
+  };
+
+  const moveCustomInspectionPoint = (fromIndex: number, toIndex: number) => {
+    setStructure({
+      ...structure,
+      customInspectionPoints: reorderList(customInspectionPoints, fromIndex, toIndex),
+    });
+  };
+
+  const moveSectionField = (sectionId: string, fromIndex: number, toIndex: number) => {
+    const section = structure.sections.find((s) => s.id === sectionId);
+    if (!section) return;
+    updateSection(sectionId, {
+      fields: reorderList(section.fields, fromIndex, toIndex),
+    });
+  };
+
+  const moveCipField = (cipId: string, fromIndex: number, toIndex: number) => {
+    const cip = customInspectionPoints.find((c) => c.id === cipId);
+    if (!cip) return;
+    updateCustomInspectionPoint(cipId, {
+      fields: reorderList(cip.fields, fromIndex, toIndex),
+    });
+  };
+
+  const fieldDragHandleProps = (
+    kind: "section" | "cip",
+    parentId: string,
+    fromIndex: number,
+  ) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", `${kind}:${parentId}:${fromIndex}`);
+      setFieldDrag({ kind, parentId, fromIndex });
+    },
+    onDragEnd: () => {
+      setFieldDrag(null);
+      setFieldDropTarget(null);
+    },
+  });
+
+  const fieldDropZoneProps = (
+    kind: "section" | "cip",
+    parentId: string,
+    toIndex: number,
+  ) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!fieldDrag || fieldDrag.kind !== kind || fieldDrag.parentId !== parentId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      if (
+        fieldDropTarget?.kind !== kind ||
+        fieldDropTarget.parentId !== parentId ||
+        fieldDropTarget.index !== toIndex
+      ) {
+        setFieldDropTarget({ kind, parentId, index: toIndex });
+      }
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!fieldDrag || fieldDrag.kind !== kind || fieldDrag.parentId !== parentId) return;
+      if (fieldDrag.fromIndex !== toIndex) {
+        if (kind === "section") {
+          moveSectionField(parentId, fieldDrag.fromIndex, toIndex);
+        } else {
+          moveCipField(parentId, fieldDrag.fromIndex, toIndex);
+        }
+      }
+      setFieldDrag(null);
+      setFieldDropTarget(null);
+    },
+  });
+
+  const reportSectionOrder = normalizeReportSectionOrder(
+    form.watch("reportConfig.sectionOrder") as string[] | undefined,
+  );
+
+  const moveReportSection = (fromIndex: number, toIndex: number) => {
+    const next = reorderList(reportSectionOrder, fromIndex, toIndex);
+    form.setValue("reportConfig.sectionOrder", next, { shouldDirty: true });
   };
 
   const toggleSection = (sectionId: string) => {
@@ -586,6 +808,26 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
         return <Input disabled value="[Auto-filled: Tenant Name(s)]" className="bg-muted/50 max-w-[300px] italic text-muted-foreground" />;
       case "auto_inspection_date":
         return <Input disabled value="[Auto-filled: Inspection Date]" className="bg-muted/50 max-w-[200px] italic text-muted-foreground" />;
+      case "auto_bedroom_count":
+        return (
+          <Input
+            disabled
+            type="number"
+            value=""
+            placeholder="From property floor plan (bedrooms)"
+            className="bg-muted/50 max-w-[280px] italic text-muted-foreground"
+          />
+        );
+      case "auto_bathroom_count":
+        return (
+          <Input
+            disabled
+            type="number"
+            value=""
+            placeholder="From property floor plan (bathrooms)"
+            className="bg-muted/50 max-w-[280px] italic text-muted-foreground"
+          />
+        );
       default:
         return <Input disabled placeholder="Field preview" className="bg-muted/50" />;
     }
@@ -850,154 +1092,83 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <p className="text-sm text-muted-foreground mb-4">
-                      Configure which sections appear in generated PDF reports and report views.
+                      Toggle sections and drag to set the order they appear in generated PDF reports.
                     </p>
                     <Form {...form}>
-                      <div className="space-y-3">
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showCover"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Cover Page</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-cover"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showContentsPage"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Contents Page</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-contents"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showTradeMarks"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Trade Marks</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-trademarks"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showGlossary"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Glossary of Terms</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-glossary"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showMaintenanceLog"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Maintenance Log</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-maintenance"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showInspection"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Inspection</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-inspection"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showInventory"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Inventory</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-inventory"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showTermsConditions"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Terms and Conditions</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-terms"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="reportConfig.showClosingSection"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center justify-between gap-2 space-y-0">
-                              <FormLabel className="font-normal">Closing Section</FormLabel>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value ?? true}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-report-closing"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
+                      <div className="space-y-2">
+                        {reportSectionOrder.map((sectionId, sectionIndex) => {
+                          const meta = REPORT_SECTION_META[sectionId];
+                          return (
+                            <div
+                              key={sectionId}
+                              className={cn(
+                                "rounded-md px-1 transition-opacity",
+                                reportSectionDragIndex === sectionIndex && "opacity-50",
+                                reportSectionDropIndex === sectionIndex &&
+                                  reportSectionDragIndex !== sectionIndex &&
+                                  "ring-2 ring-primary/40",
+                              )}
+                              onDragOver={(e) => {
+                                if (reportSectionDragIndex === null) return;
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "move";
+                                if (reportSectionDropIndex !== sectionIndex) {
+                                  setReportSectionDropIndex(sectionIndex);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (
+                                  reportSectionDragIndex !== null &&
+                                  reportSectionDragIndex !== sectionIndex
+                                ) {
+                                  moveReportSection(reportSectionDragIndex, sectionIndex);
+                                }
+                                setReportSectionDragIndex(null);
+                                setReportSectionDropIndex(null);
+                              }}
+                            >
+                              <FormField
+                                control={form.control}
+                                name={`reportConfig.${meta.showKey}` as const}
+                                render={({ field }) => (
+                                  <FormItem className="flex items-center justify-between gap-2 space-y-0 py-1">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <button
+                                        type="button"
+                                        className="cursor-grab active:cursor-grabbing touch-none p-1 -ml-1 text-muted-foreground hover:text-foreground shrink-0"
+                                        title="Drag to reorder"
+                                        aria-label={`Drag to reorder ${meta.label}`}
+                                        data-testid={`drag-report-section-${sectionId}`}
+                                        draggable
+                                        onDragStart={(e) => {
+                                          e.stopPropagation();
+                                          e.dataTransfer.effectAllowed = "move";
+                                          e.dataTransfer.setData("text/plain", sectionId);
+                                          setReportSectionDragIndex(sectionIndex);
+                                        }}
+                                        onDragEnd={() => {
+                                          setReportSectionDragIndex(null);
+                                          setReportSectionDropIndex(null);
+                                        }}
+                                      >
+                                        <GripVertical className="w-4 h-4" />
+                                      </button>
+                                      <FormLabel className="font-normal">{meta.label}</FormLabel>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value ?? true}
+                                        onCheckedChange={field.onChange}
+                                        data-testid={meta.testId}
+                                      />
+                                    </FormControl>
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     </Form>
                   </CardContent>
@@ -1113,7 +1284,35 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                 ) : (
                   <div className="space-y-4">
                     {structure.sections.map((section, sectionIndex) => (
-                      <Card key={section.id} className="shadow-sm">
+                      <Card
+                        key={section.id}
+                        className={cn(
+                          "shadow-sm transition-opacity",
+                          templateSectionDragIndex === sectionIndex && "opacity-50",
+                          templateSectionDropIndex === sectionIndex &&
+                            templateSectionDragIndex !== sectionIndex &&
+                            "ring-2 ring-primary/40",
+                        )}
+                        onDragOver={(e) => {
+                          if (templateSectionDragIndex === null) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          if (templateSectionDropIndex !== sectionIndex) {
+                            setTemplateSectionDropIndex(sectionIndex);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (
+                            templateSectionDragIndex !== null &&
+                            templateSectionDragIndex !== sectionIndex
+                          ) {
+                            moveTemplateSection(templateSectionDragIndex, sectionIndex);
+                          }
+                          setTemplateSectionDragIndex(null);
+                          setTemplateSectionDropIndex(null);
+                        }}
+                      >
                         <Collapsible
                           open={expandedSections.has(section.id)}
                           onOpenChange={() => toggleSection(section.id)}
@@ -1129,10 +1328,43 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                   )}
                                 </Button>
                               </CollapsibleTrigger>
-                              <GripVertical className="w-4 h-4 text-muted-foreground hidden sm:block shrink-0" />
+                              <button
+                                type="button"
+                                className="cursor-grab active:cursor-grabbing touch-none p-1 -ml-1 text-muted-foreground hover:text-foreground shrink-0"
+                                title="Drag to reorder section"
+                                aria-label={`Drag to reorder ${section.title || "section"}`}
+                                data-testid={`drag-section-${sectionIndex}`}
+                                draggable
+                                onDragStart={(e) => {
+                                  e.stopPropagation();
+                                  e.dataTransfer.effectAllowed = "move";
+                                  e.dataTransfer.setData("text/plain", section.id);
+                                  setTemplateSectionDragIndex(sectionIndex);
+                                }}
+                                onDragEnd={() => {
+                                  setTemplateSectionDragIndex(null);
+                                  setTemplateSectionDropIndex(null);
+                                }}
+                              >
+                                <GripVertical className="w-4 h-4" />
+                              </button>
                               <Input
                                 value={section.title}
-                                onChange={(e) => updateSection(section.id, { title: e.target.value })}
+                                onChange={(e) => {
+                                  const title = e.target.value;
+                                  const roomType = matchSectionToRoomType({
+                                    id: section.id,
+                                    title,
+                                  });
+                                  const shouldRepeat =
+                                    roomType === "bedrooms" || roomType === "bathrooms";
+                                  updateSection(section.id, {
+                                    title,
+                                    ...(shouldRepeat && !section.repeatable
+                                      ? { repeatable: true }
+                                      : {}),
+                                  });
+                                }}
                                 className="font-semibold flex-1 min-w-[10rem] min-h-11"
                                 placeholder="Section Title"
                                 data-testid={`input-section-title-${sectionIndex}`}
@@ -1156,17 +1388,19 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                               >
                                 <Copy className="w-4 h-4" />
                               </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="min-h-11 min-w-11 shrink-0"
-                                title="Delete section"
-                                onClick={() => deleteSection(section.id)}
-                                data-testid={`button-delete-section-${sectionIndex}`}
-                              >
-                                <Trash2 className="w-4 h-4 text-destructive" />
-                              </Button>
+                              {!isGeneralInformationSection(section) && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="min-h-11 min-w-11 shrink-0"
+                                  title="Delete section"
+                                  onClick={() => deleteSection(section.id)}
+                                  data-testid={`button-delete-section-${sectionIndex}`}
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                              )}
                             </div>
                           </CardHeader>
                           <CollapsibleContent>
@@ -1210,11 +1444,35 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                               {/* Fields */}
                               <div className="space-y-2">
                                 {section.fields.map((field, fieldIndex) => (
-                                  <div key={field.key} className="space-y-2">
+                                  <div
+                                    key={field.key}
+                                    className={cn(
+                                      "space-y-2 rounded-lg transition-opacity",
+                                      fieldDrag?.kind === "section" &&
+                                        fieldDrag.parentId === section.id &&
+                                        fieldDrag.fromIndex === fieldIndex &&
+                                        "opacity-50",
+                                      fieldDropTarget?.kind === "section" &&
+                                        fieldDropTarget.parentId === section.id &&
+                                        fieldDropTarget.index === fieldIndex &&
+                                        fieldDrag?.fromIndex !== fieldIndex &&
+                                        "ring-2 ring-primary/40",
+                                    )}
+                                    {...fieldDropZoneProps("section", section.id, fieldIndex)}
+                                  >
                                     <div className="space-y-2">
                                       <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg sm:flex-row sm:flex-wrap sm:items-center min-w-0">
                                         <div className="flex items-center gap-2 flex-1 min-w-0">
-                                          <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 hidden sm:block" />
+                                          <button
+                                            type="button"
+                                            className="cursor-grab active:cursor-grabbing touch-none p-1 -ml-1 text-muted-foreground hover:text-foreground shrink-0"
+                                            title="Drag to reorder"
+                                            aria-label={`Drag to reorder ${field.label || "field"}`}
+                                            data-testid={`drag-field-${sectionIndex}-${fieldIndex}`}
+                                            {...fieldDragHandleProps("section", section.id, fieldIndex)}
+                                          >
+                                            <GripVertical className="w-4 h-4" />
+                                          </button>
                                           <Input
                                             value={field.label}
                                             onChange={(e) => updateField(section.id, field.key, { label: e.target.value })}
@@ -1389,7 +1647,32 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                       ) : (
                         <div className="space-y-4">
                           {customInspectionPoints.map((cip, cipIndex) => (
-                            <Card key={cip.id} className="shadow-sm">
+                            <Card
+                              key={cip.id}
+                              className={cn(
+                                "shadow-sm transition-opacity",
+                                cipDragIndex === cipIndex && "opacity-50",
+                                cipDropIndex === cipIndex &&
+                                  cipDragIndex !== cipIndex &&
+                                  "ring-2 ring-primary/40",
+                              )}
+                              onDragOver={(e) => {
+                                if (cipDragIndex === null) return;
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "move";
+                                if (cipDropIndex !== cipIndex) {
+                                  setCipDropIndex(cipIndex);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (cipDragIndex !== null && cipDragIndex !== cipIndex) {
+                                  moveCustomInspectionPoint(cipDragIndex, cipIndex);
+                                }
+                                setCipDragIndex(null);
+                                setCipDropIndex(null);
+                              }}
+                            >
                               <Collapsible
                                 open={expandedSections.has(cip.id)}
                                 onOpenChange={() => toggleSection(cip.id)}
@@ -1410,7 +1693,26 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                         )}
                                       </Button>
                                     </CollapsibleTrigger>
-                                    <GripVertical className="w-4 h-4 text-muted-foreground hidden sm:block shrink-0" />
+                                    <button
+                                      type="button"
+                                      className="cursor-grab active:cursor-grabbing touch-none p-1 -ml-1 text-muted-foreground hover:text-foreground shrink-0"
+                                      title="Drag to reorder"
+                                      aria-label={`Drag to reorder ${cip.label || "custom inspection point"}`}
+                                      data-testid={`drag-cip-${cipIndex}`}
+                                      draggable
+                                      onDragStart={(e) => {
+                                        e.stopPropagation();
+                                        e.dataTransfer.effectAllowed = "move";
+                                        e.dataTransfer.setData("text/plain", cip.id);
+                                        setCipDragIndex(cipIndex);
+                                      }}
+                                      onDragEnd={() => {
+                                        setCipDragIndex(null);
+                                        setCipDropIndex(null);
+                                      }}
+                                    >
+                                      <GripVertical className="w-4 h-4" />
+                                    </button>
                                     <Input
                                       value={cip.label}
                                       onChange={(e) =>
@@ -1458,11 +1760,35 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                   <CardContent className="space-y-3">
                                     <div className="space-y-2">
                                       {cip.fields.map((field, fieldIndex) => (
-                                        <div key={field.key} className="space-y-2">
+                                        <div
+                                          key={field.key}
+                                          className={cn(
+                                            "space-y-2 rounded-lg transition-opacity",
+                                            fieldDrag?.kind === "cip" &&
+                                              fieldDrag.parentId === cip.id &&
+                                              fieldDrag.fromIndex === fieldIndex &&
+                                              "opacity-50",
+                                            fieldDropTarget?.kind === "cip" &&
+                                              fieldDropTarget.parentId === cip.id &&
+                                              fieldDropTarget.index === fieldIndex &&
+                                              fieldDrag?.fromIndex !== fieldIndex &&
+                                              "ring-2 ring-primary/40",
+                                          )}
+                                          {...fieldDropZoneProps("cip", cip.id, fieldIndex)}
+                                        >
                                           <div className="space-y-2">
                                             <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg sm:flex-row sm:flex-wrap sm:items-center min-w-0">
                                               <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 hidden sm:block" />
+                                                <button
+                                                  type="button"
+                                                  className="cursor-grab active:cursor-grabbing touch-none p-1 -ml-1 text-muted-foreground hover:text-foreground shrink-0"
+                                                  title="Drag to reorder"
+                                                  aria-label={`Drag to reorder ${field.label || "field"}`}
+                                                  data-testid={`drag-cip-field-${cipIndex}-${fieldIndex}`}
+                                                  {...fieldDragHandleProps("cip", cip.id, fieldIndex)}
+                                                >
+                                                  <GripVertical className="w-4 h-4" />
+                                                </button>
                                                 <Input
                                                   value={field.label}
                                                   onChange={(e) =>
