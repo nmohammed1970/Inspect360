@@ -209,7 +209,7 @@ export default function Settings() {
     }) => {
       setReportPalette({ ...DEFAULT_REPORT_PALETTE, ...data.palette });
       setPaletteMeta(data.meta || null);
-      setExtractMessage(data.message || "Colors detected. Review and save to apply to reports.");
+      setExtractMessage(data.message || "Colours detected. Review and save to apply to reports.");
       if (data.meta?.sourceUrl) {
         try {
           const host = new URL(data.meta.sourceUrl).hostname;
@@ -219,7 +219,7 @@ export default function Settings() {
         }
       }
       toast({
-        title: data.meta?.extractionStatus === "partial" ? "Partial palette" : "Colors extracted",
+        title: data.meta?.extractionStatus === "partial" ? "Partial palette" : "Colours extracted",
         description: data.message || "Review the palette below, then save branding settings.",
       });
     },
@@ -227,8 +227,8 @@ export default function Settings() {
       setExtractMessage(error.message || "Extraction failed");
       toast({
         variant: "destructive",
-        title: "Could not extract colors",
-        description: error.message || "Check the website URL and try again, or set colors manually.",
+        title: "Could not extract colours",
+        description: error.message || "Check the website URL and try again, or set colours manually.",
       });
     },
   });
@@ -257,7 +257,7 @@ export default function Settings() {
       queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
       toast({
         title: "Default theme restored",
-        description: "Inspection reports will use the Inspect360 default colors.",
+        description: "Inspection reports will use the Inspect360 default colours.",
       });
     },
     onError: (error: Error) => {
@@ -856,18 +856,18 @@ export default function Settings() {
                           <div>
                             <Label className="text-base font-medium flex items-center gap-2">
                               <Palette className="h-4 w-4" />
-                              Website Brand Colors
+                              Website Brand Colours
                             </Label>
                             <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-                              Extract real colors from your company website and apply them to inspection report PDFs.
-                              Status colors (pass/fail, severity) stay unchanged.
+                              Extract real colours from your company website and apply them to inspection report PDFs.
+                              Status colours (pass/fail, severity) stay unchanged.
                             </p>
                           </div>
                         </div>
 
                         {!isWhiteLabelEnabled ? (
                           <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                            White Label is required to extract and apply report brand colors.
+                            White Label is required to extract and apply report brand colours.
                           </div>
                         ) : (
                           <div className="space-y-4">
@@ -888,7 +888,7 @@ export default function Settings() {
                                     Extracting…
                                   </>
                                 ) : (
-                                  "Extract Brand Colors"
+                                  "Extract Brand Colours"
                                 )}
                               </Button>
                               <Button

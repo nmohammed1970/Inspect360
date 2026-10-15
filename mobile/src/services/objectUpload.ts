@@ -58,15 +58,36 @@ async function prepareLocalFile(
     return { uri, mimeType };
   }
   try {
-    // Normalize gallery/camera URIs (incl. HEIC) to a real file:// JPEG Expo can upload.
-    const result = await ImageManipulator.manipulateAsync(uri, [], {
-      compress: 0.85,
-      format: ImageManipulator.SaveFormat.JPEG,
-    });
+    // Normalize HEIC/etc to JPEG and cap dimensions so uploads finish reliably on mobile.
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1920 } }],
+      {
+        compress: 0.75,
+        format: ImageManipulator.SaveFormat.JPEG,
+      },
+    );
     return { uri: result.uri, mimeType: 'image/jpeg' };
   } catch (e) {
     console.warn('[objectUpload] manipulateAsync failed, using original URI:', e);
     return { uri, mimeType };
+  }
+}
+
+async function setObjectPublicAcl(objectPath: string): Promise<void> {
+  try {
+    const apiUrl = getAPI_URL().replace(/\/$/, '');
+    const photoUrl = objectPath.startsWith('http')
+      ? objectPath
+      : `${apiUrl}${objectPath.startsWith('/') ? '' : '/'}${objectPath}`;
+    await fetch(`${apiUrl}/api/objects/set-acl`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ photoUrl }),
+    });
+  } catch (e) {
+    console.warn('[objectUpload] set-acl failed (non-fatal):', e);
   }
 }
 
@@ -202,33 +223,36 @@ export async function uploadLocalFile(
 
   const errors: string[] = [];
 
-  try {
-    return await uploadWithFileApi(uploadUrl, prepared.uri, prepared.mimeType);
-  } catch (error: any) {
-    errors.push(`File.upload: ${error?.message || error}`);
-  }
+  // Prefer expo/fetch first — it sends session cookies (File.upload often does not).
+  const attempts: Array<() => Promise<string>> = [
+    () => uploadWithExpoFetch(uploadUrl, prepared.uri),
+    () => uploadWithFileApi(uploadUrl, prepared.uri, prepared.mimeType),
+    () => uploadWithLegacyUploadAsync(uploadUrl, prepared.uri, prepared.mimeType),
+  ];
 
-  try {
-    return await uploadWithExpoFetch(uploadUrl, prepared.uri);
-  } catch (error: any) {
-    errors.push(`expo/fetch: ${error?.message || error}`);
-  }
-
-  try {
-    return await uploadWithLegacyUploadAsync(uploadUrl, prepared.uri, prepared.mimeType);
-  } catch (error: any) {
-    errors.push(`uploadAsync: ${error?.message || error}`);
+  for (const attempt of attempts) {
+    try {
+      const path = await attempt();
+      await setObjectPublicAcl(path);
+      return path;
+    } catch (error: any) {
+      errors.push(error?.message || String(error));
+    }
   }
 
   const combined = errors.join(' | ');
   if (
     combined.includes('Could not connect') ||
     combined.includes('Network request failed') ||
-    combined.includes('Failed to fetch')
+    combined.includes('Failed to fetch') ||
+    combined.includes('Aborted')
   ) {
     throw new Error(
       'Could not reach the server to upload. Check that your phone is on the same Wi‑Fi and EXPO_PUBLIC_API_URL matches your PC IP.',
     );
+  }
+  if (combined.includes('401') || combined.toLowerCase().includes('unauthorized')) {
+    throw new Error('Upload not authorized. Please sign out and sign in again, then retry.');
   }
   throw new Error(errors[errors.length - 1] || 'Failed to upload file');
 }

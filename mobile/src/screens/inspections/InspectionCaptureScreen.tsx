@@ -179,7 +179,25 @@ export default function InspectionCaptureScreen() {
 
   const effectiveInspection = inspection;
   const propertyRoomCountsSnapshot = effectiveInspection?.propertyRoomCountsSnapshot ?? null;
-  const roomsLockedFromProperty = !!propertyRoomCountsSnapshot;
+  const propertyRoomsSnapshot = (
+    effectiveInspection as {
+      propertyRoomsSnapshot?: {
+        rooms?: Array<{
+          id: string;
+          name: string;
+          widthMm?: number | null;
+          lengthMm?: number | null;
+        }>;
+      } | null;
+    }
+  )?.propertyRoomsSnapshot ?? null;
+  const propertyRoomInstances = (
+    (effectiveInspection?.templateSnapshotJson as any)?.propertyRoomInstances as
+      | Array<{ roomId: string; sectionRef: string; title: string }>
+      | undefined
+  ) || [];
+  const roomsLockedFromProperty =
+    !!propertyRoomCountsSnapshot || (propertyRoomsSnapshot?.rooms?.length ?? 0) > 0;
 
   // Check if inspection is deleted
   const isDeleted = (inspectionError as any)?.isDeleted ||
@@ -852,6 +870,11 @@ export default function InspectionCaptureScreen() {
   // Track tab scroll position for fade indicator
   const [showRightFade, setShowRightFade] = useState(sections.length > 0);
   const tabsScrollViewRef = useRef<ScrollView>(null);
+  const contentScrollViewRef = useRef<ScrollView>(null);
+
+  const scrollCaptureToTop = () => {
+    contentScrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
 
   const handleTabsScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -978,12 +1001,19 @@ export default function InspectionCaptureScreen() {
       return;
     }
 
-    // For repeatable sections, use instance-specific sectionRef
+    // For repeatable sections, prefer stable property-room sectionRef when available
     const currentSection = sections.find(s => s.id === sectionRef);
+    const roomInst =
+      instanceIndex !== undefined && currentSection
+        ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))[
+            instanceIndex
+          ]
+        : undefined;
     const finalSectionRef =
       options?.explicitSectionRef ??
       (instanceIndex !== undefined && currentSection
-        ? `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
+        ? roomInst?.sectionRef ||
+          `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
         : sectionRef);
 
     const key = `${finalSectionRef}-${fieldKey}`;
@@ -1019,7 +1049,7 @@ export default function InspectionCaptureScreen() {
 
     // Auto-save mutation
     updateEntry.mutate(newEntry);
-  }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted, entries]);
+  }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted, entries, propertyRoomInstances]);
 
   const handleCipCountChange = React.useCallback(
     (sectionRef: string, cip: CustomInspectionPoint, count: number) => {
@@ -1585,6 +1615,9 @@ export default function InspectionCaptureScreen() {
         <FormScreen
           style={{ flex: 1 }}
           edges={{ bottom: true }}
+          scrollViewRef={contentScrollViewRef}
+          // Gallery uses its own FlatList — nesting it in ScrollView breaks RN windowing.
+          scroll={captureMode !== 'gallery'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? Math.max(insets.top, 8) + 56 : 0}
           contentContainerStyle={[
             styles.contentContainer,
@@ -1592,6 +1625,7 @@ export default function InspectionCaptureScreen() {
               paddingHorizontal: contentPad,
               paddingTop: contentPad,
               paddingBottom: spacing[4],
+              ...(captureMode === 'gallery' ? { flex: 1 } : null),
             },
           ]}
           scrollProps={{
@@ -1606,6 +1640,7 @@ export default function InspectionCaptureScreen() {
                 onPress={() => {
                   const newIndex = Math.max(0, currentSectionIndex - 1);
                   setCurrentSectionIndex(newIndex);
+                  scrollCaptureToTop();
                 }}
                 disabled={!!(currentSectionIndex === 0 || sections.length === 0)}
                 variant="outline"
@@ -1621,6 +1656,7 @@ export default function InspectionCaptureScreen() {
                 onPress={() => {
                   const newIndex = Math.min(sections.length - 1, currentSectionIndex + 1);
                   setCurrentSectionIndex(newIndex);
+                  scrollCaptureToTop();
                 }}
                 disabled={!!(currentSectionIndex >= sections.length - 1 || sections.length === 0)}
                 variant="outline"
@@ -1863,6 +1899,7 @@ export default function InspectionCaptureScreen() {
                       key={section.id}
                       onPress={() => {
                         setCurrentSectionIndex(index);
+                        scrollCaptureToTop();
                         // Scroll the tab into view
                         const tabWidth = 120; // Approximate tab width
                         const scrollPosition = index * (tabWidth + spacing[2]);
@@ -1995,35 +2032,53 @@ export default function InspectionCaptureScreen() {
 
                 {/* Render fields - for repeatable sections, render for each instance */}
                 {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
-                  // Render instances for repeatable sections
-                  Array.from({ length: repeatableCounts[currentSection.id] ?? 1 }).map((_, instanceIndex) => {
-                    // Keep sectionRef stable for entry keys; display title is always numbered (Bedroom 1…).
-                    const sectionRefPath = `${currentSection.title} ${instanceIndex + 1}`;
+                  // Prefer stable property-room sectionRefs (same as portal) so gallery assignments match
+                  (() => {
+                    const sectionRoomInsts = propertyRoomInstances.filter((r) =>
+                      r.sectionRef.startsWith(`${currentSection.id}/`),
+                    );
+                    const count = repeatableCounts[currentSection.id] ?? 1;
+                    const instanceCount = Math.max(1, count);
+                    return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
+                    const roomInst = sectionRoomInsts[instanceIndex];
+                    const snapRoom = propertyRoomsSnapshot?.rooms?.find(
+                      (r) => r.id === roomInst?.roomId,
+                    );
                     const instanceName = numberedRoomInstanceTitle(
-                      undefined,
+                      roomInst?.title,
                       currentSection.title,
                       instanceIndex,
                     );
+                    const dimLabel =
+                      snapRoom?.widthMm && snapRoom?.lengthMm
+                        ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
+                        : '';
+                    const sectionRef =
+                      roomInst?.sectionRef ||
+                      `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                     return (
-                      <View key={`instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
-                        <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>{instanceName}</Text>
+                      <View key={roomInst?.roomId || `instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
+                        <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>
+                          {instanceName}
+                          {!!dimLabel && (
+                            <Text style={{ color: themeColors.text.muted, fontWeight: '400', fontSize: typography.fontSize.sm }}>
+                              {dimLabel}
+                            </Text>
+                          )}
+                        </Text>
                         {(() => {
                           const sectionCips = sectionCipsFor(currentSection);
                           return sectionCips.length
-                            ? renderCipCountInputs(
-                                `${currentSection.id}/${sectionRefPath}`,
-                                sectionCips,
-                              )
+                            ? renderCipCountInputs(sectionRef, sectionCips)
                             : null;
                         })()}
-                        {currentSection.fields.map((field, fieldIndex) => {
+                        {currentSection.fields.map((field) => {
                           if (!field || !field.id && !field.key) {
                             console.warn('Invalid field found:', field);
                             return null;
                           }
 
                           try {
-                            const sectionRef = `${currentSection.id}/${sectionRefPath}`;
                             const key = `${sectionRef}-${field.id || field.key}`;
                             const entry = entries[key];
                             
@@ -2132,7 +2187,7 @@ export default function InspectionCaptureScreen() {
                           const sectionCips = sectionCipsFor(currentSection);
                           return sectionCips.length
                             ? renderCipInstanceCards(
-                                `${currentSection.id}/${sectionRefPath}`,
+                                sectionRef,
                                 instanceName,
                                 currentSection.title,
                                 sectionCips,
@@ -2141,7 +2196,8 @@ export default function InspectionCaptureScreen() {
                         })()}
                       </View>
                     );
-                  })
+                    });
+                  })()
                 ) : !currentSection.repeatable ? (
                   <>
                   {(() => {

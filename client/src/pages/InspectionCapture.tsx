@@ -1656,16 +1656,28 @@ export default function InspectionCapture() {
     );
   };
 
+  const scrollCaptureToTop = () => {
+    requestAnimationFrame(() => {
+      const main = document.querySelector("main");
+      if (main instanceof HTMLElement) {
+        main.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
+
   // Navigate sections
   const goToNextSection = () => {
     if (currentSectionIndex < sections.length - 1) {
       setCurrentSectionIndex(currentSectionIndex + 1);
+      scrollCaptureToTop();
     }
   };
 
   const goToPreviousSection = () => {
     if (currentSectionIndex > 0) {
       setCurrentSectionIndex(currentSectionIndex - 1);
+      scrollCaptureToTop();
     }
   };
 
@@ -2203,6 +2215,7 @@ export default function InspectionCapture() {
               onClick={() => {
                 setCaptureMode("sections");
                 setCurrentSectionIndex(index);
+                scrollCaptureToTop();
               }}
               data-testid={`button-section-${index}`}
               className={cn(

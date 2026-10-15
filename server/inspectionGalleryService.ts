@@ -105,8 +105,10 @@ async function loadRepeatableCounts(
     insp.templateSnapshotJson as any,
     snapshot,
   );
-  // Property snapshot wins for mapped room sections; keep any other entry counts
-  return { ...fromEntries, ...fromProperty };
+  // Entry counts reflect the inspection as currently configured (capture UI).
+  // Prefer them over the property layout snapshot so gallery destinations match
+  // the sections/instances the inspector actually sees.
+  return { ...fromProperty, ...fromEntries };
 }
 
 function destinationLabelMap(

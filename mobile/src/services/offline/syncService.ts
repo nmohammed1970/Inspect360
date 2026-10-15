@@ -1119,7 +1119,8 @@ export class SyncService {
         }
       }
     } catch (error: any) {
-      console.error('[SyncService] Error in syncFromServer:', error);
+      // Connectivity / server unreachable is expected offline — warn, don't LogBox as Error
+      console.warn('[SyncService] Error in syncFromServer:', error?.message || error);
       errors.push(`Sync error: ${error.message}`);
     }
 

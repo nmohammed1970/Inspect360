@@ -615,6 +615,32 @@ export function hydrateRoomsFromCounts(
   return out;
 }
 
+/** Tokens too generic for substring section matching (e.g. "room" ⊂ "bedrooms"). */
+const SECTION_MATCH_STOP_TOKENS = new Set([
+  "room",
+  "rooms",
+  "area",
+  "areas",
+  "space",
+  "spaces",
+  "unit",
+  "units",
+  "zone",
+  "zones",
+  "the",
+  "and",
+  "for",
+]);
+
+function sectionTextMatchesToken(sectionText: string, token: string): boolean {
+  // Word-boundary match only — never "room" inside "bedrooms"
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExpToken(token)}([^a-z0-9]|$)`).test(sectionText);
+}
+
+function escapeRegExpToken(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function matchSectionForRoomCategory(
   sections: TemplateSectionLike[],
   categoryName: string,
@@ -629,11 +655,15 @@ export function matchSectionForRoomCategory(
     }
   }
   const hay = `${categorySlug || ""} ${categoryName}`.toLowerCase().replace(/-/g, " ");
-  const tokens = hay.split(/\s+/).filter((t) => t.length >= 3);
+  const tokens = hay
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !SECTION_MATCH_STOP_TOKENS.has(t));
+  if (!tokens.length) return null;
   for (const section of sections) {
     if (isGeneralOrSignoffSection(section)) continue;
     const t = `${section.title || ""} ${section.id || ""}`.toLowerCase().replace(/-/g, " ");
-    if (tokens.some((token) => t.includes(token))) return section;
+    if (tokens.some((token) => sectionTextMatchesToken(t, token))) return section;
   }
   return null;
 }
@@ -694,29 +724,85 @@ export function numberedRoomInstanceTitle(
   return formatDisplayHeading(raw);
 }
 
-/** True when room instances sit under General/Overview (legacy buggy seed). */
+/**
+ * Rebuild room rows from frozen propertyRoomInstances when propertyRoomsSnapshot
+ * is missing (still enough to remapping Living Room out of Bedrooms, etc.).
+ */
+export function synthesizeRoomsFromPropertyRoomInstances(
+  structure: TemplateStructureLike | null | undefined,
+): PropertyRoomSnapshotItem[] {
+  const instances =
+    ((structure as { propertyRoomInstances?: Array<{ roomId?: string; sectionRef: string; title?: string }> })
+      ?.propertyRoomInstances || []);
+  const out: PropertyRoomSnapshotItem[] = [];
+  for (const inst of instances) {
+    const id = String(inst.roomId || "").trim();
+    const name = String(inst.title || "").trim();
+    if (!id || !name) continue;
+    const resolved = resolveSystemCategoryForLabel(name, undefined);
+    out.push({
+      id,
+      name,
+      categoryId: resolved.slug,
+      categoryName: resolved.name,
+      categorySlug: resolved.slug,
+    });
+  }
+  return out;
+}
+
+function instanceMappedToWrongSection(
+  structure: TemplateStructureLike | null | undefined,
+  roomId: string,
+  roomType: ReturnType<typeof roomTypeFromRoomLike>,
+  sectionRef: string,
+): boolean {
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const sectionId = String(sectionRef || "").split("/")[0] || "";
+  const section = sections.find((s) => s.id === sectionId);
+  if (roomType === "other") {
+    if (!sectionRef || /general|overview/i.test(sectionId)) return true;
+    if (!section) return true;
+    return false;
+  }
+  if (!section) return true;
+  const sectionType = matchSectionToRoomType(section);
+  if (sectionType && sectionType !== roomType) return true;
+  if (roomType === "bedrooms" && sectionRef && !/bedroom/i.test(sectionId)) return true;
+  return false;
+}
+
+/** True when room instances sit under General/Overview or the wrong room-type section. */
 export function propertyRoomsNeedSectionRepair(
   structure: TemplateStructureLike | null | undefined,
-  rooms: PropertyRoomSnapshotItem[],
+  rooms: PropertyRoomSnapshotItem[] = [],
 ): boolean {
-  if (!rooms.length) return false;
   const instances =
-    ((structure as { propertyRoomInstances?: Array<{ roomId: string; sectionRef: string }> })
+    ((structure as { propertyRoomInstances?: Array<{ roomId?: string; sectionRef: string; title?: string }> })
       ?.propertyRoomInstances || []);
+
+  // Detect Living Room under Bedrooms etc. from instance titles alone
+  for (const inst of instances) {
+    const title = String(inst.title || "").trim();
+    const ref = String(inst.sectionRef || "").trim();
+    if (!title || !ref) continue;
+    const roomType = roomTypeFromRoomLike({ name: title });
+    if (instanceMappedToWrongSection(structure, String(inst.roomId || ""), roomType, ref)) {
+      return true;
+    }
+  }
+
+  if (!rooms.length) return false;
   if (instances.length === 0 && rooms.length > 0) return true;
-  const byId = new Map(instances.map((i) => [i.roomId, i.sectionRef]));
+  const byId = new Map(
+    instances
+      .filter((i) => i.roomId)
+      .map((i) => [String(i.roomId), String(i.sectionRef || "")]),
+  );
   for (const room of rooms) {
     const ref = byId.get(room.id) || "";
     const roomType = roomTypeFromRoomLike(room);
-    if (roomType === "other") {
-      if (!ref || /general|overview/i.test(ref.split("/")[0] || "")) return true;
-      const sectionId = ref.split("/")[0] || "";
-      const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
-      if (!sections.some((s) => s.id === sectionId)) return true;
-    }
-    if (roomType === "bedrooms" && ref && !/bedroom/i.test(ref.split("/")[0] || "")) {
-      return true;
-    }
+    if (instanceMappedToWrongSection(structure, room.id, roomType, ref)) return true;
   }
   return false;
 }

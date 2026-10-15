@@ -39,6 +39,8 @@ import {
 import { addToSyncQueue } from '../../services/offline/database';
 // No offline functionality - app requires server connection
 import { formatDisplayHeading } from '../../../../shared/propertyRooms';
+import { resolveMediaUrl } from '../../utils/mediaUrl';
+import { RemoteImage } from '../ui/RemoteImage';
 import { format } from 'date-fns';
 import {
   createSignatureValue,
@@ -120,9 +122,7 @@ function getVoiceRecordingPreset() {
 }
 
 function resolveGalleryUri(objectUrl: string): string {
-  if (objectUrl.startsWith('http://') || objectUrl.startsWith('https://')) return objectUrl;
-  const base = getAPI_URL().replace(/\/$/, '');
-  return `${base}${objectUrl.startsWith('/') ? '' : '/'}${objectUrl}`;
+  return resolveMediaUrl(objectUrl) || objectUrl;
 }
 
 function GalleryPickBody({
@@ -196,10 +196,7 @@ function GalleryPickBody({
                 opacity: used ? 0.5 : 1,
               }}
             >
-              <Image
-                source={{ uri: resolveGalleryUri(image.objectUrl) }}
-                style={{ width: '100%', height: '100%' }}
-              />
+              <RemoteImage uri={image.objectUrl} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             </TouchableOpacity>
           );
         })}

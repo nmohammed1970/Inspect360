@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse, cn } from "@/lib/utils";
 import { useLocale } from "@/contexts/LocaleContext";
-import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, FileText, MapPin, Tag as TagIcon, ArrowLeft, Filter, X, ExternalLink, Download } from "lucide-react";
+import { Package, Plus, Edit2, Trash2, Building2, Home, Calendar, Wrench, Search, FileText, MapPin, Tag as TagIcon, ArrowLeft, Filter, X, ExternalLink, Download, Loader2, Sparkles } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { AssetInventory, Property, Block } from "@shared/schema";
 import { formatPropertyLocationLabel, formatBlockLocationLabel } from "@shared/locationLabels";
@@ -25,38 +25,14 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
-
-const conditionLabels = {
-  excellent: "Excellent",
-  good: "Good",
-  fair: "Fair",
-  poor: "Poor",
-  needs_replacement: "Needs Replacement",
-};
-
-const cleanlinessLabels = {
-  very_clean: "Very Clean",
-  clean: "Clean",
-  acceptable: "Acceptable",
-  needs_cleaning: "Needs Cleaning",
-  not_applicable: "Not Applicable",
-};
-
-const assetCategories = [
-  "HVAC",
-  "Appliances",
-  "Furniture",
-  "Plumbing",
-  "Electrical",
-  "Flooring",
-  "Windows & Doors",
-  "Security",
-  "Landscaping",
-  "Lighting",
-  "Kitchen Equipment",
-  "Bathroom Fixtures",
-  "Other",
-];
+import {
+  ASSET_CATEGORIES,
+  ASSET_CONDITION_LABELS,
+  ASSET_CLEANLINESS_LABELS,
+} from "@shared/assetInventory";
+const conditionLabels = ASSET_CONDITION_LABELS;
+const cleanlinessLabels = ASSET_CLEANLINESS_LABELS;
+const assetCategories = [...ASSET_CATEGORIES];
 
 // Same-origin paths for /objects/* so <img> requests use the SPA host and session cookies.
 // (Absolute URLs to another host:port often 404 or miss auth after deploy / localhost changes.)
@@ -359,12 +335,47 @@ export default function AssetInventory() {
 
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [photoUploadProgress, setPhotoUploadProgress] = useState(0);
+  const [isSuggestingFromPhoto, setIsSuggestingFromPhoto] = useState(false);
 
-  const handlePhotoFilesSelected = async (files: File[]) => {
+  const suggestAssetFieldsFromPhoto = async (photoUrl: string) => {
+    setIsSuggestingFromPhoto(true);
+    try {
+      const res = await apiRequest("POST", "/api/ai/suggest-asset-from-photo", {
+        photoUrl,
+        assetName: formData.name || undefined,
+      });
+      const suggestion = await res.json();
+      setFormData((prev) => ({
+        ...prev,
+        category: suggestion.category || prev.category,
+        condition: suggestion.condition || prev.condition,
+        cleanliness: suggestion.cleanliness || prev.cleanliness,
+      }));
+      toast({
+        title: "AI filled asset details",
+        description:
+          suggestion.confidence === "low"
+            ? "Low confidence — please review category, condition, and cleanliness."
+            : `Suggested ${suggestion.category} · ${conditionLabels[suggestion.condition as keyof typeof conditionLabels] || suggestion.condition} · ${cleanlinessLabels[suggestion.cleanliness as keyof typeof cleanlinessLabels] || suggestion.cleanliness}`,
+      });
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "AI suggestion failed",
+        description: e?.message || "Could not analyze the photo. Fill fields manually.",
+      });
+    } finally {
+      setIsSuggestingFromPhoto(false);
+    }
+  };
+
+  const handlePhotoFilesSelected = async (files: File[], opts?: { runAi?: boolean }) => {
     if (files.length === 0) return;
+    const runAi = opts?.runAi !== false;
 
     setIsUploadingPhotos(true);
     setPhotoUploadProgress(0);
+    let firstImageUrl: string | null = null;
 
     try {
       for (let i = 0; i < files.length; i++) {
@@ -442,12 +453,31 @@ export default function AssetInventory() {
         if (photoUrl) {
           const normalizedPhotoUrl = normalizePhotoUrl(photoUrl) || photoUrl;
 
+          try {
+            const absolute =
+              normalizedPhotoUrl.startsWith("http")
+                ? normalizedPhotoUrl
+                : `${window.location.origin}${normalizedPhotoUrl.startsWith("/") ? "" : "/"}${normalizedPhotoUrl}`;
+            await fetch("/api/objects/set-acl", {
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ photoUrl: absolute }),
+            });
+          } catch {
+            /* non-fatal */
+          }
+
           setUploadedPhotos(prev => {
             if (prev.includes(normalizedPhotoUrl)) {
               return prev;
             }
             return [...prev, normalizedPhotoUrl];
           });
+
+          if (!firstImageUrl && (file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name))) {
+            firstImageUrl = normalizedPhotoUrl;
+          }
 
           toast({
             title: "Photo uploaded",
@@ -456,6 +486,10 @@ export default function AssetInventory() {
         }
 
         setPhotoUploadProgress(Math.round(((i + 1) / files.length) * 100));
+      }
+
+      if (runAi && firstImageUrl) {
+        await suggestAssetFieldsFromPhoto(firstImageUrl);
       }
     } catch (error: any) {
       console.error('[AssetInventory] Upload error:', error);
@@ -718,7 +752,7 @@ export default function AssetInventory() {
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Basic Information</h3>
                 <div className={formGrid2}>
-                  <div>
+                  <div className="col-span-2">
                     <Label htmlFor="name" required>Asset Name</Label>
                     <Input
                       id="name"
@@ -728,6 +762,71 @@ export default function AssetInventory() {
                       required
                       data-testid="input-asset-name"
                     />
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
+                    <Label>Asset Photo</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Upload a photo and AI will select category, condition, and cleanliness.
+                    </p>
+                    {uploadedPhotos.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0">
+                        {uploadedPhotos.map((url, index) => (
+                          <div key={index} className="relative">
+                            {(() => {
+                              const resolvedUrl = normalizePhotoUrl(url) || url;
+                              if (isAssetDocumentPreviewUrl(url)) {
+                                return renderDocumentCard(url);
+                              }
+                              return (
+                                <PreviewableImage
+                                  src={resolvedUrl}
+                                  alt={`Asset file ${index + 1}`}
+                                  title="Asset photo"
+                                  showHint={false}
+                                  gallery={uploadedPhotos
+                                    .filter((item) => !isAssetDocumentPreviewUrl(item))
+                                    .map((item, photoIndex) => ({
+                                      src: normalizePhotoUrl(item) || item,
+                                      alt: `Asset file ${photoIndex + 1}`,
+                                      title: "Asset photo",
+                                    }))}
+                                  index={uploadedPhotos.slice(0, index).filter((item) => !isAssetDocumentPreviewUrl(item)).length}
+                                  className="w-full h-24 object-cover rounded"
+                                />
+                              );
+                            })()}
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="destructive"
+                              className="absolute top-1 right-1 h-6 w-6"
+                              onClick={() => setUploadedPhotos((prev) => prev.filter((_, i) => i !== index))}
+                            >
+                              <Trash2 className="w-3 h-3 text-destructive" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <ModernFilePickerInline
+                      onFilesSelected={(files) =>
+                        handlePhotoFilesSelected(files, { runAi: uploadedPhotos.length === 0 })
+                      }
+                      maxFiles={10}
+                      accept="image/*,.pdf,application/pdf"
+                      multiple={true}
+                      isUploading={isUploadingPhotos || isSuggestingFromPhoto}
+                      uploadProgress={photoUploadProgress}
+                      height={160}
+                    />
+                    {isSuggestingFromPhoto && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Analyzing photo with AI…
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -1034,60 +1133,6 @@ export default function AssetInventory() {
                     />
                   </div>
                 </div>
-              </div>
-
-              {/* Photos */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-lg">Photos & Documents</h3>
-                {uploadedPhotos.length > 0 && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0">
-                    {uploadedPhotos.map((url, index) => (
-                      <div key={index} className="relative">
-                        {(() => {
-                          const resolvedUrl = normalizePhotoUrl(url) || url;
-                          if (isAssetDocumentPreviewUrl(url)) {
-                            return renderDocumentCard(url);
-                          }
-                          return (
-                            <PreviewableImage
-                              src={resolvedUrl}
-                              alt={`Asset file ${index + 1}`}
-                              title="Asset photo"
-                              showHint={false}
-                              gallery={uploadedPhotos
-                                .filter((item) => !isAssetDocumentPreviewUrl(item))
-                                .map((item, photoIndex) => ({
-                                  src: normalizePhotoUrl(item) || item,
-                                  alt: `Asset file ${photoIndex + 1}`,
-                                  title: "Asset photo",
-                                }))}
-                              index={uploadedPhotos.slice(0, index).filter((item) => !isAssetDocumentPreviewUrl(item)).length}
-                              className="w-full h-24 object-cover rounded"
-                            />
-                          );
-                        })()}
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="destructive"
-                          className="absolute top-1 right-1 h-6 w-6"
-                          onClick={() => setUploadedPhotos(prev => prev.filter((_, i) => i !== index))}
-                        >
-                          <Trash2 className="w-3 h-3 text-destructive" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <ModernFilePickerInline
-                  onFilesSelected={handlePhotoFilesSelected}
-                  maxFiles={10}
-                  accept="image/*,.pdf,application/pdf"
-                  multiple={true}
-                  isUploading={isUploadingPhotos}
-                  uploadProgress={photoUploadProgress}
-                  height={300}
-                />
               </div>
 
               <DialogFooter className={cn(dialogFooterSticky)}>

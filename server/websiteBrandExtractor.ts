@@ -305,7 +305,7 @@ export async function extractBrandColorsFromWebsite(
     }
   } else {
     message =
-      "Few brand colors were found on this website. Please adjust the palette manually.";
+      "Few brand colours were found on this website. Please adjust the palette manually.";
   }
 
   const { palette, status } = paletteFromCandidates(

@@ -4,12 +4,10 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   Alert,
   ActivityIndicator,
   Modal,
   ScrollView,
-  FlatList,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,12 +18,12 @@ import {
   type PhotoDestination,
 } from '../../services/inspectionGallery';
 import { uploadLocalFile } from '../../services/objectUpload';
-import { getAPI_URL } from '../../services/api';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useTheme } from '../../contexts/ThemeContext';
 import { colors, spacing, typography, borderRadius } from '../../theme';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
+import { RemoteImage } from '../ui/RemoteImage';
 import {
   GALLERY_FIELD_PHOTO_MAX,
   GALLERY_REGISTER_BATCH_MAX,
@@ -39,12 +37,6 @@ type Props = {
   canEdit?: boolean;
   onEntriesChanged?: () => void;
 };
-
-function resolveImageUri(objectUrl: string): string {
-  if (objectUrl.startsWith('http://') || objectUrl.startsWith('https://')) return objectUrl;
-  const base = getAPI_URL().replace(/\/$/, '');
-  return `${base}${objectUrl.startsWith('/') ? '' : '/'}${objectUrl}`;
-}
 
 export function InspectionGalleryPanel({
   inspectionId,
@@ -98,6 +90,8 @@ export function InspectionGalleryPanel({
     });
   };
 
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+
   const uploadUris = async (uris: string[]) => {
     if (!uris.length) return;
     if (uris.length > GALLERY_UPLOAD_SELECT_MAX) {
@@ -108,13 +102,20 @@ export function InspectionGalleryPanel({
       return;
     }
     setUploading(true);
+    setUploadProgress(`Uploading 0/${uris.length}…`);
     try {
       const registered: Array<{ objectUrl: string; fileName?: string; mimeType?: string }> = [];
-      for (const uri of uris) {
-        const objectUrl = await uploadLocalFile(uri, { mimeType: 'image/jpeg' });
-        registered.push({ objectUrl, mimeType: 'image/jpeg' });
+      for (let i = 0; i < uris.length; i++) {
+        setUploadProgress(`Uploading ${i + 1}/${uris.length}…`);
+        const objectUrl = await uploadLocalFile(uris[i], { mimeType: 'image/jpeg' });
+        registered.push({
+          objectUrl,
+          fileName: `gallery_${Date.now()}_${i}.jpg`,
+          mimeType: 'image/jpeg',
+        });
       }
       if (registered.length) {
+        setUploadProgress('Saving to gallery…');
         for (let i = 0; i < registered.length; i += GALLERY_REGISTER_BATCH_MAX) {
           await inspectionGalleryService.register(
             inspectionId,
@@ -127,6 +128,7 @@ export function InspectionGalleryPanel({
       Alert.alert('Upload Failed', e?.message || 'Could not upload photos');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -322,7 +324,11 @@ export function InspectionGalleryPanel({
         <View style={styles.loadingRow}>
           <ActivityIndicator color={themeColors.primary.DEFAULT} />
           <Text style={{ color: themeColors.text.secondary, marginLeft: 8 }}>
-            {uploading ? 'Uploading…' : busy ? 'Working…' : 'Loading gallery…'}
+            {uploading
+              ? uploadProgress || 'Uploading…'
+              : busy
+                ? 'Working…'
+                : 'Loading gallery…'}
           </Text>
         </View>
       )}
@@ -342,16 +348,18 @@ export function InspectionGalleryPanel({
         </View>
       )}
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        numColumns={2}
-        columnWrapperStyle={{ gap: spacing[2] }}
-        contentContainerStyle={{ gap: spacing[2], paddingBottom: spacing[8] }}
-        renderItem={({ item }) => {
+      {/* Plain flex grid — avoids VirtualizedList nested in FormScreen ScrollView */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
+        {filtered.map((item) => {
           const isSelected = selected.has(item.id);
           return (
             <TouchableOpacity
+              key={item.id}
               style={[
                 styles.tile,
                 {
@@ -362,7 +370,7 @@ export function InspectionGalleryPanel({
               onPress={() => (canEdit ? toggleSelect(item.id) : undefined)}
               activeOpacity={0.85}
             >
-              <Image source={{ uri: resolveImageUri(item.objectUrl) }} style={styles.tileImage} />
+              <RemoteImage uri={item.objectUrl} style={styles.tileImage} resizeMode="cover" />
               <View style={styles.tileBadge}>
                 <Badge variant={item.assignments.length ? 'default' : 'secondary'} size="sm">
                   {badgeLabel(item)}
@@ -375,8 +383,8 @@ export function InspectionGalleryPanel({
               )}
             </TouchableOpacity>
           );
-        }}
-      />
+        })}
+      </ScrollView>
 
       <Modal visible={assignOpen} transparent animationType="slide" onRequestClose={() => setAssignOpen(false)}>
         <View style={styles.modalBackdrop}>
@@ -452,13 +460,19 @@ const styles = StyleSheet.create({
   },
   selAction: { flexDirection: 'row', alignItems: 'center' },
   loadingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing[2] },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+    paddingBottom: spacing[8],
+  },
   tile: {
-    flex: 1,
-    maxWidth: '50%',
+    width: '48%',
+    flexGrow: 1,
+    maxWidth: '48%',
     borderWidth: 2,
     borderRadius: borderRadius.md || 8,
     overflow: 'hidden',
-    marginBottom: spacing[2],
   },
   tileImage: { width: '100%', aspectRatio: 1, backgroundColor: '#e2e8f0' },
   tileBadge: { padding: spacing[1] },
