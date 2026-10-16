@@ -1879,7 +1879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         if (!(await orgHasWhiteLabelModule(organizationId))) {
           return res.status(403).json({
-            message: "White Label module is required to extract brand colors",
+            message: "White Label module is required to extract brand colours",
           });
         }
 
@@ -1911,12 +1911,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           console.error("[BrandExtract]", err);
           return res.status(422).json({
-            message: err?.message || "Failed to extract brand colors from website",
+            message: err?.message || "Failed to extract brand colours from website",
           });
         }
       } catch (error) {
-        console.error("Error extracting brand colors:", error);
-        res.status(500).json({ message: "Failed to extract brand colors" });
+        console.error("Error extracting brand colours:", error);
+        res.status(500).json({ message: "Failed to extract brand colours" });
       }
     },
   );
@@ -1974,7 +1974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brandingPrimaryColor !== undefined;
       if (touchingTheme && !(await orgHasWhiteLabelModule(organizationId))) {
         return res.status(403).json({
-          message: "White Label module is required to change report brand colors",
+          message: "White Label module is required to change report brand colours",
         });
       }
 
@@ -7653,7 +7653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         property = await storage.getProperty(inspection.propertyId);
       }
 
-      // Repair legacy room→section mapping (e.g. Garden under General Information)
+      // Repair legacy room→section mapping (e.g. Living Room under Bedrooms, Garden under General)
       const roomsSnap = (inspection as any).propertyRoomsSnapshot as
         | { rooms?: Array<{
             id: string;
@@ -7667,16 +7667,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }> }
         | null
         | undefined;
-      if (roomsSnap?.rooms?.length && inspection.templateSnapshotJson) {
+      if (inspection.templateSnapshotJson) {
         try {
           const {
             applyPropertyRoomsToTemplateSnapshot,
             propertyRoomsNeedSectionRepair,
+            synthesizeRoomsFromPropertyRoomInstances,
           } = await import("@shared/propertyRooms");
+          const roomsForRepair =
+            roomsSnap?.rooms?.length
+              ? roomsSnap.rooms
+              : synthesizeRoomsFromPropertyRoomInstances(
+                  inspection.templateSnapshotJson as any,
+                );
           if (
+            roomsForRepair.length &&
             propertyRoomsNeedSectionRepair(
               inspection.templateSnapshotJson as any,
-              roomsSnap.rooms,
+              roomsForRepair,
             )
           ) {
             const oldPaths =
@@ -7687,7 +7695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const oldByRoom = new Map(oldPaths.map((p) => [p.roomId, p.sectionRef]));
             const applied = applyPropertyRoomsToTemplateSnapshot(
               inspection.templateSnapshotJson as any,
-              roomsSnap.rooms,
+              roomsForRepair,
               { propertyType: (property as any)?.propertyType },
             );
             await storage.updateInspection(id, {
@@ -9577,6 +9585,119 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
     } catch (error: any) {
       console.error("[FullInspectAI] Error getting status:", error);
       res.status(500).json({ message: "Failed to get analysis status" });
+    }
+  });
+
+  // AI: asset photo → category + condition + cleanliness (inventory enums)
+  app.post("/api/ai/suggest-asset-from-photo", isAuthenticated, async (req: any, res) => {
+    try {
+      const { photoUrl, assetName } = req.body || {};
+      if (!photoUrl || typeof photoUrl !== "string") {
+        return res.status(400).json({ message: "Photo URL is required" });
+      }
+
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const {
+        ASSET_CATEGORIES,
+        coerceAssetCategory,
+        coerceAssetCondition,
+        coerceAssetCleanliness,
+      } = await import("@shared/assetInventory");
+
+      let imageUrl: string;
+      if (photoUrl.startsWith("http") || photoUrl.startsWith("data:")) {
+        imageUrl = photoUrl;
+      } else {
+        try {
+          const objectStorageService = new ObjectStorageService();
+          const photoPath = photoUrl.startsWith("/objects/") ? photoUrl : `/objects/${photoUrl}`;
+          const objectFile = await objectStorageService.getObjectEntityFile(photoPath);
+          const photoBuffer = await fs.readFile(objectFile.name);
+          let mimeType = detectImageMimeType(photoBuffer);
+          if (!mimeType || !mimeType.startsWith("image/")) mimeType = "image/jpeg";
+          imageUrl = `data:${mimeType};base64,${photoBuffer.toString("base64")}`;
+        } catch (error: any) {
+          console.error("[AI Asset Suggest] Error loading photo:", error.message);
+          return res.status(400).json({ message: "Failed to load photo for analysis" });
+        }
+      }
+
+      const nameHint = typeof assetName === "string" && assetName.trim() ? assetName.trim() : null;
+      const response = await getOpenAI().responses.create({
+        model: getInspectionModel(),
+        input: [
+          {
+            role: "user",
+            content: normalizeApiContent([
+              {
+                type: "text",
+                text: `You are a property asset inventory assistant. Analyze this photo of a property asset${nameHint ? ` (user named it: "${nameHint}")` : ""}.
+
+Choose the best matching values from these EXACT lists only.
+
+Categories (pick one):
+${ASSET_CATEGORIES.map((c) => `- ${c}`).join("\n")}
+
+Condition (pick one snake_case value):
+- excellent
+- good
+- fair
+- poor
+- needs_replacement
+
+Cleanliness (pick one snake_case value):
+- very_clean
+- clean
+- acceptable
+- needs_cleaning
+- not_applicable
+
+Respond with ONLY valid JSON:
+{
+  "category": "<one category from the list>",
+  "condition": "<one condition value>",
+  "cleanliness": "<one cleanliness value>",
+  "confidence": "high" | "medium" | "low",
+  "notes": "Brief explanation"
+}`,
+              },
+              { type: "image_url", image_url: imageUrl },
+            ]),
+          },
+        ],
+        max_output_tokens: 250,
+      });
+
+      let responseText =
+        response.output_text || (response.output?.[0] as any)?.content?.[0]?.text || "";
+      let raw: Record<string, string> = {};
+      try {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) raw = JSON.parse(jsonMatch[0]);
+      } catch {
+        console.error("[AI Asset Suggest] Failed to parse:", responseText.slice(0, 400));
+      }
+
+      const suggestion = {
+        category: coerceAssetCategory(raw.category),
+        condition: coerceAssetCondition(raw.condition),
+        cleanliness: coerceAssetCleanliness(raw.cleanliness),
+        confidence:
+          raw.confidence === "high" || raw.confidence === "medium" || raw.confidence === "low"
+            ? raw.confidence
+            : "medium",
+        notes: typeof raw.notes === "string" ? raw.notes.slice(0, 400) : undefined,
+      };
+
+      console.log("[AI Asset Suggest] Analysis complete:", suggestion);
+      res.json(suggestion);
+    } catch (error: any) {
+      console.error("[AI Asset Suggest] Error:", error.message);
+      res.status(500).json({ message: "Failed to analyze asset photo" });
     }
   });
 
@@ -19102,22 +19223,21 @@ ${optionalNotes || "No details provided."}`;
 
   // ==================== OBJECT STORAGE ROUTES ====================
 
-  app.get("/objects/:objectPath(*)", async (req: any, res) => {
+  async function serveObjectEntity(req: any, res: any, objectPath: string) {
     const sessionAdmin = (req.session as any)?.adminUser;
     const userId =
       req.user?.claims?.sub || req.user?.id || sessionAdmin?.id || undefined;
     const objectStorageService = new ObjectStorageService();
     try {
-      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
       // Community banners are public by default (for tenant portal access)
-      const isCommunityBanner = req.path.includes('/community-banners/');
+      const isCommunityBanner = objectPath.includes("/community-banners/");
 
       let canAccess = false;
       if (isCommunityBanner) {
-        // For community banners, check ACL but also allow if no ACL exists (treat as public)
         const aclPolicy = await getObjectAclPolicy(objectFile);
-        if (!aclPolicy || aclPolicy.visibility === 'public') {
+        if (!aclPolicy || aclPolicy.visibility === "public") {
           canAccess = true;
         } else {
           canAccess = await objectStorageService.canAccessObjectEntity({
@@ -19140,13 +19260,23 @@ ${optionalNotes || "No details provided."}`;
       objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {
-        // Object not found is a normal case, return 404 without logging as error
         return res.sendStatus(404);
       }
-      // Only log unexpected errors
       console.error("Error checking object access:", error);
       return res.sendStatus(500);
     }
+  }
+
+  app.get("/objects/:objectPath(*)", async (req: any, res) => {
+    await serveObjectEntity(req, res, req.path);
+  });
+
+  // Authenticated mobile/web preview path — same host prefix as /api/* (more reliable on device than /objects/*)
+  app.get("/api/objects/content/:objectPath(*)", isAuthenticated, async (req: any, res) => {
+    const raw = String(req.params.objectPath || "").replace(/^\/+/, "");
+    if (!raw) return res.status(400).json({ error: "object path required" });
+    const objectPath = raw.startsWith("objects/") ? `/${raw}` : `/objects/${raw}`;
+    await serveObjectEntity(req, res, objectPath);
   });
 
   const allowSignedInUserOrAdmin = (req: any, res: any, next: any) => {
@@ -19759,7 +19889,8 @@ ${optionalNotes || "No details provided."}`;
       return res.status(400).json({ error: "photoUrl is required" });
     }
 
-    const userId = req.user?.claims?.sub;
+    const userId =
+      req.user?.claims?.sub || req.user?.id || (req.session as any)?.adminUser?.id;
 
     try {
       const objectStorageService = new ObjectStorageService();

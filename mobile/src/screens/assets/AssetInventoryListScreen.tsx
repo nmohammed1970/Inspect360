@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActionSheetIOS,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -41,7 +42,7 @@ import { assetsService, type AssetInventory } from '../../services/assets';
 import { propertiesService } from '../../services/properties';
 import type { Property, Block } from '../../types';
 import { formatPropertyLocationLabel, formatBlockLocationLabel } from '../../utils/locationLabels';
-import { apiRequestJson, getAPI_URL } from '../../services/api';
+import { getAPI_URL } from '../../services/api';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -55,40 +56,17 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import type { AssetsStackParamList } from '../../navigation/types';
+import {
+  ASSET_CATEGORIES,
+  ASSET_CONDITION_LABELS,
+  ASSET_CLEANLINESS_LABELS,
+} from '../../../../shared/assetInventory';
 
 type RoutePropType = RouteProp<AssetsStackParamList, 'AssetInventoryList'>;
 
-const conditionLabels: Record<string, string> = {
-  excellent: 'Excellent',
-  good: 'Good',
-  fair: 'Fair',
-  poor: 'Poor',
-  needs_replacement: 'Needs Replacement',
-};
-
-const cleanlinessLabels: Record<string, string> = {
-  very_clean: 'Very Clean',
-  clean: 'Clean',
-  acceptable: 'Acceptable',
-  needs_cleaning: 'Needs Cleaning',
-  not_applicable: 'Not Applicable',
-};
-
-const assetCategories = [
-  'HVAC',
-  'Appliances',
-  'Furniture',
-  'Plumbing',
-  'Electrical',
-  'Flooring',
-  'Windows & Doors',
-  'Security',
-  'Landscaping',
-  'Lighting',
-  'Kitchen Equipment',
-  'Bathroom Fixtures',
-  'Other',
-];
+const conditionLabels: Record<string, string> = { ...ASSET_CONDITION_LABELS };
+const cleanlinessLabels: Record<string, string> = { ...ASSET_CLEANLINESS_LABELS };
+const assetCategories = [...ASSET_CATEGORIES];
 
 const normalizePhotoUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
@@ -170,6 +148,8 @@ export default function AssetInventoryListScreen() {
   const [filterPropertyBlock, setFilterPropertyBlock] = useState<string>('all');
   const [filterSpecificLocation, setFilterSpecificLocation] = useState<string>('all');
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [isSuggestingFromPhoto, setIsSuggestingFromPhoto] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<Partial<AssetInventory>>({});
@@ -506,7 +486,39 @@ export default function AssetInventoryListScreen() {
     }
   };
 
-  const handlePickPhoto = async () => {
+  const suggestAssetFieldsFromPhoto = async (photoUrl: string) => {
+    setIsSuggestingFromPhoto(true);
+    try {
+      const suggestion = await assetsService.suggestFromPhoto(photoUrl, formData.name);
+      setFormData((prev) => ({
+        ...prev,
+        category: suggestion.category || prev.category,
+        condition: (suggestion.condition as AssetInventory['condition']) || prev.condition,
+        cleanliness: (suggestion.cleanliness as AssetInventory['cleanliness']) || prev.cleanliness,
+      }));
+      const conditionLabel =
+        conditionLabels[suggestion.condition] || suggestion.condition;
+      const cleanlinessLabel =
+        cleanlinessLabels[suggestion.cleanliness] || suggestion.cleanliness;
+      Alert.alert(
+        'AI filled asset details',
+        suggestion.confidence === 'low'
+          ? 'Low confidence — please review category, condition, and cleanliness.'
+          : `Suggested ${suggestion.category} · ${conditionLabel} · ${cleanlinessLabel}`,
+      );
+    } catch (e: any) {
+      Alert.alert(
+        'AI suggestion failed',
+        e?.message || 'Could not analyze the photo. Fill fields manually.',
+      );
+    } finally {
+      setIsSuggestingFromPhoto(false);
+    }
+  };
+
+  const handlePickPhoto = async (opts?: { runAi?: boolean; maxImages?: number }) => {
+    const runAi = opts?.runAi === true;
+    const maxImages = opts?.maxImages;
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -517,22 +529,39 @@ export default function AssetInventoryListScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         quality: 0.8,
-        allowsMultipleSelection: true,
+        allowsMultipleSelection: maxImages !== 1,
+        selectionLimit: maxImages === 1 ? 1 : undefined,
       });
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
       }
 
-      const uploadPromises = result.assets.map(asset => uploadPhoto(asset.uri));
-      const uploadedPaths = await Promise.all(uploadPromises);
-      setUploadedPhotos(prev => [...prev, ...uploadedPaths]);
+      const assetsToUpload =
+        typeof maxImages === 'number' ? result.assets.slice(0, maxImages) : result.assets;
+
+      setIsUploadingPhotos(true);
+      const uploadedPaths = await Promise.all(assetsToUpload.map((a) => uploadPhoto(a.uri)));
+      setUploadedPhotos((prev) => {
+        if (runAi && uploadedPaths[0]) {
+          // Keep AI photo as the primary (first) image
+          const rest = prev.filter((p) => !uploadedPaths.includes(p));
+          return [...uploadedPaths, ...rest];
+        }
+        return [...prev, ...uploadedPaths];
+      });
+      if (runAi && uploadedPaths[0]) {
+        await suggestAssetFieldsFromPhoto(uploadedPaths[0]);
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to pick images');
+    } finally {
+      setIsUploadingPhotos(false);
     }
   };
 
-  const handleTakePhoto = async () => {
+  const handleTakePhoto = async (opts?: { runAi?: boolean }) => {
+    const runAi = opts?.runAi === true;
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -549,10 +578,21 @@ export default function AssetInventoryListScreen() {
         return;
       }
 
+      setIsUploadingPhotos(true);
       const uploadedPath = await uploadPhoto(result.assets[0].uri);
-      setUploadedPhotos(prev => [...prev, uploadedPath]);
+      setUploadedPhotos((prev) => {
+        if (runAi) {
+          return [uploadedPath, ...prev.filter((p) => p !== uploadedPath)];
+        }
+        return [...prev, uploadedPath];
+      });
+      if (runAi) {
+        await suggestAssetFieldsFromPhoto(uploadedPath);
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to take photo');
+    } finally {
+      setIsUploadingPhotos(false);
     }
   };
 
@@ -603,6 +643,8 @@ export default function AssetInventoryListScreen() {
     }
     setFormData(preservedFormData);
     setUploadedPhotos([]);
+    setIsUploadingPhotos(false);
+    setIsSuggestingFromPhoto(false);
   };
 
   const handleOpenDialog = (asset?: AssetInventory) => {
@@ -1085,6 +1127,69 @@ export default function AssetInventoryListScreen() {
                   onChangeText={(value) => setFormData({ ...formData, name: value })}
                   placeholder="e.g., Refrigerator - Unit 101"
                 />
+                <View style={styles.assetPhotoSection}>
+                  <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
+                    Asset Photo
+                  </Text>
+                  <Text style={[styles.fieldHint, { color: themeColors.text.muted }]}>
+                    Upload a photo and AI will select category, condition, and cleanliness.
+                  </Text>
+                  {uploadedPhotos.length > 0 && (
+                    <View style={styles.photosGrid}>
+                      {uploadedPhotos.map((url, index) => {
+                        const photoUrl = normalizePhotoUrl(url);
+                        return (
+                          <View key={index} style={styles.photoWrapper}>
+                            {photoUrl && (
+                              <Image source={{ uri: photoUrl }} style={styles.photoThumbnail} />
+                            )}
+                            <TouchableOpacity
+                              style={styles.removePhotoButton}
+                              onPress={() =>
+                                setUploadedPhotos((prev) => prev.filter((_, i) => i !== index))
+                              }
+                            >
+                              <X size={14} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                  <View style={styles.photoActions}>
+                    <Button
+                      title="Pick Photo"
+                      onPress={() =>
+                        handlePickPhoto({
+                          runAi: uploadedPhotos.length === 0,
+                          maxImages: uploadedPhotos.length === 0 ? 1 : undefined,
+                        })
+                      }
+                      variant="outline"
+                      size="sm"
+                      style={styles.photoButton}
+                      disabled={isUploadingPhotos || isSuggestingFromPhoto}
+                    />
+                    <Button
+                      title="Take Photo"
+                      onPress={() => handleTakePhoto({ runAi: uploadedPhotos.length === 0 })}
+                      variant="outline"
+                      size="sm"
+                      style={styles.photoButton}
+                      disabled={isUploadingPhotos || isSuggestingFromPhoto}
+                    />
+                  </View>
+                  {(isUploadingPhotos || isSuggestingFromPhoto) && (
+                    <View style={styles.aiStatusRow}>
+                      <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} />
+                      <Text style={[styles.fieldHint, { color: themeColors.text.muted, marginTop: 0 }]}>
+                        {isSuggestingFromPhoto
+                          ? 'Analyzing photo with AI…'
+                          : 'Uploading photo…'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <View style={[styles.pickerRow, { flexDirection: formRowDir }]}>
                   <View style={[styles.pickerHalf, formRowDir === 'column' && { width: '100%' }]}>
                     <TouchableOpacity
@@ -1337,47 +1442,6 @@ export default function AssetInventoryListScreen() {
                   multiline
                   numberOfLines={3}
                 />
-              </Card>
-
-              {/* Photos */}
-              <Card style={styles.formCard}>
-                <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>Photos</Text>
-                {uploadedPhotos.length > 0 && (
-                  <View style={styles.photosGrid}>
-                    {uploadedPhotos.map((url, index) => {
-                      const photoUrl = normalizePhotoUrl(url);
-                      return (
-                        <View key={index} style={styles.photoWrapper}>
-                          {photoUrl && (
-                            <Image source={{ uri: photoUrl }} style={styles.photoThumbnail} />
-                          )}
-                          <TouchableOpacity
-                            style={styles.removePhotoButton}
-                            onPress={() => setUploadedPhotos(prev => prev.filter((_, i) => i !== index))}
-                          >
-                            <X size={14} color="#fff" />
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-                <View style={styles.photoActions}>
-                  <Button
-                    title="Pick from Library"
-                    onPress={handlePickPhoto}
-                    variant="outline"
-                    size="sm"
-                    style={styles.photoButton}
-                  />
-                  <Button
-                    title="Take Photo"
-                    onPress={handleTakePhoto}
-                    variant="outline"
-                    size="sm"
-                    style={styles.photoButton}
-                  />
-                </View>
               </Card>
 
               <View style={styles.modalActions}>
@@ -1633,6 +1697,36 @@ const styles = StyleSheet.create({
   },
   dropdownTextPlaceholder: {
     // Color set dynamically
+  },
+  assetPhotoSection: {
+    marginBottom: spacing[3],
+    gap: spacing[2],
+  },
+  fieldLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+  },
+  fieldHint: {
+    fontSize: typography.fontSize.xs,
+    marginTop: spacing[1],
+  },
+  assetPhotoPreview: {
+    position: 'relative',
+    width: 128,
+    height: 128,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+  },
+  assetPhotoImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  aiStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginTop: spacing[1],
   },
   photoActions: {
     flexDirection: 'row',

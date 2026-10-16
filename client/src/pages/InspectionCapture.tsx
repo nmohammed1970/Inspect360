@@ -43,7 +43,7 @@ import {
   repeatableCountsFromPropertyLayout,
   type PropertyRoomCountsSnapshot,
 } from "@shared/propertyLayout";
-import { numberedRoomInstanceTitle } from "@shared/propertyRooms";
+import { formatDisplayHeading, numberedRoomInstanceTitle } from "@shared/propertyRooms";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
 import {
@@ -413,59 +413,19 @@ export default function InspectionCapture() {
     [templateSnapshot],
   );
 
-  const ensureBedroomWallsField = (section: any, fields: any[]) => {
-    const sectionTitle = (section.title || "").toLowerCase();
-    const sectionId = (section.id || "").toLowerCase();
-    const isBedroomSection = sectionTitle.includes("bedroom") || sectionId.includes("bedroom");
-    if (!isBedroomSection) return fields;
-
-    const hasWallsField = fields.some((field: any) => {
-      const fieldId = (field.id || "").toLowerCase();
-      const fieldKey = (field.key || "").toLowerCase();
-      const fieldLabel = (field.label || "").toLowerCase();
-      return (
-        fieldId.includes("bedroom_walls_paint") ||
-        fieldKey.includes("bedroom_walls_paint") ||
-        (fieldLabel.includes("walls") && fieldLabel.includes("paint"))
-      );
-    });
-
-    if (hasWallsField) return fields;
-
-    const isCheckOutSection = fields.some((field: any) => {
-      const fieldId = (field.id || "").toLowerCase();
-      const fieldKey = (field.key || "").toLowerCase();
-      return fieldId.includes("checkout") || fieldKey.includes("checkout");
-    });
-
-    const wallsField = {
-      id: isCheckOutSection ? "field_checkout_bedroom_walls_paint" : "field_checkin_bedroom_walls_paint",
-      key: isCheckOutSection ? "field_checkout_bedroom_walls_paint" : "field_checkin_bedroom_walls_paint",
-      label: "Walls and Paint",
-      type: "photo_array",
-      required: false,
-      includeCondition: true,
-      includeCleanliness: true,
-    };
-
-    return [...fields, wallsField];
-  };
-
-  // Migrate old templates: ensure all fields have both id and key;
+  // Migrate old templates: ensure all fields have both id and key.
+  // Do not inject extra inspection points into existing custom sections.
   // property snapshot forces Kitchen/Living repeatable for this inspection.
   const sections = React.useMemo(() => {
     if (!rawTemplateStructure?.sections) return [] as TemplateSection[];
 
     const migrated = rawTemplateStructure.sections.map((section) => ({
       ...section,
-      fields: ensureBedroomWallsField(
-        section,
-        (section.fields || []).map((field: any) => ({
-          ...field,
-          id: field.id || field.key,
-          key: field.key || field.id,
-        })),
-      ),
+      fields: (section.fields || []).map((field: any) => ({
+        ...field,
+        id: field.id || field.key,
+        key: field.key || field.id,
+      })),
     }));
 
     if (!propertyRoomCountsSnapshot) return migrated as TemplateSection[];
@@ -1696,16 +1656,28 @@ export default function InspectionCapture() {
     );
   };
 
+  const scrollCaptureToTop = () => {
+    requestAnimationFrame(() => {
+      const main = document.querySelector("main");
+      if (main instanceof HTMLElement) {
+        main.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
+
   // Navigate sections
   const goToNextSection = () => {
     if (currentSectionIndex < sections.length - 1) {
       setCurrentSectionIndex(currentSectionIndex + 1);
+      scrollCaptureToTop();
     }
   };
 
   const goToPreviousSection = () => {
     if (currentSectionIndex > 0) {
       setCurrentSectionIndex(currentSectionIndex - 1);
+      scrollCaptureToTop();
     }
   };
 
@@ -2243,6 +2215,7 @@ export default function InspectionCapture() {
               onClick={() => {
                 setCaptureMode("sections");
                 setCurrentSectionIndex(index);
+                scrollCaptureToTop();
               }}
               data-testid={`button-section-${index}`}
               className={cn(
@@ -2250,7 +2223,7 @@ export default function InspectionCapture() {
                 !isActive && "bg-card",
               )}
             >
-              {section.title}
+              {formatDisplayHeading(section.title)}
             </Button>
             );
           })}
@@ -2298,7 +2271,7 @@ export default function InspectionCapture() {
         <Card className="border border-border shadow-sm min-w-0 overflow-hidden">
           <CardHeader className="p-4 sm:p-6 border-b bg-muted/30">
             <CardTitle data-testid="text-section-title" className="text-lg sm:text-xl font-bold break-words">
-              {currentSection.title}
+              {formatDisplayHeading(currentSection.title)}
             </CardTitle>
             {currentSection.description && (
               <p className="text-sm text-muted-foreground break-words" data-testid="text-section-description">

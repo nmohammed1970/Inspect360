@@ -8,7 +8,11 @@ import {
   metresToMm,
   normalizeAiRoomsResult,
   normalizeCategoryName,
+  formatDisplayHeading,
+  matchSectionForRoomCategory,
   numberedRoomInstanceTitle,
+  propertyRoomsNeedSectionRepair,
+  synthesizeRoomsFromPropertyRoomInstances,
   resolveSystemCategoryForLabel,
   roomTypeFromRoomLike,
   singularizeSectionTitle,
@@ -16,6 +20,7 @@ import {
   toMillimetres,
   applyPropertyRoomsToTemplateSnapshot,
 } from "./propertyRooms";
+import { listPhotoDestinations } from "./inspectionGallery";
 
 assert.equal(normalizeCategoryName("  Master  Bedroom "), "master bedroom");
 assert.equal(slugifyCategoryName("En-suite Bathroom"), "en-suite-bathroom");
@@ -156,8 +161,12 @@ assert.ok(gardenSection);
 assert.equal(gardenSection!.title, "Garden");
 assert.equal(gardenSection!.repeatable, true);
 assert.ok(
-  (gardenSection!.fields || []).some((f) => /Overall condition/i.test(f.label || "")),
+  (gardenSection!.fields || []).some((f) => f.label === "Overall Condition"),
 );
+assert.equal(formatDisplayHeading("bathroom"), "Bathroom");
+assert.equal(formatDisplayHeading("overall condition"), "Overall Condition");
+assert.equal(formatDisplayHeading("walls and paint"), "Walls and Paint");
+assert.equal(numberedRoomInstanceTitle("bathroom 1", "bathroom", 0), "Bathroom 1");
 const gardenIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_garden");
 const bathIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_bathrooms");
 const signIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_signoff");
@@ -365,5 +374,93 @@ assert.ok(
     (e) => e.fieldKey === "__repeatable_count_section_garden" && e.valueJson === 2,
   ),
 );
+
+// "Living Room" must NOT match Bedrooms via substring "room" ⊂ "bedrooms"
+const bedroomKitchenOnly = [
+  {
+    id: "section_bedrooms",
+    title: "Bedrooms",
+    repeatable: true,
+    fields: [{ id: "floor", type: "photo_array", label: "Floor" }],
+  },
+  {
+    id: "section_kitchen",
+    title: "Kitchen",
+    repeatable: true,
+    fields: [{ id: "walls", type: "photo_array", label: "Walls" }],
+  },
+];
+assert.equal(
+  matchSectionForRoomCategory(bedroomKitchenOnly as any, "Living Room", "living-room"),
+  null,
+);
+assert.equal(
+  matchSectionForRoomCategory(bedroomKitchenOnly as any, "Bedroom", "bedroom")?.id,
+  "section_bedrooms",
+);
+
+const livingMappedWrong = applyPropertyRoomsToTemplateSnapshot(
+  { sections: JSON.parse(JSON.stringify(bedroomKitchenOnly)) },
+  [
+    {
+      id: "r-bed",
+      name: "Bedroom 1",
+      categoryId: "c1",
+      categoryName: "Bedroom",
+      categorySlug: "bedroom",
+    },
+    {
+      id: "r-live",
+      name: "Living Room",
+      categoryId: "c2",
+      categoryName: "Living Room",
+      categorySlug: "living-room",
+    },
+  ],
+);
+const livePath = livingMappedWrong.roomInstancePaths.find((p) => p.roomId === "r-live");
+assert.ok(livePath);
+assert.ok(!livePath!.sectionRef.startsWith("section_bedrooms/"));
+assert.ok(
+  livingMappedWrong.structure.sections!.some(
+    (s) => /living/i.test(s.id) || /living/i.test(s.title || ""),
+  ),
+);
+
+// Mis-mapped Living Room under Bedrooms must trigger repair + be hidden from gallery
+const brokenSnap = {
+  sections: bedroomKitchenOnly,
+  propertyRoomInstances: [
+    { roomId: "r-bed", sectionRef: "section_bedrooms/r-bed", title: "Bedroom 1" },
+    { roomId: "r-live", sectionRef: "section_bedrooms/r-live", title: "Living Room" },
+  ],
+};
+assert.equal(
+  propertyRoomsNeedSectionRepair(brokenSnap as any, [
+    {
+      id: "r-bed",
+      name: "Bedroom 1",
+      categoryId: "c1",
+      categoryName: "Bedroom",
+      categorySlug: "bedroom",
+    },
+    {
+      id: "r-live",
+      name: "Living Room",
+      categoryId: "c2",
+      categoryName: "Living Room",
+      categorySlug: "living-room",
+    },
+  ] as any),
+  true,
+);
+// Also detect from instances alone when rooms snapshot is empty
+assert.equal(propertyRoomsNeedSectionRepair(brokenSnap as any, []), true);
+const synth = synthesizeRoomsFromPropertyRoomInstances(brokenSnap as any);
+assert.equal(synth.length, 2);
+assert.ok(synth.some((r) => r.name === "Living Room" && r.categorySlug === "living-room"));
+const galleryDests = listPhotoDestinations(brokenSnap as any, { section_bedrooms: 2 });
+assert.ok(galleryDests.every((d) => !/living/i.test(d.sectionLabel)));
+assert.ok(galleryDests.some((d) => d.sectionLabel === "Bedroom 1"));
 
 console.log("propertyRooms.test.ts: all assertions passed");

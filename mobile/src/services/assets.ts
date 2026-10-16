@@ -79,6 +79,22 @@ export const assetsService = {
   async deleteAssetInventory(id: string): Promise<void> {
     await apiRequestJson<void>('DELETE', `/api/asset-inventory/${id}`);
   },
+
+  /**
+   * AI: suggest category / condition / cleanliness from an uploaded photo
+   */
+  async suggestFromPhoto(photoUrl: string, assetName?: string): Promise<{
+    category: string;
+    condition: string;
+    cleanliness: string;
+    confidence: 'high' | 'medium' | 'low';
+    notes?: string;
+  }> {
+    return apiRequestJson('POST', '/api/ai/suggest-asset-from-photo', {
+      photoUrl,
+      assetName: assetName || undefined,
+    });
+  },
 };
 
 // Legacy interface for backward compatibility (if needed elsewhere)

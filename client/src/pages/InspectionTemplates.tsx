@@ -602,7 +602,7 @@ export default function InspectionTemplates({ embedded = false }: InspectionTemp
                 name="color"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Color</FormLabel>
+                    <FormLabel>Colour</FormLabel>
                     <FormControl>
                       <Input
                         type="color"

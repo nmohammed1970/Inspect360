@@ -8,6 +8,8 @@ import {
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from "./templateCustomInspectionPoints";
+import { numberedRoomInstanceTitle, roomTypeFromRoomLike } from "./propertyRooms";
+import { matchSectionToRoomType } from "./propertyLayout";
 
 export const GALLERY_ALLOWED_MIME_TYPES = [
   "image/jpeg",
@@ -162,9 +164,24 @@ function pushCipDestinations(
   }
 }
 
+function resolveRepeatableInstanceCount(
+  sectionId: string,
+  repeatableCounts: Record<string, number>,
+  propertyRoomCount: number,
+): number {
+  const raw = Number(repeatableCounts[sectionId]);
+  if (Number.isFinite(raw) && raw >= 1) {
+    return Math.max(1, Math.min(50, Math.floor(raw)));
+  }
+  // No stored count: prefer property-room length when present (matches capture UI).
+  if (propertyRoomCount > 0) return Math.min(50, propertyRoomCount);
+  return 1;
+}
+
 /**
  * Build assignable photo destinations from a frozen template snapshot and
  * current repeatable instance counts (sectionId → count).
+ * Instance enumeration mirrors Inspection Capture (property rooms + counts).
  * Pass `cipCounts` keyed by `${sectionRef}::${cipId}` for template CIP expansions.
  */
 export function listPhotoDestinations(
@@ -173,6 +190,7 @@ export function listPhotoDestinations(
   cipCounts?: CipCountMap,
 ): PhotoDestination[] {
   const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const sectionIds = new Set(sections.map((s) => s.id).filter(Boolean));
   const destinations: PhotoDestination[] = [];
 
   const roomsBySection = new Map<
@@ -186,6 +204,8 @@ export function listPhotoDestinations(
     const ref = String(room?.sectionRef || "").trim();
     if (!ref.includes("/")) continue;
     const sectionId = ref.split("/")[0]!;
+    // Ignore orphan room paths whose section is not in this inspection template
+    if (!sectionIds.has(sectionId)) continue;
     const list = roomsBySection.get(sectionId) || [];
     list.push({
       sectionRef: ref,
@@ -196,58 +216,54 @@ export function listPhotoDestinations(
 
   for (const section of sections) {
     if (!section?.id) continue;
-    const photoFields = (section.fields || []).filter((f) => isPhotoFieldType(f.type));
+    // Only fields defined on this template section (no invented points)
+    const photoFields = (section.fields || []).filter(
+      (f) => isPhotoFieldType(f.type) && !!(f.id || f.key),
+    );
     const title = (section.title || section.id).trim() || section.id;
 
     if (section.repeatable) {
-      const propertyRooms = roomsBySection.get(section.id);
-      if (propertyRooms?.length) {
-        for (const room of propertyRooms) {
-          for (const field of photoFields) {
-            pushPhotoDestination(destinations, {
-              sectionId: section.id,
-              sectionRef: room.sectionRef,
-              sectionLabel: room.title,
-              field,
-            });
-          }
-          if (structure) {
-            pushCipDestinations(
-              destinations,
-              structure,
-              section.id,
-              room.sectionRef,
-              room.title,
-              cipCounts,
-            );
-          }
+      const sectionRoomType = matchSectionToRoomType(section as any);
+      // Drop mis-mapped rooms (e.g. Living Room under Bedrooms from "room" token match)
+      let propertyRooms = roomsBySection.get(section.id) || [];
+      if (sectionRoomType) {
+        propertyRooms = propertyRooms.filter((room) => {
+          const roomType = roomTypeFromRoomLike({ name: room.title });
+          return roomType === sectionRoomType;
+        });
+      }
+      const instanceCount = resolveRepeatableInstanceCount(
+        section.id,
+        repeatableCounts,
+        propertyRooms.length,
+      );
+
+      for (let i = 0; i < instanceCount; i++) {
+        const room = propertyRooms[i];
+        const sectionRef =
+          room?.sectionRef || `${section.id}/${title} ${i + 1}`;
+        const sectionLabel = numberedRoomInstanceTitle(
+          room?.title,
+          title,
+          i,
+        );
+        for (const field of photoFields) {
+          pushPhotoDestination(destinations, {
+            sectionId: section.id,
+            sectionRef,
+            sectionLabel,
+            field,
+          });
         }
-      } else {
-        const rawCount = Number(repeatableCounts[section.id] ?? 1);
-        const count = Number.isFinite(rawCount)
-          ? Math.max(1, Math.min(50, Math.floor(rawCount)))
-          : 1;
-        for (let i = 1; i <= count; i++) {
-          const instanceLabel = `${title} ${i}`;
-          const sectionRef = `${section.id}/${instanceLabel}`;
-          for (const field of photoFields) {
-            pushPhotoDestination(destinations, {
-              sectionId: section.id,
-              sectionRef,
-              sectionLabel: instanceLabel,
-              field,
-            });
-          }
-          if (structure) {
-            pushCipDestinations(
-              destinations,
-              structure,
-              section.id,
-              sectionRef,
-              instanceLabel,
-              cipCounts,
-            );
-          }
+        if (structure) {
+          pushCipDestinations(
+            destinations,
+            structure,
+            section.id,
+            sectionRef,
+            sectionLabel,
+            cipCounts,
+          );
         }
       }
     } else {

@@ -27,6 +27,8 @@ export interface FormScreenProps {
   scrollProps?: Omit<ScrollViewProps, 'contentContainerStyle' | 'children'>;
   /** When false, children render without ScrollView (caller manages scroll) */
   scroll?: boolean;
+  /** Ref to the inner ScrollView (e.g. scroll to top on section change) */
+  scrollViewRef?: React.RefObject<ScrollView | null>;
 }
 
 /**
@@ -43,6 +45,7 @@ export default function FormScreen({
   keyboardVerticalOffset,
   scrollProps,
   scroll = true,
+  scrollViewRef,
 }: FormScreenProps) {
   const insets = useSafeAreaInsets();
   const { formMaxWidth, getResponsivePadding } = useResponsive();
@@ -57,6 +60,7 @@ export default function FormScreen({
 
   const body = scroll ? (
     <ScrollView
+      ref={scrollViewRef}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}

@@ -134,16 +134,50 @@ const withRooms = {
     },
   ],
 };
-const roomDests = listPhotoDestinations(withRooms, { section_bedrooms: 99 });
+const roomDests = listPhotoDestinations(withRooms, { section_bedrooms: 2 });
 assert.ok(roomDests.some((d) => d.sectionRef === "section_bedrooms/room-abc"));
 assert.ok(roomDests.some((d) => d.sectionLabel === "Master Bedroom"));
+assert.equal(roomDests.filter((d) => d.sectionId === "section_bedrooms").length, 4);
 assert.ok(
-  assertDestinationValid(withRooms, "section_bedrooms/room-abc", "field_floor", {}),
+  assertDestinationValid(withRooms, "section_bedrooms/room-abc", "field_floor", {
+    section_bedrooms: 2,
+  }),
 );
 assert.equal(
-  assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 1", "field_floor", {}),
+  assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 1", "field_floor", {
+    section_bedrooms: 2,
+  }),
   null,
 );
+
+// Count caps property-room destinations to what capture UI shows
+const capped = listPhotoDestinations(withRooms, { section_bedrooms: 1 });
+const cappedBedrooms = capped.filter((d) => d.sectionId === "section_bedrooms");
+assert.equal(cappedBedrooms.length, 2);
+assert.ok(cappedBedrooms.every((d) => d.sectionRef === "section_bedrooms/room-abc"));
+assert.ok(!cappedBedrooms.some((d) => d.sectionRef.includes("room-def")));
+
+// Orphan propertyRoomInstances (section not in template) are ignored
+const orphaned = {
+  sections: [
+    {
+      id: "section_kitchen",
+      title: "Kitchen",
+      fields: [{ id: "field_kitchen", label: "Kitchen Condition", type: "photo" }],
+    },
+  ],
+  propertyRoomInstances: [
+    {
+      roomId: "room-x",
+      sectionRef: "section_bedrooms/room-x",
+      title: "Bedroom 1",
+    },
+  ],
+};
+const orphanDests = listPhotoDestinations(orphaned, {});
+assert.equal(orphanDests.length, 1);
+assert.equal(orphanDests[0].sectionRef, "section_kitchen");
+assert.ok(!orphanDests.some((d) => d.sectionLabel.includes("Bedroom")));
 
 // Older snapshots without propertyRoomInstances still accept roomId refs
 assert.ok(

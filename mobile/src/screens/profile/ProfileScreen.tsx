@@ -38,7 +38,7 @@ import { useResponsive } from '../../hooks/useResponsive';
 import FormScreen from '../../components/ui/FormScreen';
 import PhoneInput from '../../components/PhoneInput';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
-import { normalizePhoneForStorage } from '../../../shared/phoneCountryCodes';
+import { normalizePhoneForStorage } from '../../../../shared/phoneCountryCodes';
 
 const DOCUMENT_TYPES = [
   { value: 'license', label: 'License' },
