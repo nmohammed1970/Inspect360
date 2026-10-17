@@ -24,6 +24,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import { CompletionChecklistPanel } from '../../components/inspections/CompletionChecklistPanel';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -275,6 +276,13 @@ export default function InspectionReviewScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        <CompletionChecklistPanel
+          inspectionId={inspectionId}
+          readOnly={
+            inspection.status === 'completed' || inspection.status === 'reviewed'
+          }
+        />
 
         {/* Two Information Cards */}
         <View style={styles.infoCardsRow}>

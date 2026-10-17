@@ -33,6 +33,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { CompletionChecklistPanel } from "@/components/CompletionChecklistPanel";
 
 interface Inspection {
   id: string;
@@ -256,6 +257,8 @@ export default function TenantCheckInReview() {
           )}
         </div>
       </div>
+
+      {id && <CompletionChecklistPanel inspectionId={id} readOnly />}
 
       <Card>
         <CardHeader>

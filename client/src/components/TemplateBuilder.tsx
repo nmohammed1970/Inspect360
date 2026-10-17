@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import { Plus, Trash2, Copy, GripVertical, Save, X, Eye, Code, ChevronDown, Chev
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type InspectionTemplate, type TemplateCategory } from "@shared/schema";
+import { type CompletionChecklist, type InspectionTemplate, type TemplateCategory } from "@shared/schema";
 import { duplicateTemplateSection } from "@shared/templateSectionDuplicate";
 import {
   isMetaSection,
@@ -104,6 +104,7 @@ const templateMetaSchema = z.object({
   description: z.string().optional(),
   scope: z.enum(["property", "block", "both"]),
   categoryId: z.string().optional(),
+  completionChecklistId: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
   version: z.number().default(1),
   structureJson: z.any(),
@@ -243,6 +244,15 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
   const { toast } = useToast();
   const [previewMode, setPreviewMode] = useState(false);
   const [persistedTemplate, setPersistedTemplate] = useState<InspectionTemplate | null>(template);
+
+  const { data: completionChecklists = [] } = useQuery<CompletionChecklist[]>({
+    queryKey: ["/api/completion-checklists", { active: true }],
+    queryFn: async () => {
+      const res = await fetch("/api/completion-checklists?active=true", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch completion checklists");
+      return res.json();
+    },
+  });
   const [fieldDrag, setFieldDrag] = useState<FieldDragState | null>(null);
   const [fieldDropTarget, setFieldDropTarget] = useState<{
     kind: "section" | "cip";
@@ -299,6 +309,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       description: template?.description || "",
       scope: template?.scope || "property",
       categoryId: template?.categoryId || undefined,
+      completionChecklistId: template?.completionChecklistId || null,
       isActive: template?.isActive ?? true,
       version: template?.version || 1,
       structureJson: initialStructure,
@@ -1003,6 +1014,38 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                 ))}
                               </SelectContent>
                             </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="completionChecklistId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Completion checklist</FormLabel>
+                            <Select
+                              value={field.value || "none"}
+                              onValueChange={(v) => field.onChange(v === "none" ? null : v)}
+                            >
+                              <FormControl>
+                                <SelectTrigger data-testid="select-completion-checklist">
+                                  <SelectValue placeholder="None" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                {completionChecklists.map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>
+                                    {c.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>
+                              Optional finish-the-job list snapshotted onto new inspections using this
+                              template.
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}

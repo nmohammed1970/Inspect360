@@ -34,6 +34,7 @@ import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import { CompletionChecklistPanel } from '../../components/inspections/CompletionChecklistPanel';
 import { colors, spacing, borderRadius } from '../../theme';
 import { getFontSize, getButtonHeight, moderateScale } from '../../utils/responsive';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -369,6 +370,8 @@ export default function TenantInspectionPreviewScreen({ navigation, route }: Pro
             </View>
           ) : null}
         </View>
+
+        <CompletionChecklistPanel inspectionId={inspectionId} readOnly />
 
         <Card>
           <Text style={[styles.cardTitle, { color: themeColors.text?.primary }]}>Inspection details</Text>

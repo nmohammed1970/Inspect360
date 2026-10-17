@@ -21,6 +21,7 @@ import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, Users
 import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
+import CompletionChecklistsContent from "./CompletionChecklists";
 import { z } from "zod";
 import Team from "./Team";
 import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
@@ -63,12 +64,13 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
+type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'completion-checklists' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
 
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
   { id: 'internal-modules', label: 'Internal Modules', icon: SlidersHorizontal },
   { id: 'templates', label: 'Inspection Templates', icon: ClipboardList },
+  { id: 'completion-checklists', label: 'Completion Checklists', icon: ClipboardList },
   { id: 'document-types', label: 'Compliance Documents', icon: FileText },
   { id: 'team', label: 'Team Members', icon: Users },
   { id: 'teams', label: 'Maintenance Team', icon: UsersIcon },
@@ -1080,6 +1082,12 @@ export default function Settings() {
           {activeSection === 'templates' && (
             <div className="space-y-6">
               <InspectionTemplatesContent embedded />
+            </div>
+          )}
+
+          {activeSection === 'completion-checklists' && (
+            <div className="space-y-6">
+              <CompletionChecklistsContent embedded />
             </div>
           )}
 

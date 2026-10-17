@@ -31,6 +31,10 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useCompanyModules } from '../../hooks/useCompanyModules';
 import { FieldWidget } from '../../components/inspections/FieldWidget';
 import { InspectionGalleryPanel } from '../../components/inspections/InspectionGalleryPanel';
+import {
+  CompletionChecklistPanel,
+  useMobileCompletionChecklist,
+} from '../../components/inspections/CompletionChecklistPanel';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { formatSignerDisplayName } from '../../../../shared/signature';
 import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
@@ -101,6 +105,9 @@ export default function InspectionCaptureScreen() {
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
   const { maintenanceEnabled } = useCompanyModules();
+  const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
+  const checklistRequiredIncomplete =
+    completionChecklist?.progress?.requiredIncomplete ?? 0;
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
@@ -1369,11 +1376,22 @@ export default function InspectionCaptureScreen() {
       );
     };
 
-    if (isIncomplete) {
-      // Show confirmation dialog for incomplete inspections
+    const checklistWarning =
+      checklistRequiredIncomplete > 0
+        ? ` ${checklistRequiredIncomplete} required completion checklist step${
+            checklistRequiredIncomplete === 1 ? ' is' : 's are'
+          } still unfinished.`
+        : '';
+
+    if (isIncomplete || checklistRequiredIncomplete > 0) {
+      const fieldPart = isIncomplete
+        ? `This inspection is only ${progressPercentage}% complete. ${
+            totalFields - completedFields
+          } field(s) are still missing.`
+        : 'All form fields look complete.';
       Alert.alert(
         'Complete Inspection?',
-        `This inspection is only ${progressPercentage}% complete. ${totalFields - completedFields} field(s) are still missing. Do you want to mark it as complete anyway?`,
+        `${fieldPart}${checklistWarning} Do you want to mark it as complete anyway?`,
         [
           {
             text: 'Cancel',
@@ -1878,6 +1896,14 @@ export default function InspectionCaptureScreen() {
 
             {captureMode === 'sections' && (
             <>
+            <CompletionChecklistPanel
+              inspectionId={inspectionId}
+              readOnly={
+                effectiveInspection?.status === 'completed' ||
+                effectiveInspection?.status === 'reviewed' ||
+                isDeleted
+              }
+            />
             {/* Section Tabs */}
             <View style={styles.tabsContainerWrapper}>
               <View style={styles.tabsContainerInner}>

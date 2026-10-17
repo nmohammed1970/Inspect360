@@ -867,6 +867,8 @@ export const inspectionTemplates = pgTable("inspection_templates", {
       placement: "before_inspection" | "after_inspection" | "before_closing";
     }>;
   }>(), // Report section visibility and custom content configuration
+  /** Optional org completion checklist attached to this template (snapshotted onto inspections). */
+  completionChecklistId: varchar("completion_checklist_id"),
   createdBy: varchar("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -919,6 +921,68 @@ export const insertInspectionTemplatePointSchema = createInsertSchema(inspection
 export type InspectionTemplatePoint = typeof inspectionTemplatePoints.$inferSelect;
 export type InsertInspectionTemplatePoint = z.infer<typeof insertInspectionTemplatePointSchema>;
 
+export type CompletionChecklistItem = {
+  id: string;
+  label: string;
+  type: "checkbox" | "text" | "photo";
+  required?: boolean;
+  helpText?: string;
+};
+
+export type CompletionChecklistSnapshot = {
+  id: string;
+  name: string;
+  version: number;
+  items: CompletionChecklistItem[];
+};
+
+/** Org-level completion checklist masters (attached to inspection templates). */
+export const completionChecklists = pgTable("completion_checklists", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull(),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  version: integer("version").notNull().default(1),
+  itemsJson: jsonb("items_json").$type<CompletionChecklistItem[]>().notNull().default([]),
+  createdBy: varchar("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("completion_checklists_organization_id_idx").on(table.organizationId),
+]);
+
+export const insertCompletionChecklistSchema = createInsertSchema(completionChecklists).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type CompletionChecklist = typeof completionChecklists.$inferSelect;
+export type InsertCompletionChecklist = z.infer<typeof insertCompletionChecklistSchema>;
+
+/** Per-inspection answers for snapshotted checklist items. */
+export const completionChecklistResponses = pgTable("completion_checklist_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  inspectionId: varchar("inspection_id").notNull(),
+  itemId: varchar("item_id").notNull(),
+  valueJson: jsonb("value_json"),
+  photoUrls: text("photo_urls").array().default([]),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("completion_checklist_responses_inspection_id_idx").on(table.inspectionId),
+  uniqueIndex("completion_checklist_responses_insp_item_uidx").on(table.inspectionId, table.itemId),
+]);
+
+export const insertCompletionChecklistResponseSchema = createInsertSchema(completionChecklistResponses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type CompletionChecklistResponse = typeof completionChecklistResponses.$inferSelect;
+export type InsertCompletionChecklistResponse = z.infer<typeof insertCompletionChecklistResponseSchema>;
+
 // Inspections (can be on blocks OR properties)
 export const inspections = pgTable("inspections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -955,6 +1019,21 @@ export const inspections = pgTable("inspections", {
   creditsConsumed: integer("credits_consumed"), // Total credits consumed for this inspection
   imagesCount: integer("images_count"), // Total images in inspection (for audit)
   extensiveInspectionTypeId: varchar("extensive_inspection_type_id"), // Link to extensive_inspection_config if this is an extensive inspection
+  /** Master checklist id at create time (optional). */
+  completionChecklistId: varchar("completion_checklist_id"),
+  /** Frozen checklist copy so master edits do not change filled jobs. */
+  completionChecklistSnapshotJson: jsonb("completion_checklist_snapshot_json").$type<{
+    id: string;
+    name: string;
+    version: number;
+    items: Array<{
+      id: string;
+      label: string;
+      type: "checkbox" | "text" | "photo";
+      required?: boolean;
+      helpText?: string;
+    }>;
+  }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

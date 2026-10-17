@@ -440,6 +440,10 @@ import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
 import { resolveCoverLogoSrc } from "./reportLogo";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
+import {
+  buildCompletionChecklistSnapshot,
+  computeCompletionChecklistProgress,
+} from "@shared/completionChecklist";
 import { formatSignerDisplayName, isTenantSignatureField, createSignatureValue } from "@shared/signature";
 import { extractTextFromFile, buildKnowledgeBaseContext } from "./documentProcessor";
 import {
@@ -454,6 +458,7 @@ import {
   insertTagSchema,
   insertTemplateCategorySchema,
   insertInspectionTemplateSchema,
+  insertCompletionChecklistSchema,
   insertTemplateInventoryLinkSchema,
   insertInspectionEntrySchema,
   insertAiImageAnalysisSchema,
@@ -6664,6 +6669,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateVersion = template.version;
       }
 
+      // Snapshot completion checklist from the chosen template (fresh; not from check-in answers).
+      let completionChecklistId: string | null = null;
+      let completionChecklistSnapshotJson: ReturnType<typeof buildCompletionChecklistSnapshot> | null = null;
+      if (finalTemplateId) {
+        const templateForChecklist = await storage.getInspectionTemplate(finalTemplateId);
+        if (templateForChecklist?.completionChecklistId) {
+          const checklist = await storage.getCompletionChecklist(templateForChecklist.completionChecklistId);
+          if (
+            checklist &&
+            checklist.organizationId === currentUser.organizationId &&
+            checklist.isActive
+          ) {
+            completionChecklistId = checklist.id;
+            completionChecklistSnapshotJson = buildCompletionChecklistSnapshot(checklist);
+          }
+        }
+      }
+
       // Property = source of truth for rooms / counts on NEW property inspections
       // Check-out with a prior check-in inherits that check-in's sections/points (incl. customs + floor plan).
       let propertyRoomCountsSnapshot: any = null;
@@ -6780,6 +6803,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateSnapshotJson: templateSnapshotJson as any,
         propertyRoomCountsSnapshot: propertyRoomCountsSnapshot as any,
         propertyRoomsSnapshot: propertyRoomsSnapshot as any,
+        completionChecklistId,
+        completionChecklistSnapshotJson: completionChecklistSnapshotJson as any,
       } as any);
 
       for (const seed of seedEntries) {
@@ -6875,6 +6900,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const scheduledDate = new Date(targetYear, monthIndex, 15, 9, 0, 0);
 
         try {
+          let bulkChecklistId: string | null = null;
+          let bulkChecklistSnap: ReturnType<typeof buildCompletionChecklistSnapshot> | null = null;
+          if (template.completionChecklistId) {
+            const checklist = await storage.getCompletionChecklist(template.completionChecklistId);
+            if (
+              checklist &&
+              checklist.organizationId === currentUser.organizationId &&
+              checklist.isActive
+            ) {
+              bulkChecklistId = checklist.id;
+              bulkChecklistSnap = buildCompletionChecklistSnapshot(checklist);
+            }
+          }
           const inspection = await storage.createInspection({
             organizationId: currentUser.organizationId,
             propertyId: entityType === 'property' ? entityId : null,
@@ -6886,7 +6924,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             templateId,
             templateVersion: template.version,
             templateSnapshotJson: template.structureJson as any,
-          });
+            completionChecklistId: bulkChecklistId,
+            completionChecklistSnapshotJson: bulkChecklistSnap as any,
+          } as any);
           createdInspections.push(inspection);
         } catch (error) {
           console.error(`Failed to create inspection for template ${templateId}, month ${monthIndex}:`, error);
@@ -6993,6 +7033,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Fresh checklist snapshot from the target template (do not copy source checklist answers).
+      let copyChecklistId: string | null = null;
+      let copyChecklistSnap: ReturnType<typeof buildCompletionChecklistSnapshot> | null = null;
+      if (templateId) {
+        const tmpl = await storage.getInspectionTemplate(templateId);
+        if (tmpl?.completionChecklistId) {
+          const checklist = await storage.getCompletionChecklist(tmpl.completionChecklistId);
+          if (checklist && checklist.organizationId === user.organizationId && checklist.isActive) {
+            copyChecklistId = checklist.id;
+            copyChecklistSnap = buildCompletionChecklistSnapshot(checklist);
+          }
+        }
+      }
+
       // Create new inspection
       const newInspection = await storage.createInspection({
         organizationId: user.organizationId,
@@ -7007,6 +7061,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateSnapshotJson: templateSnapshotJson as any,
         propertyRoomsSnapshot: copyPropertyRoomsSnapshot,
         propertyRoomCountsSnapshot: copyPropertyRoomCountsSnapshot,
+        completionChecklistId: copyChecklistId,
+        completionChecklistSnapshotJson: copyChecklistSnap as any,
       } as any);
 
       // Copy entries if requested
@@ -8696,6 +8752,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== INSPECTION RESPONSE ROUTES ====================
+
+  // Completion checklist for an inspection (snapshot + responses)
+  app.get("/api/inspections/:id/completion-checklist", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const inspection = await storage.getInspection(req.params.id);
+      if (!inspection) {
+        return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      if (user.role === "tenant") {
+        const isReviewableType = inspection.type === "check_in" || inspection.type === "check_out";
+        const wasSentForReview =
+          inspection.tenantApprovalStatus === "pending" ||
+          inspection.tenantApprovalStatus === "signed" ||
+          inspection.tenantApprovalStatus === "approved" ||
+          inspection.tenantApprovalStatus === "disputed";
+        if (!isReviewableType || !wasSentForReview) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (!user.organizationId || inspection.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      } else if (user.role !== "owner" && user.role !== "compliance") {
+        if (inspection.inspectorId !== userId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const snapshot = (inspection as any).completionChecklistSnapshotJson ?? null;
+      const responses = snapshot
+        ? await storage.getCompletionChecklistResponses(inspection.id)
+        : [];
+      const progress = computeCompletionChecklistProgress(snapshot, responses);
+
+      res.json({ snapshot, responses, progress });
+    } catch (error) {
+      console.error("Error fetching inspection completion checklist:", error);
+      res.status(500).json({ message: "Failed to fetch completion checklist" });
+    }
+  });
+
+  app.put("/api/inspections/:id/completion-checklist/items/:itemId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+
+      const inspection = await storage.getInspection(req.params.id);
+      if (!inspection || inspection.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Inspection not found" });
+      }
+
+      if (user.role === "tenant") {
+        return res.status(403).json({ message: "Tenants cannot edit checklists" });
+      }
+      if (user.role !== "owner" && user.role !== "compliance" && inspection.inspectorId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (inspection.status === "reviewed") {
+        return res.status(400).json({ message: "Inspection is locked" });
+      }
+
+      const snapshot = (inspection as any).completionChecklistSnapshotJson as
+        | { items?: Array<{ id: string }> }
+        | null;
+      if (!snapshot?.items?.length) {
+        return res.status(404).json({ message: "No completion checklist on this inspection" });
+      }
+      const item = snapshot.items.find((i) => i.id === req.params.itemId);
+      if (!item) {
+        return res.status(404).json({ message: "Checklist item not found" });
+      }
+
+      const payload: {
+        inspectionId: string;
+        itemId: string;
+        valueJson?: unknown;
+        photoUrls?: string[];
+        updatedBy: string;
+      } = {
+        inspectionId: inspection.id,
+        itemId: req.params.itemId,
+        updatedBy: userId,
+      };
+      if (Object.prototype.hasOwnProperty.call(req.body, "valueJson")) {
+        payload.valueJson = req.body.valueJson;
+      }
+      if (Array.isArray(req.body.photoUrls)) {
+        payload.photoUrls = req.body.photoUrls;
+      }
+
+      const response = await storage.upsertCompletionChecklistResponse(payload);
+
+      res.json(response);
+    } catch (error) {
+      console.error("Error updating checklist item:", error);
+      res.status(500).json({ message: "Failed to update checklist item" });
+    }
+  });
 
   // Create or update inspection response
   app.post("/api/inspections/:inspectionId/responses", isAuthenticated, async (req: any, res) => {
@@ -18520,6 +18683,107 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
+  // ==================== COMPLETION CHECKLIST ROUTES ====================
+
+  app.get("/api/completion-checklists", isAuthenticated, requireRole("owner", "compliance", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      let list = await storage.getCompletionChecklistsByOrganization(user.organizationId);
+      if (req.query.active === "true") {
+        list = list.filter((c) => c.isActive);
+      }
+      res.json(list);
+    } catch (error) {
+      console.error("Error fetching completion checklists:", error);
+      res.status(500).json({ message: "Failed to fetch completion checklists" });
+    }
+  });
+
+  app.get("/api/completion-checklists/:id", isAuthenticated, requireRole("owner", "compliance", "clerk"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const checklist = await storage.getCompletionChecklist(req.params.id);
+      if (!checklist || checklist.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Checklist not found" });
+      }
+      res.json(checklist);
+    } catch (error) {
+      console.error("Error fetching completion checklist:", error);
+      res.status(500).json({ message: "Failed to fetch completion checklist" });
+    }
+  });
+
+  app.post("/api/completion-checklists", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const validated = insertCompletionChecklistSchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+        createdBy: req.user.id,
+        itemsJson: Array.isArray(req.body.itemsJson) ? req.body.itemsJson : [],
+      });
+      const checklist = await storage.createCompletionChecklist(validated);
+      res.status(201).json(checklist);
+    } catch (error) {
+      console.error("Error creating completion checklist:", error);
+      res.status(400).json({ message: "Failed to create completion checklist" });
+    }
+  });
+
+  app.put("/api/completion-checklists/:id", isAuthenticated, requireRole("owner", "compliance"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const existing = await storage.getCompletionChecklist(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Checklist not found" });
+      }
+      const updates: Record<string, unknown> = { ...req.body };
+      delete updates.id;
+      delete updates.organizationId;
+      delete updates.createdBy;
+      delete updates.createdAt;
+      delete updates.updatedAt;
+      if (Array.isArray(updates.itemsJson)) {
+        updates.version = (existing.version || 1) + 1;
+      }
+      const checklist = await storage.updateCompletionChecklist(req.params.id, updates as any);
+      res.json(checklist);
+    } catch (error) {
+      console.error("Error updating completion checklist:", error);
+      res.status(400).json({ message: "Failed to update completion checklist" });
+    }
+  });
+
+  app.delete("/api/completion-checklists/:id", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "User not in organization" });
+      }
+      const existing = await storage.getCompletionChecklist(req.params.id);
+      if (!existing || existing.organizationId !== user.organizationId) {
+        return res.status(404).json({ message: "Checklist not found" });
+      }
+      await storage.deleteCompletionChecklist(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting completion checklist:", error);
+      res.status(500).json({ message: "Failed to delete completion checklist" });
+    }
+  });
+
   // ==================== INSPECTION TEMPLATE ROUTES ====================
 
   // Template Categories
@@ -18732,6 +18996,7 @@ ${optionalNotes || "No details provided."}`;
         name: req.body.name || `${existing.name} (v${newVersion})`,
         description: req.body.description || existing.description,
         categoryId: existing.categoryId,
+        completionChecklistId: existing.completionChecklistId,
         scope: existing.scope,
         structureJson: existing.structureJson as any,
         version: newVersion,

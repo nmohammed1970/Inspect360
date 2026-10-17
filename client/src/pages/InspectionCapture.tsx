@@ -47,6 +47,10 @@ import { formatDisplayHeading, numberedRoomInstanceTitle } from "@shared/propert
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
 import {
+  CompletionChecklistPanel,
+  useInspectionCompletionChecklist,
+} from "@/components/CompletionChecklistPanel";
+import {
   cipCountFieldKey,
   cipExpandedFieldKey,
   cipInstanceLabel,
@@ -158,6 +162,10 @@ export default function InspectionCapture() {
   const { data: inspection, isLoading } = useQuery<Inspection>({
     queryKey: ["/api/inspections", id],
   });
+
+  const { data: completionChecklist } = useInspectionCompletionChecklist(id);
+  const checklistRequiredIncomplete =
+    completionChecklist?.progress?.requiredIncomplete ?? 0;
 
   const propertyRoomCountsSnapshot =
     (inspection as Inspection & { propertyRoomCountsSnapshot?: PropertyRoomCountsSnapshot | null })
@@ -1984,6 +1992,13 @@ export default function InspectionCapture() {
                 <p>
                   Once completed, this inspection cannot be edited again. Make sure all fields and photos are correct before continuing.
                 </p>
+                {checklistRequiredIncomplete > 0 && (
+                  <p className="text-amber-700 dark:text-amber-400 font-medium">
+                    {checklistRequiredIncomplete} required completion checklist step
+                    {checklistRequiredIncomplete === 1 ? " is" : "s are"} still unfinished. You can
+                    complete anyway.
+                  </p>
+                )}
                 <p>
                   Would you like to analyse this inspection with AI? This uses the same full report analysis as{" "}
                   <span className="font-medium text-foreground">Analyse Report Using AI</span> and runs in the background while the inspection is marked complete.
@@ -2007,6 +2022,8 @@ export default function InspectionCapture() {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Completing...
                 </>
+              ) : checklistRequiredIncomplete > 0 ? (
+                "Complete anyway"
               ) : (
                 "No, complete now"
               )}
@@ -2094,6 +2111,15 @@ export default function InspectionCapture() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {id && inspection?.status !== "reviewed" && (
+        <CompletionChecklistPanel
+          inspectionId={id}
+          readOnly={inspection?.status === "completed"}
+          compact
+          className="mt-4"
+        />
+      )}
 
       {/* Copy from Previous Check-In (only for check-out inspections) - Show at top for visibility */}
       {inspection?.type === "check_out" && (

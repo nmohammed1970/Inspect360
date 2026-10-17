@@ -310,5 +310,49 @@ export const inspectionsService = {
     }
     return apiRequestJson<Inspection>('POST', '/api/inspections', payload);
   },
+
+  async getCompletionChecklist(inspectionId: string): Promise<{
+    snapshot: {
+      id: string;
+      name: string;
+      version: number;
+      items: Array<{
+        id: string;
+        label: string;
+        type: 'checkbox' | 'text' | 'photo';
+        required?: boolean;
+        helpText?: string;
+      }>;
+    } | null;
+    responses: Array<{
+      id: string;
+      inspectionId: string;
+      itemId: string;
+      valueJson?: unknown;
+      photoUrls?: string[] | null;
+      updatedAt?: string;
+    }>;
+    progress: {
+      total: number;
+      completed: number;
+      requiredIncomplete: number;
+      requiredTotal: number;
+      requiredCompleted: number;
+    };
+  }> {
+    return apiRequestJson('GET', `/api/inspections/${inspectionId}/completion-checklist`);
+  },
+
+  async upsertCompletionChecklistItem(
+    inspectionId: string,
+    itemId: string,
+    body: { valueJson?: unknown; photoUrls?: string[] },
+  ): Promise<unknown> {
+    return apiRequestJson(
+      'PUT',
+      `/api/inspections/${inspectionId}/completion-checklist/items/${itemId}`,
+      body,
+    );
+  },
 };
 
