@@ -1,5 +1,6 @@
 import type {
   CompletionChecklistItem,
+  CompletionChecklistPhotoEvidence,
   CompletionChecklistSnapshot,
 } from "./schema";
 
@@ -17,38 +18,96 @@ export type CompletionChecklistProgress = {
   requiredCompleted: number;
 };
 
+/** Normalize legacy text_with_photo and missing photoEvidence. */
+export function normalizeCompletionChecklistItem(
+  raw: CompletionChecklistItem & { type?: string },
+): CompletionChecklistItem {
+  const legacyType = raw.type as string;
+  if (legacyType === "text_with_photo") {
+    return {
+      id: raw.id,
+      label: raw.label,
+      type: "text",
+      required: raw.required,
+      helpText: raw.helpText,
+      photoEvidence: raw.required ? "required" : "optional",
+    };
+  }
+  const type =
+    legacyType === "checkbox" || legacyType === "text" || legacyType === "photo"
+      ? legacyType
+      : "checkbox";
+  const photoEvidence: CompletionChecklistPhotoEvidence =
+    raw.photoEvidence === "optional" || raw.photoEvidence === "required"
+      ? raw.photoEvidence
+      : "none";
+  return {
+    id: raw.id,
+    label: raw.label,
+    type,
+    required: raw.required,
+    helpText: raw.helpText,
+    photoEvidence: type === "photo" ? "none" : photoEvidence,
+  };
+}
+
+export function normalizeCompletionChecklistItems(
+  items: Array<CompletionChecklistItem & { type?: string }> | null | undefined,
+): CompletionChecklistItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.map(normalizeCompletionChecklistItem);
+}
+
+export function itemAllowsPhotoEvidence(item: CompletionChecklistItem): boolean {
+  if (item.type === "photo") return true;
+  const mode = item.photoEvidence ?? "none";
+  return mode === "optional" || mode === "required";
+}
+
+export function itemRequiresPhotoEvidence(item: CompletionChecklistItem): boolean {
+  if (item.type === "photo") return true;
+  return (item.photoEvidence ?? "none") === "required";
+}
+
 export function isChecklistItemComplete(
   item: CompletionChecklistItem,
   response: CompletionChecklistResponseLike | undefined | null,
 ): boolean {
+  const normalized = normalizeCompletionChecklistItem(item);
   if (!response) return false;
+
   const hasText =
     typeof response.valueJson === "string" && response.valueJson.trim().length > 0;
   const hasPhoto =
     Array.isArray(response.photoUrls) && response.photoUrls.length > 0;
 
-  switch (item.type) {
+  let baseDone = false;
+  switch (normalized.type) {
     case "checkbox":
-      return response.valueJson === true;
+      baseDone = response.valueJson === true;
+      break;
     case "text":
-      return hasText;
+      baseDone = hasText;
+      break;
     case "photo":
-      return hasPhoto;
-    case "text_with_photo":
-      // Text always required to count as done; required steps also need photo evidence.
-      if (!hasText) return false;
-      if (item.required) return hasPhoto;
-      return true;
+      baseDone = hasPhoto;
+      break;
     default:
-      return false;
+      baseDone = false;
   }
+
+  if (!baseDone) return false;
+  if (itemRequiresPhotoEvidence(normalized) && normalized.type !== "photo") {
+    return hasPhoto;
+  }
+  return true;
 }
 
 export function computeCompletionChecklistProgress(
   snapshot: CompletionChecklistSnapshot | null | undefined,
   responses: CompletionChecklistResponseLike[] | null | undefined,
 ): CompletionChecklistProgress {
-  const items = snapshot?.items ?? [];
+  const items = normalizeCompletionChecklistItems(snapshot?.items);
   const byItem = new Map((responses ?? []).map((r) => [r.itemId, r]));
 
   let completed = 0;
@@ -83,6 +142,6 @@ export function buildCompletionChecklistSnapshot(checklist: {
     id: checklist.id,
     name: checklist.name,
     version: checklist.version,
-    items: Array.isArray(checklist.itemsJson) ? checklist.itemsJson : [],
+    items: normalizeCompletionChecklistItems(checklist.itemsJson),
   };
 }

@@ -23,6 +23,9 @@ import { getAPI_URL } from '../../services/api';
 import {
   computeCompletionChecklistProgress,
   isChecklistItemComplete,
+  itemAllowsPhotoEvidence,
+  itemRequiresPhotoEvidence,
+  normalizeCompletionChecklistItems,
 } from '@shared/completionChecklist';
 
 type Props = {
@@ -136,9 +139,11 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
     );
   }
 
-  const snapshot = data?.snapshot;
-  if (!snapshot?.items?.length) return null;
+  const rawSnapshot = data?.snapshot;
+  if (!rawSnapshot?.items?.length) return null;
 
+  const items = normalizeCompletionChecklistItems(rawSnapshot.items as any);
+  const snapshot = { ...rawSnapshot, items };
   const responses = data?.responses ?? [];
   const byItem = new Map(responses.map((r) => [r.itemId, r]));
   const progress =
@@ -162,10 +167,12 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
       </View>
       <Progress value={pct} style={{ marginBottom: spacing[3] }} />
 
-      {snapshot.items.map((item) => {
+      {items.map((item) => {
         const response = byItem.get(item.id);
         const done = isChecklistItemComplete(item, response);
         const photos = response?.photoUrls || [];
+        const showPhoto = itemAllowsPhotoEvidence(item);
+        const photoRequired = itemRequiresPhotoEvidence(item) && item.type !== 'photo';
 
         return (
           <View
@@ -188,6 +195,7 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
                 <Text style={[styles.itemLabel, { color: themeColors.text.primary }]}>
                   {item.label}
                   {item.required ? ' *' : ''}
+                  {photoRequired ? ' (photo required)' : ''}
                 </Text>
                 {!!item.helpText && (
                   <Text style={[styles.help, { color: themeColors.text.secondary }]}>
@@ -217,7 +225,7 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
               </TouchableOpacity>
             )}
 
-            {(item.type === 'text' || item.type === 'text_with_photo') && (
+            {item.type === 'text' && (
               <TextInput
                 editable={!readOnly}
                 value={
@@ -250,11 +258,11 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
               />
             )}
 
-            {(item.type === 'photo' || item.type === 'text_with_photo') && (
+            {showPhoto && (
               <View style={styles.photoBlock}>
-                {item.type === 'text_with_photo' && item.required ? (
+                {photoRequired ? (
                   <Text style={[styles.help, { color: themeColors.text.secondary, marginBottom: 6 }]}>
-                    Photo evidence required with your answer.
+                    Photo evidence is required for this step.
                   </Text>
                 ) : null}
                 <View style={styles.photoRow}>
@@ -289,7 +297,7 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
                       <>
                         <Ionicons name="camera" size={18} color={themeColors.primary.DEFAULT} />
                         <Text style={{ color: themeColors.primary.DEFAULT, marginLeft: 6 }}>
-                          {item.type === 'text_with_photo' ? 'Add photo evidence' : 'Add photo'}
+                          {item.type === 'photo' ? 'Add photo' : 'Add photo evidence'}
                         </Text>
                       </>
                     )}

@@ -8,6 +8,10 @@ import type {
 import {
   computeCompletionChecklistProgress,
   isChecklistItemComplete,
+  itemAllowsPhotoEvidence,
+  itemRequiresPhotoEvidence,
+  normalizeCompletionChecklistItem,
+  normalizeCompletionChecklistItems,
   type CompletionChecklistProgress,
 } from "@shared/completionChecklist";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,7 +121,9 @@ export function CompletionChecklistPanel({
     return null;
   }
 
-  const { snapshot, responses } = data;
+  const { snapshot: rawSnapshot, responses } = data;
+  const items = normalizeCompletionChecklistItems(rawSnapshot.items);
+  const snapshot = { ...rawSnapshot, items };
   const byItem = new Map(responses.map((r) => [r.itemId, r]));
   const progress =
     data.progress ?? computeCompletionChecklistProgress(snapshot, responses);
@@ -178,13 +184,14 @@ export function CompletionChecklistPanel({
         <Progress value={pct} className="h-2 mt-2" />
       </CardHeader>
       <CardContent className={cn("space-y-4", compact && "px-4 pb-4")}>
-        {snapshot.items.map((item) => {
+        {items.map((rawItem) => {
+          const item = normalizeCompletionChecklistItem(rawItem);
           const response = byItem.get(item.id);
           const done = isChecklistItemComplete(item, response);
-          const showText = item.type === "text" || item.type === "text_with_photo";
-          const showPhoto = item.type === "photo" || item.type === "text_with_photo";
+          const showText = item.type === "text";
+          const showPhoto = itemAllowsPhotoEvidence(item);
           const photoLabel =
-            item.type === "text_with_photo" ? "Add photo evidence" : "Add photo";
+            item.type === "photo" ? "Add photo" : "Add photo evidence";
 
           return (
             <div
@@ -208,13 +215,18 @@ export function CompletionChecklistPanel({
                         Required
                       </Badge>
                     )}
+                    {itemRequiresPhotoEvidence(item) && item.type !== "photo" && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Photo required
+                      </Badge>
+                    )}
                   </div>
                   {item.helpText && (
                     <p className="text-xs text-muted-foreground mt-0.5">{item.helpText}</p>
                   )}
-                  {item.type === "text_with_photo" && item.required && (
+                  {itemRequiresPhotoEvidence(item) && item.type !== "photo" && (
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Answer and photo evidence are both required for this step.
+                      Photo evidence is required for this step.
                     </p>
                   )}
                 </div>

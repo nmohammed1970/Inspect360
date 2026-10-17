@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, ListChecks, GripVertical } from "lucide-react";
-import type { CompletionChecklist, CompletionChecklistItem } from "@shared/schema";
+import type {
+  CompletionChecklist,
+  CompletionChecklistItem,
+  CompletionChecklistPhotoEvidence,
+} from "@shared/schema";
+import { normalizeCompletionChecklistItems } from "@shared/completionChecklist";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,6 +48,7 @@ function newItem(partial?: Partial<CompletionChecklistItem>): CompletionChecklis
     type: partial?.type || "checkbox",
     required: partial?.required ?? false,
     helpText: partial?.helpText,
+    photoEvidence: partial?.photoEvidence ?? "none",
   };
 }
 
@@ -80,7 +86,7 @@ export default function CompletionChecklists({ embedded = false }: CompletionChe
     setName(c.name);
     setDescription(c.description || "");
     setIsActive(c.isActive);
-    setItems(Array.isArray(c.itemsJson) ? [...c.itemsJson] : []);
+    setItems(normalizeCompletionChecklistItems(c.itemsJson));
     setEditorOpen(true);
   };
 
@@ -90,10 +96,12 @@ export default function CompletionChecklists({ embedded = false }: CompletionChe
         name: name.trim(),
         description: description.trim() || null,
         isActive,
-        itemsJson: items.map((item, index) => ({
-          ...item,
-          label: item.label.trim() || `Step ${index + 1}`,
-        })),
+        itemsJson: normalizeCompletionChecklistItems(
+          items.map((item, index) => ({
+            ...item,
+            label: item.label.trim() || `Step ${index + 1}`,
+          })),
+        ),
       };
       if (!payload.name) throw new Error("Name is required");
       if (editing) {
@@ -350,9 +358,13 @@ export default function CompletionChecklists({ embedded = false }: CompletionChe
                       <Label className="text-xs">Type</Label>
                       <Select
                         value={item.type}
-                        onValueChange={(v) =>
-                          updateItem(item.id, { type: v as CompletionChecklistItem["type"] })
-                        }
+                        onValueChange={(v) => {
+                          const type = v as CompletionChecklistItem["type"];
+                          updateItem(item.id, {
+                            type,
+                            photoEvidence: type === "photo" ? "none" : item.photoEvidence ?? "none",
+                          });
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -361,7 +373,6 @@ export default function CompletionChecklists({ embedded = false }: CompletionChe
                           <SelectItem value="checkbox">Checkbox</SelectItem>
                           <SelectItem value="text">Short text</SelectItem>
                           <SelectItem value="photo">Photo</SelectItem>
-                          <SelectItem value="text_with_photo">Text + photo evidence</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -374,6 +385,28 @@ export default function CompletionChecklists({ embedded = false }: CompletionChe
                       />
                     </div>
                   </div>
+                  {(item.type === "checkbox" || item.type === "text") && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Photo evidence</Label>
+                      <Select
+                        value={item.photoEvidence || "none"}
+                        onValueChange={(v) =>
+                          updateItem(item.id, {
+                            photoEvidence: v as CompletionChecklistPhotoEvidence,
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="optional">Optional</SelectItem>
+                          <SelectItem value="required">Required</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Switch
                       checked={!!item.required}

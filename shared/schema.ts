@@ -921,12 +921,16 @@ export const insertInspectionTemplatePointSchema = createInsertSchema(inspection
 export type InspectionTemplatePoint = typeof inspectionTemplatePoints.$inferSelect;
 export type InsertInspectionTemplatePoint = z.infer<typeof insertInspectionTemplatePointSchema>;
 
+export type CompletionChecklistPhotoEvidence = "none" | "optional" | "required";
+
 export type CompletionChecklistItem = {
   id: string;
   label: string;
-  type: "checkbox" | "text" | "photo" | "text_with_photo";
+  type: "checkbox" | "text" | "photo";
   required?: boolean;
   helpText?: string;
+  /** Photo proof on checkbox/text steps. Ignored for type "photo". */
+  photoEvidence?: CompletionChecklistPhotoEvidence;
 };
 
 export type CompletionChecklistSnapshot = {
@@ -1029,9 +1033,10 @@ export const inspections = pgTable("inspections", {
     items: Array<{
       id: string;
       label: string;
-      type: "checkbox" | "text" | "photo" | "text_with_photo";
+      type: "checkbox" | "text" | "photo";
       required?: boolean;
       helpText?: string;
+      photoEvidence?: "none" | "optional" | "required";
     }>;
   }>(),
   createdAt: timestamp("created_at").defaultNow(),
