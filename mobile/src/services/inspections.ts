@@ -319,7 +319,7 @@ export const inspectionsService = {
       items: Array<{
         id: string;
         label: string;
-        type: 'checkbox' | 'text' | 'photo';
+        type: 'checkbox' | 'text' | 'photo' | 'text_with_photo';
         required?: boolean;
         helpText?: string;
       }>;

@@ -361,6 +361,7 @@ export default function CompletionChecklists({ embedded = false }: CompletionChe
                           <SelectItem value="checkbox">Checkbox</SelectItem>
                           <SelectItem value="text">Short text</SelectItem>
                           <SelectItem value="photo">Photo</SelectItem>
+                          <SelectItem value="text_with_photo">Text + photo evidence</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

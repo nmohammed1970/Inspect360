@@ -217,7 +217,7 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
               </TouchableOpacity>
             )}
 
-            {item.type === 'text' && (
+            {(item.type === 'text' || item.type === 'text_with_photo') && (
               <TextInput
                 editable={!readOnly}
                 value={
@@ -250,8 +250,13 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
               />
             )}
 
-            {item.type === 'photo' && (
+            {(item.type === 'photo' || item.type === 'text_with_photo') && (
               <View style={styles.photoBlock}>
+                {item.type === 'text_with_photo' && item.required ? (
+                  <Text style={[styles.help, { color: themeColors.text.secondary, marginBottom: 6 }]}>
+                    Photo evidence required with your answer.
+                  </Text>
+                ) : null}
                 <View style={styles.photoRow}>
                   {photos.map((url) => (
                     <View key={url} style={styles.photoWrap}>
@@ -284,7 +289,7 @@ export function CompletionChecklistPanel({ inspectionId, readOnly = false }: Pro
                       <>
                         <Ionicons name="camera" size={18} color={themeColors.primary.DEFAULT} />
                         <Text style={{ color: themeColors.primary.DEFAULT, marginLeft: 6 }}>
-                          Add photo
+                          {item.type === 'text_with_photo' ? 'Add photo evidence' : 'Add photo'}
                         </Text>
                       </>
                     )}

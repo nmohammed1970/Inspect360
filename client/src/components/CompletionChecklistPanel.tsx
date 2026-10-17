@@ -7,6 +7,7 @@ import type {
 } from "@shared/schema";
 import {
   computeCompletionChecklistProgress,
+  isChecklistItemComplete,
   type CompletionChecklistProgress,
 } from "@shared/completionChecklist";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -179,13 +180,11 @@ export function CompletionChecklistPanel({
       <CardContent className={cn("space-y-4", compact && "px-4 pb-4")}>
         {snapshot.items.map((item) => {
           const response = byItem.get(item.id);
-          const done =
-            item.type === "checkbox"
-              ? response?.valueJson === true
-              : item.type === "text"
-                ? typeof response?.valueJson === "string" &&
-                  (response.valueJson as string).trim().length > 0
-                : (response?.photoUrls?.length ?? 0) > 0;
+          const done = isChecklistItemComplete(item, response);
+          const showText = item.type === "text" || item.type === "text_with_photo";
+          const showPhoto = item.type === "photo" || item.type === "text_with_photo";
+          const photoLabel =
+            item.type === "text_with_photo" ? "Add photo evidence" : "Add photo";
 
           return (
             <div
@@ -213,6 +212,11 @@ export function CompletionChecklistPanel({
                   {item.helpText && (
                     <p className="text-xs text-muted-foreground mt-0.5">{item.helpText}</p>
                   )}
+                  {item.type === "text_with_photo" && item.required && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Answer and photo evidence are both required for this step.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -227,7 +231,7 @@ export function CompletionChecklistPanel({
                 </label>
               )}
 
-              {item.type === "text" && (
+              {showText && (
                 <div className="pl-6">
                   <Input
                     defaultValue={
@@ -246,7 +250,7 @@ export function CompletionChecklistPanel({
                 </div>
               )}
 
-              {item.type === "photo" && (
+              {showPhoto && (
                 <div className="pl-6 space-y-2">
                   <div className="flex flex-wrap gap-2">
                     {(response?.photoUrls || []).map((url) => (
@@ -289,7 +293,7 @@ export function CompletionChecklistPanel({
                       />
                       <Camera className="h-3.5 w-3.5" />
                       <ImagePlus className="h-3.5 w-3.5" />
-                      Add photo
+                      {photoLabel}
                     </label>
                   )}
                 </div>

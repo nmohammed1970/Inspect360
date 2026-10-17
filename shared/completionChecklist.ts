@@ -22,15 +22,23 @@ export function isChecklistItemComplete(
   response: CompletionChecklistResponseLike | undefined | null,
 ): boolean {
   if (!response) return false;
+  const hasText =
+    typeof response.valueJson === "string" && response.valueJson.trim().length > 0;
+  const hasPhoto =
+    Array.isArray(response.photoUrls) && response.photoUrls.length > 0;
+
   switch (item.type) {
     case "checkbox":
       return response.valueJson === true;
-    case "text": {
-      const v = response.valueJson;
-      return typeof v === "string" && v.trim().length > 0;
-    }
+    case "text":
+      return hasText;
     case "photo":
-      return Array.isArray(response.photoUrls) && response.photoUrls.length > 0;
+      return hasPhoto;
+    case "text_with_photo":
+      // Text always required to count as done; required steps also need photo evidence.
+      if (!hasText) return false;
+      if (item.required) return hasPhoto;
+      return true;
     default:
       return false;
   }
