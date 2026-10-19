@@ -109,8 +109,15 @@ export default function InspectionCaptureScreen() {
   const { maintenanceEnabled } = useCompanyModules();
   const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
   const hasCompletionChecklist = !!completionChecklist?.snapshot;
+  const checklistProgress = completionChecklist?.progress;
+  const checklistIncompleteCount = Math.max(
+    0,
+    (checklistProgress?.total ?? 0) - (checklistProgress?.completed ?? 0),
+  );
+  const checklistIsIncomplete =
+    hasCompletionChecklist && checklistIncompleteCount > 0;
   const checklistRequiredIncomplete =
-    completionChecklist?.progress?.requiredIncomplete ?? 0;
+    checklistProgress?.requiredIncomplete ?? 0;
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
@@ -1400,7 +1407,7 @@ export default function InspectionCaptureScreen() {
   };
 
   const handleComplete = async () => {
-    if (checklistRequiredIncomplete > 0) {
+    if (checklistIsIncomplete) {
       setShowChecklistSoftGate(true);
       return;
     }
@@ -1789,6 +1796,28 @@ export default function InspectionCaptureScreen() {
                 </View>
               )}
 
+              {hasCompletionChecklist && (
+                <View style={styles.actionButtonContainer}>
+                  <Button
+                    title="Checklist"
+                    onPress={() => setCaptureMode('checklist')}
+                    variant="outline"
+                    size="sm"
+                    icon={
+                      <ClipboardList
+                        size={14}
+                        color={themeColors.text.primary}
+                      />
+                    }
+                    style={[
+                      styles.actionButton,
+                      { minHeight: smBtnHeight, paddingVertical: ms(spacing[2], 0.3) },
+                    ]}
+                    textStyle={[styles.actionButtonText, { fontSize: tabFontSize }]}
+                  />
+                </View>
+              )}
+
               {/* Complete Inspection Button */}
               <View style={styles.actionButtonContainer}>
                 <Button
@@ -1917,7 +1946,7 @@ export default function InspectionCaptureScreen() {
                   >
                     Checklist
                   </Text>
-                  {checklistRequiredIncomplete > 0 && (
+                  {checklistIsIncomplete && (
                     <View
                       style={{
                         backgroundColor: themeColors.destructive?.DEFAULT || '#ef4444',
@@ -1930,7 +1959,7 @@ export default function InspectionCaptureScreen() {
                       }}
                     >
                       <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
-                        {checklistRequiredIncomplete}
+                        {checklistIncompleteCount}
                       </Text>
                     </View>
                   )}
@@ -2470,9 +2499,12 @@ export default function InspectionCaptureScreen() {
                 Completion checklist unfinished
               </Text>
               <Text style={[styles.checklistSoftGateBody, { color: themeColors.text.secondary }]}>
-                {checklistRequiredIncomplete} required checklist step
-                {checklistRequiredIncomplete === 1 ? ' is' : 's are'} still unfinished. You can
-                finish them now or complete the inspection anyway.
+                {checklistIncompleteCount} checklist step
+                {checklistIncompleteCount === 1 ? ' is' : 's are'} still unfinished
+                {checklistRequiredIncomplete > 0
+                  ? ` (${checklistRequiredIncomplete} required)`
+                  : ''}
+                . You can finish them now or complete the inspection anyway.
               </Text>
               <Button
                 title="Complete checklist"

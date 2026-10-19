@@ -26,7 +26,7 @@ import {
   itemAllowsPhotoEvidence,
   itemRequiresPhotoEvidence,
   normalizeCompletionChecklistItems,
-} from '@shared/completionChecklist';
+} from '../../../../shared/completionChecklist';
 
 type Props = {
   inspectionId: string;

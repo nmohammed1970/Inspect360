@@ -1,5 +1,16 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image, Alert, Linking } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Alert,
+  Linking,
+  Modal,
+  Pressable,
+} from 'react-native';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useRoute, useNavigation, CommonActions } from '@react-navigation/native';
 import type { RouteProp, NavigationProp } from '@react-navigation/native';
@@ -14,6 +25,7 @@ import {
   Camera,
   Plus,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react-native';
 import { format } from 'date-fns';
 import { inspectionsService } from '../../services/inspections';
@@ -24,7 +36,10 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import { CompletionChecklistPanel } from '../../components/inspections/CompletionChecklistPanel';
+import {
+  CompletionChecklistPanel,
+  useMobileCompletionChecklist,
+} from '../../components/inspections/CompletionChecklistPanel';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -47,6 +62,28 @@ export default function InspectionReviewScreen() {
   const { inspectionId } = route.params;
   const isOnline = useOnlineStatus();
   const contentPad = getResponsivePadding(spacing[4]);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const checklistYRef = useRef(0);
+  const [showChecklistSoftGate, setShowChecklistSoftGate] = useState(false);
+
+  const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
+  const hasCompletionChecklist = !!completionChecklist?.snapshot;
+  const checklistProgress = completionChecklist?.progress;
+  const checklistIncompleteCount = Math.max(
+    0,
+    (checklistProgress?.total ?? 0) - (checklistProgress?.completed ?? 0),
+  );
+  const checklistIsIncomplete =
+    hasCompletionChecklist && checklistIncompleteCount > 0;
+  const checklistRequiredIncomplete =
+    checklistProgress?.requiredIncomplete ?? 0;
+
+  const scrollToChecklist = () => {
+    scrollViewRef.current?.scrollTo({
+      y: Math.max(0, checklistYRef.current - 16),
+      animated: true,
+    });
+  };
 
   const { data: inspection, isLoading } = useQuery({
     queryKey: [`/api/inspections/${inspectionId}`],
@@ -106,6 +143,14 @@ export default function InspectionReviewScreen() {
       Alert.alert('Error', error.message || 'Failed to update inspection status');
     },
   });
+
+  const requestComplete = () => {
+    if (checklistIsIncomplete) {
+      setShowChecklistSoftGate(true);
+      return;
+    }
+    completeInspection.mutate();
+  };
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { variant: any; label: string }> = {
@@ -202,6 +247,7 @@ export default function InspectionReviewScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={[
           styles.content,
           {
@@ -243,7 +289,7 @@ export default function InspectionReviewScreen() {
             {inspection.status !== 'completed' && (
               <Button
                 title="Mark Complete"
-                onPress={() => completeInspection.mutate()}
+                onPress={requestComplete}
                 disabled={completeInspection.isPending}
                 variant="default"
                 size="sm"
@@ -276,13 +322,6 @@ export default function InspectionReviewScreen() {
             </TouchableOpacity>
           </View>
         </View>
-
-        <CompletionChecklistPanel
-          inspectionId={inspectionId}
-          readOnly={
-            inspection.status === 'completed' || inspection.status === 'reviewed'
-          }
-        />
 
         {/* Two Information Cards */}
         <View style={styles.infoCardsRow}>
@@ -537,7 +576,83 @@ export default function InspectionReviewScreen() {
             )}
           </View>
         </Card>
+
+        <View
+          onLayout={(e) => {
+            checklistYRef.current = e.nativeEvent.layout.y;
+          }}
+        >
+          <CompletionChecklistPanel
+            inspectionId={inspectionId}
+            readOnly={
+              inspection.status === 'completed' || inspection.status === 'reviewed'
+            }
+          />
+        </View>
       </ScrollView>
+
+      <Modal
+        visible={showChecklistSoftGate}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowChecklistSoftGate(false)}
+      >
+        <Pressable
+          style={styles.checklistSoftGateOverlay}
+          onPress={() => setShowChecklistSoftGate(false)}
+        >
+          <Pressable
+            style={[
+              styles.checklistSoftGateSheet,
+              {
+                backgroundColor: themeColors.card.DEFAULT,
+                paddingBottom: Math.max(insets.bottom, spacing[4]),
+              },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.checklistSoftGateHandle} />
+            <Text style={[styles.checklistSoftGateTitle, { color: themeColors.text.primary }]}>
+              Completion checklist unfinished
+            </Text>
+            <Text style={[styles.checklistSoftGateBody, { color: themeColors.text.secondary }]}>
+              {checklistIncompleteCount} checklist step
+              {checklistIncompleteCount === 1 ? ' is' : 's are'} still unfinished
+              {checklistRequiredIncomplete > 0
+                ? ` (${checklistRequiredIncomplete} required)`
+                : ''}
+              . You can finish them now or complete the inspection anyway.
+            </Text>
+            <Button
+              title="Complete checklist"
+              onPress={() => {
+                setShowChecklistSoftGate(false);
+                scrollToChecklist();
+              }}
+              variant="default"
+              size="md"
+              icon={<ClipboardList size={16} color={themeColors.primary.foreground || '#fff'} />}
+              style={{ marginBottom: spacing[2] }}
+            />
+            <Button
+              title="Complete anyway"
+              onPress={() => {
+                setShowChecklistSoftGate(false);
+                completeInspection.mutate();
+              }}
+              variant="outline"
+              size="md"
+              style={{ marginBottom: spacing[2] }}
+            />
+            <Button
+              title="Cancel"
+              onPress={() => setShowChecklistSoftGate(false)}
+              variant="ghost"
+              size="md"
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -546,6 +661,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  checklistSoftGateOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  checklistSoftGateSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[3],
+  },
+  checklistSoftGateHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(128,128,128,0.4)',
+    marginBottom: spacing[3],
+  },
+  checklistSoftGateTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: spacing[2],
+  },
+  checklistSoftGateBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: spacing[4],
   },
   content: {
     padding: spacing[4],
