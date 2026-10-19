@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { CompletionChecklistPanel } from "@/components/CompletionChecklistPanel";
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 
 interface Inspection {
   id: string;
@@ -258,7 +259,15 @@ export default function TenantCheckInReview() {
         </div>
       </div>
 
-      {id && <CompletionChecklistPanel inspectionId={id} readOnly />}
+      {id && (
+        <div
+          style={{
+            display: COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ? undefined : "none",
+          }}
+        >
+          <CompletionChecklistPanel inspectionId={id} readOnly />
+        </div>
+      )}
 
       <Card>
         <CardHeader>

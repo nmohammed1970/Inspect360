@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -127,6 +127,7 @@ export default function MaintenanceListScreen() {
   const [workOrderAssignedToId, setWorkOrderAssignedToId] = useState<string>('');
   const [workOrderSlaDue, setWorkOrderSlaDue] = useState<Date | null>(null);
   const [workOrderCostEstimate, setWorkOrderCostEstimate] = useState<string>('');
+  const [workOrderChecklistId, setWorkOrderChecklistId] = useState<string>('__none__');
   const [certificateWorkOrder, setCertificateWorkOrder] = useState<WorkOrder | null>(null);
 
   const { data: requests = [], isLoading, refetch } = useQuery({
@@ -166,11 +167,24 @@ export default function MaintenanceListScreen() {
     enabled: user?.role === 'owner' && !!workOrderTeamId,
   });
 
+  const { data: completionChecklists = [] } = useQuery({
+    queryKey: ['/api/completion-checklists'],
+    queryFn: async () => {
+      const { apiRequestJson } = await import('../../services/api');
+      return apiRequestJson<any[]>('GET', '/api/completion-checklists');
+    },
+    enabled: user?.role === 'owner',
+  });
+  const activeCompletionChecklists = completionChecklists.filter(
+    (c: any) => c.isActive !== false,
+  );
+
   const resetWorkOrderForm = () => {
     setWorkOrderTeamId('');
     setWorkOrderAssignedToId('');
     setWorkOrderSlaDue(null);
     setWorkOrderCostEstimate('');
+    setWorkOrderChecklistId('__none__');
     setSelectedRequestForWorkOrder(null);
   };
 
@@ -318,6 +332,8 @@ export default function MaintenanceListScreen() {
         : undefined,
       costEstimate: Number.isFinite(costParsed) ? Math.round(costParsed * 100) : undefined,
       status: 'assigned',
+      completionChecklistId:
+        workOrderChecklistId === '__none__' ? null : workOrderChecklistId,
     });
   };
 
@@ -688,7 +704,23 @@ export default function MaintenanceListScreen() {
                   { text: 'Assigned', onPress: () => updateWorkOrderStatusMutation.mutate({ id: item.id, status: 'assigned' }) },
                   { text: 'In Progress', onPress: () => updateWorkOrderStatusMutation.mutate({ id: item.id, status: 'in_progress' }) },
                   { text: 'Waiting Parts', onPress: () => updateWorkOrderStatusMutation.mutate({ id: item.id, status: 'waiting_parts' }) },
-                  { text: 'Completed', onPress: () => updateWorkOrderStatusMutation.mutate({ id: item.id, status: 'completed' }) },
+                  {
+                    text: 'Completed',
+                    onPress: () => {
+                      const tabNavigator = navigation.getParent();
+                      if (tabNavigator) {
+                        tabNavigator.dispatch(
+                          CommonActions.navigate({
+                            name: 'WorkOrders',
+                            params: {
+                              screen: 'WorkOrderComplete',
+                              params: { workOrderId: item.id },
+                            },
+                          }),
+                        );
+                      }
+                    },
+                  },
                   { text: 'Cancel', style: 'cancel' },
                 ]
               );
@@ -1133,6 +1165,26 @@ export default function MaintenanceListScreen() {
                   style={{ marginTop: 8 }}
                 />
 
+                <Text style={[styles.workOrderFormLabel, { marginTop: 16, color: themeColors.text.primary }]}>
+                  Completion checklist (optional)
+                </Text>
+                <Select
+                  value={workOrderChecklistId}
+                  placeholder="None"
+                  options={[
+                    { value: '__none__', label: 'None' },
+                    ...activeCompletionChecklists.map((c: any) => ({
+                      value: c.id,
+                      label: c.name,
+                    })),
+                  ]}
+                  onValueChange={setWorkOrderChecklistId}
+                />
+                <Text style={[styles.workOrderHint, { color: themeColors.text.secondary }]}>
+                  Required steps and a customer signature are needed before marking the work order
+                  completed.
+                </Text>
+
                 <View style={styles.modalActions}>
                   <Button
                     title="Cancel"
@@ -1163,6 +1215,7 @@ export default function MaintenanceListScreen() {
         workOrderTitle={certificateWorkOrder?.maintenanceRequest.title}
         onClose={() => setCertificateWorkOrder(null)}
       />
+
     </View>
   );
 }

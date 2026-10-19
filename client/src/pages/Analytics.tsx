@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
+import { WorkOrderCompleteDialog } from "@/components/WorkOrderCompleteDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
 import { FiltersSection } from "@/components/FiltersSection";
@@ -144,6 +145,7 @@ export default function Analytics() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>("all");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null);
+  const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
   const [draggingWorkOrderId, setDraggingWorkOrderId] = useState<string | null>(null);
   const [dropTargetColumn, setDropTargetColumn] = useState<keyof typeof statusCategories | null>(null);
@@ -213,6 +215,10 @@ export default function Analytics() {
     if (statusCategories[columnKey].includes(workOrder.status)) return;
     const nextStatus = columnDropStatus[columnKey];
     if (workOrder.status === nextStatus) return;
+    if (nextStatus === "completed") {
+      setCompleteWorkOrderId(workOrderId);
+      return;
+    }
     updateStatusMutation.mutate({ id: workOrderId, status: nextStatus });
   };
 
@@ -362,10 +368,14 @@ export default function Analytics() {
     const contractorId = selectedId ? member?.contactId || null : null;
     const costParsed = editFormData.costEstimate ? parseFloat(editFormData.costEstimate) : NaN;
 
+    const wantingComplete =
+      editFormData.status === "completed" && selectedWorkOrder.status !== "completed";
+
     updateWorkOrderMutation.mutate({
       id: selectedWorkOrder.id,
       data: {
-        status: editFormData.status,
+        // Completing goes through WorkOrderCompleteDialog (hard gate)
+        status: wantingComplete ? undefined : editFormData.status,
         // Store cents (same unit as create); UI edits major currency units
         costEstimate: Number.isFinite(costParsed) ? Math.round(costParsed * 100) : null,
         slaDue: editFormData.slaDue || null,
@@ -375,6 +385,10 @@ export default function Analytics() {
         contractorId,
       },
     });
+
+    if (wantingComplete) {
+      setCompleteWorkOrderId(selectedWorkOrder.id);
+    }
   };
 
   // Query for work logs when a work order is selected
@@ -724,9 +738,13 @@ export default function Analytics() {
                             ? setWorkOrderToDelete
                             : undefined
                         }
-                        onStatusChange={(status) =>
-                          updateStatusMutation.mutate({ id: wo.id, status })
-                        }
+                        onStatusChange={(status) => {
+                          if (status === "completed") {
+                            setCompleteWorkOrderId(wo.id);
+                            return;
+                          }
+                          updateStatusMutation.mutate({ id: wo.id, status });
+                        }}
                         locale={locale}
                         compact={!!col.compact}
                         isDragging={draggingWorkOrderId === wo.id}
@@ -1093,6 +1111,17 @@ export default function Analytics() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <WorkOrderCompleteDialog
+        workOrderId={completeWorkOrderId}
+        open={!!completeWorkOrderId}
+        onOpenChange={(open) => {
+          if (!open) setCompleteWorkOrderId(null);
+        }}
+        existingSignature={
+          (workOrders.find((w) => w.id === completeWorkOrderId) as any)?.customerSignatureJson
+        }
+      />
 
       <DeleteConfirmDialog
         open={!!workOrderToDelete}

@@ -37,6 +37,7 @@ import {
   CompletionChecklistPanel,
   useMobileCompletionChecklist,
 } from '../../components/inspections/CompletionChecklistPanel';
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from '../../../../shared/completionChecklist';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { formatSignerDisplayName } from '../../../../shared/signature';
 import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
@@ -108,14 +109,18 @@ export default function InspectionCaptureScreen() {
   const isOnline = useOnlineStatus();
   const { maintenanceEnabled } = useCompanyModules();
   const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
-  const hasCompletionChecklist = !!completionChecklist?.snapshot;
+  const hasCompletionChecklist =
+    COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
+    !!completionChecklist?.snapshot;
   const checklistProgress = completionChecklist?.progress;
   const checklistIncompleteCount = Math.max(
     0,
     (checklistProgress?.total ?? 0) - (checklistProgress?.completed ?? 0),
   );
   const checklistIsIncomplete =
-    hasCompletionChecklist && checklistIncompleteCount > 0;
+    COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
+    hasCompletionChecklist &&
+    checklistIncompleteCount > 0;
   const checklistRequiredIncomplete =
     checklistProgress?.requiredIncomplete ?? 0;
   const theme = useTheme();
@@ -1407,7 +1412,7 @@ export default function InspectionCaptureScreen() {
   };
 
   const handleComplete = async () => {
-    if (checklistIsIncomplete) {
+    if (COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && checklistIsIncomplete) {
       setShowChecklistSoftGate(true);
       return;
     }
@@ -1796,7 +1801,7 @@ export default function InspectionCaptureScreen() {
                 </View>
               )}
 
-              {hasCompletionChecklist && (
+              {COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && hasCompletionChecklist && (
                 <View style={styles.actionButtonContainer}>
                   <Button
                     title="Checklist"
@@ -1908,7 +1913,7 @@ export default function InspectionCaptureScreen() {
                   Gallery
                 </Text>
               </TouchableOpacity>
-              {hasCompletionChecklist && (
+              {COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && hasCompletionChecklist && (
                 <TouchableOpacity
                   onPress={() => setCaptureMode('checklist')}
                   style={[
@@ -1978,15 +1983,19 @@ export default function InspectionCaptureScreen() {
               />
             )}
 
-            {captureMode === 'checklist' && hasCompletionChecklist && (
-              <CompletionChecklistPanel
-                inspectionId={inspectionId}
-                readOnly={
-                  effectiveInspection?.status === 'completed' ||
-                  effectiveInspection?.status === 'reviewed' ||
-                  isDeleted
-                }
-              />
+            {COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
+              captureMode === 'checklist' &&
+              hasCompletionChecklist && (
+              <View style={{ display: 'flex' }}>
+                <CompletionChecklistPanel
+                  inspectionId={inspectionId}
+                  readOnly={
+                    effectiveInspection?.status === 'completed' ||
+                    effectiveInspection?.status === 'reviewed' ||
+                    isDeleted
+                  }
+                />
+              </View>
             )}
 
             {captureMode === 'sections' && (
@@ -2475,7 +2484,7 @@ export default function InspectionCaptureScreen() {
         </FormScreen>
 
         <Modal
-          visible={showChecklistSoftGate}
+          visible={COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && showChecklistSoftGate}
           transparent
           animationType="slide"
           onRequestClose={() => setShowChecklistSoftGate(false)}

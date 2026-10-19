@@ -75,9 +75,12 @@ import { extractFileUrlFromUploadResponse, cn } from "@/lib/utils";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
+import { WorkOrderCompleteDialog } from "@/components/WorkOrderCompleteDialog";
+import { WorkOrderCompletionChecklistPanel } from "@/components/WorkOrderCompletionChecklistPanel";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase } from "@/lib/responsive";
+import { parseSignatureValue } from "@shared/signature";
 import { PageHeader } from "@/components/PageHeader";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
@@ -189,8 +192,32 @@ export default function Maintenance() {
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
+  const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
+
+  const { data: completionChecklists = [] } = useQuery<any[]>({
+    queryKey: ["/api/completion-checklists"],
+    queryFn: async () => {
+      const res = await fetch("/api/completion-checklists", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch checklists");
+      return res.json();
+    },
+  });
+  const activeCompletionChecklists = completionChecklists.filter((c: any) => c.isActive !== false);
+
+  const assignWorkOrderChecklistMutation = useMutation({
+    mutationFn: async ({ id, completionChecklistId }: { id: string; completionChecklistId: string | null }) => {
+      return apiRequest("PATCH", `/api/work-orders/${id}`, { completionChecklistId });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      toast({ title: "Checklist updated" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Failed to update checklist", description: e?.message, variant: "destructive" });
+    },
+  });
 
   const canSeeWorkOrders =
     user?.role === "owner" || user?.role === "contractor" || user?.role === "clerk";
@@ -1947,7 +1974,13 @@ export default function Maintenance() {
                                 <label className="text-sm font-medium">Update Status:</label>
                                 <Select
                                   value={workOrder.status}
-                                  onValueChange={(status) => updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status })}
+                                  onValueChange={(status) => {
+                                    if (status === "completed") {
+                                      setCompleteWorkOrderId(workOrder.id);
+                                      return;
+                                    }
+                                    updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status });
+                                  }}
                                 >
                                   <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid={`select-work-order-status-${workOrder.id}`}>
                                     <SelectValue />
@@ -2016,6 +2049,66 @@ export default function Maintenance() {
                     {selectedWorkOrderDetail.maintenanceRequest.description}
                   </p>
                 )}
+                {selectedWorkOrderDetail.status !== "completed" &&
+                  selectedWorkOrderDetail.status !== "rejected" && (
+                  <div className="space-y-2">
+                    <Label>Completion checklist</Label>
+                    <Select
+                      value={
+                        (selectedWorkOrderDetail as any).completionChecklistId || "__none__"
+                      }
+                      onValueChange={(v) => {
+                        const next = v === "__none__" ? null : v;
+                        assignWorkOrderChecklistMutation.mutate({
+                          id: selectedWorkOrderDetail.id,
+                          completionChecklistId: next,
+                        });
+                        setSelectedWorkOrderDetail({
+                          ...selectedWorkOrderDetail,
+                          completionChecklistId: next,
+                        } as any);
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-wo-detail-checklist">
+                        <SelectValue placeholder="None" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {activeCompletionChecklists.map((c: any) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <WorkOrderCompletionChecklistPanel
+                  workOrderId={selectedWorkOrderDetail.id}
+                  readOnly={
+                    selectedWorkOrderDetail.status === "completed" ||
+                    selectedWorkOrderDetail.status === "rejected"
+                  }
+                />
+                {(() => {
+                  const sig = parseSignatureValue(
+                    (selectedWorkOrderDetail as any).customerSignatureJson,
+                  );
+                  if (!sig?.image) return null;
+                  return (
+                    <div className="space-y-2 rounded-md border p-3">
+                      <p className="text-sm font-medium">Customer signature</p>
+                      {sig.signedByName && (
+                        <p className="text-xs text-muted-foreground">{sig.signedByName}</p>
+                      )}
+                      <img
+                        src={sig.image}
+                        alt="Customer signature"
+                        className="w-full max-h-32 object-contain bg-white rounded border"
+                      />
+                    </div>
+                  );
+                })()}
                 <WorkOrderCertificatePanel
                   workOrderId={selectedWorkOrderDetail.id}
                   propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}
@@ -2026,6 +2119,17 @@ export default function Maintenance() {
           )}
         </DialogContent>
       </Dialog>
+
+      <WorkOrderCompleteDialog
+        workOrderId={completeWorkOrderId}
+        open={!!completeWorkOrderId}
+        onOpenChange={(open) => {
+          if (!open) setCompleteWorkOrderId(null);
+        }}
+        existingSignature={
+          workOrders.find((w: any) => w.id === completeWorkOrderId)?.customerSignatureJson
+        }
+      />
 
       {/* Work Order Creation Dialog */}
       {selectedRequestForWorkOrder && (
@@ -2040,6 +2144,7 @@ export default function Maintenance() {
             <WorkOrderForm
               maintenanceRequest={selectedRequestForWorkOrder}
               teams={teams}
+              completionChecklists={activeCompletionChecklists}
               onSubmit={(data) => createWorkOrderMutation.mutate(data)}
               isSubmitting={createWorkOrderMutation.isPending}
             />
@@ -2093,11 +2198,13 @@ export default function Maintenance() {
 function WorkOrderForm({
   maintenanceRequest,
   teams,
+  completionChecklists = [],
   onSubmit,
   isSubmitting,
 }: {
   maintenanceRequest: MaintenanceRequestWithDetails;
   teams: any[];
+  completionChecklists?: any[];
   onSubmit: (data: any) => void;
   isSubmitting: boolean;
 }) {
@@ -2109,6 +2216,7 @@ function WorkOrderForm({
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [slaDue, setSlaDue] = useState<string>("");
   const [costEstimate, setCostEstimate] = useState<string>("");
+  const [completionChecklistId, setCompletionChecklistId] = useState<string>("__none__");
 
   useEffect(() => {
     setAssignedToId("");
@@ -2166,6 +2274,8 @@ function WorkOrderForm({
       slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
       costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
       status: "assigned",
+      completionChecklistId:
+        completionChecklistId === "__none__" ? null : completionChecklistId,
     });
   };
 
@@ -2271,6 +2381,29 @@ function WorkOrderForm({
           onChange={(e) => setCostEstimate(e.target.value)}
           data-testid="input-cost-estimate"
         />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium" htmlFor="wo-completion-checklist">
+          Completion checklist (optional)
+        </label>
+        <Select value={completionChecklistId} onValueChange={setCompletionChecklistId}>
+          <SelectTrigger id="wo-completion-checklist" data-testid="select-wo-create-checklist">
+            <SelectValue placeholder="None" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">None</SelectItem>
+            {completionChecklists.map((c: any) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Required steps and a customer signature are needed before marking the work order
+          completed.
+        </p>
       </div>
 
       <div className="flex justify-end gap-2 pt-4">

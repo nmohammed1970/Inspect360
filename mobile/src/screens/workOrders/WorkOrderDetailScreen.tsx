@@ -8,6 +8,7 @@ import {
   Alert,
   TouchableOpacity,
   Platform,
+  Image,
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -29,6 +30,7 @@ import {
 import { format } from 'date-fns';
 import { maintenanceService } from '../../services/maintenance';
 import { WorkOrderCertificateSheet } from '../../components/WorkOrderCertificateSheet';
+import { WorkOrderCompletionChecklistPanel } from '../../components/workOrders/WorkOrderCompletionChecklistPanel';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import Card from '../../components/ui/Card';
@@ -104,6 +106,7 @@ export default function WorkOrderDetailScreen() {
   const { workOrderId } = route.params;
   const [showCertificates, setShowCertificates] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [editChecklistId, setEditChecklistId] = useState('__none__');
 
   const isOwner = user?.role === 'owner';
   const canUpdateStatus = user?.role === 'clerk' || user?.role === 'contractor' || isOwner;
@@ -132,6 +135,15 @@ export default function WorkOrderDetailScreen() {
     enabled: isOwner,
   });
 
+  const { data: completionChecklists = [] } = useQuery({
+    queryKey: ['/api/completion-checklists'],
+    queryFn: async () => {
+      const { apiRequestJson } = await import('../../services/api');
+      return apiRequestJson<any[]>('GET', '/api/completion-checklists');
+    },
+  });
+  const activeChecklists = completionChecklists.filter((c: any) => c.isActive !== false);
+
   const memberTeamId = editTeamId !== 'unassigned' ? editTeamId : '';
   const { data: teamMembers = [], isFetching: isLoadingMembers } = useQuery({
     queryKey: ['/api/teams', memberTeamId, 'members'],
@@ -148,6 +160,7 @@ export default function WorkOrderDetailScreen() {
   const syncEditForm = useCallback(() => {
     const wo = query.data;
     if (!wo) return;
+    setEditChecklistId(wo.completionChecklistId || '__none__');
     setEditTeamId(wo.teamId || wo.team?.id || 'unassigned');
     setEditAssignedToId(wo.assignedToId || '');
     setEditStatus(wo.status);
@@ -204,7 +217,13 @@ export default function WorkOrderDetailScreen() {
       [
         ...ASSIGNEE_STATUSES.map((s) => ({
           text: s.label,
-          onPress: () => statusMutation.mutate(s.value),
+          onPress: () => {
+            if (s.value === 'completed') {
+              navigation.navigate('WorkOrderComplete', { workOrderId });
+              return;
+            }
+            statusMutation.mutate(s.value);
+          },
         })),
         { text: 'Cancel', style: 'cancel' as const },
       ],
@@ -247,9 +266,11 @@ export default function WorkOrderDetailScreen() {
 
     const costParsed = editCostEstimate.trim() ? parseFloat(editCostEstimate) : NaN;
     const teamId = editTeamId === 'unassigned' ? null : editTeamId || null;
+    const wantingComplete =
+      editStatus === 'completed' && query.data.status !== 'completed';
 
     const payload: Parameters<typeof maintenanceService.updateWorkOrder>[1] = {
-      status: editStatus,
+      status: wantingComplete ? undefined : editStatus,
       costEstimate: Number.isFinite(costParsed) ? Math.round(costParsed * 100) : null,
       slaDue: editSlaDue
         ? new Date(
@@ -263,6 +284,8 @@ export default function WorkOrderDetailScreen() {
         : null,
       notes: editNotes.trim() || null,
       teamId,
+      completionChecklistId:
+        editChecklistId === '__none__' ? null : editChecklistId,
     };
 
     if (teamId && editAssignedToId) {
@@ -277,7 +300,13 @@ export default function WorkOrderDetailScreen() {
       payload.contractorId = null;
     }
 
-    updateMutation.mutate(payload);
+    updateMutation.mutate(payload, {
+      onSuccess: () => {
+        if (wantingComplete) {
+          navigation.navigate('WorkOrderComplete', { workOrderId });
+        }
+      },
+    });
   };
 
   if (query.isLoading) {
@@ -307,7 +336,7 @@ export default function WorkOrderDetailScreen() {
   const wo = query.data;
   const status = STATUS_META[wo.status] || STATUS_META.assigned;
   const priority =
-    PRIORITY_META[wo.maintenanceRequest.priority] || PRIORITY_META.medium;
+    PRIORITY_META[wo.maintenanceRequest?.priority ?? 'medium'] || PRIORITY_META.medium;
   const location = [wo.property?.name, wo.block?.name].filter(Boolean).join(' · ');
   const due = wo.slaDue
     ? new Date(wo.slaDue).toLocaleDateString(undefined, {
@@ -325,7 +354,7 @@ export default function WorkOrderDetailScreen() {
   const contractorName = wo.contractor
     ? `${wo.contractor.firstName || ''} ${wo.contractor.lastName || ''}`.trim()
     : '';
-  const description = wo.maintenanceRequest.description?.trim() || '';
+  const description = wo.maintenanceRequest?.description?.trim() || '';
 
   const InfoRow = ({
     icon,
@@ -440,7 +469,7 @@ export default function WorkOrderDetailScreen() {
                 </View>
 
                 <Text style={[styles.title, { color: themeColors.text.primary }]}>
-                  {wo.maintenanceRequest.title}
+                  {wo.maintenanceRequest?.title || 'Work order'}
                 </Text>
 
                 <View style={[styles.chip, { backgroundColor: softPriorityBg, alignSelf: 'flex-start' }]}>
@@ -717,6 +746,45 @@ export default function WorkOrderDetailScreen() {
           </Card>
         )}
 
+        {editing && isOwner && !isTerminal(wo.status) && (
+          <Card style={{ marginBottom: spacing[3] }}>
+            <Text style={[styles.sectionLabel, { color: themeColors.text.secondary }]}>
+              Completion checklist
+            </Text>
+            <Select
+              value={editChecklistId}
+              onValueChange={setEditChecklistId}
+              options={[
+                { value: '__none__', label: 'None' },
+                ...activeChecklists.map((c: any) => ({ value: c.id, label: c.name })),
+              ]}
+            />
+          </Card>
+        )}
+
+        <WorkOrderCompletionChecklistPanel
+          workOrderId={wo.id}
+          readOnly={isTerminal(wo.status)}
+        />
+
+        {wo.customerSignatureJson?.image ? (
+          <Card style={{ marginBottom: spacing[3] }}>
+            <Text style={[styles.sectionLabel, { color: themeColors.text.secondary }]}>
+              Customer signature
+            </Text>
+            {!!wo.customerSignatureJson.signedByName && (
+              <Text style={{ color: themeColors.text.primary, marginBottom: 8 }}>
+                {wo.customerSignatureJson.signedByName}
+              </Text>
+            )}
+            <Image
+              source={{ uri: wo.customerSignatureJson.image }}
+              style={{ width: '100%', height: 120, backgroundColor: '#fff', borderRadius: 8 }}
+              resizeMode="contain"
+            />
+          </Card>
+        ) : null}
+
         <View style={styles.actions}>
           {isOwner && !editing && (
             <Button title="Edit Work Order" onPress={() => setEditing(true)} />
@@ -736,7 +804,7 @@ export default function WorkOrderDetailScreen() {
               />
             </>
           )}
-          {!editing && canUpdateStatus && !isTerminal(wo.status) && !isOwner && (
+          {!editing && canUpdateStatus && !isTerminal(wo.status) && (
             <Button
               title={statusMutation.isPending ? 'Updating…' : 'Update Status'}
               onPress={openStatusPicker}
@@ -755,9 +823,10 @@ export default function WorkOrderDetailScreen() {
       <WorkOrderCertificateSheet
         visible={showCertificates}
         workOrderId={wo.id}
-        workOrderTitle={wo.maintenanceRequest.title}
+        workOrderTitle={wo.maintenanceRequest?.title || 'Work order'}
         onClose={() => setShowCertificates(false)}
       />
+
     </View>
   );
 }
@@ -767,6 +836,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  sectionLabel: {
+    fontSize: getFontSize(13),
+    fontWeight: '600',
+    marginBottom: spacing[2],
   },
   header: {
     flexDirection: 'row',

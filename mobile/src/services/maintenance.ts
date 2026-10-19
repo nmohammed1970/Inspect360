@@ -21,6 +21,26 @@ export interface WorkOrder {
   teamId?: string | null;
   assignedToId?: string | null;
   notes?: string | null;
+  completionChecklistId?: string | null;
+  completionChecklistSnapshotJson?: {
+    id: string;
+    name: string;
+    version: number;
+    items: Array<{
+      id: string;
+      label: string;
+      type: 'checkbox' | 'text' | 'photo';
+      required?: boolean;
+      helpText?: string;
+      photoEvidence?: 'none' | 'optional' | 'required';
+    }>;
+  } | null;
+  customerSignatureJson?: {
+    image: string;
+    signedByName?: string;
+    signedAt?: string;
+  } | null;
+  customerSignedAt?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
@@ -141,6 +161,7 @@ export const maintenanceService = {
     slaDue?: string;
     costEstimate?: number;
     status?: string;
+    completionChecklistId?: string | null;
   }): Promise<WorkOrder> {
     return apiRequestJson<WorkOrder>('POST', '/api/work-orders', data);
   },
@@ -155,6 +176,7 @@ export const maintenanceService = {
       slaDue?: string | null;
       costEstimate?: number | null;
       notes?: string | null;
+      completionChecklistId?: string | null;
     },
   ): Promise<WorkOrder> {
     return apiRequestJson<WorkOrder>('PATCH', `/api/work-orders/${id}`, data);
@@ -162,6 +184,50 @@ export const maintenanceService = {
 
   async updateWorkOrderStatus(id: string, status: string): Promise<void> {
     await apiRequestJson('PATCH', `/api/work-orders/${id}/status`, { status });
+  },
+
+  async getWorkOrderCompletionChecklist(workOrderId: string): Promise<{
+    snapshot: WorkOrder['completionChecklistSnapshotJson'];
+    responses: Array<{
+      id: string;
+      workOrderId: string;
+      itemId: string;
+      valueJson?: unknown;
+      photoUrls?: string[] | null;
+      updatedAt?: string;
+    }>;
+    progress: {
+      total: number;
+      completed: number;
+      requiredIncomplete: number;
+      requiredTotal: number;
+      requiredCompleted: number;
+    };
+  }> {
+    return apiRequestJson('GET', `/api/work-orders/${workOrderId}/completion-checklist`);
+  },
+
+  async upsertWorkOrderChecklistItem(
+    workOrderId: string,
+    itemId: string,
+    body: { valueJson?: unknown; photoUrls?: string[] },
+  ): Promise<unknown> {
+    return apiRequestJson(
+      'PUT',
+      `/api/work-orders/${workOrderId}/completion-checklist/items/${itemId}`,
+      body,
+    );
+  },
+
+  async saveWorkOrderCustomerSignature(
+    workOrderId: string,
+    payload: { image: string; signedByName?: string; signedAt?: string },
+  ): Promise<WorkOrder> {
+    return apiRequestJson<WorkOrder>(
+      'PUT',
+      `/api/work-orders/${workOrderId}/customer-signature`,
+      payload,
+    );
   },
 
   async getTeams(): Promise<MaintenanceTeam[]> {

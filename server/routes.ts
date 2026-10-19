@@ -17214,11 +17214,32 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
+      // Optional completion checklist: snapshot at create time
+      let completionChecklistId: string | null = null;
+      let completionChecklistSnapshotJson: ReturnType<typeof buildCompletionChecklistSnapshot> | null =
+        null;
+      const rawChecklistId =
+        (validatedData as any).completionChecklistId ?? req.body.completionChecklistId;
+      if (rawChecklistId && rawChecklistId !== "none" && rawChecklistId !== "__none__") {
+        const checklist = await storage.getCompletionChecklist(String(rawChecklistId));
+        if (
+          !checklist ||
+          checklist.organizationId !== user.organizationId ||
+          !checklist.isActive
+        ) {
+          return res.status(400).json({ error: "Invalid or inactive completion checklist" });
+        }
+        completionChecklistId = checklist.id;
+        completionChecklistSnapshotJson = buildCompletionChecklistSnapshot(checklist);
+      }
+
       // organizationId is handled separately as it's omitted from the schema
       // organizationId is omitted from schema, so we need to add it manually
       const workOrderData = {
         ...validatedData,
         organizationId: user.organizationId,
+        completionChecklistId,
+        completionChecklistSnapshotJson: completionChecklistSnapshotJson as any,
       } as any;
       const workOrder = await storage.createWorkOrder(workOrderData);
 
@@ -17410,6 +17431,18 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "Access denied" });
       }
 
+      if (status === "completed") {
+        const { assertWorkOrderReadyToComplete } = await import("./workOrderCompletionGate");
+        const gate = await assertWorkOrderReadyToComplete(storage, workOrder);
+        if (gate) {
+          return res.status(400).json({
+            error: gate.message,
+            code: gate.code,
+            progress: gate.progress,
+          });
+        }
+      }
+
       const completedAt = status === "completed" ? new Date() : undefined;
       const updated = await storage.updateWorkOrderStatus(req.params.id, status, completedAt);
       res.json(updated);
@@ -17418,6 +17451,122 @@ ${optionalNotes || "No details provided."}`;
       res.status(500).json({ error: "Failed to update work order status" });
     }
   });
+
+  app.get(
+    "/api/work-orders/:id/completion-checklist",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    async (req: any, res) => {
+      try {
+        const user = await storage.getUser(req.user.id);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+        const snapshot = (workOrder as any).completionChecklistSnapshotJson ?? null;
+        const responses = snapshot
+          ? await storage.getWorkOrderCompletionChecklistResponses(workOrder.id)
+          : [];
+        const progress = computeCompletionChecklistProgress(snapshot, responses);
+        res.json({ snapshot, responses, progress });
+      } catch (error) {
+        console.error("Error fetching work order completion checklist:", error);
+        res.status(500).json({ error: "Failed to fetch completion checklist" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/work-orders/:id/completion-checklist/items/:itemId",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    async (req: any, res) => {
+      try {
+        const user = await storage.getUser(req.user.id);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+        if (workOrder.status === "completed" || workOrder.status === "rejected") {
+          return res.status(400).json({ error: "Cannot edit checklist on a closed work order" });
+        }
+        const snapshot = (workOrder as any).completionChecklistSnapshotJson;
+        if (!snapshot?.items?.length) {
+          return res.status(400).json({ error: "No completion checklist on this work order" });
+        }
+        const itemId = req.params.itemId;
+        const itemExists = snapshot.items.some((i: any) => i.id === itemId);
+        if (!itemExists) {
+          return res.status(400).json({ error: "Unknown checklist item" });
+        }
+        const row = await storage.upsertWorkOrderCompletionChecklistResponse({
+          workOrderId: workOrder.id,
+          itemId,
+          valueJson: req.body.valueJson ?? null,
+          photoUrls: Array.isArray(req.body.photoUrls) ? req.body.photoUrls : undefined,
+          updatedBy: user.id,
+        });
+        res.json(row);
+      } catch (error) {
+        console.error("Error upserting work order checklist item:", error);
+        res.status(500).json({ error: "Failed to save checklist step" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/work-orders/:id/customer-signature",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    async (req: any, res) => {
+      try {
+        const user = await storage.getUser(req.user.id);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+        if (workOrder.status === "completed" || workOrder.status === "rejected") {
+          return res.status(400).json({ error: "Cannot change signature on a closed work order" });
+        }
+        const { createSignatureValue, parseSignatureValue } = await import("@shared/signature");
+        const parsed = parseSignatureValue(req.body);
+        if (!parsed?.image) {
+          return res.status(400).json({ error: "Signature image is required" });
+        }
+        const payload = createSignatureValue(
+          parsed.image,
+          parsed.signedByName || req.body.signedByName,
+          parsed.signedAt,
+        );
+        const updated = await storage.updateWorkOrder(workOrder.id, {
+          customerSignatureJson: payload as any,
+          customerSignedAt: new Date(payload.signedAt || Date.now()),
+        } as any);
+        res.json(updated);
+      } catch (error) {
+        console.error("Error saving work order customer signature:", error);
+        res.status(500).json({ error: "Failed to save signature" });
+      }
+    },
+  );
 
   app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
     try {
@@ -17475,6 +17624,52 @@ ${optionalNotes || "No details provided."}`;
       if (req.body.status !== undefined && !isAllowedWorkOrderStatus(user.role, req.body.status)) {
         return res.status(400).json({ error: "Invalid or unauthorized status" });
       }
+
+      // Assign / clear completion checklist while WO is open
+      if (Object.prototype.hasOwnProperty.call(req.body, "completionChecklistId")) {
+        if (wo.status === "completed" || wo.status === "rejected") {
+          return res.status(400).json({ error: "Cannot change checklist on a closed work order" });
+        }
+        const raw = req.body.completionChecklistId;
+        const isClear =
+          raw === null || raw === "" || raw === "none" || raw === "__none__";
+        if (isClear) {
+          await storage.deleteWorkOrderCompletionChecklistResponses(wo.id);
+          await storage.updateWorkOrder(wo.id, {
+            completionChecklistId: null,
+            completionChecklistSnapshotJson: null,
+          } as any);
+        } else if (typeof raw === "string") {
+          const checklist = await storage.getCompletionChecklist(raw);
+          if (
+            !checklist ||
+            checklist.organizationId !== user.organizationId ||
+            !checklist.isActive
+          ) {
+            return res.status(400).json({ error: "Invalid or inactive completion checklist" });
+          }
+          await storage.deleteWorkOrderCompletionChecklistResponses(wo.id);
+          await storage.updateWorkOrder(wo.id, {
+            completionChecklistId: checklist.id,
+            completionChecklistSnapshotJson: buildCompletionChecklistSnapshot(checklist) as any,
+          } as any);
+        }
+      }
+
+      if (req.body.status === "completed") {
+        const fresh = await storage.getWorkOrder(req.params.id);
+        if (!fresh) return res.status(404).json({ error: "Work order not found" });
+        const { assertWorkOrderReadyToComplete } = await import("./workOrderCompletionGate");
+        const gate = await assertWorkOrderReadyToComplete(storage, fresh);
+        if (gate) {
+          return res.status(400).json({
+            error: gate.message,
+            code: gate.code,
+            progress: gate.progress,
+          });
+        }
+      }
+
       const { updateWorkOrderFields } = await import("./workOrderCertificateService");
       const updated = await updateWorkOrderFields({
         organizationId: user.organizationId,

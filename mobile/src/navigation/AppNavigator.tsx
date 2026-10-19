@@ -152,6 +152,10 @@ function WorkOrdersNavigator() {
         name="WorkOrderDetail"
         getComponent={() => require('../screens/workOrders/WorkOrderDetailScreen').default}
       />
+      <WorkOrdersStack.Screen
+        name="WorkOrderComplete"
+        getComponent={() => require('../screens/workOrders/WorkOrderCompleteScreen').default}
+      />
     </WorkOrdersStack.Navigator>
   );
 }
