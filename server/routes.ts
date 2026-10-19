@@ -6548,7 +6548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
-      const { propertyId, blockId, type, scheduledDate, notes, clerkId, templateId } = req.body;
+      const { propertyId, blockId, type, scheduledDate, notes, clerkId, templateId, completionChecklistId: bodyCompletionChecklistId } = req.body;
 
       // Must specify either propertyId OR blockId (not both)
       if ((!propertyId && !blockId) || (propertyId && blockId)) {
@@ -6669,20 +6669,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateVersion = template.version;
       }
 
-      // Snapshot completion checklist from the chosen template (fresh; not from check-in answers).
+      // Snapshot completion checklist: explicit body wins; else template default.
+      // null / "" / "__none__" / "none" = intentional clear (no checklist).
       let completionChecklistId: string | null = null;
       let completionChecklistSnapshotJson: ReturnType<typeof buildCompletionChecklistSnapshot> | null = null;
-      if (finalTemplateId) {
+      const resolveChecklistSnapshot = async (checklistId: string) => {
+        const checklist = await storage.getCompletionChecklist(checklistId);
+        if (
+          checklist &&
+          checklist.organizationId === currentUser.organizationId &&
+          checklist.isActive
+        ) {
+          return {
+            id: checklist.id,
+            snapshot: buildCompletionChecklistSnapshot(checklist),
+          };
+        }
+        return null;
+      };
+
+      if (Object.prototype.hasOwnProperty.call(req.body, "completionChecklistId")) {
+        const raw = bodyCompletionChecklistId;
+        const isExplicitNone =
+          raw === null ||
+          raw === undefined ||
+          raw === "" ||
+          raw === "__none__" ||
+          raw === "none";
+        if (!isExplicitNone && typeof raw === "string") {
+          const resolved = await resolveChecklistSnapshot(raw);
+          if (!resolved) {
+            return res.status(400).json({ message: "Invalid or inactive completion checklist" });
+          }
+          completionChecklistId = resolved.id;
+          completionChecklistSnapshotJson = resolved.snapshot;
+        }
+      } else if (finalTemplateId) {
         const templateForChecklist = await storage.getInspectionTemplate(finalTemplateId);
         if (templateForChecklist?.completionChecklistId) {
-          const checklist = await storage.getCompletionChecklist(templateForChecklist.completionChecklistId);
-          if (
-            checklist &&
-            checklist.organizationId === currentUser.organizationId &&
-            checklist.isActive
-          ) {
-            completionChecklistId = checklist.id;
-            completionChecklistSnapshotJson = buildCompletionChecklistSnapshot(checklist);
+          const resolved = await resolveChecklistSnapshot(templateForChecklist.completionChecklistId);
+          if (resolved) {
+            completionChecklistId = resolved.id;
+            completionChecklistSnapshotJson = resolved.snapshot;
           }
         }
       }

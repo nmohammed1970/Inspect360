@@ -1023,7 +1023,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                         name="completionChecklistId"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Completion checklist</FormLabel>
+                            <FormLabel>Default completion checklist</FormLabel>
                             <Select
                               value={field.value || "none"}
                               onValueChange={(v) => field.onChange(v === "none" ? null : v)}
@@ -1043,8 +1043,8 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                               </SelectContent>
                             </Select>
                             <FormDescription>
-                              Optional finish-the-job list snapshotted onto new inspections using this
-                              template.
+                              Auto-selected when creating an inspection with this template; can be
+                              changed on the create form.
                             </FormDescription>
                             <FormMessage />
                           </FormItem>

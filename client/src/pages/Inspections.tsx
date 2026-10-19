@@ -123,6 +123,7 @@ const createInspectionSchema = z.object({
   type: z.enum(["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]),
   scheduledDate: z.string().min(1, "Scheduled date is required"),
   templateId: z.string().optional(),
+  completionChecklistId: z.string().optional(),
   clerkId: z.string().optional(),
   notes: z.string().optional(),
 }).superRefine((data, ctx) => {
@@ -227,6 +228,7 @@ export default function Inspections() {
       type: "routine",
       scheduledDate: new Date().toISOString().split("T")[0],
       templateId: "__none__",
+      completionChecklistId: "__none__",
       clerkId: "",
       notes: "",
     },
@@ -249,6 +251,20 @@ export default function Inspections() {
     },
     enabled: !!targetType && (targetType === "property" || targetType === "block"),
   });
+
+  const { data: completionChecklists = [] } = useQuery<any[]>({
+    queryKey: ["/api/completion-checklists"],
+    queryFn: async () => {
+      const response = await fetch("/api/completion-checklists", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch completion checklists");
+      return response.json();
+    },
+  });
+
+  const activeCompletionChecklists = useMemo(
+    () => completionChecklists.filter((c: any) => c.isActive !== false),
+    [completionChecklists]
+  );
 
   // Fetch tenants for selected property
   const { data: tenants = [] } = useQuery<any[]>({
@@ -449,6 +465,20 @@ export default function Inspections() {
     }
   }, [watchedType, templates]);
 
+  // Auto-select checklist DDL from the chosen template's default
+  const watchedTemplateId = form.watch("templateId");
+  useEffect(() => {
+    if (!watchedTemplateId || watchedTemplateId === "__none__") {
+      form.setValue("completionChecklistId", "__none__");
+      return;
+    }
+    const selectedTemplate = templates.find((t: any) => t.id === watchedTemplateId);
+    form.setValue(
+      "completionChecklistId",
+      selectedTemplate?.completionChecklistId || "__none__"
+    );
+  }, [watchedTemplateId, templates, form]);
+
   const createInspection = useMutation({
     mutationFn: async (data: CreateInspectionData) => {
       return await apiRequest("POST", "/api/inspections", data);
@@ -490,6 +520,15 @@ export default function Inspections() {
     // Remove templateId if it's the sentinel or empty
     if (payload.templateId === "__none__" || !payload.templateId) {
       delete payload.templateId;
+    }
+
+    // Always send completionChecklistId: null means explicit none (wins over template default)
+    if (
+      payload.completionChecklistId === "__none__" ||
+      payload.completionChecklistId === "none" ||
+      !payload.completionChecklistId
+    ) {
+      payload.completionChecklistId = null;
     }
     
     // Remove clerkId if it's the sentinel or empty
@@ -809,6 +848,35 @@ export default function Inspections() {
                             <SelectItem key={template.id} value={template.id}>
                               {template.name}
                               {template.version > 1 && ` (v${template.version})`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="completionChecklistId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Completion checklist (Optional)</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || "__none__"}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-completion-checklist">
+                            <SelectValue placeholder="No checklist" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">None</SelectItem>
+                          {activeCompletionChecklists.map((checklist: any) => (
+                            <SelectItem key={checklist.id} value={checklist.id}>
+                              {checklist.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
