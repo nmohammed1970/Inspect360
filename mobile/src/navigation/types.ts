@@ -48,6 +48,7 @@ export type AssetsStackParamList = {
 export type WorkOrdersStackParamList = {
   WorkOrdersList: undefined;
   WorkOrderDetail: { workOrderId: string };
+  WorkOrderComplete: { workOrderId: string };
 };
 
 export type MainTabParamList = {

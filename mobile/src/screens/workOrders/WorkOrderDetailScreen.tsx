@@ -30,7 +30,6 @@ import {
 import { format } from 'date-fns';
 import { maintenanceService } from '../../services/maintenance';
 import { WorkOrderCertificateSheet } from '../../components/WorkOrderCertificateSheet';
-import { WorkOrderCompleteModal } from '../../components/workOrders/WorkOrderCompleteModal';
 import { WorkOrderCompletionChecklistPanel } from '../../components/workOrders/WorkOrderCompletionChecklistPanel';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -106,7 +105,6 @@ export default function WorkOrderDetailScreen() {
   const route = useRoute<RouteProp<WorkOrdersStackParamList, 'WorkOrderDetail'>>();
   const { workOrderId } = route.params;
   const [showCertificates, setShowCertificates] = useState(false);
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editChecklistId, setEditChecklistId] = useState('__none__');
 
@@ -221,7 +219,7 @@ export default function WorkOrderDetailScreen() {
           text: s.label,
           onPress: () => {
             if (s.value === 'completed') {
-              setShowCompleteModal(true);
+              navigation.navigate('WorkOrderComplete', { workOrderId });
               return;
             }
             statusMutation.mutate(s.value);
@@ -305,7 +303,7 @@ export default function WorkOrderDetailScreen() {
     updateMutation.mutate(payload, {
       onSuccess: () => {
         if (wantingComplete) {
-          setShowCompleteModal(true);
+          navigation.navigate('WorkOrderComplete', { workOrderId });
         }
       },
     });
@@ -338,7 +336,7 @@ export default function WorkOrderDetailScreen() {
   const wo = query.data;
   const status = STATUS_META[wo.status] || STATUS_META.assigned;
   const priority =
-    PRIORITY_META[wo.maintenanceRequest.priority] || PRIORITY_META.medium;
+    PRIORITY_META[wo.maintenanceRequest?.priority ?? 'medium'] || PRIORITY_META.medium;
   const location = [wo.property?.name, wo.block?.name].filter(Boolean).join(' · ');
   const due = wo.slaDue
     ? new Date(wo.slaDue).toLocaleDateString(undefined, {
@@ -356,7 +354,7 @@ export default function WorkOrderDetailScreen() {
   const contractorName = wo.contractor
     ? `${wo.contractor.firstName || ''} ${wo.contractor.lastName || ''}`.trim()
     : '';
-  const description = wo.maintenanceRequest.description?.trim() || '';
+  const description = wo.maintenanceRequest?.description?.trim() || '';
 
   const InfoRow = ({
     icon,
@@ -471,7 +469,7 @@ export default function WorkOrderDetailScreen() {
                 </View>
 
                 <Text style={[styles.title, { color: themeColors.text.primary }]}>
-                  {wo.maintenanceRequest.title}
+                  {wo.maintenanceRequest?.title || 'Work order'}
                 </Text>
 
                 <View style={[styles.chip, { backgroundColor: softPriorityBg, alignSelf: 'flex-start' }]}>
@@ -806,7 +804,7 @@ export default function WorkOrderDetailScreen() {
               />
             </>
           )}
-          {!editing && canUpdateStatus && !isTerminal(wo.status) && !isOwner && (
+          {!editing && canUpdateStatus && !isTerminal(wo.status) && (
             <Button
               title={statusMutation.isPending ? 'Updating…' : 'Update Status'}
               onPress={openStatusPicker}
@@ -825,16 +823,10 @@ export default function WorkOrderDetailScreen() {
       <WorkOrderCertificateSheet
         visible={showCertificates}
         workOrderId={wo.id}
-        workOrderTitle={wo.maintenanceRequest.title}
+        workOrderTitle={wo.maintenanceRequest?.title || 'Work order'}
         onClose={() => setShowCertificates(false)}
       />
 
-      <WorkOrderCompleteModal
-        workOrderId={wo.id}
-        visible={showCompleteModal}
-        onClose={() => setShowCompleteModal(false)}
-        existingSignature={wo.customerSignatureJson}
-      />
     </View>
   );
 }
