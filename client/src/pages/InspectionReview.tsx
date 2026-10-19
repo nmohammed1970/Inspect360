@@ -10,6 +10,7 @@ import { CheckCircle2, AlertCircle, ChevronLeft, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
+import { CompletionChecklistPanel } from "@/components/CompletionChecklistPanel";
 import type { Inspection } from "@shared/schema";
 
 interface TemplateSection {
@@ -270,6 +271,15 @@ export default function InspectionReview() {
           </div>
         </CardContent>
       </Card>
+
+      {id && (
+        <CompletionChecklistPanel
+          inspectionId={id}
+          readOnly={
+            inspection?.status === "completed" || inspection?.status === "reviewed"
+          }
+        />
+      )}
 
       {/* Sections and Entries */}
       <div className="space-y-4 sm:space-y-6">

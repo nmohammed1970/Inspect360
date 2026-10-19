@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
+  Modal,
+  Pressable,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -31,6 +33,10 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useCompanyModules } from '../../hooks/useCompanyModules';
 import { FieldWidget } from '../../components/inspections/FieldWidget';
 import { InspectionGalleryPanel } from '../../components/inspections/InspectionGalleryPanel';
+import {
+  CompletionChecklistPanel,
+  useMobileCompletionChecklist,
+} from '../../components/inspections/CompletionChecklistPanel';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { formatSignerDisplayName } from '../../../../shared/signature';
 import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
@@ -47,7 +53,7 @@ import {
   numberedRoomInstanceTitle,
 } from '../../../../shared/propertyRooms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
@@ -101,6 +107,17 @@ export default function InspectionCaptureScreen() {
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
   const { maintenanceEnabled } = useCompanyModules();
+  const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
+  const hasCompletionChecklist = !!completionChecklist?.snapshot;
+  const checklistProgress = completionChecklist?.progress;
+  const checklistIncompleteCount = Math.max(
+    0,
+    (checklistProgress?.total ?? 0) - (checklistProgress?.completed ?? 0),
+  );
+  const checklistIsIncomplete =
+    hasCompletionChecklist && checklistIncompleteCount > 0;
+  const checklistRequiredIncomplete =
+    checklistProgress?.requiredIncomplete ?? 0;
   const theme = useTheme();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
@@ -118,7 +135,8 @@ export default function InspectionCaptureScreen() {
   const tabFontSize = getFontSize(typography.fontSize.xs);
 
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
-  const [captureMode, setCaptureMode] = useState<'sections' | 'gallery'>('sections');
+  const [captureMode, setCaptureMode] = useState<'sections' | 'gallery' | 'checklist'>('sections');
+  const [showChecklistSoftGate, setShowChecklistSoftGate] = useState(false);
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const repeatableCountsInitialized = useRef(false); // Track if we've initialized default counts
@@ -1298,8 +1316,7 @@ export default function InspectionCaptureScreen() {
     );
   };
 
-  const handleComplete = async () => {
-    // Check if progress is less than 100%
+  const proceedAfterChecklistGate = () => {
     const progressPercentage = Math.round(progress);
     const isIncomplete = progressPercentage < 100;
 
@@ -1370,15 +1387,13 @@ export default function InspectionCaptureScreen() {
     };
 
     if (isIncomplete) {
-      // Show confirmation dialog for incomplete inspections
       Alert.alert(
         'Complete Inspection?',
-        `This inspection is only ${progressPercentage}% complete. ${totalFields - completedFields} field(s) are still missing. Do you want to mark it as complete anyway?`,
+        `This inspection is only ${progressPercentage}% complete. ${
+          totalFields - completedFields
+        } field(s) are still missing. Do you want to mark it as complete anyway?`,
         [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
+          { text: 'Cancel', style: 'cancel' },
           {
             text: 'Complete Anyway',
             style: 'default',
@@ -1389,6 +1404,14 @@ export default function InspectionCaptureScreen() {
     } else {
       promptSendToTenant();
     }
+  };
+
+  const handleComplete = async () => {
+    if (checklistIsIncomplete) {
+      setShowChecklistSoftGate(true);
+      return;
+    }
+    proceedAfterChecklistGate();
   };
 
   // getAPI_URL() is imported from services/api.ts (uses EXPO_PUBLIC_API_URL from .env)
@@ -1633,7 +1656,7 @@ export default function InspectionCaptureScreen() {
             style: styles.content,
           }}
           footer={
-            captureMode === 'gallery' ? null : (
+            captureMode === 'gallery' || captureMode === 'checklist' ? null : (
             <View style={[styles.footerActions, { flexDirection: 'row' }]}>
               <Button
                 title="Previous"
@@ -1773,6 +1796,28 @@ export default function InspectionCaptureScreen() {
                 </View>
               )}
 
+              {hasCompletionChecklist && (
+                <View style={styles.actionButtonContainer}>
+                  <Button
+                    title="Checklist"
+                    onPress={() => setCaptureMode('checklist')}
+                    variant="outline"
+                    size="sm"
+                    icon={
+                      <ClipboardList
+                        size={14}
+                        color={themeColors.text.primary}
+                      />
+                    }
+                    style={[
+                      styles.actionButton,
+                      { minHeight: smBtnHeight, paddingVertical: ms(spacing[2], 0.3) },
+                    ]}
+                    textStyle={[styles.actionButtonText, { fontSize: tabFontSize }]}
+                  />
+                </View>
+              )}
+
               {/* Complete Inspection Button */}
               <View style={styles.actionButtonContainer}>
                 <Button
@@ -1798,7 +1843,7 @@ export default function InspectionCaptureScreen() {
               <Progress value={progress} height={10} style={styles.progressBar} />
             </View>
 
-            {/* Capture mode: Sections | Gallery */}
+            {/* Capture mode: Sections | Gallery | Checklist */}
             <View style={{ flexDirection: 'row', gap: spacing[2], marginBottom: spacing[3] }}>
               <TouchableOpacity
                 onPress={() => setCaptureMode('sections')}
@@ -1863,6 +1908,63 @@ export default function InspectionCaptureScreen() {
                   Gallery
                 </Text>
               </TouchableOpacity>
+              {hasCompletionChecklist && (
+                <TouchableOpacity
+                  onPress={() => setCaptureMode('checklist')}
+                  style={[
+                    styles.tabButton,
+                    {
+                      flex: 1,
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 4,
+                      backgroundColor: captureMode === 'checklist' ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+                      borderColor: captureMode === 'checklist' ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                      paddingHorizontal: ms(spacing[2], 0.3),
+                      paddingVertical: ms(spacing[2], 0.3),
+                      alignItems: 'center',
+                    },
+                  ]}
+                  testID="button-capture-checklist-tab"
+                >
+                  <ClipboardList
+                    size={14}
+                    color={
+                      captureMode === 'checklist'
+                        ? (themeColors.primary.foreground || '#ffffff')
+                        : themeColors.text.primary
+                    }
+                  />
+                  <Text
+                    style={{
+                      color: captureMode === 'checklist'
+                        ? (themeColors.primary.foreground || '#ffffff')
+                        : themeColors.text.primary,
+                      fontWeight: '600',
+                      fontSize: tabFontSize,
+                    }}
+                  >
+                    Checklist
+                  </Text>
+                  {checklistIsIncomplete && (
+                    <View
+                      style={{
+                        backgroundColor: themeColors.destructive?.DEFAULT || '#ef4444',
+                        borderRadius: 8,
+                        minWidth: 16,
+                        height: 16,
+                        paddingHorizontal: 4,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
+                        {checklistIncompleteCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             {captureMode === 'gallery' && (
@@ -1873,6 +1975,17 @@ export default function InspectionCaptureScreen() {
                   queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
                   queryClient.invalidateQueries({ queryKey: ['inspection', inspectionId] });
                 }}
+              />
+            )}
+
+            {captureMode === 'checklist' && hasCompletionChecklist && (
+              <CompletionChecklistPanel
+                inspectionId={inspectionId}
+                readOnly={
+                  effectiveInspection?.status === 'completed' ||
+                  effectiveInspection?.status === 'reviewed' ||
+                  isDeleted
+                }
               />
             )}
 
@@ -2361,6 +2474,69 @@ export default function InspectionCaptureScreen() {
             )}
         </FormScreen>
 
+        <Modal
+          visible={showChecklistSoftGate}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowChecklistSoftGate(false)}
+        >
+          <Pressable
+            style={styles.checklistSoftGateOverlay}
+            onPress={() => setShowChecklistSoftGate(false)}
+          >
+            <Pressable
+              style={[
+                styles.checklistSoftGateSheet,
+                {
+                  backgroundColor: themeColors.card.DEFAULT,
+                  paddingBottom: Math.max(insets.bottom, spacing[4]),
+                },
+              ]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.checklistSoftGateHandle} />
+              <Text style={[styles.checklistSoftGateTitle, { color: themeColors.text.primary }]}>
+                Completion checklist unfinished
+              </Text>
+              <Text style={[styles.checklistSoftGateBody, { color: themeColors.text.secondary }]}>
+                {checklistIncompleteCount} checklist step
+                {checklistIncompleteCount === 1 ? ' is' : 's are'} still unfinished
+                {checklistRequiredIncomplete > 0
+                  ? ` (${checklistRequiredIncomplete} required)`
+                  : ''}
+                . You can finish them now or complete the inspection anyway.
+              </Text>
+              <Button
+                title="Complete checklist"
+                onPress={() => {
+                  setShowChecklistSoftGate(false);
+                  setCaptureMode('checklist');
+                }}
+                variant="default"
+                size="md"
+                icon={<ClipboardList size={16} color={themeColors.primary.foreground || '#fff'} />}
+                style={{ marginBottom: spacing[2] }}
+              />
+              <Button
+                title="Complete anyway"
+                onPress={() => {
+                  setShowChecklistSoftGate(false);
+                  proceedAfterChecklistGate();
+                }}
+                variant="outline"
+                size="md"
+                style={{ marginBottom: spacing[2] }}
+              />
+              <Button
+                title="Cancel"
+                onPress={() => setShowChecklistSoftGate(false)}
+                variant="ghost"
+                size="md"
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+
       </View>
     </ErrorBoundary>
   );
@@ -2369,6 +2545,35 @@ export default function InspectionCaptureScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  checklistSoftGateOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  checklistSoftGateSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[3],
+  },
+  checklistSoftGateHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(128,128,128,0.4)',
+    marginBottom: spacing[3],
+  },
+  checklistSoftGateTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: spacing[2],
+  },
+  checklistSoftGateBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: spacing[4],
   },
   header: {
     borderBottomWidth: 1,

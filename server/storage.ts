@@ -11,6 +11,8 @@ import {
   inspectionTemplates,
   inspectionTemplatePoints,
   inspectionResponses,
+  completionChecklists,
+  completionChecklistResponses,
   templateCategories,
   templateInventoryLinks,
   inspectionEntries,
@@ -78,6 +80,10 @@ import {
   type InsertInspectionTemplate,
   type InspectionTemplatePoint,
   type InsertInspectionTemplatePoint,
+  type CompletionChecklist,
+  type InsertCompletionChecklist,
+  type CompletionChecklistResponse,
+  type InsertCompletionChecklistResponse,
   type InspectionResponse,
   type InsertInspectionResponse,
   type TemplateCategory,
@@ -517,6 +523,17 @@ export interface IStorage {
   getInspectionTemplatePoint(id: string): Promise<InspectionTemplatePoint | undefined>;
   updateInspectionTemplatePoint(id: string, updates: Partial<InsertInspectionTemplatePoint>): Promise<InspectionTemplatePoint>;
   deleteInspectionTemplatePoint(id: string): Promise<void>;
+
+  // Completion Checklist operations
+  createCompletionChecklist(checklist: InsertCompletionChecklist): Promise<CompletionChecklist>;
+  getCompletionChecklistsByOrganization(organizationId: string): Promise<CompletionChecklist[]>;
+  getCompletionChecklist(id: string): Promise<CompletionChecklist | undefined>;
+  updateCompletionChecklist(id: string, updates: Partial<InsertCompletionChecklist>): Promise<CompletionChecklist>;
+  deleteCompletionChecklist(id: string): Promise<void>;
+  getCompletionChecklistResponses(inspectionId: string): Promise<CompletionChecklistResponse[]>;
+  upsertCompletionChecklistResponse(
+    data: InsertCompletionChecklistResponse,
+  ): Promise<CompletionChecklistResponse>;
 
   // Inspection Response operations (Legacy - kept for backward compatibility)
   createInspectionResponse(response: InsertInspectionResponse): Promise<InspectionResponse>;
@@ -2974,6 +2991,86 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInspectionTemplatePoint(id: string): Promise<void> {
     await db.delete(inspectionTemplatePoints).where(eq(inspectionTemplatePoints.id, id));
+  }
+
+  // Completion Checklist operations
+  async createCompletionChecklist(data: InsertCompletionChecklist): Promise<CompletionChecklist> {
+    const [row] = await db.insert(completionChecklists).values(data).returning();
+    return row;
+  }
+
+  async getCompletionChecklistsByOrganization(organizationId: string): Promise<CompletionChecklist[]> {
+    return await db
+      .select()
+      .from(completionChecklists)
+      .where(eq(completionChecklists.organizationId, organizationId))
+      .orderBy(desc(completionChecklists.createdAt));
+  }
+
+  async getCompletionChecklist(id: string): Promise<CompletionChecklist | undefined> {
+    const [row] = await db
+      .select()
+      .from(completionChecklists)
+      .where(eq(completionChecklists.id, id));
+    return row;
+  }
+
+  async updateCompletionChecklist(
+    id: string,
+    updates: Partial<InsertCompletionChecklist>,
+  ): Promise<CompletionChecklist> {
+    const [row] = await db
+      .update(completionChecklists)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(completionChecklists.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteCompletionChecklist(id: string): Promise<void> {
+    // Clear template attachments first so templates stay usable.
+    await db
+      .update(inspectionTemplates)
+      .set({ completionChecklistId: null, updatedAt: new Date() })
+      .where(eq(inspectionTemplates.completionChecklistId, id));
+    await db.delete(completionChecklists).where(eq(completionChecklists.id, id));
+  }
+
+  async getCompletionChecklistResponses(inspectionId: string): Promise<CompletionChecklistResponse[]> {
+    return await db
+      .select()
+      .from(completionChecklistResponses)
+      .where(eq(completionChecklistResponses.inspectionId, inspectionId));
+  }
+
+  async upsertCompletionChecklistResponse(
+    data: InsertCompletionChecklistResponse,
+  ): Promise<CompletionChecklistResponse> {
+    const existing = await db
+      .select()
+      .from(completionChecklistResponses)
+      .where(
+        and(
+          eq(completionChecklistResponses.inspectionId, data.inspectionId),
+          eq(completionChecklistResponses.itemId, data.itemId),
+        ),
+      );
+    if (existing[0]) {
+      const [row] = await db
+        .update(completionChecklistResponses)
+        .set({
+          valueJson:
+            data.valueJson !== undefined ? (data.valueJson as any) : existing[0].valueJson,
+          photoUrls: data.photoUrls !== undefined ? data.photoUrls : existing[0].photoUrls,
+          updatedBy: data.updatedBy,
+          updatedAt: new Date(),
+        })
+        .where(eq(completionChecklistResponses.id, existing[0].id))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(completionChecklistResponses).values(data).returning();
+    return row;
   }
 
   // Inspection Response operations

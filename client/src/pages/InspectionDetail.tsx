@@ -41,6 +41,10 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, textBreak } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import {
+  CompletionChecklistPanel,
+  useInspectionCompletionChecklist,
+} from "@/components/CompletionChecklistPanel";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -48,6 +52,9 @@ export default function InspectionDetail() {
   const locale = useLocale();
   const [, setLocation] = useLocation();
   const { tenanciesEnabled } = useCompanyModules();
+  const { data: completionChecklist } = useInspectionCompletionChecklist(id);
+  const checklistRequiredIncomplete =
+    completionChecklist?.progress?.requiredIncomplete ?? 0;
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -806,6 +813,15 @@ export default function InspectionDetail() {
         </CardContent>
       </Card>
 
+      {id && (
+        <CompletionChecklistPanel
+          inspectionId={id}
+          readOnly={
+            inspection.status === "completed" || inspection.status === "reviewed"
+          }
+        />
+      )}
+
       <AlertDialog
         open={showCompleteDialog}
         onOpenChange={(open) => {
@@ -820,6 +836,13 @@ export default function InspectionDetail() {
                 <p>
                   Once completed, this inspection cannot be edited again. Make sure all fields and photos are correct before continuing.
                 </p>
+                {checklistRequiredIncomplete > 0 && (
+                  <p className="text-amber-700 dark:text-amber-400 font-medium">
+                    {checklistRequiredIncomplete} required completion checklist step
+                    {checklistRequiredIncomplete === 1 ? " is" : "s are"} still unfinished. You can
+                    complete anyway.
+                  </p>
+                )}
                 <p>
                   Would you like to analyse this inspection with AI? This uses the same full report analysis as{" "}
                   <span className="font-medium text-foreground">Analyse Report Using AI</span> and runs in the background while the inspection is marked complete.
@@ -843,6 +866,8 @@ export default function InspectionDetail() {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Completing...
                 </>
+              ) : checklistRequiredIncomplete > 0 ? (
+                "Complete anyway"
               ) : (
                 "No, complete now"
               )}

@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -46,6 +46,10 @@ import {
 import { formatDisplayHeading, numberedRoomInstanceTitle } from "@shared/propertyRooms";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
+import {
+  CompletionChecklistPanel,
+  useInspectionCompletionChecklist,
+} from "@/components/CompletionChecklistPanel";
 import {
   cipCountFieldKey,
   cipExpandedFieldKey,
@@ -145,11 +149,13 @@ export default function InspectionCapture() {
   const [pendingCompleteWithAI, setPendingCompleteWithAI] = useState(false);
   const [completingAction, setCompletingAction] = useState<"without-ai" | "with-ai" | null>(null);
   const [sendingToTenantAction, setSendingToTenantAction] = useState<"yes" | "no" | null>(null);
+  const [showChecklistSoftGate, setShowChecklistSoftGate] = useState(false);
   // Track what was copied so we can remove it when unchecked
   const [copiedImageKeys, setCopiedImageKeys] = useState<Set<string>>(new Set());
   const [copiedNoteKeys, setCopiedNoteKeys] = useState<Set<string>>(new Set());
   /** Avoid re-applying check-in bedroom count after user edits or duplicate effect runs */
   const bedroomCountSeededFromCheckInRef = useRef(false);
+  const checklistPanelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     bedroomCountSeededFromCheckInRef.current = false;
   }, [id]);
@@ -158,6 +164,23 @@ export default function InspectionCapture() {
   const { data: inspection, isLoading } = useQuery<Inspection>({
     queryKey: ["/api/inspections", id],
   });
+
+  const { data: completionChecklist } = useInspectionCompletionChecklist(id);
+  const hasCompletionChecklist = !!completionChecklist?.snapshot;
+  const checklistRequiredIncomplete =
+    completionChecklist?.progress?.requiredIncomplete ?? 0;
+
+  const scrollToChecklist = () => {
+    checklistPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const requestComplete = () => {
+    if (checklistRequiredIncomplete > 0) {
+      setShowChecklistSoftGate(true);
+      return;
+    }
+    setShowCompleteDialog(true);
+  };
 
   const propertyRoomCountsSnapshot =
     (inspection as Inspection & { propertyRoomCountsSnapshot?: PropertyRoomCountsSnapshot | null })
@@ -1956,9 +1979,28 @@ export default function InspectionCapture() {
             </Button>
           )}
 
+          {hasCompletionChecklist && (
+            <Button
+              variant="outline"
+              onClick={scrollToChecklist}
+              data-testid="button-go-to-checklist"
+              size="sm"
+              className="text-xs sm:text-sm min-h-9"
+            >
+              <ClipboardList className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Checklist</span>
+              <span className="sm:hidden">List</span>
+              {checklistRequiredIncomplete > 0 && (
+                <Badge variant="destructive" className="ml-1.5 h-5 px-1.5 text-[10px]">
+                  {checklistRequiredIncomplete}
+                </Badge>
+              )}
+            </Button>
+          )}
+
           <Button
             variant="brand"
-            onClick={() => setShowCompleteDialog(true)}
+            onClick={requestComplete}
             disabled={completeInspection.isPending || completingAction !== null || sendingToTenantAction !== null}
             data-testid="button-complete-inspection"
             size="sm"
@@ -1972,6 +2014,43 @@ export default function InspectionCapture() {
           </Button>
         </div>
       </div>
+
+      <AlertDialog open={showChecklistSoftGate} onOpenChange={setShowChecklistSoftGate}>
+        <AlertDialogContent data-testid="dialog-checklist-soft-gate">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Completion checklist unfinished</AlertDialogTitle>
+            <AlertDialogDescription>
+              {checklistRequiredIncomplete} required checklist step
+              {checklistRequiredIncomplete === 1 ? " is" : "s are"} still unfinished. You can finish
+              them now or complete the inspection anyway.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setShowChecklistSoftGate(false);
+                setShowCompleteDialog(true);
+              }}
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              data-testid="button-soft-gate-complete-anyway"
+            >
+              Complete anyway
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setShowChecklistSoftGate(false);
+                scrollToChecklist();
+              }}
+              data-testid="button-soft-gate-go-to-checklist"
+            >
+              Complete checklist
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={showCompleteDialog} onOpenChange={(open) => {
         if (!completingAction) setShowCompleteDialog(open);
@@ -2094,6 +2173,17 @@ export default function InspectionCapture() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {id && inspection?.status !== "reviewed" && (
+        <div ref={checklistPanelRef} id="completion-checklist-panel">
+          <CompletionChecklistPanel
+            inspectionId={id}
+            readOnly={inspection?.status === "completed"}
+            compact
+            className="mt-4"
+          />
+        </div>
+      )}
 
       {/* Copy from Previous Check-In (only for check-out inspections) - Show at top for visibility */}
       {inspection?.type === "check_out" && (

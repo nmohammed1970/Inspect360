@@ -98,6 +98,12 @@ export function AppSidebar() {
       roles: ["owner", "clerk", "contractor"],
     },
     {
+      title: "Completion Checklists",
+      url: "/completion-checklists",
+      icon: Clipboard,
+      roles: ["owner", "compliance"],
+    },
+    {
       title: "Comparisons",
       url: "/comparisons",
       icon: GitCompare,
