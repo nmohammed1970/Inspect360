@@ -4,6 +4,9 @@ import type {
   CompletionChecklistSnapshot,
 } from "./schema";
 
+/** When false, hide checklist UI in inspection create/capture/details. Settings stays. */
+export const COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE = false;
+
 export type CompletionChecklistResponseLike = {
   itemId: string;
   valueJson?: unknown;

@@ -39,6 +39,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { formatSignerDisplayName } from "@shared/signature";
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link, useLocation, useSearch } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -522,8 +523,10 @@ export default function Inspections() {
       delete payload.templateId;
     }
 
-    // Always send completionChecklistId: null means explicit none (wins over template default)
+    // Always send completionChecklistId: null means explicit none (wins over template default).
+    // When inspection-flow UI is hidden, never attach a checklist from form/template auto-select.
     if (
+      !COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ||
       payload.completionChecklistId === "__none__" ||
       payload.completionChecklistId === "none" ||
       !payload.completionChecklistId
@@ -857,34 +860,40 @@ export default function Inspections() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="completionChecklistId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Completion checklist (Optional)</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value || "__none__"}
-                      >
-                        <FormControl>
-                          <SelectTrigger data-testid="select-completion-checklist">
-                            <SelectValue placeholder="No checklist" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="__none__">None</SelectItem>
-                          {activeCompletionChecklists.map((checklist: any) => (
-                            <SelectItem key={checklist.id} value={checklist.id}>
-                              {checklist.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div
+                  style={{
+                    display: COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ? undefined : "none",
+                  }}
+                >
+                  <FormField
+                    control={form.control}
+                    name="completionChecklistId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Completion checklist (Optional)</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value || "__none__"}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-completion-checklist">
+                              <SelectValue placeholder="No checklist" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">None</SelectItem>
+                            {activeCompletionChecklists.map((checklist: any) => (
+                              <SelectItem key={checklist.id} value={checklist.id}>
+                                {checklist.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}

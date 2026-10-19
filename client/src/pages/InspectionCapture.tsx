@@ -50,6 +50,7 @@ import {
   CompletionChecklistPanel,
   useInspectionCompletionChecklist,
 } from "@/components/CompletionChecklistPanel";
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 import {
   cipCountFieldKey,
   cipExpandedFieldKey,
@@ -175,7 +176,10 @@ export default function InspectionCapture() {
   };
 
   const requestComplete = () => {
-    if (checklistRequiredIncomplete > 0) {
+    if (
+      COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
+      checklistRequiredIncomplete > 0
+    ) {
       setShowChecklistSoftGate(true);
       return;
     }
@@ -1979,7 +1983,7 @@ export default function InspectionCapture() {
             </Button>
           )}
 
-          {hasCompletionChecklist && (
+          {COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && hasCompletionChecklist && (
             <Button
               variant="outline"
               onClick={scrollToChecklist}
@@ -2015,7 +2019,10 @@ export default function InspectionCapture() {
         </div>
       </div>
 
-      <AlertDialog open={showChecklistSoftGate} onOpenChange={setShowChecklistSoftGate}>
+      <AlertDialog
+        open={COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && showChecklistSoftGate}
+        onOpenChange={setShowChecklistSoftGate}
+      >
         <AlertDialogContent data-testid="dialog-checklist-soft-gate">
           <AlertDialogHeader>
             <AlertDialogTitle>Completion checklist unfinished</AlertDialogTitle>
@@ -2175,7 +2182,13 @@ export default function InspectionCapture() {
       </AlertDialog>
 
       {id && inspection?.status !== "reviewed" && (
-        <div ref={checklistPanelRef} id="completion-checklist-panel">
+        <div
+          ref={checklistPanelRef}
+          id="completion-checklist-panel"
+          style={{
+            display: COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ? undefined : "none",
+          }}
+        >
           <CompletionChecklistPanel
             inspectionId={id}
             readOnly={inspection?.status === "completed"}

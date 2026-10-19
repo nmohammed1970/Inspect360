@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
 import { CompletionChecklistPanel } from "@/components/CompletionChecklistPanel";
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 import type { Inspection } from "@shared/schema";
 
 interface TemplateSection {
@@ -273,12 +274,18 @@ export default function InspectionReview() {
       </Card>
 
       {id && (
-        <CompletionChecklistPanel
-          inspectionId={id}
-          readOnly={
-            inspection?.status === "completed" || inspection?.status === "reviewed"
-          }
-        />
+        <div
+          style={{
+            display: COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ? undefined : "none",
+          }}
+        >
+          <CompletionChecklistPanel
+            inspectionId={id}
+            readOnly={
+              inspection?.status === "completed" || inspection?.status === "reviewed"
+            }
+          />
+        </div>
       )}
 
       {/* Sections and Entries */}

@@ -40,6 +40,7 @@ import {
   CompletionChecklistPanel,
   useMobileCompletionChecklist,
 } from '../../components/inspections/CompletionChecklistPanel';
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from '../../../../shared/completionChecklist';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -67,14 +68,18 @@ export default function InspectionReviewScreen() {
   const [showChecklistSoftGate, setShowChecklistSoftGate] = useState(false);
 
   const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
-  const hasCompletionChecklist = !!completionChecklist?.snapshot;
+  const hasCompletionChecklist =
+    COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
+    !!completionChecklist?.snapshot;
   const checklistProgress = completionChecklist?.progress;
   const checklistIncompleteCount = Math.max(
     0,
     (checklistProgress?.total ?? 0) - (checklistProgress?.completed ?? 0),
   );
   const checklistIsIncomplete =
-    hasCompletionChecklist && checklistIncompleteCount > 0;
+    COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
+    hasCompletionChecklist &&
+    checklistIncompleteCount > 0;
   const checklistRequiredIncomplete =
     checklistProgress?.requiredIncomplete ?? 0;
 
@@ -581,6 +586,9 @@ export default function InspectionReviewScreen() {
           onLayout={(e) => {
             checklistYRef.current = e.nativeEvent.layout.y;
           }}
+          style={{
+            display: COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ? undefined : 'none',
+          }}
         >
           <CompletionChecklistPanel
             inspectionId={inspectionId}
@@ -592,7 +600,7 @@ export default function InspectionReviewScreen() {
       </ScrollView>
 
       <Modal
-        visible={showChecklistSoftGate}
+        visible={COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && showChecklistSoftGate}
         transparent
         animationType="slide"
         onRequestClose={() => setShowChecklistSoftGate(false)}

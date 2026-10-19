@@ -1551,6 +1551,17 @@ export const workOrders = pgTable("work_orders", {
   costActual: integer("cost_actual"), // In cents
   variationNotes: text("variation_notes"), // Notes on cost variations
   completedAt: timestamp("completed_at"),
+  /** Master completion checklist id at assign time (optional). */
+  completionChecklistId: varchar("completion_checklist_id"),
+  /** Frozen checklist copy so master edits do not change filled jobs. */
+  completionChecklistSnapshotJson: jsonb("completion_checklist_snapshot_json").$type<CompletionChecklistSnapshot>(),
+  /** On-device customer signature captured when completing the work order. */
+  customerSignatureJson: jsonb("customer_signature_json").$type<{
+    image: string;
+    signedByName?: string;
+    signedAt?: string;
+  }>(),
+  customerSignedAt: timestamp("customer_signed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1565,6 +1576,34 @@ export const insertWorkOrderSchema = createInsertSchema(workOrders, {
 });
 export type WorkOrder = typeof workOrders.$inferSelect;
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+
+/** Per-work-order answers for snapshotted checklist items. */
+export const workOrderCompletionChecklistResponses = pgTable("work_order_completion_checklist_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  workOrderId: varchar("work_order_id").notNull(),
+  itemId: varchar("item_id").notNull(),
+  valueJson: jsonb("value_json"),
+  photoUrls: text("photo_urls").array().default([]),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("wo_completion_checklist_responses_wo_id_idx").on(table.workOrderId),
+  uniqueIndex("wo_completion_checklist_responses_wo_item_uidx").on(table.workOrderId, table.itemId),
+]);
+
+export const insertWorkOrderCompletionChecklistResponseSchema = createInsertSchema(
+  workOrderCompletionChecklistResponses,
+).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type WorkOrderCompletionChecklistResponse =
+  typeof workOrderCompletionChecklistResponses.$inferSelect;
+export type InsertWorkOrderCompletionChecklistResponse = z.infer<
+  typeof insertWorkOrderCompletionChecklistResponseSchema
+>;
 
 // Certificates uploaded against work orders → optional Compliance documents
 export const workOrderCertificates = pgTable("work_order_certificates", {

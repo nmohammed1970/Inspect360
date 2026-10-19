@@ -30,6 +30,7 @@ import {
   workOrders,
   workLogs,
   workOrderCertificates,
+  workOrderCompletionChecklistResponses,
   assetInventory,
   tags,
   blockTags,
@@ -112,6 +113,8 @@ import {
   type InsertInventoryItem,
   type WorkOrder,
   type InsertWorkOrder,
+  type WorkOrderCompletionChecklistResponse,
+  type InsertWorkOrderCompletionChecklistResponse,
   type WorkLog,
   type InsertWorkLog,
   type Team,
@@ -477,7 +480,15 @@ export interface IStorage {
   ): Promise<any[]>;
   getWorkOrder(id: string): Promise<WorkOrder | undefined>;
   updateWorkOrderStatus(id: string, status: string, completedAt?: Date): Promise<WorkOrder>;
+  updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder>;
   updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder>;
+  getWorkOrderCompletionChecklistResponses(
+    workOrderId: string,
+  ): Promise<WorkOrderCompletionChecklistResponse[]>;
+  upsertWorkOrderCompletionChecklistResponse(
+    data: InsertWorkOrderCompletionChecklistResponse,
+  ): Promise<WorkOrderCompletionChecklistResponse>;
+  deleteWorkOrderCompletionChecklistResponses(workOrderId: string): Promise<void>;
 
   // Work Log operations
   createWorkLog(log: InsertWorkLog): Promise<WorkLog>;
@@ -2579,6 +2590,10 @@ export class DatabaseStorage implements IStorage {
       costActual: workOrders.costActual,
       variationNotes: workOrders.variationNotes,
       completedAt: workOrders.completedAt,
+      completionChecklistId: workOrders.completionChecklistId,
+      completionChecklistSnapshotJson: workOrders.completionChecklistSnapshotJson,
+      customerSignatureJson: workOrders.customerSignatureJson,
+      customerSignedAt: workOrders.customerSignedAt,
       createdAt: workOrders.createdAt,
       updatedAt: workOrders.updatedAt,
       maintenanceRequest: {
@@ -2693,6 +2708,60 @@ export class DatabaseStorage implements IStorage {
     return workOrder;
   }
 
+  async updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder> {
+    const [workOrder] = await db
+      .update(workOrders)
+      .set({ ...updates, updatedAt: new Date() } as any)
+      .where(eq(workOrders.id, id))
+      .returning();
+    return workOrder;
+  }
+
+  async getWorkOrderCompletionChecklistResponses(
+    workOrderId: string,
+  ): Promise<WorkOrderCompletionChecklistResponse[]> {
+    return await db
+      .select()
+      .from(workOrderCompletionChecklistResponses)
+      .where(eq(workOrderCompletionChecklistResponses.workOrderId, workOrderId));
+  }
+
+  async upsertWorkOrderCompletionChecklistResponse(
+    data: InsertWorkOrderCompletionChecklistResponse,
+  ): Promise<WorkOrderCompletionChecklistResponse> {
+    const existing = await db
+      .select()
+      .from(workOrderCompletionChecklistResponses)
+      .where(
+        and(
+          eq(workOrderCompletionChecklistResponses.workOrderId, data.workOrderId),
+          eq(workOrderCompletionChecklistResponses.itemId, data.itemId),
+        ),
+      );
+    if (existing[0]) {
+      const [row] = await db
+        .update(workOrderCompletionChecklistResponses)
+        .set({
+          valueJson:
+            data.valueJson !== undefined ? (data.valueJson as any) : existing[0].valueJson,
+          photoUrls: data.photoUrls !== undefined ? data.photoUrls : existing[0].photoUrls,
+          updatedBy: data.updatedBy,
+          updatedAt: new Date(),
+        })
+        .where(eq(workOrderCompletionChecklistResponses.id, existing[0].id))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(workOrderCompletionChecklistResponses).values(data).returning();
+    return row;
+  }
+
+  async deleteWorkOrderCompletionChecklistResponses(workOrderId: string): Promise<void> {
+    await db
+      .delete(workOrderCompletionChecklistResponses)
+      .where(eq(workOrderCompletionChecklistResponses.workOrderId, workOrderId));
+  }
+
   async updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder> {
     const updateData: any = { costActual, updatedAt: new Date() };
     if (variationNotes !== undefined) {
@@ -2709,6 +2778,9 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWorkOrder(id: string): Promise<void> {
     await db.delete(workLogs).where(eq(workLogs.workOrderId, id));
+    await db
+      .delete(workOrderCompletionChecklistResponses)
+      .where(eq(workOrderCompletionChecklistResponses.workOrderId, id));
     await db.delete(workOrderCertificates).where(eq(workOrderCertificates.workOrderId, id));
     // Detach compliance docs that were linked from this work order (keep the docs)
     await db
@@ -3033,6 +3105,15 @@ export class DatabaseStorage implements IStorage {
       .update(inspectionTemplates)
       .set({ completionChecklistId: null, updatedAt: new Date() })
       .where(eq(inspectionTemplates.completionChecklistId, id));
+    // Clear work order attachments (keep WOs; only drop the checklist link).
+    await db
+      .update(workOrders)
+      .set({
+        completionChecklistId: null,
+        completionChecklistSnapshotJson: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workOrders.completionChecklistId, id));
     await db.delete(completionChecklists).where(eq(completionChecklists.id, id));
   }
 

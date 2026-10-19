@@ -45,6 +45,7 @@ import {
   CompletionChecklistPanel,
   useInspectionCompletionChecklist,
 } from "@/components/CompletionChecklistPanel";
+import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -53,8 +54,9 @@ export default function InspectionDetail() {
   const [, setLocation] = useLocation();
   const { tenanciesEnabled } = useCompanyModules();
   const { data: completionChecklist } = useInspectionCompletionChecklist(id);
-  const checklistRequiredIncomplete =
-    completionChecklist?.progress?.requiredIncomplete ?? 0;
+  const checklistRequiredIncomplete = COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE
+    ? (completionChecklist?.progress?.requiredIncomplete ?? 0)
+    : 0;
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -814,12 +816,18 @@ export default function InspectionDetail() {
       </Card>
 
       {id && (
-        <CompletionChecklistPanel
-          inspectionId={id}
-          readOnly={
-            inspection.status === "completed" || inspection.status === "reviewed"
-          }
-        />
+        <div
+          style={{
+            display: COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE ? undefined : "none",
+          }}
+        >
+          <CompletionChecklistPanel
+            inspectionId={id}
+            readOnly={
+              inspection.status === "completed" || inspection.status === "reviewed"
+            }
+          />
+        </div>
       )}
 
       <AlertDialog
