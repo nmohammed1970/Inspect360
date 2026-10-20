@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -43,7 +43,12 @@ import {
   repeatableCountsFromPropertyLayout,
   type PropertyRoomCountsSnapshot,
 } from "@shared/propertyLayout";
-import { formatDisplayHeading, numberedRoomInstanceTitle } from "@shared/propertyRooms";
+import {
+  formatDisplayHeading,
+  numberedRoomInstanceTitle,
+  parseLegacyRepeatableInstanceNumber,
+  repeatableCountsFromPropertyRoomInstances,
+} from "@shared/propertyRooms";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
 import {
@@ -63,6 +68,7 @@ import {
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from "@shared/templateCustomInspectionPoints";
+import { computeInspectionCaptureProgress } from "@shared/inspectionProgress";
 
 interface AIAnalysisStatus {
   status: "idle" | "processing" | "completed" | "failed";
@@ -76,6 +82,7 @@ interface TemplateSection {
   title: string;
   description?: string;
   repeatable?: boolean;
+  propertyRoomAuto?: boolean;
   fields: TemplateField[];
 }
 
@@ -127,6 +134,22 @@ export default function InspectionCapture() {
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const repeatableCountsInitialized = React.useRef(false); // Track if we've initialized default counts
+  // Prevent stale saves / refetches from resurrecting deleted photos or cleared values.
+  // Each local edit bumps the per-key sequence; older in-flight POSTs are ignored on settle.
+  const entryWriteSeqRef = React.useRef<Record<string, number>>({});
+  const pendingEntryKeysRef = React.useRef<Set<string>>(new Set());
+  const entriesRef = React.useRef(entries);
+  entriesRef.current = entries;
+
+  const entryStorageKey = (sectionRef: string, fieldKey: string) => `${sectionRef}-${fieldKey}`;
+
+  const beginEntryWrite = (sectionRef: string, fieldKey: string) => {
+    const key = entryStorageKey(sectionRef, fieldKey);
+    const seq = (entryWriteSeqRef.current[key] || 0) + 1;
+    entryWriteSeqRef.current[key] = seq;
+    pendingEntryKeysRef.current.add(key);
+    return { key, seq };
+  };
   const isOnline = useOnlineStatus();
   const { tenanciesEnabled, maintenanceEnabled } = useCompanyModules();
   const [pendingCount, setPendingCount] = useState(0);
@@ -146,6 +169,12 @@ export default function InspectionCapture() {
   const [copyImages, setCopyImages] = useState(false);
   const [copyNotes, setCopyNotes] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [instancePendingDelete, setInstancePendingDelete] = useState<{
+    sectionRef: string;
+    label: string;
+    sectionId: string;
+  } | null>(null);
+  const [isDeletingInstance, setIsDeletingInstance] = useState(false);
   const [showSendToTenantDialog, setShowSendToTenantDialog] = useState(false);
   const [pendingCompleteWithAI, setPendingCompleteWithAI] = useState(false);
   const [completingAction, setCompletingAction] = useState<"without-ai" | "with-ai" | null>(null);
@@ -373,19 +402,11 @@ export default function InspectionCapture() {
         });
       }
       
-      // Extract repeatable instance count from sectionRef (e.g., "Bedrooms/Bedroom 1" -> 1)
-      // This is a fallback if no count entry exists
-      const sectionRefParts = entry.sectionRef.split('/');
-      if (sectionRefParts.length > 1) {
-        const instancePart = sectionRefParts[1];
-        const match = instancePart.match(/(\d+)$/); // Extract number at end
-        if (match) {
-          const instanceNum = parseInt(match[1], 10);
-          const baseSectionId = sectionRefParts[0];
-          // Track max instance number for each repeatable section (fallback if no count entry exists)
-          if (!countsMap[baseSectionId] || instanceNum > countsMap[baseSectionId]) {
-            countsMap[baseSectionId] = instanceNum;
-          }
+      // Legacy only: "Bedrooms/Bedroom 1" → 1. Never treat UUID room ids as counts.
+      const legacy = parseLegacyRepeatableInstanceNumber(entry.sectionRef);
+      if (legacy) {
+        if (!countsMap[legacy.sectionId] || legacy.instanceNum > countsMap[legacy.sectionId]) {
+          countsMap[legacy.sectionId] = legacy.instanceNum;
         }
       }
     });
@@ -398,7 +419,9 @@ export default function InspectionCapture() {
           propertyRoomCountsSnapshot,
         )
       : {};
-    const mergedCounts = { ...countsMap, ...snapshotCounts };
+    // Floor-plan room instances win for those sections (fixes UUID-digit "Dining Room 39")
+    const instanceCounts = repeatableCountsFromPropertyRoomInstances(propertyRoomInstances);
+    const mergedCounts = { ...countsMap, ...snapshotCounts, ...instanceCounts };
     if (Object.keys(mergedCounts).length > 0) {
       repeatableCountsInitialized.current = true; // Mark as initialized from saved data
       setRepeatableCounts(prev => {
@@ -410,22 +433,41 @@ export default function InspectionCapture() {
       });
     }
     
-    // THEN set entries - counts are now available so fields will render correctly
-    // Merge with existing entries to preserve any local changes, but prioritize server data
-    // Only update if there are actual changes to prevent infinite loops
-    setEntries(prev => {
-      const hasChanges = Object.keys(entriesMap).some(key => {
-        const newEntry = entriesMap[key];
+    // Merge server entries, but never clobber keys with an in-flight local edit
+    // (that race is what made deleted photos / cleared values reappear intermittently).
+    setEntries((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [key, serverEntry] of Object.entries(entriesMap)) {
+        if (pendingEntryKeysRef.current.has(key)) {
+          const local = prev[key];
+          if (local && !local.id && serverEntry.id) {
+            next[key] = { ...local, id: serverEntry.id };
+            changed = true;
+          }
+          continue;
+        }
         const oldEntry = prev[key];
-        return !oldEntry || 
-          oldEntry.id !== newEntry.id ||
-          oldEntry.valueJson !== newEntry.valueJson ||
-          oldEntry.note !== newEntry.note ||
-          JSON.stringify(oldEntry.photos) !== JSON.stringify(newEntry.photos);
-      });
-      return hasChanges ? { ...prev, ...entriesMap } : prev;
+        if (
+          !oldEntry ||
+          oldEntry.id !== serverEntry.id ||
+          oldEntry.valueJson !== serverEntry.valueJson ||
+          oldEntry.note !== serverEntry.note ||
+          JSON.stringify(oldEntry.photos) !== JSON.stringify(serverEntry.photos) ||
+          oldEntry.markedForReview !== serverEntry.markedForReview
+        ) {
+          next[key] = serverEntry;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
-  }, [existingEntries, propertyRoomCountsSnapshot, inspection?.templateSnapshotJson]);
+  }, [
+    existingEntries,
+    propertyRoomCountsSnapshot,
+    inspection?.templateSnapshotJson,
+    propertyRoomInstances,
+  ]);
 
   // Parse template structure from snapshot and migrate old templates
   const rawTemplateStructure = inspection?.templateSnapshotJson as {
@@ -446,8 +488,9 @@ export default function InspectionCapture() {
   const sections = React.useMemo(() => {
     if (!rawTemplateStructure?.sections) return [] as TemplateSection[];
 
-    const migrated = rawTemplateStructure.sections.map((section) => ({
+    const migrated = rawTemplateStructure.sections.map((section: any) => ({
       ...section,
+      propertyRoomAuto: !!(section as TemplateSection).propertyRoomAuto,
       fields: (section.fields || []).map((field: any) => ({
         ...field,
         id: field.id || field.key,
@@ -464,22 +507,75 @@ export default function InspectionCapture() {
     return (applied.structure.sections || []) as TemplateSection[];
   }, [rawTemplateStructure, propertyRoomCountsSnapshot]);
 
-  // Update entry mutation
+  // Update entry mutation (supports concurrent edits per field via client write seq)
+  type EntryWritePayload = InspectionEntry & { _clientKey?: string; _clientSeq?: number };
   const updateEntry = useMutation({
-    mutationFn: async (entry: InspectionEntry) => {
+    mutationFn: async (entry: EntryWritePayload) => {
+      let _clientKey = entry._clientKey;
+      let _clientSeq = entry._clientSeq;
+      if (!_clientKey || _clientSeq == null) {
+        const started = beginEntryWrite(entry.sectionRef, entry.fieldKey);
+        _clientKey = started.key;
+        _clientSeq = started.seq;
+      }
+      const { _clientKey: _k, _clientSeq: _s, ...payload } = entry;
       const response = await fetch(`/api/inspection-entries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inspectionId: id,
-          ...entry,
+          ...payload,
         }),
       });
       if (!response.ok) throw new Error(await response.text());
-      return response.json();
+      const saved = await response.json();
+      return { saved, _clientKey: _clientKey!, _clientSeq: _clientSeq!, payload };
     },
-    onSuccess: () => {
-      // If inspection is still in draft status, update to in_progress
+    onSuccess: (result) => {
+      const { saved, _clientKey, _clientSeq, payload } = result;
+      const latestSeq = entryWriteSeqRef.current[_clientKey] || 0;
+
+      // An older in-flight save finished after a newer local edit (e.g. upload then delete).
+      // Re-save the latest local state so the server cannot resurrect deleted photos/values.
+      if (_clientSeq !== latestSeq) {
+        const latestLocal = entriesRef.current[_clientKey];
+        if (latestLocal) {
+          const retry = beginEntryWrite(latestLocal.sectionRef, latestLocal.fieldKey);
+          updateEntry.mutate({
+            ...latestLocal,
+            _clientKey: retry.key,
+            _clientSeq: retry.seq,
+          });
+        }
+        return;
+      }
+
+      pendingEntryKeysRef.current.delete(_clientKey);
+      setEntries((prev) => {
+        const local = prev[_clientKey];
+        if (!local) {
+          return {
+            ...prev,
+            [_clientKey]: {
+              ...payload,
+              id: saved?.id || payload.id,
+              photos: payload.photos ?? [],
+            },
+          };
+        }
+        return {
+          ...prev,
+          [_clientKey]: {
+            ...local,
+            id: saved?.id || local.id,
+            // Keep whatever the user last edited locally for this seq
+            photos: local.photos,
+            valueJson: local.valueJson,
+            note: local.note,
+          },
+        };
+      });
+
       if (inspection?.status === "draft") {
         fetch(`/api/inspections/${id}`, {
           method: "PATCH",
@@ -493,15 +589,13 @@ export default function InspectionCapture() {
           queryClient.invalidateQueries({ queryKey: ["/api/inspections"] });
         });
       }
-      // Invalidate entries query to ensure report page gets fresh data
+      // Soft invalidate only — forced refetch here raced with in-flight deletes
       queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
-      // Also invalidate inspection query
       queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      // Force immediate refetch for any active queries (like report page)
-      queryClient.refetchQueries({ queryKey: [`/api/inspections/${id}/entries`] });
-      queryClient.refetchQueries({ queryKey: ["/api/inspections", id] });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, entry) => {
+      const key = entry._clientKey || entryStorageKey(entry.sectionRef, entry.fieldKey);
+      pendingEntryKeysRef.current.delete(key);
       toast({
         variant: "destructive",
         title: "Error saving field",
@@ -509,6 +603,12 @@ export default function InspectionCapture() {
       });
     },
   });
+
+  const saveInspectionEntry = (entry: InspectionEntry) => {
+    const { key, seq } = beginEntryWrite(entry.sectionRef, entry.fieldKey);
+    setEntries((prev) => ({ ...prev, [key]: entry }));
+    updateEntry.mutate({ ...entry, _clientKey: key, _clientSeq: seq });
+  };
 
   // Property layout snapshot wins for all room-type repeatable sections
   const propertyCountsAppliedRef = React.useRef<string | null>(null);
@@ -818,22 +918,27 @@ export default function InspectionCapture() {
     }
   }, [inspection, id]);
 
-  // Calculate progress - count entries with values OR photos
-  // For repeatable sections, multiply field count by instance count
-  const totalFields = sections.reduce((acc, section) => {
-    if (section.repeatable) {
-      const count = repeatableCounts[section.id] ?? 1;
-      return acc + (section.fields.length * count);
-    }
-    return acc + section.fields.length;
-  }, 0);
-  const completedFields = Object.values(entries).filter(entry => {
-    // Count as complete if has valueJson OR photos
-    const hasValue = entry.valueJson !== null && entry.valueJson !== undefined;
-    const hasPhotos = entry.photos && entry.photos.length > 0;
-    return hasValue || hasPhotos;
-  }).length;
-  const progress = totalFields > 0 ? (completedFields / totalFields) * 100 : 0;
+  // Progress uses the same field set the UI renders (instances × fields + CIPs).
+  // Never count raw entries — orphans / __repeatable_count_* inflate completed > total.
+  const { totalFields, completedFields, progress } = React.useMemo(
+    () =>
+      computeInspectionCaptureProgress({
+        sections,
+        entries,
+        repeatableCounts,
+        propertyRoomInstances,
+        templateStructure: templateSnapshot,
+        excludeTenantSignatures: !tenanciesEnabled,
+      }),
+    [
+      sections,
+      entries,
+      repeatableCounts,
+      propertyRoomInstances,
+      templateSnapshot,
+      tenanciesEnabled,
+    ],
+  );
 
 
 
@@ -1280,14 +1385,8 @@ export default function InspectionCapture() {
       });
     }
 
-    // Update local state optimistically
-    setEntries(prev => ({
-      ...prev,
-      [entryKey]: entry,
-    }));
-
-    // Save to backend
-    updateEntry.mutate(entry);
+    // Optimistic local + sequenced server write (blocks stale upload/delete races)
+    saveInspectionEntry(entry);
   };
 
   // Handle mark for review change
@@ -1348,8 +1447,9 @@ export default function InspectionCapture() {
 
   const persistInspectionEntry = (entry: InspectionEntry) => {
     const entryKey = `${entry.sectionRef}-${entry.fieldKey}`;
-    setEntries((prev) => ({ ...prev, [entryKey]: entry }));
     if (!isOnline) {
+      beginEntryWrite(entry.sectionRef, entry.fieldKey);
+      setEntries((prev) => ({ ...prev, [entryKey]: entry }));
       offlineQueue.enqueue({
         inspectionId: id!,
         sectionRef: entry.sectionRef,
@@ -1366,7 +1466,7 @@ export default function InspectionCapture() {
       });
       return;
     }
-    updateEntry.mutate(entry);
+    saveInspectionEntry(entry);
   };
 
   const handleScopedFieldChange = (
@@ -1705,6 +1805,91 @@ export default function InspectionCapture() {
     if (currentSectionIndex > 0) {
       setCurrentSectionIndex(currentSectionIndex - 1);
       scrollCaptureToTop();
+    }
+  };
+
+  const confirmDeleteInstance = async () => {
+    if (!id || !instancePendingDelete) return;
+    setIsDeletingInstance(true);
+    try {
+      const response = await fetch(`/api/inspections/${id}/section-instances/remove`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionRef: instancePendingDelete.sectionRef }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(
+          typeof body.message === "string" ? body.message : "Failed to remove inspection point",
+        );
+      }
+      const result = await response.json();
+      const deletedRef = instancePendingDelete.sectionRef;
+      const deletedSectionId = instancePendingDelete.sectionId;
+      const sectionRemoved = !!result.sectionRemoved;
+      const remaining = Number(result.remainingInstanceCount) || 0;
+      const deletedIndex = sections.findIndex((s) => s.id === deletedSectionId);
+
+      setEntries((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          const entry = next[key];
+          const fk = entry.fieldKey || "";
+          if (entry.sectionRef === deletedRef) {
+            delete next[key];
+            continue;
+          }
+          if (
+            sectionRemoved &&
+            (entry.sectionRef === deletedSectionId ||
+              entry.sectionRef.startsWith(`${deletedSectionId}/`) ||
+              fk === `__repeatable_count_${deletedSectionId}`)
+          ) {
+            delete next[key];
+          }
+        }
+        return next;
+      });
+      setRepeatableCounts((prev) => {
+        const next = { ...prev };
+        if (sectionRemoved) {
+          delete next[deletedSectionId];
+        } else {
+          next[deletedSectionId] = Math.max(1, remaining);
+        }
+        return next;
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
+      await queryClient.invalidateQueries({ queryKey: [`/api/inspections/${id}/entries`] });
+      await queryClient.invalidateQueries({
+        queryKey: [`/api/inspections/${id}/gallery`],
+      });
+
+      if (sectionRemoved && deletedIndex >= 0) {
+        setCurrentSectionIndex((idx) => {
+          if (idx > deletedIndex) return Math.max(0, idx - 1);
+          if (idx === deletedIndex) return Math.max(0, Math.min(idx, sections.length - 2));
+          return idx;
+        });
+      }
+
+      toast({
+        title: sectionRemoved ? "Section removed" : "Inspection point removed",
+        description: sectionRemoved
+          ? `"${formatDisplayHeading(result.removedSectionTitle || instancePendingDelete.label)}" had no points left and was removed.`
+          : `"${formatDisplayHeading(instancePendingDelete.label)}" was removed.`,
+      });
+      setInstancePendingDelete(null);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not remove inspection point",
+        description: error?.message || "Please try again.",
+      });
+    } finally {
+      setIsDeletingInstance(false);
     }
   };
 
@@ -2122,6 +2307,52 @@ export default function InspectionCapture() {
       </AlertDialog>
 
       <AlertDialog
+        open={!!instancePendingDelete}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingInstance) setInstancePendingDelete(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-delete-section-instance">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this inspection point?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Remove{" "}
+                  <span className="font-medium text-foreground">
+                    {formatDisplayHeading(instancePendingDelete?.label || "")}
+                  </span>{" "}
+                  and its answers from this inspection. If it is the last point in the section,
+                  the section tab is removed too.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingInstance}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteInstance();
+              }}
+              disabled={isDeletingInstance}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-section-instance"
+            >
+              {isDeletingInstance ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                "Remove"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={showSendToTenantDialog}
         onOpenChange={(open) => {
           if (!completingAction && !sendingToTenantAction) setShowSendToTenantDialog(open);
@@ -2446,8 +2677,12 @@ export default function InspectionCapture() {
                 const sectionRoomInsts = propertyRoomInstances.filter((r) =>
                   r.sectionRef.startsWith(`${currentSection.id}/`),
                 );
-                // Prefer General Information / __repeatable_count override over floor-plan room list length
-                const count = repeatableCounts[currentSection.id] ?? 1;
+                // Floor-plan instances are the source of truth when present (avoids UUID-digit ghosts).
+                // Otherwise fall back to saved __repeatable_count_*.
+                const count =
+                  sectionRoomInsts.length > 0
+                    ? sectionRoomInsts.length
+                    : (repeatableCounts[currentSection.id] ?? 1);
                 const instanceCount = Math.max(1, count);
                 return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
                 const roomInst = sectionRoomInsts[instanceIndex];
@@ -2463,18 +2698,41 @@ export default function InspectionCapture() {
                   snapRoom?.widthMm && snapRoom?.lengthMm
                     ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
                     : "";
+                const sectionRef =
+                  roomInst?.sectionRef ||
+                  `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                const canDeleteInstance = inspection?.status !== "completed";
                 return (
                   <div key={roomInst?.roomId || `instance-${instanceIndex}`} className="space-y-8 p-3 sm:p-5 border-2 rounded-xl bg-background min-w-0">
-                    <h3 className="text-base sm:text-lg font-semibold text-primary break-words">
-                      {instanceName}
-                      {dimLabel && (
-                        <span className="text-sm font-normal text-muted-foreground">{dimLabel}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-base sm:text-lg font-semibold text-primary break-words min-w-0">
+                        {instanceName}
+                        {dimLabel && (
+                          <span className="text-sm font-normal text-muted-foreground">{dimLabel}</span>
+                        )}
+                      </h3>
+                      {canDeleteInstance && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          title={`Remove ${instanceName}`}
+                          aria-label={`Remove ${instanceName}`}
+                          data-testid={`button-delete-instance-${instanceIndex}`}
+                          onClick={() =>
+                            setInstancePendingDelete({
+                              sectionRef,
+                              label: instanceName,
+                              sectionId: currentSection.id,
+                            })
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </Button>
                       )}
-                    </h3>
+                    </div>
                     {(() => {
-                      const sectionRef =
-                        roomInst?.sectionRef ||
-                        `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                       const sectionCips = sectionCipsFor(currentSection);
                       return sectionCips.length ? renderCipCountInputs(sectionRef, sectionCips) : null;
                     })()}

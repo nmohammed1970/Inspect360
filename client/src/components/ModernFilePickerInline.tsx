@@ -87,17 +87,18 @@ export function ModernFilePickerInline({
         }
 
         if (prepared.length > 0) {
-          const updatedFiles = multiple
-            ? [...selectedFiles, ...prepared].slice(0, maxFiles)
-            : prepared.slice(0, 1);
-          setSelectedFiles(updatedFiles);
-          onFilesSelected(updatedFiles);
+          // Only hand off *newly* chosen files. Re-sending the full accumulated
+          // selectedFiles list made each drop re-upload prior images (1 → 1+1 → 1+1+1…).
+          const newFiles = multiple ? prepared.slice(0, maxFiles) : prepared.slice(0, 1);
+          onFilesSelected(newFiles);
+          // Parent owns the saved photo list — clear local staging after handoff
+          setSelectedFiles([]);
         }
       } finally {
         setIsPreparing(false);
       }
     },
-    [selectedFiles, maxFiles, maxFileSize, multiple, onFilesSelected],
+    [selectedFiles.length, maxFiles, maxFileSize, multiple, onFilesSelected],
   );
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -134,11 +135,8 @@ export function ModernFilePickerInline({
   };
 
   const removeFile = (index: number) => {
-    const newFiles = selectedFiles.filter((_, i) => i !== index);
-    setSelectedFiles(newFiles);
-    if (newFiles.length > 0) {
-      onFilesSelected(newFiles);
-    }
+    // Staging only — do not call onFilesSelected (would re-trigger uploads).
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleBrowseClick = () => {

@@ -806,3 +806,355 @@ export function propertyRoomsNeedSectionRepair(
   }
   return false;
 }
+
+/** Floor-plan injected category sections (Garden, Hallway, Utility, …). */
+export function isPropertyRoomAutoSection(
+  section: { propertyRoomAuto?: boolean } | null | undefined,
+): boolean {
+  return !!(section as { propertyRoomAuto?: boolean } | null | undefined)?.propertyRoomAuto;
+}
+
+/** Stable property-room id in sectionRef (`sectionId/{roomUuid}`), not "Bedroom 1". */
+export function isStableRoomInstanceId(instancePart: string | null | undefined): boolean {
+  const s = String(instancePart || "").trim();
+  if (!s || /\s/.test(s)) return false;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) {
+    return true;
+  }
+  // Opaque ids (cuid / nanoid): no spaces, mixed letters+digits, not a plain integer
+  if (s.length >= 8 && /[a-z]/i.test(s) && /\d/.test(s) && !/^\d+$/.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Legacy sectionRef "Bedrooms/Bedroom 3" → { sectionId, instanceNum: 3 }.
+ * Never treat UUID room ids (`…/a1b2-…39`) as instance numbers — that produced
+ * ghosts like "Dining Room 39" from a single room whose id ended in 39.
+ */
+export function parseLegacyRepeatableInstanceNumber(
+  sectionRef: string | null | undefined,
+): { sectionId: string; instanceNum: number } | null {
+  const raw = String(sectionRef || "").trim();
+  if (!raw || !raw.includes("/")) return null;
+  const slash = raw.indexOf("/");
+  const sectionId = raw.slice(0, slash).trim();
+  const instancePart = raw.slice(slash + 1).trim();
+  if (!sectionId || !instancePart || isStableRoomInstanceId(instancePart)) return null;
+  // Require a label before the trailing number ("Bedroom 1", not bare "39")
+  const match = instancePart.match(/^(.*\D)\s*(\d+)$/);
+  if (!match) return null;
+  const instanceNum = parseInt(match[2], 10);
+  if (!Number.isFinite(instanceNum) || instanceNum < 1 || instanceNum > 50) return null;
+  return { sectionId, instanceNum };
+}
+
+/** Counts of propertyRoomInstances grouped by base section id. */
+export function repeatableCountsFromPropertyRoomInstances(
+  instances:
+    | Array<{ sectionRef?: string | null }>
+    | null
+    | undefined,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  if (!Array.isArray(instances)) return counts;
+  for (const inst of instances) {
+    const ref = String(inst.sectionRef || "").trim();
+    if (!ref) continue;
+    const sectionId = ref.split("/")[0]?.trim();
+    if (!sectionId) continue;
+    counts[sectionId] = (counts[sectionId] || 0) + 1;
+  }
+  return counts;
+}
+
+export function entryBelongsToSection(
+  sectionRef: string | null | undefined,
+  sectionId: string,
+): boolean {
+  const ref = String(sectionRef || "").trim();
+  const id = String(sectionId || "").trim();
+  if (!ref || !id) return false;
+  return ref === id || ref.startsWith(`${id}/`);
+}
+
+export type PropertyRoomsSnapshotLike = {
+  rooms?: PropertyRoomSnapshotItem[];
+  [key: string]: unknown;
+};
+
+export type RemoveAutoSectionResult = {
+  structure: TemplateStructureLike;
+  propertyRoomsSnapshot: PropertyRoomsSnapshotLike | null;
+  removedSectionId: string;
+  removedSectionTitle: string;
+  removedRoomIds: string[];
+};
+
+export type RemoveSectionInstanceResult = {
+  structure: TemplateStructureLike;
+  propertyRoomsSnapshot: PropertyRoomsSnapshotLike | null;
+  /** Exact sectionRef removed (e.g. bathrooms/{roomId}). */
+  removedSectionRef: string;
+  sectionId: string;
+  removedRoomId: string | null;
+  /** When the last point was removed, the whole section is dropped. */
+  sectionRemoved: boolean;
+  removedSectionTitle: string | null;
+  remainingInstanceCount: number;
+  /** Updated bedroom/kitchen/… tallies from remaining frozen rooms (when snapshot present). */
+  propertyRoomCounts: PropertyRoomCounts | null;
+};
+
+/** General / Sign-off must stay on every inspection. */
+export function isProtectedCaptureSection(
+  section: TemplateSectionLike | null | undefined,
+): boolean {
+  if (!section) return true;
+  return isGeneralOrSignoffSection(section);
+}
+
+function filterRoomsSnapshot(
+  propertyRoomsSnapshot: PropertyRoomsSnapshotLike | null | undefined,
+  removedRoomIds: string[],
+): PropertyRoomsSnapshotLike | null {
+  if (propertyRoomsSnapshot == null) return null;
+  const removedIdSet = new Set(removedRoomIds.map((id) => String(id || "").trim()).filter(Boolean));
+  if (!removedIdSet.size || !Array.isArray(propertyRoomsSnapshot.rooms)) {
+    return { ...propertyRoomsSnapshot };
+  }
+  return {
+    ...propertyRoomsSnapshot,
+    rooms: propertyRoomsSnapshot.rooms.filter(
+      (r) => !removedIdSet.has(String(r.id || "").trim()),
+    ),
+  };
+}
+
+/**
+ * Remove one inspection point (room instance) from an inspection snapshot.
+ * If that was the last point in the section, the section tab is removed too
+ * (except General / Sign-off).
+ */
+export function removeInspectionSectionInstance(
+  structure: TemplateStructureLike | null | undefined,
+  sectionRef: string,
+  propertyRoomsSnapshot?: PropertyRoomsSnapshotLike | null,
+): RemoveSectionInstanceResult {
+  const ref = String(sectionRef || "").trim();
+  if (!ref) {
+    throw Object.assign(new Error("Inspection point reference is required"), { status: 400 });
+  }
+
+  const sectionId = ref.includes("/") ? ref.split("/")[0]!.trim() : ref;
+  if (!sectionId) {
+    throw Object.assign(new Error("Invalid inspection point reference"), { status: 400 });
+  }
+
+  const sections = Array.isArray(structure?.sections)
+    ? [...(structure!.sections as TemplateSectionLike[])]
+    : [];
+  const sectionIndex = sections.findIndex((s) => s.id === sectionId);
+  if (sectionIndex < 0) {
+    throw Object.assign(new Error("Section not found on this inspection"), { status: 404 });
+  }
+  const section = sections[sectionIndex];
+  if (isProtectedCaptureSection(section)) {
+    throw Object.assign(
+      new Error("General and Sign-off sections cannot be removed"),
+      { status: 400 },
+    );
+  }
+
+  type RoomInst = { roomId?: string; sectionRef: string; title?: string };
+  const prevInstances: RoomInst[] =
+    ((structure as { propertyRoomInstances?: RoomInst[] })?.propertyRoomInstances || []).map(
+      (i) => ({ ...i }),
+    );
+
+  let removedRoomId: string | null = null;
+  let matchedInstance = false;
+  const nextInstances = prevInstances.filter((inst) => {
+    const instRef = String(inst.sectionRef || "").trim();
+    const roomId = String(inst.roomId || "").trim();
+    if (instRef === ref || (roomId && ref.endsWith(`/${roomId}`))) {
+      matchedInstance = true;
+      if (roomId) removedRoomId = roomId;
+      return false;
+    }
+    return true;
+  });
+
+  // Manual / synthetic points (no propertyRoomInstances row) are still valid to delete;
+  // remaining count is derived from leftover instances for this section, or 0 when none exist.
+  if (!matchedInstance && prevInstances.some((i) => entryBelongsToSection(i.sectionRef, sectionId))) {
+    throw Object.assign(new Error("Inspection point not found"), { status: 404 });
+  }
+
+  const remainingForSection = nextInstances.filter((i) =>
+    entryBelongsToSection(i.sectionRef, sectionId),
+  ).length;
+
+  const sectionHadInstances = prevInstances.some((i) =>
+    entryBelongsToSection(i.sectionRef, sectionId),
+  );
+  // Floor-plan sections: drop the tab when the last room instance is removed.
+  // Count-only sections (no propertyRoomInstances): caller removes the tab when count hits 0.
+  const sectionRemoved = sectionHadInstances && remainingForSection === 0;
+
+  let nextSections = sections;
+  let removedSectionTitle: string | null = null;
+  if (sectionRemoved) {
+    nextSections = sections.filter((s) => s.id !== sectionId);
+    removedSectionTitle = String(section.title || sectionId);
+  }
+
+  const removedRoomIds = removedRoomId ? [removedRoomId] : [];
+  const nextRoomsSnap = filterRoomsSnapshot(propertyRoomsSnapshot, removedRoomIds);
+  const propertyRoomCounts =
+    nextRoomsSnap && Array.isArray(nextRoomsSnap.rooms)
+      ? countsFromRooms(
+          nextRoomsSnap.rooms.map((r) => ({
+            categorySlug: r.categorySlug,
+            categoryName: r.categoryName,
+            name: r.name,
+          })),
+        )
+      : null;
+
+  const nextStructure: TemplateStructureLike = {
+    ...(structure || {}),
+    sections: nextSections,
+  };
+  (nextStructure as { propertyRoomInstances?: RoomInst[] }).propertyRoomInstances = nextInstances;
+
+  return {
+    structure: nextStructure,
+    propertyRoomsSnapshot: nextRoomsSnap,
+    removedSectionRef: ref,
+    sectionId,
+    removedRoomId,
+    sectionRemoved,
+    removedSectionTitle,
+    remainingInstanceCount: remainingForSection,
+    propertyRoomCounts,
+  };
+}
+
+/**
+ * Drop a section tab from the snapshot (used when the last count-only instance is deleted).
+ * Refuses General / Sign-off.
+ */
+export function removeSectionFromInspectionSnapshot(
+  structure: TemplateStructureLike | null | undefined,
+  sectionId: string,
+  propertyRoomsSnapshot?: PropertyRoomsSnapshotLike | null,
+): RemoveAutoSectionResult {
+  const id = String(sectionId || "").trim();
+  if (!id) {
+    throw Object.assign(new Error("Section id is required"), { status: 400 });
+  }
+  const sections = Array.isArray(structure?.sections)
+    ? [...(structure!.sections as TemplateSectionLike[])]
+    : [];
+  const sectionIndex = sections.findIndex((s) => s.id === id);
+  if (sectionIndex < 0) {
+    throw Object.assign(new Error("Section not found on this inspection"), { status: 404 });
+  }
+  const section = sections[sectionIndex];
+  if (isProtectedCaptureSection(section)) {
+    throw Object.assign(
+      new Error("General and Sign-off sections cannot be removed"),
+      { status: 400 },
+    );
+  }
+
+  const prevInstances =
+    ((structure as { propertyRoomInstances?: Array<{ roomId?: string; sectionRef: string; title?: string }> })
+      ?.propertyRoomInstances || []);
+  const removedRoomIds: string[] = [];
+  const nextInstances = prevInstances.filter((inst) => {
+    if (!entryBelongsToSection(inst.sectionRef, id)) return true;
+    const roomId = String(inst.roomId || "").trim();
+    if (roomId) removedRoomIds.push(roomId);
+    return false;
+  });
+
+  sections.splice(sectionIndex, 1);
+  const nextRoomsSnap = filterRoomsSnapshot(propertyRoomsSnapshot, removedRoomIds);
+  const nextStructure: TemplateStructureLike = {
+    ...(structure || {}),
+    sections,
+  };
+  (nextStructure as { propertyRoomInstances?: typeof nextInstances }).propertyRoomInstances =
+    nextInstances;
+
+  return {
+    structure: nextStructure,
+    propertyRoomsSnapshot: nextRoomsSnap,
+    removedSectionId: id,
+    removedSectionTitle: String(section.title || id),
+    removedRoomIds,
+  };
+}
+
+/**
+ * Remove a floor-plan auto section from an inspection snapshot.
+ * Also drops matching propertyRoomInstances and rooms in the frozen rooms snapshot
+ * so GET repair will not recreate the section.
+ */
+export function removePropertyRoomAutoSection(
+  structure: TemplateStructureLike | null | undefined,
+  sectionId: string,
+  propertyRoomsSnapshot?: PropertyRoomsSnapshotLike | null,
+): RemoveAutoSectionResult {
+  const id = String(sectionId || "").trim();
+  if (!id) {
+    throw Object.assign(new Error("Section id is required"), { status: 400 });
+  }
+
+  const sections = Array.isArray(structure?.sections)
+    ? [...(structure!.sections as TemplateSectionLike[])]
+    : [];
+  const sectionIndex = sections.findIndex((s) => s.id === id);
+  if (sectionIndex < 0) {
+    throw Object.assign(new Error("Section not found on this inspection"), { status: 404 });
+  }
+  const section = sections[sectionIndex];
+  if (!isPropertyRoomAutoSection(section)) {
+    throw Object.assign(
+      new Error("Only floor-plan auto sections can be removed from an inspection"),
+      { status: 400 },
+    );
+  }
+
+  const prevInstances =
+    ((structure as { propertyRoomInstances?: Array<{ roomId?: string; sectionRef: string; title?: string }> })
+      ?.propertyRoomInstances || []);
+  const removedRoomIds: string[] = [];
+  const nextInstances = prevInstances.filter((inst) => {
+    if (!entryBelongsToSection(inst.sectionRef, id)) return true;
+    const roomId = String(inst.roomId || "").trim();
+    if (roomId) removedRoomIds.push(roomId);
+    return false;
+  });
+
+  sections.splice(sectionIndex, 1);
+  const nextRoomsSnap = filterRoomsSnapshot(propertyRoomsSnapshot, removedRoomIds);
+
+  const nextStructure: TemplateStructureLike = {
+    ...(structure || {}),
+    sections,
+  };
+  (nextStructure as { propertyRoomInstances?: typeof nextInstances }).propertyRoomInstances =
+    nextInstances;
+
+  return {
+    structure: nextStructure,
+    propertyRoomsSnapshot: nextRoomsSnap,
+    removedSectionId: id,
+    removedSectionTitle: String(section.title || id),
+    removedRoomIds,
+  };
+}

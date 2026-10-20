@@ -7898,6 +7898,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Remove one inspection point (room instance) from an in-progress inspection.
+   * Body: { sectionRef: "sectionId/roomId" | "sectionId/Bathroom 1" }
+   * When the last point in a section is deleted, the section tab is removed too.
+   * POST alias kept because `npm run dev` (tsx without watch) may miss new DELETE routes
+   * until restart, and some clients/proxies are unreliable with DELETE + JSON body.
+   */
+  const removeInspectionSectionInstanceHandler = async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const sectionRef = String(req.body?.sectionRef || req.query?.sectionRef || "").trim();
+      const user = await storage.getUser(req.user.id);
+      if (!user?.organizationId) {
+        return res.status(403).json({ message: "No organization found" });
+      }
+      if (!sectionRef) {
+        return res.status(400).json({ message: "sectionRef is required" });
+      }
+
+      const inspection = await storage.getInspection(id);
+      if (!inspection) {
+        return res.status(404).json({ message: "Inspection not found" });
+      }
+      if (inspection.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (user.role !== "owner" && user.role !== "compliance") {
+        if (inspection.inspectorId !== user.id) {
+          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+        }
+      }
+      if (inspection.status === "completed" || inspection.status === "reviewed") {
+        return res.status(400).json({ message: "Cannot modify sections on a completed inspection" });
+      }
+      if (!inspection.templateSnapshotJson) {
+        return res.status(400).json({ message: "Inspection has no template snapshot" });
+      }
+
+      const {
+        removeInspectionSectionInstance,
+        removeSectionFromInspectionSnapshot,
+        entryBelongsToSection,
+      } = await import("@shared/propertyRooms");
+      const { parseRepeatableCountValue, buildPropertyRoomCountsSnapshot } = await import(
+        "@shared/propertyLayout"
+      );
+
+      let removed = removeInspectionSectionInstance(
+        inspection.templateSnapshotJson as any,
+        sectionRef,
+        (inspection as any).propertyRoomsSnapshot ?? null,
+      );
+
+      const hadFloorPlanInstances = (
+        ((inspection.templateSnapshotJson as any)?.propertyRoomInstances || []) as Array<{
+          sectionRef?: string;
+        }>
+      ).some((i) => entryBelongsToSection(i.sectionRef, removed.sectionId));
+
+      // Count-only sections (no propertyRoomInstances): decrement count; drop section at 0.
+      if (!removed.sectionRemoved && !hadFloorPlanInstances) {
+        const entriesForCount = await storage.getInspectionEntries(id);
+        const countEntry = entriesForCount.find(
+          (e) => e.fieldKey === `__repeatable_count_${removed.sectionId}`,
+        );
+        const prevCount = countEntry
+          ? parseRepeatableCountValue(countEntry.valueJson, 1)
+          : 1;
+        const nextCount = Math.max(0, prevCount - 1);
+        if (nextCount <= 0) {
+          const emptied = removeSectionFromInspectionSnapshot(
+            removed.structure,
+            removed.sectionId,
+            removed.propertyRoomsSnapshot,
+          );
+          removed = {
+            ...removed,
+            structure: emptied.structure,
+            propertyRoomsSnapshot: emptied.propertyRoomsSnapshot,
+            sectionRemoved: true,
+            removedSectionTitle: emptied.removedSectionTitle,
+            remainingInstanceCount: 0,
+          };
+        } else {
+          removed = { ...removed, remainingInstanceCount: nextCount };
+        }
+      }
+
+      const patch: Record<string, unknown> = {
+        templateSnapshotJson: removed.structure,
+      };
+      if (removed.propertyRoomsSnapshot != null) {
+        patch.propertyRoomsSnapshot = removed.propertyRoomsSnapshot;
+      }
+      if (removed.propertyRoomCounts != null) {
+        patch.propertyRoomCountsSnapshot = buildPropertyRoomCountsSnapshot(
+          removed.propertyRoomCounts,
+        );
+      }
+      await storage.updateInspection(id, patch as any);
+
+      const entries = await storage.getInspectionEntries(id);
+      let deletedEntries = 0;
+      for (const entry of entries) {
+        const fk = String(entry.fieldKey || "");
+        const exactPoint = entry.sectionRef === removed.removedSectionRef;
+        const wholeSection =
+          removed.sectionRemoved &&
+          (entryBelongsToSection(entry.sectionRef, removed.sectionId) ||
+            fk === `__repeatable_count_${removed.sectionId}`);
+        if (!exactPoint && !wholeSection) continue;
+        await storage.deleteInspectionEntry(entry.id);
+        deletedEntries += 1;
+      }
+
+      if (!removed.sectionRemoved && removed.remainingInstanceCount > 0) {
+        const countFieldKey = `__repeatable_count_${removed.sectionId}`;
+        const stillThere = (await storage.getInspectionEntries(id)).find(
+          (e) => e.fieldKey === countFieldKey,
+        );
+        if (stillThere) {
+          await storage.updateInspectionEntry(stillThere.id, {
+            valueJson: removed.remainingInstanceCount,
+          } as any);
+        } else {
+          await storage.createInspectionEntry({
+            inspectionId: id,
+            sectionRef: removed.sectionId,
+            fieldKey: countFieldKey,
+            fieldType: "number",
+            valueJson: removed.remainingInstanceCount,
+          } as any);
+        }
+      }
+
+      const {
+        clearGalleryAssignmentsForSection,
+        clearGalleryAssignmentsForSectionRef,
+      } = await import("./inspectionGalleryService");
+      const clearedAssignments = removed.sectionRemoved
+        ? await clearGalleryAssignmentsForSection(id, removed.sectionId)
+        : await clearGalleryAssignmentsForSectionRef(id, removed.removedSectionRef);
+
+      const updated = await storage.getInspection(id);
+      res.json({
+        inspection: updated,
+        removedSectionRef: removed.removedSectionRef,
+        sectionId: removed.sectionId,
+        sectionRemoved: removed.sectionRemoved,
+        removedSectionTitle: removed.removedSectionTitle,
+        remainingInstanceCount: removed.remainingInstanceCount,
+        removedRoomId: removed.removedRoomId,
+        deletedEntries,
+        clearedAssignments,
+      });
+    } catch (error: any) {
+      console.error("Error removing section instance:", error);
+      res.status(error?.status || 500).json({
+        message: error?.message || "Failed to remove inspection point",
+      });
+    }
+  };
+  app.delete(
+    "/api/inspections/:id/section-instances",
+    isAuthenticated,
+    removeInspectionSectionInstanceHandler,
+  );
+  app.post(
+    "/api/inspections/:id/section-instances/remove",
+    isAuthenticated,
+    removeInspectionSectionInstanceHandler,
+  );
+
   app.post("/api/inspections/:inspectionId/gallery/register", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,12 @@ import { queryClient } from "@/lib/queryClient";
 import { InspectionNoteSectionsView } from "@/components/InspectionNoteSectionsView";
 import { CompletionChecklistPanel } from "@/components/CompletionChecklistPanel";
 import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
+import {
+  computeInspectionCaptureProgress,
+  repeatableCountsFromEntries,
+} from "@shared/inspectionProgress";
+import { repeatableCountsFromPropertyLayout } from "@shared/propertyLayout";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import type { Inspection } from "@shared/schema";
 
 interface TemplateSection {
@@ -32,6 +39,7 @@ export default function InspectionReview() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { tenanciesEnabled } = useCompanyModules();
 
   // Fetch inspection with template snapshot
   const { data: inspection, isLoading: inspectionLoading } = useQuery<Inspection>({
@@ -47,11 +55,29 @@ export default function InspectionReview() {
   // Parse template structure from snapshot
   const templateStructure = inspection?.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
+  const snapshot = inspection?.templateSnapshotJson as any;
+  const propertyRoomInstances = (snapshot?.propertyRoomInstances || []) as Array<{
+    sectionRef: string;
+    title?: string;
+  }>;
 
-  // Calculate completion stats
-  const totalFields = sections.reduce((acc, section) => acc + section.fields.length, 0);
-  const completedFields = entries.length;
-  const progress = totalFields > 0 ? (completedFields / totalFields) * 100 : 0;
+  const { totalFields, completedFields, progress } = useMemo(() => {
+    const fromEntries = repeatableCountsFromEntries(entries);
+    const layoutCounts =
+      (inspection as Inspection & { propertyRoomCountsSnapshot?: Record<string, number> | null })
+        ?.propertyRoomCountsSnapshot ?? null;
+    const fromLayout = layoutCounts
+      ? repeatableCountsFromPropertyLayout(snapshot, layoutCounts)
+      : {};
+    return computeInspectionCaptureProgress({
+      sections,
+      entries,
+      repeatableCounts: { ...fromEntries, ...fromLayout },
+      propertyRoomInstances,
+      templateStructure: snapshot,
+      excludeTenantSignatures: !tenanciesEnabled,
+    });
+  }, [sections, entries, snapshot, propertyRoomInstances, tenanciesEnabled, inspection]);
 
   // Complete inspection mutation
   const completeInspection = useMutation({
