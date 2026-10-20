@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TagFilter } from "@/components/TagFilter";
 import type { Tag } from "@shared/schema";
-import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, FileText, ArrowLeft, Pencil, Tag as TagIcon, Filter, X, Trash2, Banknote, Wrench, Users } from "lucide-react";
+import { Plus, Building2, MapPin, Search, Package, ClipboardCheck, FileText, ArrowLeft, Pencil, Tag as TagIcon, Filter, X, Trash2, Banknote, Wrench } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -67,7 +67,7 @@ export default function Properties() {
   const { toast } = useToast();
   const searchParams = useSearch();
   const urlBlockId = new URLSearchParams(searchParams).get("blockId");
-  const { rentalsEnabled, tenanciesEnabled, complianceEnabled } = useCompanyModules();
+  const { rentalsEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
   
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<any | null>(null);
@@ -438,25 +438,11 @@ export default function Properties() {
                     className="pt-4"
                     actions={([
                       {
-                        id: "inventory",
-                        label: "Inventory",
-                        icon: Package,
-                        href: `/asset-inventory?propertyId=${property.id}`,
-                        testId: `button-inventory-${property.id}`,
-                      },
-                      {
                         id: "inspect",
                         label: "Inspect",
                         icon: ClipboardCheck,
                         href: `/inspections?propertyId=${property.id}&create=true`,
                         testId: `button-inspect-${property.id}`,
-                      },
-                      tenanciesEnabled && {
-                        id: "tenants",
-                        label: "Tenants",
-                        icon: Users,
-                        href: `/properties/${property.id}/tenants`,
-                        testId: `button-tenants-${property.id}`,
                       },
                       complianceEnabled && {
                         id: "compliance",
@@ -464,6 +450,20 @@ export default function Properties() {
                         icon: FileText,
                         href: `/compliance?propertyId=${property.id}`,
                         testId: `button-compliance-${property.id}`,
+                      },
+                      maintenanceEnabled && {
+                        id: "maintenance",
+                        label: "Maintenance",
+                        icon: Wrench,
+                        href: `/maintenance?propertyId=${property.id}&create=true`,
+                        testId: `button-maintenance-${property.id}`,
+                      },
+                      {
+                        id: "inventory",
+                        label: "Inventory",
+                        icon: Package,
+                        href: `/asset-inventory?propertyId=${property.id}`,
+                        testId: `button-inventory-${property.id}`,
                       },
                       rentalsEnabled && {
                         id: "rent",

@@ -20,13 +20,15 @@ import {
 import { AssignDestinationDialog } from "./AssignDestinationDialog";
 import { runGalleryUploads } from "./uploadGalleryFiles";
 import type { GalleryImage, PhotoDestination, UploadJob } from "./types";
-import { Camera, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { Camera, ImagePlus, Loader2, Trash2, Calendar, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLocale } from "@/contexts/LocaleContext";
 import {
   GALLERY_FIELD_PHOTO_MAX,
   GALLERY_REGISTER_BATCH_MAX,
   GALLERY_UPLOAD_SELECT_MAX,
 } from "@shared/inspectionGallery";
+import { captureDeviceGps } from "./captureDeviceGps";
 
 type FilterKey = "all" | "unassigned" | "assigned";
 
@@ -42,9 +44,19 @@ export function InspectionGalleryPanel({
   onEntriesChanged,
 }: Props) {
   const { toast } = useToast();
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const formatGalleryDateTime = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    try {
+      return locale.formatDateTime(new Date(iso));
+    } catch {
+      return null;
+    }
+  };
 
   const [filter, setFilter] = useState<FilterKey>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -181,6 +193,7 @@ export function InspectionGalleryPanel({
     successful: Array<{ objectUrl: string; fileName: string; mimeType: string; byteSize: number }>,
   ) => {
     if (!successful.length) return;
+    const gps = await captureDeviceGps();
     // Server accepts at most GALLERY_REGISTER_BATCH_MAX images per request.
     for (let i = 0; i < successful.length; i += GALLERY_REGISTER_BATCH_MAX) {
       const chunk = successful.slice(i, i + GALLERY_REGISTER_BATCH_MAX);
@@ -190,7 +203,12 @@ export function InspectionGalleryPanel({
           fileName: s.fileName,
           mimeType: s.mimeType,
           byteSize: s.byteSize,
+          captureLatitude: gps?.latitude ?? null,
+          captureLongitude: gps?.longitude ?? null,
         })),
+        capture: gps
+          ? { latitude: gps.latitude, longitude: gps.longitude }
+          : null,
       });
     }
     await invalidate();
@@ -477,6 +495,7 @@ export function InspectionGalleryPanel({
           {filtered.map((image) => {
             const isSelected = selected.has(image.id);
             const primary = image.assignments[0];
+            const capturedAtLabel = formatGalleryDateTime(image.createdAt);
             return (
               <div
                 key={image.id}
@@ -499,7 +518,7 @@ export function InspectionGalleryPanel({
                   title={image.fileName || "Gallery photo"}
                   className="w-full aspect-square object-cover"
                 />
-                <div className="p-2 space-y-1">
+                <div className="p-2 space-y-1.5">
                   <p className="text-xs truncate font-medium">{image.fileName || "Photo"}</p>
                   {primary ? (
                     <Badge variant="secondary" className="text-[10px] font-normal max-w-full truncate">
@@ -511,6 +530,24 @@ export function InspectionGalleryPanel({
                       Not assigned
                     </Badge>
                   )}
+                  <div className="space-y-0.5 text-[10px] text-muted-foreground leading-snug">
+                    {capturedAtLabel && (
+                      <p className="flex items-start gap-1 min-w-0">
+                        <Calendar className="h-3 w-3 shrink-0 mt-0.5" aria-hidden />
+                        <span className="truncate" title={capturedAtLabel}>
+                          {capturedAtLabel}
+                        </span>
+                      </p>
+                    )}
+                    {image.inspectorName && (
+                      <p className="flex items-start gap-1 min-w-0">
+                        <User className="h-3 w-3 shrink-0 mt-0.5" aria-hidden />
+                        <span className="truncate" title={image.inspectorName}>
+                          {image.inspectorName}
+                        </span>
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             );

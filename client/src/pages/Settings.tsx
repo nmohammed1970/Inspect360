@@ -1,6 +1,7 @@
 import { PreviewableImage } from "@/components/ImagePreview";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link, useSearch, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal, Loader2, Palette, RotateCcw } from "lucide-react";
-import { Link } from "wouter";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
 import CompletionChecklistsContent from "./CompletionChecklists";
@@ -66,6 +66,25 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
 type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'completion-checklists' | 'categories' | 'document-types' | 'teams' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
 
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  "branding",
+  "internal-modules",
+  "templates",
+  "completion-checklists",
+  "categories",
+  "document-types",
+  "teams",
+  "team",
+  "integrations",
+  "tenant-portal",
+  "late-rent",
+  "tenant-sms",
+];
+
+function isSettingsSection(value: string | null): value is SettingsSection {
+  return !!value && (SETTINGS_SECTIONS as string[]).includes(value);
+}
+
 const settingsMenuItems: { id: SettingsSection; label: string; icon: React.ComponentType<{ className?: string }>; href?: string }[] = [
   { id: 'branding', label: 'Company Branding', icon: Building2 },
   { id: 'internal-modules', label: 'Internal Modules', icon: SlidersHorizontal },
@@ -82,7 +101,33 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
 
 export default function Settings() {
   const { toast } = useToast();
-  const [activeSection, setActiveSection] = useState<SettingsSection>('branding');
+  const searchString = useSearch();
+  const [, setLocation] = useLocation();
+  const tabFromUrl = useMemo(() => {
+    const tab = new URLSearchParams(searchString).get("tab");
+    return isSettingsSection(tab) ? tab : null;
+  }, [searchString]);
+  const [activeSection, setActiveSection] = useState<SettingsSection>(
+    () => tabFromUrl ?? "branding",
+  );
+
+  useEffect(() => {
+    if (tabFromUrl && tabFromUrl !== activeSection) {
+      setActiveSection(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+
+  const selectSection = (section: SettingsSection) => {
+    setActiveSection(section);
+    const params = new URLSearchParams(searchString);
+    if (section === "branding") {
+      params.delete("tab");
+    } else {
+      params.set("tab", section);
+    }
+    const qs = params.toString();
+    setLocation(qs ? `/settings?${qs}` : "/settings");
+  };
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<InspectionCategory | null>(null);
   const [trademarkToDelete, setTrademarkToDelete] = useState<OrganizationTrademark | null>(null);
@@ -556,7 +601,7 @@ export default function Settings() {
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveSection(item.id)}
+                      onClick={() => selectSection(item.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-button text-left text-sm font-medium transition-colors ${isActive
                         ? 'bg-primary/10 text-primary border border-primary/20'
                         : 'text-muted-foreground hover:bg-muted/60 border border-transparent'

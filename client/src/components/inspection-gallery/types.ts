@@ -5,6 +5,8 @@ export type GalleryAssignment = {
   label: string;
 };
 
+export type GalleryAddressMatchStatus = "matched" | "mismatched" | "unavailable";
+
 export type GalleryImage = {
   id: string;
   objectUrl: string;
@@ -12,6 +14,11 @@ export type GalleryImage = {
   mimeType: string | null;
   byteSize: number | null;
   createdAt: string | null;
+  propertyAddress?: string | null;
+  inspectorName?: string | null;
+  captureLatitude?: number | null;
+  captureLongitude?: number | null;
+  addressMatchStatus?: GalleryAddressMatchStatus | null;
   assignments: GalleryAssignment[];
 };
 

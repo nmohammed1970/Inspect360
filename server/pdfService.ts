@@ -962,7 +962,9 @@ function generateInspectionHTML(
     let description: any = null;
 
     if (valueData !== undefined && valueData !== null) {
-      if (typeof valueData === 'object' && !Array.isArray(valueData)) {
+      if (Array.isArray(valueData)) {
+        description = valueData;
+      } else if (typeof valueData === 'object') {
         // Extract from structured object (for fields with condition/cleanliness)
         condition = (valueData as any).condition || null;
         cleanliness = (valueData as any).cleanliness || null;
@@ -976,9 +978,11 @@ function generateInspectionHTML(
         } else {
           description = null;
         }
-      } else if (typeof valueData === 'string') {
-        description = valueData;
-      } else if (typeof valueData === 'boolean') {
+      } else if (
+        typeof valueData === 'string' ||
+        typeof valueData === 'boolean' ||
+        typeof valueData === 'number'
+      ) {
         description = valueData;
       } else {
         description = String(valueData);
@@ -1026,9 +1030,13 @@ function generateInspectionHTML(
     };
 
     let descriptionHTML = '-';
-    if (field.type === "boolean") {
+    if (field.type === "boolean" || field.type === "toggle") {
       descriptionHTML = formatBooleanCheckboxesHTML(description);
-    } else if (signaturePayload || (description !== null && description !== '')) {
+    } else if (field.type === "photo" || field.type === "photo_array") {
+      descriptionHTML = photoCount > 0
+        ? `<span style="color:#64748b;">See photos</span>`
+        : '-';
+    } else if (signaturePayload || (description !== null && description !== '' && !(Array.isArray(description) && description.length === 0))) {
       if (isSignature) {
         const sigImage = signaturePayload?.image || (typeof description === 'string' ? description : '');
         const isTenant = isTenantSignatureField(field);
@@ -1065,9 +1073,32 @@ function generateInspectionHTML(
             </div>
           `;
         }
+      } else if (Array.isArray(description)) {
+        descriptionHTML = description.length > 0
+          ? escapeHtml(description.map(String).join(", "))
+          : '-';
+      } else if (field.type === "rating") {
+        const n = typeof description === "number" ? description : Number(description);
+        descriptionHTML = Number.isFinite(n) && n > 0 ? escapeHtml(`${n} / 5`) : '-';
+      } else if (field.type === "date" || field.type === "auto_inspection_date") {
+        try {
+          descriptionHTML = escapeHtml(format(new Date(String(description)), "PPP"));
+        } catch {
+          descriptionHTML = escapeHtml(String(description));
+        }
+      } else if (field.type === "datetime") {
+        try {
+          descriptionHTML = escapeHtml(format(new Date(String(description)), "PPp"));
+        } catch {
+          descriptionHTML = escapeHtml(String(description));
+        }
+      } else if (field.type === "video" && typeof description === "string") {
+        descriptionHTML = `<a href="${escapeHtml(description)}" style="color:#00D5CC;">View video</a>`;
       } else if (typeof description === 'string') {
         const descriptionValue = description.length > 50 ? description.substring(0, 50) + '...' : description;
         descriptionHTML = escapeHtml(descriptionValue);
+      } else if (typeof description === 'number' || typeof description === 'boolean') {
+        descriptionHTML = escapeHtml(String(description));
       } else {
         descriptionHTML = escapeHtml(String(description));
       }

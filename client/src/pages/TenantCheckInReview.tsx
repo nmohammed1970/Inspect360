@@ -351,7 +351,7 @@ export default function TenantCheckInReview() {
                               variant="outline"
                               size="sm"
                               onClick={() => handleLogMaintenance(entry.id, field.label, section.title)}
-                              className="w-full sm:w-auto sm:ml-4 min-h-11 shrink-0"
+                              className="w-full sm:w-auto sm:ml-4 min-h-11 shrink-0 border-primary/20 bg-[#e5f9f8] text-foreground hover:bg-[#d5f3f1]"
                             >
                               <Wrench className="w-4 h-4 mr-2 shrink-0" />
                               Log Maintenance

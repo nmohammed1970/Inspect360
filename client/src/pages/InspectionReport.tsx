@@ -1001,16 +1001,34 @@ export default function InspectionReport() {
     let displayValue: React.ReactNode = null;
 
     switch (field.type) {
+      case "short_text":
+      case "long_text":
       case "text":
       case "textarea":
       case "email":
       case "phone":
-        displayValue = actualValue || <span className="text-muted-foreground italic">Not filled</span>;
+        displayValue =
+          actualValue !== null && actualValue !== undefined && actualValue !== ""
+            ? String(actualValue)
+            : <span className="text-muted-foreground italic">Not filled</span>;
         break;
       case "number":
-        displayValue = actualValue !== null && actualValue !== undefined ? actualValue.toString() : <span className="text-muted-foreground italic">Not filled</span>;
+      case "auto_bedroom_count":
+      case "auto_bathroom_count":
+        displayValue =
+          actualValue !== null && actualValue !== undefined && actualValue !== ""
+            ? String(actualValue)
+            : <span className="text-muted-foreground italic">Not filled</span>;
         break;
-      case "boolean": {
+      case "rating": {
+        const n = typeof actualValue === "number" ? actualValue : Number(actualValue);
+        displayValue = Number.isFinite(n) && n > 0
+          ? `${n} / 5`
+          : <span className="text-muted-foreground italic">Not rated</span>;
+        break;
+      }
+      case "boolean":
+      case "toggle": {
         const isYes = actualValue === true || actualValue === "true" || actualValue === "Yes";
         const isNo = actualValue === false || actualValue === "false" || actualValue === "No";
         displayValue = (
@@ -1045,15 +1063,48 @@ export default function InspectionReport() {
       case "radio":
         displayValue = actualValue || <span className="text-muted-foreground italic">Not selected</span>;
         break;
+      case "multiselect":
       case "checkbox":
-        displayValue = Array.isArray(actualValue) ? actualValue.join(", ") : <span className="text-muted-foreground italic">None selected</span>;
+        displayValue = Array.isArray(actualValue)
+          ? (actualValue.length > 0
+              ? actualValue.map(String).join(", ")
+              : <span className="text-muted-foreground italic">None selected</span>)
+          : (actualValue
+              ? String(actualValue)
+              : <span className="text-muted-foreground italic">None selected</span>);
         break;
       case "date":
       case "auto_inspection_date":
         displayValue = actualValue ? locale.formatDate(new Date(actualValue)) : <span className="text-muted-foreground italic">Not set</span>;
         break;
+      case "time":
+        displayValue = actualValue ? String(actualValue) : <span className="text-muted-foreground italic">Not set</span>;
+        break;
+      case "datetime":
+        displayValue = actualValue
+          ? locale.formatDateTime(new Date(actualValue))
+          : <span className="text-muted-foreground italic">Not set</span>;
+        break;
+      case "photo":
+      case "photo_array":
+        displayValue = <span className="text-muted-foreground italic">See photos</span>;
+        break;
+      case "video":
+        displayValue = actualValue
+          ? (
+              <a href={String(actualValue)} target="_blank" rel="noopener noreferrer" className="text-primary underline break-all">
+                View video
+              </a>
+            )
+          : <span className="text-muted-foreground italic">No video</span>;
+        break;
+      case "gps":
+        displayValue = actualValue
+          ? String(actualValue)
+          : <span className="text-muted-foreground italic">No location</span>;
+        break;
       case "auto_inspector":
-        displayValue = inspectorName || <span className="text-muted-foreground italic">Not available</span>;
+        displayValue = inspectorName || actualValue || <span className="text-muted-foreground italic">Not available</span>;
         break;
       case "auto_address":
       case "auto_tenant_names":
@@ -1133,6 +1184,49 @@ export default function InspectionReport() {
     );
   };
 
+  /** Pull description / condition / cleanliness from stored valueJson (incl. bare boolean / number / arrays). */
+  const parseEntryValueJson = (valueJson: any, fieldType?: string) => {
+    let condition: string | null = null;
+    let cleanliness: string | null = null;
+    let description: any = "";
+
+    if (valueJson === null || valueJson === undefined) {
+      return { condition, cleanliness, description };
+    }
+
+    if (Array.isArray(valueJson)) {
+      description = valueJson;
+      return { condition, cleanliness, description };
+    }
+
+    if (typeof valueJson === "object") {
+      condition = valueJson.condition ?? null;
+      cleanliness = valueJson.cleanliness ?? null;
+      if (fieldType === "signature") {
+        description =
+          valueJson.value !== undefined && valueJson.value !== null
+            ? valueJson.value
+            : valueJson;
+      } else if ("value" in valueJson) {
+        // Keep false / 0 — do not use ||
+        description = valueJson.value;
+      } else if (Array.isArray(valueJson.audioUrls) || valueJson.audioUrl) {
+        // Audio wrapper with no scalar value
+        description = "";
+      } else {
+        description = "";
+      }
+    } else if (
+      typeof valueJson === "string" ||
+      typeof valueJson === "number" ||
+      typeof valueJson === "boolean"
+    ) {
+      description = valueJson;
+    }
+
+    return { condition, cleanliness, description };
+  };
+
   const renderSignatureAwareDescription = (field: any, value: any, note?: string | null, entry?: any) => {
     if (field.type === "signature") {
       const meta = getSignatureMeta(field, entry ?? { valueJson: value, value, updatedAt: entry?.updatedAt });
@@ -1146,7 +1240,27 @@ export default function InspectionReport() {
       );
     }
 
-    return value || note || "-";
+    const hasValue =
+      value !== null &&
+      value !== undefined &&
+      value !== "" &&
+      !(Array.isArray(value) && value.length === 0);
+
+    // Always use typed renderer so every template field type displays correctly
+    // (React ignores bare booleans; arrays/objects need formatting).
+    if (hasValue || field.type === "boolean" || field.type === "toggle") {
+      const payload =
+        typeof value === "object" && value !== null
+          ? value
+          : { value };
+      return renderFieldValue(payload, field, entry);
+    }
+
+    if (note) return note;
+    if (field.type === "photo" || field.type === "photo_array") {
+      return <span className="text-muted-foreground italic">See photos</span>;
+    }
+    return "-";
   };
 
   /** Tailwind needs full class names at build time — do not use `col-span-${n}` */
@@ -1910,25 +2024,11 @@ export default function InspectionReport() {
 
                                   if (!entry && !editMode) return null;
 
-                                  let condition: string | null = null;
-                                  let cleanliness: string | null = null;
-                                  let description = '';
-
-                                  if (entry?.valueJson) {
-                                    if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
-                                      condition = entry.valueJson.condition || null;
-                                      cleanliness = entry.valueJson.cleanliness || null;
-                                      if (field.type === "signature") {
-                                        description = entry.valueJson.value !== undefined && entry.valueJson.value !== null
-                                          ? entry.valueJson.value
-                                          : entry.valueJson;
-                                      } else {
-                                        description = entry.valueJson.value || '';
-                                      }
-                                    } else if (typeof entry.valueJson === 'string') {
-                                      description = entry.valueJson;
-                                    }
-                                  }
+                                  const {
+                                    condition,
+                                    cleanliness,
+                                    description,
+                                  } = parseEntryValueJson(entry?.valueJson, field.type);
 
                                   const photoCount = entry?.photos?.length || 0;
                                   const referencePrefix = `${sectionIdx + 1}.${fieldIdx + 1}`;
@@ -2141,25 +2241,11 @@ export default function InspectionReport() {
 
                           if (!entry && !editMode) return null;
 
-                          let condition: string | null = null;
-                          let cleanliness: string | null = null;
-                          let description = '';
-
-                          if (entry?.valueJson) {
-                            if (typeof entry.valueJson === 'object' && !Array.isArray(entry.valueJson)) {
-                              condition = entry.valueJson.condition || null;
-                              cleanliness = entry.valueJson.cleanliness || null;
-                              if (field.type === "signature") {
-                                description = entry.valueJson.value !== undefined && entry.valueJson.value !== null
-                                  ? entry.valueJson.value
-                                  : entry.valueJson;
-                              } else {
-                                description = entry.valueJson.value || '';
-                              }
-                            } else if (typeof entry.valueJson === 'string') {
-                              description = entry.valueJson;
-                            }
-                          }
+                          const {
+                            condition,
+                            cleanliness,
+                            description,
+                          } = parseEntryValueJson(entry?.valueJson, field.type);
 
                           const photoCount = entry?.photos?.length || 0;
                           const referencePrefix = `${sectionIdx + 1}.${fieldIdx + 1}`;
@@ -2438,25 +2524,15 @@ export default function InspectionReport() {
 
                       {/* Field Comparison Tables */}
                       {sectionEntries.map(({ field, checkOutEntry, checkInEntry }, fieldIdx) => {
-                        // Parse check-in values
-                        let checkInCondition: string | null = null;
-                        let checkInCleanliness: string | null = null;
-                        let checkInDescription = '';
-                        if (checkInEntry?.valueJson && typeof checkInEntry.valueJson === 'object') {
-                          checkInCondition = checkInEntry.valueJson.condition || null;
-                          checkInCleanliness = checkInEntry.valueJson.cleanliness || null;
-                          checkInDescription = checkInEntry.valueJson.value || '';
-                        }
+                        const checkInParsed = parseEntryValueJson(checkInEntry?.valueJson, field.type);
+                        const checkInCondition = checkInParsed.condition;
+                        const checkInCleanliness = checkInParsed.cleanliness;
+                        const checkInDescription = checkInParsed.description;
 
-                        // Parse check-out values
-                        let checkOutCondition: string | null = null;
-                        let checkOutCleanliness: string | null = null;
-                        let checkOutDescription = '';
-                        if (checkOutEntry?.valueJson && typeof checkOutEntry.valueJson === 'object') {
-                          checkOutCondition = checkOutEntry.valueJson.condition || null;
-                          checkOutCleanliness = checkOutEntry.valueJson.cleanliness || null;
-                          checkOutDescription = checkOutEntry.valueJson.value || '';
-                        }
+                        const checkOutParsed = parseEntryValueJson(checkOutEntry?.valueJson, field.type);
+                        const checkOutCondition = checkOutParsed.condition;
+                        const checkOutCleanliness = checkOutParsed.cleanliness;
+                        const checkOutDescription = checkOutParsed.description;
 
                         const checkInDate = checkInData.inspection?.completedDate || checkInData.inspection?.scheduledDate;
                         const checkOutDate = inspection.completedDate || inspection.scheduledDate;
