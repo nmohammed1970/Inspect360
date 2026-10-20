@@ -5650,6 +5650,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const inspections = await storage.getInspectionsByProperty(id);
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const totalInspections = inspections.length;
+      const inProgressInspections = inspections.filter(i => i.status === 'in_progress').length;
 
       // Overdue: scheduled date is before today
       const overdueInspections = inspections.filter(i =>
@@ -5699,6 +5701,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         occupancyStatus: activeAssignments.length > 0 ? 'Occupied' : 'Vacant',
         complianceRate,
+        totalInspections,
+        inProgressInspections,
         dueInspections,
         overdueInspections,
         maintenanceRequests: openRequests,
@@ -7904,6 +7908,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user,
         Array.isArray(req.body?.images) ? req.body.images : [],
         req.body?.assign || null,
+        req.body?.capture || null,
       );
       res.json({ images });
     } catch (error: any) {

@@ -10,6 +10,7 @@ import {
   boolean,
   pgEnum,
   numeric,
+  doublePrecision,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -1149,6 +1150,11 @@ export const inspectionGalleryImages = pgTable("inspection_gallery_images", {
   width: integer("width"),
   height: integer("height"),
   uploadedByUserId: varchar("uploaded_by_user_id"),
+  /** Device GPS at capture/upload time. */
+  captureLatitude: doublePrecision("capture_latitude"),
+  captureLongitude: doublePrecision("capture_longitude"),
+  /** matched | mismatched | unavailable — vs geocoded property address. */
+  addressMatchStatus: varchar("address_match_status", { length: 32 }),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

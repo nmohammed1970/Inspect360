@@ -95,6 +95,8 @@ interface Property {
 interface PropertyStats {
   occupancyStatus: string;
   complianceRate: number;
+  totalInspections?: number;
+  inProgressInspections?: number;
   dueInspections: number;
   overdueInspections: number;
   maintenanceRequests: number;
@@ -400,14 +402,6 @@ export default function PropertyDetail() {
     return parts.join(" · ");
   };
 
-  const hasOccupyingTenant = tenants.some((t) => t.assignment?.isActive !== false);
-  const occupancyLabel =
-    tenantsLoading || tenants.length === 0
-      ? (stats?.occupancyStatus ?? "Vacant")
-      : hasOccupyingTenant
-        ? "Occupied"
-        : "Vacant";
-
   const { data: inspections = [] } = useQuery<Inspection[]>({
     queryKey: ["/api/properties", propertyId, "inspections"],
     queryFn: async () => {
@@ -472,6 +466,52 @@ export default function PropertyDetail() {
     enabled: !!propertyId && maintenanceEnabled,
   });
 
+  // Card metrics must match the tab lists (not only "due soon" scheduled items).
+  const activeTenantCount = useMemo(
+    () => tenants.filter((t) => t.assignment?.isActive !== false).length,
+    [tenants],
+  );
+  const hasOccupyingTenant = activeTenantCount > 0;
+  const occupancyLabel =
+    tenantsLoading
+      ? (stats?.occupancyStatus ?? "Vacant")
+      : hasOccupyingTenant
+        ? "Occupied"
+        : "Vacant";
+
+  const inspectionCardCount = inspections.length;
+  const inspectionInProgressCount = useMemo(
+    () => inspections.filter((i) => i.status === "in_progress").length,
+    [inspections],
+  );
+  const inspectionOverdueCount = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return inspections.filter(
+      (i) =>
+        i.status === "scheduled" &&
+        i.scheduledDate &&
+        new Date(i.scheduledDate) < today,
+    ).length;
+  }, [inspections]);
+  const inspectionCardSubtitle = useMemo(() => {
+    if (inspectionOverdueCount > 0) {
+      return `${inspectionOverdueCount} overdue`;
+    }
+    if (inspectionInProgressCount > 0) {
+      return `${inspectionInProgressCount} in progress`;
+    }
+    if (inspectionCardCount === 0) return "No inspections";
+    return "Total inspections";
+  }, [inspectionCardCount, inspectionInProgressCount, inspectionOverdueCount]);
+
+  const openMaintenanceCount = useMemo(
+    () =>
+      maintenance.filter(
+        (m) => m.status !== "completed" && m.status !== "closed",
+      ).length,
+    [maintenance],
+  );
 
   if (propertyLoading) {
     return (
@@ -617,62 +657,72 @@ export default function PropertyDetail() {
 
       </div>
 
-      {/* Stats Overview */}
-      {stats && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {tenanciesEnabled && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{occupancyLabel}</div>
-              </CardContent>
-            </Card>
-          )}
-
-          {complianceEnabled && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Compliance</CardTitle>
-                <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
-              </CardContent>
-            </Card>
-          )}
-
+      {/* Stats Overview — counts come from the same lists as the tabs below */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {tenanciesEnabled && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Inspections</CardTitle>
-              <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {stats.dueInspections + stats.overdueInspections}
-              </div>
+              <div className="text-2xl font-bold">{occupancyLabel}</div>
               <p className="text-xs text-muted-foreground">
-                {stats.overdueInspections > 0 && `${stats.overdueInspections} overdue`}
+                {tenantsLoading
+                  ? "Loading…"
+                  : hasOccupyingTenant
+                    ? `${activeTenantCount} active tenant${activeTenantCount === 1 ? "" : "s"}`
+                    : "No active tenants"}
               </p>
             </CardContent>
           </Card>
+        )}
 
-          {maintenanceEnabled && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
-                <Wrench className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.maintenanceRequests}</div>
-                <p className="text-xs text-muted-foreground">Open requests</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
+        {complianceEnabled && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Compliance</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
+              <p className="text-xs text-muted-foreground">
+                {compliance.length === 0
+                  ? "No documents"
+                  : `${compliance.length} document${compliance.length === 1 ? "" : "s"}`}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Inspections</CardTitle>
+            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{inspectionCardCount}</div>
+            <p className="text-xs text-muted-foreground">{inspectionCardSubtitle}</p>
+          </CardContent>
+        </Card>
+
+        {maintenanceEnabled && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
+              <Wrench className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{openMaintenanceCount}</div>
+              <p className="text-xs text-muted-foreground">
+                {maintenance.length === 0
+                  ? "No requests"
+                  : `Open requests${maintenance.length !== openMaintenanceCount ? ` · ${maintenance.length} total` : ""}`}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {/* Tabbed Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-w-0">

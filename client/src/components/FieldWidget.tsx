@@ -2451,7 +2451,7 @@ export function FieldWidget({
               onLogMaintenance(field.label, fieldPhotos, localNote || note || undefined);
             }}
             data-testid={`button-log-maintenance-${field.id}`}
-            className="w-full min-h-11 justify-center"
+            className="w-full min-h-11 justify-center border-primary/20 bg-[#e5f9f8] text-foreground hover:bg-[#d5f3f1]"
           >
             <Wrench className="w-4 h-4 mr-2 shrink-0" />
             Log Maintenance

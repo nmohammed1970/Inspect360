@@ -17,7 +17,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.inspect360.mobile",
-      buildNumber: "33", // iOS CFBundleVersion; must be > last uploaded (32)
+      buildNumber: "36", // iOS CFBundleVersion; must be > last uploaded (35)
       requiresFullScreen: false,
       // Minimum iOS version supported (Expo SDK 57 requires >= 16.4)
       deploymentTarget: "16.4",
@@ -26,6 +26,7 @@ export default {
         NSPhotoLibraryUsageDescription: "This app needs access to your photo library to select images for inspections.",
         NSPhotoLibraryAddUsageDescription: "This app needs access to save photos to your library.",
         NSMicrophoneUsageDescription: "This app needs access to your microphone to record voice notes for inspections.",
+        NSLocationWhenInUseUsageDescription: "This app uses your location when uploading inspection gallery photos to verify you are at the property.",
         NSFaceIDUsageDescription: "Use Face ID to login quickly and securely.",
         NSBiometricUsageDescription: "Use biometric authentication to login quickly and securely.",
         UIViewControllerBasedStatusBarAppearance: true,
@@ -44,14 +45,16 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.inspect360.mobile",
-      versionCode: 35, // Android versionCode; used when appVersionSource is "local" in eas.json
+      versionCode: 36, // Android versionCode; used when appVersionSource is "local" in eas.json
       permissions: [
         "CAMERA",
         "RECORD_AUDIO",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "ACCESS_NETWORK_STATE",
-        "INTERNET"
+        "INTERNET",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ],
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,

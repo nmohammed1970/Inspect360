@@ -25,6 +25,12 @@ import {
   normalizeObjectUrl,
   type PhotoDestination,
 } from "@shared/inspectionGallery";
+import { formatSignerDisplayName } from "@shared/signature";
+import {
+  compareCaptureToProperty,
+  type GalleryAddressMatchStatus,
+} from "@shared/galleryLocation";
+import { geocodeAddress } from "./geocodeAddress";
 
 function httpError(message: string, status: number) {
   return Object.assign(new Error(message), { status });
@@ -36,7 +42,15 @@ export type GalleryImageDto = {
   fileName: string | null;
   mimeType: string | null;
   byteSize: number | null;
+  /** Upload / register time (ISO via JSON). Used as capture/upload timestamp on cards. */
   createdAt: Date | null;
+  /** Property or block address for this inspection (shown on each gallery card). */
+  propertyAddress: string | null;
+  /** Assigned inspector / contractor display name. */
+  inspectorName: string | null;
+  captureLatitude: number | null;
+  captureLongitude: number | null;
+  addressMatchStatus: GalleryAddressMatchStatus | null;
   assignments: Array<{
     id: string;
     sectionRef: string;
@@ -44,6 +58,36 @@ export type GalleryImageDto = {
     label: string;
   }>;
 };
+
+async function resolveGalleryContext(inspection: Inspection): Promise<{
+  propertyAddress: string | null;
+  inspectorName: string | null;
+  propertyLat: number | null;
+  propertyLng: number | null;
+}> {
+  let propertyAddress: string | null = null;
+  if (inspection.propertyId) {
+    const property = await storage.getProperty(inspection.propertyId);
+    propertyAddress = property?.address?.trim() || property?.name?.trim() || null;
+  } else if (inspection.blockId) {
+    const block = await storage.getBlock(inspection.blockId);
+    propertyAddress = block?.address?.trim() || block?.name?.trim() || null;
+  }
+
+  let inspectorName: string | null = null;
+  if (inspection.inspectorId) {
+    const inspector = await storage.getUser(inspection.inspectorId);
+    inspectorName = formatSignerDisplayName(inspector) || null;
+  }
+
+  const geocoded = await geocodeAddress(propertyAddress);
+  return {
+    propertyAddress,
+    inspectorName,
+    propertyLat: geocoded?.lat ?? null,
+    propertyLng: geocoded?.lng ?? null,
+  };
+}
 
 async function resolveOrgId(inspection: Inspection): Promise<string | null> {
   if (inspection.organizationId) return inspection.organizationId;
@@ -123,6 +167,11 @@ function destinationLabelMap(
   return map;
 }
 
+function normalizeMatchStatus(raw: string | null | undefined): GalleryAddressMatchStatus | null {
+  if (raw === "matched" || raw === "mismatched" || raw === "unavailable") return raw;
+  return null;
+}
+
 async function toDto(
   image: InspectionGalleryImage,
   assignments: Array<{
@@ -131,6 +180,7 @@ async function toDto(
     fieldKey: string;
   }>,
   labelMap: Map<string, string>,
+  context: { propertyAddress: string | null; inspectorName: string | null },
 ): Promise<GalleryImageDto> {
   return {
     id: image.id,
@@ -139,6 +189,11 @@ async function toDto(
     mimeType: image.mimeType,
     byteSize: image.byteSize,
     createdAt: image.createdAt,
+    propertyAddress: context.propertyAddress,
+    inspectorName: context.inspectorName,
+    captureLatitude: image.captureLatitude ?? null,
+    captureLongitude: image.captureLongitude ?? null,
+    addressMatchStatus: normalizeMatchStatus(image.addressMatchStatus),
     assignments: assignments.map((a) => ({
       id: a.id,
       sectionRef: a.sectionRef,
@@ -272,6 +327,8 @@ export async function listGallery(
 
   if (!images.length) return [];
 
+  const context = await resolveGalleryContext(inspection);
+
   const assignments = await db
     .select()
     .from(inspectionGalleryAssignments)
@@ -286,7 +343,7 @@ export async function listGallery(
 
   const result: GalleryImageDto[] = [];
   for (const img of images) {
-    result.push(await toDto(img, byImage.get(img.id) || [], labelMap));
+    result.push(await toDto(img, byImage.get(img.id) || [], labelMap, context));
   }
   return result;
 }
@@ -310,8 +367,11 @@ export async function registerGalleryImages(
     fileName?: string | null;
     mimeType?: string | null;
     byteSize?: number | null;
+    captureLatitude?: number | null;
+    captureLongitude?: number | null;
   }>,
   autoAssign?: { sectionRef: string; fieldKey: string } | null,
+  capture?: { latitude?: number | null; longitude?: number | null } | null,
 ): Promise<GalleryImageDto[]> {
   const { inspection, organizationId } = await assertInspectionGalleryAccess(
     inspectionId,
@@ -339,6 +399,16 @@ export async function registerGalleryImages(
     if (!dest) throw httpError("Invalid assignment destination", 400);
   }
 
+  const context = await resolveGalleryContext(inspection);
+  const batchLat =
+    capture?.latitude != null && Number.isFinite(Number(capture.latitude))
+      ? Number(capture.latitude)
+      : null;
+  const batchLng =
+    capture?.longitude != null && Number.isFinite(Number(capture.longitude))
+      ? Number(capture.longitude)
+      : null;
+
   const createdIds: string[] = [];
 
   for (const item of items) {
@@ -347,6 +417,21 @@ export async function registerGalleryImages(
     if (item.mimeType && !isAllowedGalleryMime(item.mimeType)) {
       throw httpError(`Unsupported image type: ${item.mimeType}`, 400);
     }
+
+    const captureLatitude =
+      item.captureLatitude != null && Number.isFinite(Number(item.captureLatitude))
+        ? Number(item.captureLatitude)
+        : batchLat;
+    const captureLongitude =
+      item.captureLongitude != null && Number.isFinite(Number(item.captureLongitude))
+        ? Number(item.captureLongitude)
+        : batchLng;
+    const addressMatchStatus = compareCaptureToProperty(
+      captureLatitude,
+      captureLongitude,
+      context.propertyLat,
+      context.propertyLng,
+    );
 
     const existing = await db
       .select()
@@ -368,6 +453,9 @@ export async function registerGalleryImages(
           fileName: item.fileName || existing[0].fileName,
           mimeType: item.mimeType || existing[0].mimeType,
           byteSize: item.byteSize ?? existing[0].byteSize,
+          captureLatitude,
+          captureLongitude,
+          addressMatchStatus,
           updatedAt: new Date(),
         })
         .where(eq(inspectionGalleryImages.id, imageId));
@@ -382,6 +470,9 @@ export async function registerGalleryImages(
           mimeType: item.mimeType || null,
           byteSize: item.byteSize ?? null,
           uploadedByUserId: user.id,
+          captureLatitude,
+          captureLongitude,
+          addressMatchStatus,
         })
         .onConflictDoNothing({
           target: [inspectionGalleryImages.inspectionId, inspectionGalleryImages.objectUrl],
@@ -401,7 +492,28 @@ export async function registerGalleryImages(
           )
           .limit(1);
         imageId = again[0]?.id;
+        if (imageId) {
+          await db
+            .update(inspectionGalleryImages)
+            .set({
+              captureLatitude,
+              captureLongitude,
+              addressMatchStatus,
+              updatedAt: new Date(),
+            })
+            .where(eq(inspectionGalleryImages.id, imageId));
+        }
       }
+    } else if (imageId) {
+      await db
+        .update(inspectionGalleryImages)
+        .set({
+          captureLatitude,
+          captureLongitude,
+          addressMatchStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(inspectionGalleryImages.id, imageId));
     }
 
     if (imageId) {

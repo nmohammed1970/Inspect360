@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, ImagePlus, Trash2, Check } from 'lucide-react-native';
+import { Camera, ImagePlus, Trash2, Check, Calendar, User } from 'lucide-react-native';
 import {
   inspectionGalleryService,
   type GalleryImage,
   type PhotoDestination,
 } from '../../services/inspectionGallery';
 import { uploadLocalFile } from '../../services/objectUpload';
+import { captureDeviceGps } from '../../services/captureDeviceGps';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useTheme } from '../../contexts/ThemeContext';
 import { colors, spacing, typography, borderRadius } from '../../theme';
@@ -115,11 +116,20 @@ export function InspectionGalleryPanel({
         });
       }
       if (registered.length) {
+        setUploadProgress('Capturing location…');
+        const gps = await captureDeviceGps();
         setUploadProgress('Saving to gallery…');
         for (let i = 0; i < registered.length; i += GALLERY_REGISTER_BATCH_MAX) {
+          const chunk = registered.slice(i, i + GALLERY_REGISTER_BATCH_MAX).map((item) => ({
+            ...item,
+            captureLatitude: gps?.latitude ?? null,
+            captureLongitude: gps?.longitude ?? null,
+          }));
           await inspectionGalleryService.register(
             inspectionId,
-            registered.slice(i, i + GALLERY_REGISTER_BATCH_MAX),
+            chunk,
+            null,
+            gps,
           );
         }
         await invalidate();
@@ -225,6 +235,23 @@ export function InspectionGalleryPanel({
     const first = image.assignments[0].label;
     const extra = image.assignments.length - 1;
     return extra > 0 ? `${first} (+${extra})` : first;
+  };
+
+  const formatGalleryDateTime = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return null;
+    }
   };
 
   if (!isOnline) {
@@ -357,6 +384,7 @@ export function InspectionGalleryPanel({
       >
         {filtered.map((item) => {
           const isSelected = selected.has(item.id);
+          const capturedAtLabel = formatGalleryDateTime(item.createdAt);
           return (
             <TouchableOpacity
               key={item.id}
@@ -375,6 +403,24 @@ export function InspectionGalleryPanel({
                 <Badge variant={item.assignments.length ? 'default' : 'secondary'} size="sm">
                   {badgeLabel(item)}
                 </Badge>
+                <View style={styles.metaBlock}>
+                  {capturedAtLabel ? (
+                    <View style={styles.metaRow}>
+                      <Calendar size={11} color={themeColors.text.muted || themeColors.text.secondary} />
+                      <Text style={[styles.metaText, { color: themeColors.text.secondary }]} numberOfLines={1}>
+                        {capturedAtLabel}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {item.inspectorName ? (
+                    <View style={styles.metaRow}>
+                      <User size={11} color={themeColors.text.muted || themeColors.text.secondary} />
+                      <Text style={[styles.metaText, { color: themeColors.text.secondary }]} numberOfLines={1}>
+                        {item.inspectorName}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
               </View>
               {isSelected && (
                 <View style={[styles.checkMark, { backgroundColor: themeColors.primary.DEFAULT }]}>
@@ -475,7 +521,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   tileImage: { width: '100%', aspectRatio: 1, backgroundColor: '#e2e8f0' },
-  tileBadge: { padding: spacing[1] },
+  tileBadge: { padding: spacing[1], gap: 4 },
+  metaBlock: { gap: 2, marginTop: 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
+  metaText: { flex: 1, fontSize: 10, lineHeight: 13 },
   checkMark: {
     position: 'absolute',
     top: 6,

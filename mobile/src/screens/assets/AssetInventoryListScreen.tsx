@@ -43,6 +43,7 @@ import { propertiesService } from '../../services/properties';
 import type { Property, Block } from '../../types';
 import { formatPropertyLocationLabel, formatBlockLocationLabel } from '../../utils/locationLabels';
 import { getAPI_URL } from '../../services/api';
+import { uploadLocalFile } from '../../services/objectUpload';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -428,58 +429,17 @@ export default function AssetInventoryListScreen() {
     blocks,
   ]);
 
-  // Photo upload function
-  const uploadPhoto = async (uri: string): Promise<string> => {
+  /**
+   * Upload via upload-direct so the stored path includes an image extension
+   * (e.g. /objects/{uuid}.jpg). Portal treats extension-less /objects/{uuid}
+   * as documents (legacy PDFs), which is why iOS asset photos showed as Document.
+   */
+  const uploadPhoto = async (uri: string, mimeType?: string | null): Promise<string> => {
     try {
-      const response = await fetch(`${getAPI_URL()}/api/objects/upload`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+      return await uploadLocalFile(uri, {
+        mimeType: mimeType || 'image/jpeg',
+        fileName: 'asset-photo.jpg',
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to get upload URL');
-      }
-
-      const { uploadURL } = await response.json();
-      const fileData = await fetch(uri);
-      const blob = await fileData.blob();
-
-      const uploadResponse = await fetch(uploadURL, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': blob.type || 'image/jpeg',
-        },
-        body: blob,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload photo');
-      }
-
-      let objectPath = uploadURL;
-      if (objectPath.includes('?objectId=')) {
-        const objectId = new URL(uploadURL).searchParams.get('objectId');
-        if (objectId) {
-          objectPath = `/objects/${objectId}`;
-        }
-      } else if (objectPath.includes('/objects/')) {
-        const match = objectPath.match(/\/objects\/[^?]+/);
-        if (match) {
-          objectPath = match[0];
-        }
-      }
-
-      const absoluteUrl = objectPath.startsWith('http') ? objectPath : `${getAPI_URL()}${objectPath}`;
-
-      await fetch(`${getAPI_URL()}/api/objects/set-acl`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoUrl: absoluteUrl }),
-      });
-
-      return objectPath;
     } catch (error: any) {
       console.error('Photo upload error:', error);
       throw new Error(error?.message || 'Failed to upload photo');
@@ -541,7 +501,9 @@ export default function AssetInventoryListScreen() {
         typeof maxImages === 'number' ? result.assets.slice(0, maxImages) : result.assets;
 
       setIsUploadingPhotos(true);
-      const uploadedPaths = await Promise.all(assetsToUpload.map((a) => uploadPhoto(a.uri)));
+      const uploadedPaths = await Promise.all(
+        assetsToUpload.map((a) => uploadPhoto(a.uri, a.mimeType)),
+      );
       setUploadedPhotos((prev) => {
         if (runAi && uploadedPaths[0]) {
           // Keep AI photo as the primary (first) image
@@ -579,7 +541,10 @@ export default function AssetInventoryListScreen() {
       }
 
       setIsUploadingPhotos(true);
-      const uploadedPath = await uploadPhoto(result.assets[0].uri);
+      const uploadedPath = await uploadPhoto(
+        result.assets[0].uri,
+        result.assets[0].mimeType,
+      );
       setUploadedPhotos((prev) => {
         if (runAi) {
           return [uploadedPath, ...prev.filter((p) => p !== uploadedPath)];

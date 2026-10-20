@@ -7,6 +7,8 @@ export type GalleryAssignment = {
   label: string;
 };
 
+export type GalleryAddressMatchStatus = 'matched' | 'mismatched' | 'unavailable';
+
 export type GalleryImage = {
   id: string;
   objectUrl: string;
@@ -14,6 +16,11 @@ export type GalleryImage = {
   mimeType: string | null;
   byteSize: number | null;
   createdAt: string | null;
+  propertyAddress?: string | null;
+  inspectorName?: string | null;
+  captureLatitude?: number | null;
+  captureLongitude?: number | null;
+  addressMatchStatus?: GalleryAddressMatchStatus | null;
   assignments: GalleryAssignment[];
 };
 
@@ -41,13 +48,20 @@ export const inspectionGalleryService = {
   },
   register(
     inspectionId: string,
-    images: Array<{ objectUrl: string; fileName?: string; mimeType?: string }>,
+    images: Array<{
+      objectUrl: string;
+      fileName?: string;
+      mimeType?: string;
+      captureLatitude?: number | null;
+      captureLongitude?: number | null;
+    }>,
     assign?: { sectionRef: string; fieldKey: string } | null,
+    capture?: { latitude: number; longitude: number } | null,
   ) {
     return apiRequestJson<{ images: GalleryImage[] }>(
       'POST',
       `/api/inspections/${inspectionId}/gallery/register`,
-      { images, assign: assign || null },
+      { images, assign: assign || null, capture: capture || null },
     );
   },
   assign(inspectionId: string, imageIds: string[], sectionRef: string, fieldKey: string) {

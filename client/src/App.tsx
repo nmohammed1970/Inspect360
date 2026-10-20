@@ -44,7 +44,6 @@ import BlockTenants from "@/pages/BlockTenants";
 import Settings from "@/pages/Settings";
 import AssetInventory from "@/pages/AssetInventory";
 import InspectionTemplates from "@/pages/InspectionTemplates";
-import CompletionChecklists from "@/pages/CompletionChecklists";
 import InspectionCapture from "@/pages/InspectionCapture";
 import InspectionReview from "@/pages/InspectionReview";
 import InspectionReport from "@/pages/InspectionReport";
@@ -655,7 +654,7 @@ function AppContent() {
                   {(params) => <InspectionTemplates />}
                 </Route>
                 <Route path="/completion-checklists">
-                  {() => <CompletionChecklists />}
+                  {() => <FieldRoleRedirect to="/settings?tab=completion-checklists" />}
                 </Route>
                 <Route path="/billing" component={Billing} />
                 <Route path="/settings" component={Settings} />
