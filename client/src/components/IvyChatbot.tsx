@@ -117,7 +117,7 @@ export function IvyChatbot() {
                     Ivy
                     <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-primary/10 text-primary">AI Assistant</span>
                   </DialogTitle>
-                  <p className="text-sm text-muted-foreground">Your BTR operations assistant</p>
+                  <p className="text-sm text-muted-foreground">Your Operations Assistant</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">

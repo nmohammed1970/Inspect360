@@ -63,6 +63,25 @@ function detectSupportedMime(buffer: Buffer): string | null {
  * OpenAI vision accepts: png, jpeg, gif, webp.
  */
 export async function toOpenAIImageDataUrl(photoBuffer: Buffer): Promise<string> {
+  return encodeForOpenAIVision(photoBuffer, { quality: 85, maxEdge: 2048 });
+}
+
+/**
+ * Floor plans need readable printed dimensions — keep higher resolution/quality
+ * than general inspection photos.
+ */
+export async function toFloorPlanImageDataUrl(photoBuffer: Buffer): Promise<string> {
+  return encodeForOpenAIVision(photoBuffer, {
+    quality: 95,
+    maxEdge: 4096,
+    sharpen: true,
+  });
+}
+
+async function encodeForOpenAIVision(
+  photoBuffer: Buffer,
+  opts: { quality: number; maxEdge: number; sharpen?: boolean },
+): Promise<string> {
   let working = photoBuffer;
 
   if (isHeicOrHeifBuffer(working)) {
@@ -70,14 +89,29 @@ export async function toOpenAIImageDataUrl(photoBuffer: Buffer): Promise<string>
     const converted = await heicConvert({
       buffer: working,
       format: "JPEG",
-      quality: 0.9,
+      quality: Math.min(1, opts.quality / 100 + 0.05),
     });
     working = Buffer.from(converted);
   }
 
-  // Re-encode through sharp when possible (EXIF orient, guaranteed JPEG).
   try {
-    const jpeg = await sharp(working).rotate().jpeg({ quality: 85 }).toBuffer();
+    const meta = await sharp(working).rotate().metadata();
+    const w = meta.width || 0;
+    const h = meta.height || 0;
+    let pipeline = sharp(working).rotate();
+    if (w > opts.maxEdge || h > opts.maxEdge) {
+      pipeline = pipeline.resize({
+        width: opts.maxEdge,
+        height: opts.maxEdge,
+        fit: "inside",
+        withoutEnlargement: true,
+      });
+    }
+    if (opts.sharpen) {
+      // Slight sharpen helps dimension labels on scanned line drawings
+      pipeline = pipeline.sharpen({ sigma: 0.8 });
+    }
+    const jpeg = await pipeline.jpeg({ quality: opts.quality, mozjpeg: true }).toBuffer();
     return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
   } catch (sharpErr: any) {
     console.warn(

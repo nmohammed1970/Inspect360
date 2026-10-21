@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -301,6 +301,8 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
 
   const [structure, setStructure] = useState<TemplateStructure>(initialStructure);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
+  /** Scrollable body inside the Edit Template dialog (not the page behind the modal). */
+  const builderScrollRef = useRef<HTMLDivElement>(null);
 
   const form = useForm<TemplateMetaForm>({
     resolver: zodResolver(templateMetaSchema),
@@ -404,6 +406,52 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     })();
   };
 
+  const focusBuilderItem = (itemId: string) => {
+    // Wait for React to paint the new expanded card, then scroll only the dialog body
+    // (never window/main — that only moves the Settings page behind the modal).
+    const run = () => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-builder-item-id="${CSS.escape(itemId)}"]`,
+      );
+      if (!el) return;
+
+      let scroller: HTMLElement | null = builderScrollRef.current;
+      if (!scroller || !scroller.contains(el)) {
+        let parent = el.parentElement;
+        while (parent) {
+          const { overflowY } = window.getComputedStyle(parent);
+          if (
+            (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+            parent.scrollHeight > parent.clientHeight + 1
+          ) {
+            scroller = parent;
+            break;
+          }
+          if (parent.getAttribute("role") === "dialog") break;
+          parent = parent.parentElement;
+        }
+      }
+      if (!scroller) return;
+
+      const scrollerRect = scroller.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const nextTop = scroller.scrollTop + (elRect.top - scrollerRect.top) - 16;
+      scroller.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+
+      const titleInput = el.querySelector<HTMLInputElement>(
+        'input[data-testid^="input-section-title-"], input[data-testid^="input-cip-label-"]',
+      );
+      titleInput?.focus({ preventScroll: true });
+      titleInput?.select();
+    };
+
+    requestAnimationFrame(() => {
+      window.setTimeout(run, 50);
+      // Collapsible / layout can settle a beat later — nudge again if needed
+      window.setTimeout(run, 200);
+    });
+  };
+
   const addSection = () => {
     const newSection: TemplateSection = {
       id: `section_${Date.now()}`,
@@ -412,6 +460,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     };
     setStructure({ ...structure, sections: [...structure.sections, newSection] });
     setExpandedSections(new Set([...Array.from(expandedSections), newSection.id]));
+    focusBuilderItem(newSection.id);
   };
 
   const updateSection = (sectionId: string, updates: Partial<TemplateSection>) => {
@@ -450,6 +499,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     next.splice(index + 1, 0, copy);
     setStructure({ ...structure, sections: next });
     setExpandedSections(new Set([...Array.from(expandedSections), copy.id]));
+    focusBuilderItem(copy.id);
   };
 
   const customInspectionPoints = structure.customInspectionPoints ?? [];
@@ -466,6 +516,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       customInspectionPoints: [...customInspectionPoints, newCip],
     });
     setExpandedSections(new Set([...Array.from(expandedSections), newCip.id]));
+    focusBuilderItem(newCip.id);
   };
 
   const updateCustomInspectionPoint = (cipId: string, updates: Partial<CustomInspectionPoint>) => {
@@ -521,6 +572,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     next.splice(index + 1, 0, copy);
     setStructure({ ...structure, customInspectionPoints: next });
     setExpandedSections(new Set([...Array.from(expandedSections), copy.id]));
+    focusBuilderItem(copy.id);
   };
 
   const addCipField = (cipId: string) => {
@@ -876,7 +928,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-auto p-4 sm:p-6 min-w-0">
+        <div ref={builderScrollRef} className="flex-1 overflow-auto p-4 sm:p-6 min-w-0">
           {previewMode ? (
             <div className="space-y-6 max-w-3xl mx-auto">
               <div className="mb-6">
@@ -1326,6 +1378,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                     {structure.sections.map((section, sectionIndex) => (
                       <Card
                         key={section.id}
+                        data-builder-item-id={section.id}
                         className={cn(
                           "shadow-sm transition-opacity",
                           templateSectionDragIndex === sectionIndex && "opacity-50",
@@ -1689,6 +1742,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                           {customInspectionPoints.map((cip, cipIndex) => (
                             <Card
                               key={cip.id}
+                              data-builder-item-id={cip.id}
                               className={cn(
                                 "shadow-sm transition-opacity",
                                 cipDragIndex === cipIndex && "opacity-50",

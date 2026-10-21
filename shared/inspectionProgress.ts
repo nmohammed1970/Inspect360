@@ -172,10 +172,20 @@ export type ComputeInspectionProgressInput = {
   excludeTenantSignatures?: boolean;
 };
 
+export type SectionProgress = {
+  sectionId: string;
+  totalFields: number;
+  completedFields: number;
+  /** Fields still incomplete in this section (for tab badges). */
+  remainingFields: number;
+};
+
 export type InspectionProgress = {
   totalFields: number;
   completedFields: number;
   progress: number;
+  /** Per template section id — same field set as overall progress. */
+  bySection: Record<string, SectionProgress>;
 };
 
 /**
@@ -194,17 +204,34 @@ export function computeInspectionCaptureProgress(
 
   let total = 0;
   let completed = 0;
+  const bySection: Record<string, SectionProgress> = {};
 
-  const bump = (sectionRef: string, fieldKey: string) => {
+  const ensureSection = (sectionId: string) => {
+    if (!bySection[sectionId]) {
+      bySection[sectionId] = {
+        sectionId,
+        totalFields: 0,
+        completedFields: 0,
+        remainingFields: 0,
+      };
+    }
+    return bySection[sectionId]!;
+  };
+
+  const bump = (sectionId: string, sectionRef: string, fieldKey: string) => {
     total += 1;
+    const sec = ensureSection(sectionId);
+    sec.totalFields += 1;
     const entry = entriesMap[entryLookupKey(sectionRef, fieldKey)];
     if (isInspectionEntryComplete(entry ?? { sectionRef, fieldKey })) {
       completed += 1;
+      sec.completedFields += 1;
     }
   };
 
   for (const section of sections) {
     if (!section?.id) continue;
+    ensureSection(section.id);
     const instanceRefs = resolveSectionInstanceRefs(
       section,
       repeatableCounts,
@@ -217,12 +244,12 @@ export function computeInspectionCaptureProgress(
         if (shouldSkipField(field, excludeTenantSignatures)) continue;
         const fieldKey = resolveFieldId(field);
         if (!fieldKey) continue;
-        bump(sectionRef, fieldKey);
+        bump(section.id, sectionRef, fieldKey);
       }
 
       for (const cip of cips) {
         if (isCipRepeatable(cip)) {
-          bump(sectionRef, cipCountFieldKey(cip.id));
+          bump(section.id, sectionRef, cipCountFieldKey(cip.id));
         }
         const count = resolveCipInstanceCount(
           cip,
@@ -230,10 +257,15 @@ export function computeInspectionCaptureProgress(
         );
         for (const expanded of expandCipFieldsForCount(cip, count)) {
           if (shouldSkipField(expanded, excludeTenantSignatures)) continue;
-          bump(sectionRef, expanded.id);
+          bump(section.id, sectionRef, expanded.id);
         }
       }
     }
+  }
+
+  for (const sec of Object.values(bySection)) {
+    sec.completedFields = Math.min(sec.completedFields, sec.totalFields);
+    sec.remainingFields = Math.max(0, sec.totalFields - sec.completedFields);
   }
 
   const progress = total > 0 ? Math.min(100, (completed / total) * 100) : 0;
@@ -241,6 +273,7 @@ export function computeInspectionCaptureProgress(
     totalFields: total,
     completedFields: Math.min(completed, total),
     progress,
+    bySection,
   };
 }
 

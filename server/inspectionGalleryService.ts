@@ -388,7 +388,7 @@ export async function registerGalleryImages(
   const entriesForDest = await storage.getInspectionEntries(inspectionId);
   const cipCounts = extractCipCountsFromEntries(entriesForDest);
   let dest: PhotoDestination | null = null;
-  if (autoAssign) {
+  if (autoAssign?.sectionRef && autoAssign?.fieldKey) {
     dest = assertDestinationValid(
       inspection.templateSnapshotJson as any,
       autoAssign.sectionRef,
@@ -396,7 +396,14 @@ export async function registerGalleryImages(
       counts,
       cipCounts,
     );
-    if (!dest) throw httpError("Invalid assignment destination", 400);
+    // Still register the image even if assign target is unknown — browse/camera
+    // uploads must appear in the gallery; assignment is best-effort.
+    if (!dest) {
+      console.warn(
+        "[gallery] register: invalid assign destination, storing unassigned",
+        autoAssign,
+      );
+    }
   }
 
   const context = await resolveGalleryContext(inspection);

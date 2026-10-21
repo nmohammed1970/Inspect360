@@ -20,6 +20,14 @@ export function getInspectionModel(): string {
   return readModel("AI_INSPECTION_MODEL", "gpt-5-mini");
 }
 
+/**
+ * Floor-plan room/dimension vision. Defaults to gpt-4o (reads printed labels well).
+ * Override with AI_FLOOR_PLAN_MODEL. Avoid gpt-5-mini here unless you omit temperature.
+ */
+export function getFloorPlanModel(): string {
+  return readModel("AI_FLOOR_PLAN_MODEL", "gpt-4o");
+}
+
 /** Chat, Ivy, maintenance analyse, certificates, comparison notes. Override with AI_CHAT_MODEL. */
 export function getChatModel(): string {
   return readModel("AI_CHAT_MODEL", "gpt-4o-mini");

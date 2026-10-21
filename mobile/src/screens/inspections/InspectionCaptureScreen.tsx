@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -56,7 +56,8 @@ import {
   repeatableCountsFromPropertyRoomInstances,
 } from '../../../../shared/propertyRooms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
+import { isGeneralInformationSection } from '../../../../shared/defaultGeneralInformationSection';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
@@ -151,6 +152,8 @@ export default function InspectionCaptureScreen() {
   const repeatableCountsInitialized = useRef(false); // Track if we've initialized default counts
   const [copyImages, setCopyImages] = useState(false);
   const [copyNotes, setCopyNotes] = useState(false);
+  /** Explicit open/closed overrides for inspection point (CIP) cards. */
+  const [inspectionPointOpen, setInspectionPointOpen] = useState<Record<string, boolean>>({});
   const [syncStats, setSyncStats] = useState({ pendingEntries: 0, pendingImages: 0, queuedOperations: 0 });
 
   // Load sync stats periodically
@@ -859,7 +862,7 @@ export default function InspectionCaptureScreen() {
 
   // Progress uses the same field set the UI renders (instances × fields + CIPs).
   // Never count raw entries — orphans / __repeatable_count_* inflate completed > total.
-  const { totalFields, completedFields, progress } = useMemo(
+  const { totalFields, completedFields, progress, bySection } = useMemo(
     () =>
       computeInspectionCaptureProgress({
         sections,
@@ -1276,11 +1279,22 @@ export default function InspectionCaptureScreen() {
     );
   };
 
+  const isInspectionPointOpen = (key: string, defaultOpen: boolean) =>
+    inspectionPointOpen[key] !== undefined ? inspectionPointOpen[key]! : defaultOpen;
+
+  const toggleInspectionPoint = (key: string, defaultOpen: boolean) => {
+    setInspectionPointOpen((prev) => {
+      const currently = prev[key] !== undefined ? prev[key]! : defaultOpen;
+      return { ...prev, [key]: !currently };
+    });
+  };
+
   const renderCipInstanceCards = (
     sectionRef: string,
     instanceName: string,
     sectionTitle: string,
     sectionCips: CustomInspectionPoint[],
+    pointsDefaultOpen = false,
   ) => {
     if (!sectionCips.length) return null;
 
@@ -1324,87 +1338,105 @@ export default function InspectionCaptureScreen() {
             const expandedForInstance = expandCipFieldsForCount(cip, count).filter(
               (f) => f.cipInstanceIndex === instanceIndex,
             );
+            const pointKey = `cip:${sectionRef}:${cip.id}:${instanceIndex}`;
+            const pointOpen = isInspectionPointOpen(pointKey, pointsDefaultOpen);
+            const pointTitle = cipInstanceLabel(cip.label, instanceIndex);
             return (
               <View
                 key={`cip-card-${sectionRef}-${cip.id}-${instanceIndex}`}
                 style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, marginTop: spacing[4] }]}
               >
-                <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>
-                  {cipInstanceLabel(cip.label, instanceIndex)}
-                </Text>
-                {expandedForInstance.map((expanded) => {
-                  const parsed = parseCipExpandedFieldKey(expanded.id);
-                  const baseField = (cip.fields || []).find(
-                    (f) => String(f.id || f.key || '') === parsed?.fieldId,
-                  );
-                  const fieldForWidget: TemplateField = {
-                    ...(baseField as TemplateField),
-                    id: expanded.id,
-                    key: expanded.id,
-                    label: (baseField?.label as string) || expanded.label,
-                  };
-                  const entryKey = `${sectionRef}-${expanded.id}`;
-                  const entry = entries[entryKey];
-                  const entryId = entry?.id || entryKey;
-                  return (
-                    <View key={expanded.id} style={styles.fieldContainer}>
-                      <FieldWidget
-                        field={fieldForWidget}
-                        value={entry?.valueJson}
-                        note={entry?.note}
-                        photos={entry?.photos}
-                        inspectionId={inspectionId}
-                        entryId={entryId}
-                        sectionRef={sectionRef}
-                        sectionName={instanceName}
-                        isCheckOut={effectiveInspection?.type === 'check_out'}
-                        markedForReview={entry?.markedForReview || false}
-                        disabled={effectiveInspection?.status === 'completed' || isDeleted}
-                        autoContext={{
-                          inspectorName: resolvedInspectorName,
-                          address: property
-                            ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
-                            : block
-                              ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
-                              : '',
-                          tenantNames: '',
-                          inspectionDate: new Date(
-                            effectiveInspection?.scheduledDate ||
-                              (effectiveInspection as any)?.startedAt ||
-                              new Date().toISOString(),
-                          )
-                            .toISOString()
-                            .split('T')[0],
-                          bedroomCount: propertyLayoutCounts.bedroomCount,
-                          bathroomCount: propertyLayoutCounts.bathroomCount,
-                        }}
-                        onChange={(value, note, photos) =>
-                          handleFieldChange(currentSection!.id, expanded.id, value, note, photos, undefined, undefined, {
-                            explicitSectionRef: sectionRef,
-                            fieldType: fieldForWidget.type,
-                          })
-                        }
-                        onMarkedForReviewChange={(marked) =>
-                          handleFieldChange(
-                            currentSection!.id,
-                            expanded.id,
-                            undefined,
-                            undefined,
-                            undefined,
-                            marked,
-                            undefined,
-                            { explicitSectionRef: sectionRef, fieldType: fieldForWidget.type },
-                          )
-                        }
-                        onLogMaintenance={
-                          maintenanceEnabled
-                            ? (fieldLabel, photos) => openMaintenance(fieldLabel, photos, entry, entryId)
-                            : undefined
-                        }
-                      />
-                    </View>
-                  );
-                })}
+                <TouchableOpacity
+                  onPress={() => toggleInspectionPoint(pointKey, pointsDefaultOpen)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2], paddingVertical: spacing[1] }}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: pointOpen }}
+                  accessibilityLabel={`${pointOpen ? 'Collapse' : 'Expand'} ${pointTitle}`}
+                >
+                  {pointOpen ? (
+                    <ChevronDown size={18} color={themeColors.text.secondary} />
+                  ) : (
+                    <ChevronRight size={18} color={themeColors.text.secondary} />
+                  )}
+                  <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT, flex: 1 }]}>
+                    {pointTitle}
+                  </Text>
+                </TouchableOpacity>
+                {pointOpen
+                  ? expandedForInstance.map((expanded) => {
+                      const parsed = parseCipExpandedFieldKey(expanded.id);
+                      const baseField = (cip.fields || []).find(
+                        (f) => String(f.id || f.key || '') === parsed?.fieldId,
+                      );
+                      const fieldForWidget: TemplateField = {
+                        ...(baseField as TemplateField),
+                        id: expanded.id,
+                        key: expanded.id,
+                        label: (baseField?.label as string) || expanded.label,
+                      };
+                      const entryKey = `${sectionRef}-${expanded.id}`;
+                      const entry = entries[entryKey];
+                      const entryId = entry?.id || entryKey;
+                      return (
+                        <View key={expanded.id} style={styles.fieldContainer}>
+                          <FieldWidget
+                            field={fieldForWidget}
+                            value={entry?.valueJson}
+                            note={entry?.note}
+                            photos={entry?.photos}
+                            inspectionId={inspectionId}
+                            entryId={entryId}
+                            sectionRef={sectionRef}
+                            sectionName={instanceName}
+                            isCheckOut={effectiveInspection?.type === 'check_out'}
+                            markedForReview={entry?.markedForReview || false}
+                            disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                            autoContext={{
+                              inspectorName: resolvedInspectorName,
+                              address: property
+                                ? [property.address, property.city, property.state, property.postalCode].filter(Boolean).join(', ')
+                                : block
+                                  ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
+                                  : '',
+                              tenantNames: '',
+                              inspectionDate: new Date(
+                                effectiveInspection?.scheduledDate ||
+                                  (effectiveInspection as any)?.startedAt ||
+                                  new Date().toISOString(),
+                              )
+                                .toISOString()
+                                .split('T')[0],
+                              bedroomCount: propertyLayoutCounts.bedroomCount,
+                              bathroomCount: propertyLayoutCounts.bathroomCount,
+                            }}
+                            onChange={(value, note, photos) =>
+                              handleFieldChange(currentSection!.id, expanded.id, value, note, photos, undefined, undefined, {
+                                explicitSectionRef: sectionRef,
+                                fieldType: fieldForWidget.type,
+                              })
+                            }
+                            onMarkedForReviewChange={(marked) =>
+                              handleFieldChange(
+                                currentSection!.id,
+                                expanded.id,
+                                undefined,
+                                undefined,
+                                undefined,
+                                marked,
+                                undefined,
+                                { explicitSectionRef: sectionRef, fieldType: fieldForWidget.type },
+                              )
+                            }
+                            onLogMaintenance={
+                              maintenanceEnabled
+                                ? (fieldLabel, photos) => openMaintenance(fieldLabel, photos, entry, entryId)
+                                : undefined
+                            }
+                          />
+                        </View>
+                      );
+                    })
+                  : null}
               </View>
             );
           });
@@ -2108,7 +2140,10 @@ export default function InspectionCaptureScreen() {
                     tabsScrollViewRef.current?.scrollTo({ x: 0, animated: false });
                   }}
                 >
-                  {sections.map((section, index) => (
+                  {sections.map((section, index) => {
+                    const remaining = bySection[section.id]?.remainingFields ?? 0;
+                    const isActive = index === currentSectionIndex;
+                    return (
                     <TouchableOpacity
                       key={section.id}
                       onPress={() => {
@@ -2122,33 +2157,67 @@ export default function InspectionCaptureScreen() {
                       style={[
                         styles.tabButton,
                         {
-                          backgroundColor: index === currentSectionIndex ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
-                          borderColor: index === currentSectionIndex ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                          backgroundColor: isActive ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+                          borderColor: isActive ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
                           paddingHorizontal: ms(spacing[3], 0.3),
                           paddingVertical: ms(spacing[2], 0.3),
                           minHeight: ms(36, 0.2),
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 6,
                         },
                       ]}
                       activeOpacity={0.7}
+                      accessibilityLabel={
+                        remaining > 0
+                          ? `${formatDisplayHeading(section.title)}, ${remaining} remaining`
+                          : formatDisplayHeading(section.title)
+                      }
                     >
                       <Text
                         style={[
                           styles.tabButtonText,
                           {
-                            color: index === currentSectionIndex
+                            color: isActive
                               ? (themeColors.primary.foreground || '#ffffff')
                               : themeColors.text.primary,
                             fontSize: tabFontSize,
                           },
-                          index === currentSectionIndex && styles.tabButtonTextActive
+                          isActive && styles.tabButtonTextActive
                         ]}
                         numberOfLines={1}
                       >
                         {formatDisplayHeading(section.title)}
                       </Text>
-                      {index === currentSectionIndex && <View style={styles.tabIndicator} />}
+                      {remaining > 0 && (
+                        <View
+                          style={{
+                            minWidth: 20,
+                            height: 20,
+                            borderRadius: 10,
+                            paddingHorizontal: 5,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: isActive ? '#fbbf24' : '#fef3c7',
+                            borderWidth: isActive ? 0 : 1,
+                            borderColor: '#fcd34d',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 10,
+                              fontWeight: '700',
+                              color: isActive ? '#78350f' : '#92400e',
+                            }}
+                          >
+                            {remaining > 99 ? '99+' : String(remaining)}
+                          </Text>
+                        </View>
+                      )}
+                      {isActive && <View style={styles.tabIndicator} />}
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </ScrollView>
                 {/* Right Fade Indicator */}
                 {showRightFade && (
@@ -2276,17 +2345,32 @@ export default function InspectionCaptureScreen() {
                       `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                     const canDeleteInstance =
                       effectiveInspection?.status !== 'completed' && !isDeleted;
+                    const roomShellKey = `room:${sectionRef}`;
+                    const roomShellOpen = isInspectionPointOpen(roomShellKey, instanceIndex === 0);
                     return (
                       <View key={roomInst?.roomId || `instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                          <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT, flex: 1 }]}>
-                            {instanceName}
-                            {!!dimLabel && (
-                              <Text style={{ color: themeColors.text.muted, fontWeight: '400', fontSize: typography.fontSize.sm }}>
-                                {dimLabel}
-                              </Text>
+                          <TouchableOpacity
+                            onPress={() => toggleInspectionPoint(roomShellKey, instanceIndex === 0)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2], flex: 1 }}
+                            accessibilityRole="button"
+                            accessibilityState={{ expanded: roomShellOpen }}
+                            accessibilityLabel={`${roomShellOpen ? 'Collapse' : 'Expand'} ${instanceName}`}
+                          >
+                            {roomShellOpen ? (
+                              <ChevronDown size={18} color={themeColors.text.secondary} />
+                            ) : (
+                              <ChevronRight size={18} color={themeColors.text.secondary} />
                             )}
-                          </Text>
+                            <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT, flex: 1 }]}>
+                              {instanceName}
+                              {!!dimLabel && (
+                                <Text style={{ color: themeColors.text.muted, fontWeight: '400', fontSize: typography.fontSize.sm }}>
+                                  {dimLabel}
+                                </Text>
+                              )}
+                            </Text>
+                          </TouchableOpacity>
                           {canDeleteInstance && (
                             <TouchableOpacity
                               onPress={() =>
@@ -2305,6 +2389,8 @@ export default function InspectionCaptureScreen() {
                             </TouchableOpacity>
                           )}
                         </View>
+                        {roomShellOpen ? (
+                        <>
                         {(() => {
                           const sectionCips = sectionCipsFor(currentSection);
                           return sectionCips.length
@@ -2430,9 +2516,12 @@ export default function InspectionCaptureScreen() {
                                 instanceName,
                                 currentSection.title,
                                 sectionCips,
+                                isGeneralInformationSection(currentSection),
                               )
                             : null;
                         })()}
+                        </>
+                        ) : null}
                       </View>
                     );
                     });
@@ -2584,6 +2673,7 @@ export default function InspectionCaptureScreen() {
                           currentSection.title,
                           currentSection.title,
                           sectionCips,
+                          isGeneralInformationSection(currentSection),
                         )
                       : null;
                   })()}

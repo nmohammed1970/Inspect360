@@ -7,6 +7,9 @@ import {
   hydrateRoomsFromCounts,
   metresToMm,
   normalizeAiRoomsResult,
+  parseAiDimensionMetres,
+  formatMillimetresAsFeetInches,
+  parseLengthInputToMillimetres,
   normalizeCategoryName,
   formatDisplayHeading,
   matchSectionForRoomCategory,
@@ -103,6 +106,72 @@ assert.ok(ai);
 assert.equal(ai!.rooms.length, 2);
 assert.equal(ai!.rooms[0]!.widthM, 4);
 assert.equal(ai!.rooms[1]!.widthM, null);
+// Room-list tallies win over aggregate counts (1 bedroom listed, not 2)
+assert.equal(ai!.counts.bedrooms, 1);
+
+assert.equal(parseAiDimensionMetres(3.66), 3.66);
+assert.equal(parseAiDimensionMetres(3660), 3.66);
+assert.equal(parseAiDimensionMetres("12'0\""), 3.658);
+assert.equal(parseAiDimensionMetres("12'3\""), 3.734);
+assert.equal(parseAiDimensionMetres("8'9\""), 2.667);
+assert.equal(parseAiDimensionMetres("12 ft 6 in"), 3.81);
+assert.equal(parseAiDimensionMetres("3.2 m"), 3.2);
+assert.equal(parseAiDimensionMetres("320 cm"), 3.2);
+
+// Imperial labels win over rounded metric reprints (Sunroom case)
+const sunroom = normalizeAiRoomsResult({
+  rooms: [
+    {
+      name: "Sunroom",
+      category: "Other",
+      widthImperial: "12'3\"",
+      lengthImperial: "8'9\"",
+      widthM: 3.75,
+      lengthM: 2.66,
+    },
+  ],
+});
+assert.ok(sunroom);
+assert.equal(sunroom!.rooms[0]!.widthM, 3.734);
+assert.equal(sunroom!.rooms[0]!.lengthM, 2.667);
+assert.equal(fromMillimetres(metresToMm(3.734), "ft"), 12.25);
+assert.equal(fromMillimetres(metresToMm(2.667), "ft"), 8.75);
+assert.equal(formatMillimetresAsFeetInches(metresToMm(3.734)), "12'3\"");
+assert.equal(formatMillimetresAsFeetInches(metresToMm(2.667)), "8'9\"");
+assert.equal(parseLengthInputToMillimetres("12'3\"", "ft"), metresToMm(3.734));
+assert.equal(parseLengthInputToMillimetres("8'9\"", "ft"), metresToMm(2.667));
+
+const aiImperial = normalizeAiRoomsResult({
+  rooms: [
+    {
+      name: "Lounge",
+      category: "Living Room",
+      widthFt: 12,
+      lengthFt: 10.5,
+    },
+    {
+      name: "Bedroom 1",
+      category: "Bedroom",
+      widthM: "11'6\"",
+      lengthM: "10'0\"",
+    },
+    {
+      name: "Kitchen",
+      category: "Kitchen",
+      widthM: 2.5,
+      areaM2: 7.5,
+    },
+  ],
+});
+assert.ok(aiImperial);
+assert.equal(aiImperial!.rooms[0]!.widthM, 3.658);
+assert.equal(aiImperial!.rooms[0]!.lengthM, 3.2);
+assert.equal(aiImperial!.rooms[1]!.widthM, 3.505);
+assert.equal(aiImperial!.rooms[1]!.lengthM, 3.048);
+assert.equal(aiImperial!.rooms[2]!.lengthM, 3);
+assert.equal(aiImperial!.counts.bedrooms, 1);
+assert.equal(aiImperial!.counts.livingRooms, 1);
+assert.equal(aiImperial!.counts.kitchens, 1);
 
 const seeded = applyPropertyRoomsToTemplateSnapshot(
   {
