@@ -561,27 +561,24 @@ export function FieldWidget({
 
   const handlePhotoAdd = (photoUrl: string, opts?: { skipGallerySync?: boolean }) => {
     // Use functional updater to handle concurrent uploads correctly
-    setLocalPhotos(prevPhotos => {
+    setLocalPhotos((prevPhotos) => {
       const newPhotos = [...prevPhotos, photoUrl];
 
-      // Schedule the onChange call after state update with the new photos
-      // Using setTimeout to ensure we have the latest state
+      // Parent save is sequenced; do not force-refetch here — that raced with deletes
+      // and could resurrect the previous photo list from a stale GET.
       setTimeout(() => {
         const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
         onChange(composedValue, localNote || undefined, newPhotos);
-
-        // Invalidate inspection entries to ensure report page gets updated photos
-        if (inspectionId) {
-          queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-          queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-        }
 
         if (!opts?.skipGallerySync) {
           void syncPhotosToGallery([photoUrl]);
         }
 
-        // Trigger AI condition suggestion for Check-Out inspections (after first photo)
-        if (newPhotos.length === 1 && isCheckOut && (field.includeCondition || field.includeCleanliness)) {
+        if (
+          newPhotos.length === 1 &&
+          isCheckOut &&
+          (field.includeCondition || field.includeCleanliness)
+        ) {
           triggerAiConditionSuggestion(photoUrl, newPhotos);
         }
       }, 0);
@@ -596,17 +593,13 @@ export function FieldWidget({
   };
 
   const handlePhotoRemove = (photoUrl: string) => {
-    const newPhotos = localPhotos.filter((p) => p !== photoUrl);
-    setLocalPhotos(newPhotos);
-    const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-    // Always pass the photos array (even if empty) to ensure the removal is saved
-    onChange(composedValue, localNote || undefined, newPhotos);
-
-    // Invalidate inspection entries to ensure report page gets updated photos
-    if (inspectionId) {
-      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-    }
+    setLocalPhotos((prev) => {
+      const newPhotos = prev.filter((p) => p !== photoUrl);
+      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
+      // Always pass the photos array (even if empty) so removal is persisted
+      onChange(composedValue, localNote || undefined, newPhotos);
+      return newPhotos;
+    });
   };
 
   const handleInspectField = async () => {

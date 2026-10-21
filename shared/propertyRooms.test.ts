@@ -19,6 +19,13 @@ import {
   slugifyCategoryName,
   toMillimetres,
   applyPropertyRoomsToTemplateSnapshot,
+  entryBelongsToSection,
+  isPropertyRoomAutoSection,
+  isStableRoomInstanceId,
+  parseLegacyRepeatableInstanceNumber,
+  removeInspectionSectionInstance,
+  removePropertyRoomAutoSection,
+  repeatableCountsFromPropertyRoomInstances,
 } from "./propertyRooms";
 import { listPhotoDestinations } from "./inspectionGallery";
 
@@ -462,5 +469,108 @@ assert.ok(synth.some((r) => r.name === "Living Room" && r.categorySlug === "livi
 const galleryDests = listPhotoDestinations(brokenSnap as any, { section_bedrooms: 2 });
 assert.ok(galleryDests.every((d) => !/living/i.test(d.sectionLabel)));
 assert.ok(galleryDests.some((d) => d.sectionLabel === "Bedroom 1"));
+
+// removePropertyRoomAutoSection drops section + instances + rooms snapshot rows
+assert.equal(entryBelongsToSection("section_hallway/r1", "section_hallway"), true);
+assert.equal(entryBelongsToSection("section_hallway", "section_hallway"), true);
+assert.equal(entryBelongsToSection("section_kitchen/r1", "section_hallway"), false);
+
+const autoSnap = {
+  sections: [
+    { id: "general", title: "General", fields: [] },
+    {
+      id: "section_hallway",
+      title: "Hallway",
+      repeatable: true,
+      propertyRoomAuto: true,
+      fields: [{ id: "field_hallway_overall_condition", label: "Overall Condition", type: "photo_array" }],
+    },
+    { id: "section_bedrooms", title: "Bedrooms", repeatable: true, fields: [] },
+  ],
+  propertyRoomInstances: [
+    { roomId: "r-hall", sectionRef: "section_hallway/r-hall", title: "Entrance Hallway" },
+    { roomId: "r-bed", sectionRef: "section_bedrooms/r-bed", title: "Bedroom 1" },
+  ],
+};
+assert.equal(isPropertyRoomAutoSection(autoSnap.sections[1] as any), true);
+assert.equal(isPropertyRoomAutoSection(autoSnap.sections[2] as any), false);
+
+let removeNonAutoThrew = false;
+try {
+  removePropertyRoomAutoSection(autoSnap as any, "section_bedrooms", { rooms: [] });
+} catch {
+  removeNonAutoThrew = true;
+}
+assert.equal(removeNonAutoThrew, true);
+
+const removedAuto = removePropertyRoomAutoSection(autoSnap as any, "section_hallway", {
+  rooms: [
+    { id: "r-hall", name: "Entrance Hallway", categoryId: "c", categoryName: "Hallway", categorySlug: "hallway" },
+    { id: "r-bed", name: "Bedroom 1", categoryId: "c2", categoryName: "Bedroom", categorySlug: "bedroom" },
+  ],
+});
+assert.equal(removedAuto.removedSectionId, "section_hallway");
+assert.deepEqual(removedAuto.removedRoomIds, ["r-hall"]);
+assert.equal(removedAuto.structure.sections!.some((s) => s.id === "section_hallway"), false);
+assert.equal(
+  (removedAuto.structure as any).propertyRoomInstances.some((i: any) => i.roomId === "r-hall"),
+  false,
+);
+assert.equal(removedAuto.propertyRoomsSnapshot!.rooms!.some((r) => r.id === "r-hall"), false);
+assert.equal(removedAuto.propertyRoomsSnapshot!.rooms!.some((r) => r.id === "r-bed"), true);
+
+// UUID room ids must NOT inflate repeatable counts (Dining Room 39 bug)
+assert.equal(
+  isStableRoomInstanceId("a1b2c3d4-e5f6-7890-abcd-ef1234567839"),
+  true,
+);
+assert.equal(parseLegacyRepeatableInstanceNumber("section_dining/a1b2c3d4-e5f6-7890-abcd-ef1234567839"), null);
+assert.deepEqual(parseLegacyRepeatableInstanceNumber("Bedrooms/Bedroom 3"), {
+  sectionId: "Bedrooms",
+  instanceNum: 3,
+});
+assert.equal(parseLegacyRepeatableInstanceNumber("section_dining/39"), null);
+assert.deepEqual(
+  repeatableCountsFromPropertyRoomInstances([
+    { sectionRef: "section_dining/uuid-1" },
+    { sectionRef: "section_dining/uuid-2" },
+    { sectionRef: "section_bedrooms/uuid-3" },
+  ]),
+  { section_dining: 2, section_bedrooms: 1 },
+);
+
+// Removing one of two instances keeps the section; removing the last drops it
+{
+  const twoGardens = {
+    sections: [
+      { id: "general", title: "General", fields: [] },
+      {
+        id: "section_garden",
+        title: "Garden",
+        repeatable: true,
+        propertyRoomAuto: true,
+        fields: [{ id: "cond", label: "Condition", type: "photo_array" }],
+      },
+    ],
+    propertyRoomInstances: [
+      { roomId: "g1", sectionRef: "section_garden/g1", title: "Garden" },
+      { roomId: "g2", sectionRef: "section_garden/g2", title: "Garden 2" },
+    ],
+  };
+  const afterOne = removeInspectionSectionInstance(twoGardens as any, "section_garden/g1", {
+    rooms: [
+      { id: "g1", name: "Garden", categoryId: "c", categoryName: "Garden", categorySlug: "garden" },
+      { id: "g2", name: "Garden 2", categoryId: "c", categoryName: "Garden", categorySlug: "garden" },
+    ],
+  });
+  assert.equal(afterOne.sectionRemoved, false);
+  assert.equal(afterOne.remainingInstanceCount, 1);
+  assert.equal(afterOne.structure.sections!.some((s) => s.id === "section_garden"), true);
+
+  const afterLast = removeInspectionSectionInstance(afterOne.structure, "section_garden/g2", afterOne.propertyRoomsSnapshot);
+  assert.equal(afterLast.sectionRemoved, true);
+  assert.equal(afterLast.remainingInstanceCount, 0);
+  assert.equal(afterLast.structure.sections!.some((s) => s.id === "section_garden"), false);
+}
 
 console.log("propertyRooms.test.ts: all assertions passed");

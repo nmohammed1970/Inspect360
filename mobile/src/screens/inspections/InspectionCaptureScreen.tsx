@@ -22,7 +22,7 @@ import { inspectionsService, type InspectionEntry, type InspectionDetail } from 
 import { inspectionsOffline } from '../../services/offline/inspectionsOffline';
 import { propertiesService } from '../../services/properties';
 import { authService } from '../../services/auth';
-import { getAPI_URL } from '../../services/api';
+import { apiRequestJson, getAPI_URL } from '../../services/api';
 import { getSyncStats } from '../../services/offline/database';
 import { triggerSync } from '../../services/offline/backgroundSync';
 import type { InspectionsStackParamList } from '../../navigation/types';
@@ -52,9 +52,11 @@ import {
 import {
   formatDisplayHeading,
   numberedRoomInstanceTitle,
+  parseLegacyRepeatableInstanceNumber,
+  repeatableCountsFromPropertyRoomInstances,
 } from '../../../../shared/propertyRooms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
 import Badge from '../../components/ui/Badge';
 import Progress from '../../components/ui/Progress';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
@@ -73,6 +75,7 @@ import {
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from '../../../../shared/templateCustomInspectionPoints';
+import { computeInspectionCaptureProgress } from '../../../../shared/inspectionProgress';
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
 
@@ -81,6 +84,7 @@ interface TemplateSection {
   title: string;
   description?: string;
   repeatable?: boolean;
+  propertyRoomAuto?: boolean;
   fields: TemplateField[];
 }
 
@@ -107,7 +111,7 @@ export default function InspectionCaptureScreen() {
   const { inspectionId } = route.params;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
-  const { maintenanceEnabled } = useCompanyModules();
+  const { maintenanceEnabled, tenanciesEnabled } = useCompanyModules();
   const { data: completionChecklist } = useMobileCompletionChecklist(inspectionId);
   const hasCompletionChecklist =
     COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
@@ -399,8 +403,9 @@ export default function InspectionCaptureScreen() {
       return [];
     }
 
-    const mapped = rawTemplateStructure.sections.map(section => ({
+    const mapped = rawTemplateStructure.sections.map((section: any) => ({
       ...section,
+      propertyRoomAuto: !!section.propertyRoomAuto,
       fields: (section.fields || []).map((field: any) => {
         // Ensure boolean properties are actual booleans, not strings
         const parsedField = {
@@ -494,19 +499,11 @@ export default function InspectionCaptureScreen() {
         markedForReview: entry.markedForReview,
       };
       
-      // Extract repeatable instance count from sectionRef (e.g., "Bedrooms/Bedroom 1" -> 1)
-      // This is a fallback if no count entry exists
-      const sectionRefParts = entry.sectionRef.split('/');
-      if (sectionRefParts.length > 1) {
-        const instancePart = sectionRefParts[1];
-        const match = instancePart.match(/(\d+)$/); // Extract number at end
-        if (match) {
-          const instanceNum = parseInt(match[1], 10);
-          const baseSectionId = sectionRefParts[0];
-          // Track max instance number for each repeatable section (fallback if no count entry exists)
-          if (!countsMap[baseSectionId] || instanceNum > countsMap[baseSectionId]) {
-            countsMap[baseSectionId] = instanceNum;
-          }
+      // Legacy only: "Bedrooms/Bedroom 1" → 1. Never treat UUID room ids as counts.
+      const legacy = parseLegacyRepeatableInstanceNumber(entry.sectionRef);
+      if (legacy) {
+        if (!countsMap[legacy.sectionId] || legacy.instanceNum > countsMap[legacy.sectionId]) {
+          countsMap[legacy.sectionId] = legacy.instanceNum;
         }
       }
     });
@@ -519,7 +516,9 @@ export default function InspectionCaptureScreen() {
           propertyRoomCountsSnapshot,
         )
       : {};
-    const mergedCounts = { ...countsMap, ...snapshotCounts };
+    // Floor-plan room instances win for those sections (fixes UUID-digit "Dining Room 39")
+    const instanceCounts = repeatableCountsFromPropertyRoomInstances(propertyRoomInstances);
+    const mergedCounts = { ...countsMap, ...snapshotCounts, ...instanceCounts };
     if (Object.keys(mergedCounts).length > 0) {
       repeatableCountsInitialized.current = true; // Mark as initialized from saved data
       setRepeatableCounts(prev => {
@@ -563,7 +562,13 @@ export default function InspectionCaptureScreen() {
       });
       return merged;
     });
-  }, [effectiveEntries, sections, propertyRoomCountsSnapshot, effectiveInspection?.templateSnapshotJson]);
+  }, [
+    effectiveEntries,
+    sections,
+    propertyRoomCountsSnapshot,
+    effectiveInspection?.templateSnapshotJson,
+    propertyRoomInstances,
+  ]);
 
   // Debug logging
   useEffect(() => {
@@ -852,24 +857,27 @@ export default function InspectionCaptureScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [copyImages, copyNotes]);
 
-  // Calculate progress (memoized to prevent recalculation on every render)
-  const { totalFields, completedFields, progress } = useMemo(() => {
-    // For repeatable sections, multiply field count by instance count
-    const total = sections.reduce((acc, section) => {
-      if (section.repeatable) {
-        const count = repeatableCounts[section.id] ?? 1;
-        return acc + (section.fields.length * count);
-      }
-      return acc + section.fields.length;
-    }, 0);
-    const completed = Object.values(entries).filter(entry => {
-      const hasValue = entry.valueJson !== null && entry.valueJson !== undefined;
-      const hasPhotos = entry.photos && entry.photos.length > 0;
-      return hasValue || hasPhotos;
-    }).length;
-    const prog = total > 0 ? (completed / total) * 100 : 0;
-    return { totalFields: total, completedFields: completed, progress: prog };
-  }, [sections, entries, repeatableCounts]);
+  // Progress uses the same field set the UI renders (instances × fields + CIPs).
+  // Never count raw entries — orphans / __repeatable_count_* inflate completed > total.
+  const { totalFields, completedFields, progress } = useMemo(
+    () =>
+      computeInspectionCaptureProgress({
+        sections,
+        entries,
+        repeatableCounts,
+        propertyRoomInstances,
+        templateStructure: templateSnapshot,
+        excludeTenantSignatures: !tenanciesEnabled,
+      }),
+    [
+      sections,
+      entries,
+      repeatableCounts,
+      propertyRoomInstances,
+      templateSnapshot,
+      tenanciesEnabled,
+    ],
+  );
 
   // BILL-08: warn before capture completes when approaching multi-credit threshold
   const totalPhotoCount = useMemo(() => {
@@ -897,6 +905,90 @@ export default function InspectionCaptureScreen() {
 
   const scrollCaptureToTop = () => {
     contentScrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const requestDeleteInstance = (opts: {
+    sectionRef: string;
+    label: string;
+    sectionId: string;
+    sectionIndex: number;
+  }) => {
+    if (effectiveInspection?.status === 'completed') return;
+    Alert.alert(
+      'Remove this inspection point?',
+      `Remove "${formatDisplayHeading(opts.label)}" and its answers. If it is the last point in the section, the section tab is removed too.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                const result = await apiRequestJson<{
+                  sectionRemoved?: boolean;
+                  remainingInstanceCount?: number;
+                  removedSectionTitle?: string | null;
+                }>('POST', `/api/inspections/${inspectionId}/section-instances/remove`, {
+                  sectionRef: opts.sectionRef,
+                });
+                const deletedRef = opts.sectionRef;
+                const deletedSectionId = opts.sectionId;
+                const sectionRemoved = !!result?.sectionRemoved;
+                const remaining = Number(result?.remainingInstanceCount) || 0;
+
+                setEntries((prev) => {
+                  const next = { ...prev };
+                  for (const key of Object.keys(next)) {
+                    const entry = next[key];
+                    const fk = entry.fieldKey || '';
+                    if (entry.sectionRef === deletedRef) {
+                      delete next[key];
+                      continue;
+                    }
+                    if (
+                      sectionRemoved &&
+                      (entry.sectionRef === deletedSectionId ||
+                        entry.sectionRef.startsWith(`${deletedSectionId}/`) ||
+                        fk === `__repeatable_count_${deletedSectionId}`)
+                    ) {
+                      delete next[key];
+                    }
+                  }
+                  return next;
+                });
+                setRepeatableCounts((prev) => {
+                  const next = { ...prev };
+                  if (sectionRemoved) {
+                    delete next[deletedSectionId];
+                  } else {
+                    next[deletedSectionId] = Math.max(1, remaining);
+                  }
+                  return next;
+                });
+                if (sectionRemoved) {
+                  setCurrentSectionIndex((idx) => {
+                    if (idx > opts.sectionIndex) return Math.max(0, idx - 1);
+                    if (idx === opts.sectionIndex) {
+                      return Math.max(0, Math.min(idx, sections.length - 2));
+                    }
+                    return idx;
+                  });
+                }
+                await queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}`] });
+                await queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+                await queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/gallery`] });
+              } catch (error: any) {
+                Alert.alert(
+                  'Could not remove inspection point',
+                  error?.message || 'Please try again.',
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   const handleTabsScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -2159,7 +2251,11 @@ export default function InspectionCaptureScreen() {
                     const sectionRoomInsts = propertyRoomInstances.filter((r) =>
                       r.sectionRef.startsWith(`${currentSection.id}/`),
                     );
-                    const count = repeatableCounts[currentSection.id] ?? 1;
+                    // Floor-plan instances are the source of truth when present (avoids UUID-digit ghosts).
+                    const count =
+                      sectionRoomInsts.length > 0
+                        ? sectionRoomInsts.length
+                        : (repeatableCounts[currentSection.id] ?? 1);
                     const instanceCount = Math.max(1, count);
                     return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
                     const roomInst = sectionRoomInsts[instanceIndex];
@@ -2178,16 +2274,37 @@ export default function InspectionCaptureScreen() {
                     const sectionRef =
                       roomInst?.sectionRef ||
                       `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                    const canDeleteInstance =
+                      effectiveInspection?.status !== 'completed' && !isDeleted;
                     return (
                       <View key={roomInst?.roomId || `instance-${instanceIndex}`} style={[styles.instanceContainer, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
-                        <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT }]}>
-                          {instanceName}
-                          {!!dimLabel && (
-                            <Text style={{ color: themeColors.text.muted, fontWeight: '400', fontSize: typography.fontSize.sm }}>
-                              {dimLabel}
-                            </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                          <Text style={[styles.instanceTitle, { color: themeColors.primary.DEFAULT, flex: 1 }]}>
+                            {instanceName}
+                            {!!dimLabel && (
+                              <Text style={{ color: themeColors.text.muted, fontWeight: '400', fontSize: typography.fontSize.sm }}>
+                                {dimLabel}
+                              </Text>
+                            )}
+                          </Text>
+                          {canDeleteInstance && (
+                            <TouchableOpacity
+                              onPress={() =>
+                                requestDeleteInstance({
+                                  sectionRef,
+                                  label: instanceName,
+                                  sectionId: currentSection.id,
+                                  sectionIndex: currentSectionIndex,
+                                })
+                              }
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              accessibilityLabel={`Remove ${instanceName}`}
+                              style={{ padding: 4 }}
+                            >
+                              <Trash2 size={18} color="#dc2626" />
+                            </TouchableOpacity>
                           )}
-                        </Text>
+                        </View>
                         {(() => {
                           const sectionCips = sectionCipsFor(currentSection);
                           return sectionCips.length

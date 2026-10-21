@@ -786,3 +786,61 @@ export async function deleteGalleryImages(
 
   return { deleted: images.length, assignmentCount };
 }
+
+/**
+ * Drop gallery assignments whose sectionRef belongs to a removed inspection section.
+ * Photos stay in the gallery (unassigned); entry rows are deleted separately.
+ */
+export async function clearGalleryAssignmentsForSection(
+  inspectionId: string,
+  sectionId: string,
+): Promise<number> {
+  const id = String(sectionId || "").trim();
+  if (!id) return 0;
+
+  const rows = await db
+    .select()
+    .from(inspectionGalleryAssignments)
+    .where(eq(inspectionGalleryAssignments.inspectionId, inspectionId));
+
+  const toDelete = rows.filter(
+    (r) => r.sectionRef === id || r.sectionRef.startsWith(`${id}/`),
+  );
+  if (!toDelete.length) return 0;
+
+  await db.delete(inspectionGalleryAssignments).where(
+    inArray(
+      inspectionGalleryAssignments.id,
+      toDelete.map((r) => r.id),
+    ),
+  );
+  return toDelete.length;
+}
+
+/** Drop gallery assignments for one inspection point (exact sectionRef). */
+export async function clearGalleryAssignmentsForSectionRef(
+  inspectionId: string,
+  sectionRef: string,
+): Promise<number> {
+  const ref = String(sectionRef || "").trim();
+  if (!ref) return 0;
+
+  const rows = await db
+    .select()
+    .from(inspectionGalleryAssignments)
+    .where(
+      and(
+        eq(inspectionGalleryAssignments.inspectionId, inspectionId),
+        eq(inspectionGalleryAssignments.sectionRef, ref),
+      ),
+    );
+  if (!rows.length) return 0;
+
+  await db.delete(inspectionGalleryAssignments).where(
+    inArray(
+      inspectionGalleryAssignments.id,
+      rows.map((r) => r.id),
+    ),
+  );
+  return rows.length;
+}
