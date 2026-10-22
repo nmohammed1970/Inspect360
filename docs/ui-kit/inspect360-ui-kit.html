@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inspect360 UI Kit — Portable Design System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ============================================================
+       Inspect360 Design Tokens (copy this :root block into any app)
+       Source: client/src/index.css — Corporate Identity V1.0
+       ============================================================ */
+    :root {
+      --brand-navy: #013765;
+      --brand-teal: #04C6BD;
+      --brand-deep-navy: #021F36;
+      --brand-slate: #405B70;
+      --brand-mist: #F2F7F8;
+      --brand-success: #2E8B75;
+      --brand-warning: #F2B84B;
+      --brand-critical: #D94F4F;
+      --brand-info: #3378B3;
+      --brand-teal-bright: #2DE0C5;
+      --brand-teal-deep: #009688;
+
+      --button-outline: rgba(1, 55, 101, 0.12);
+      --badge-outline: rgba(1, 55, 101, 0.08);
+      --elevate-1: rgba(1, 55, 101, 0.03);
+      --elevate-2: rgba(1, 55, 101, 0.06);
+
+      --background: 0 0% 100%;
+      --foreground: 207 93% 11%;
+      --border: 190 18% 88%;
+      --card: 0 0% 100%;
+      --card-foreground: 207 93% 11%;
+      --card-border: 190 18% 90%;
+
+      --primary: 177 96% 40%;
+      --primary-foreground: 0 0% 100%;
+      --secondary: 190 27% 96%;
+      --secondary-foreground: 207 98% 20%;
+      --muted: 190 27% 96%;
+      --muted-foreground: 206 27% 35%;
+      --accent: 207 98% 20%;
+      --accent-foreground: 0 0% 100%;
+
+      --destructive: 0 65% 58%;
+      --destructive-foreground: 0 0% 100%;
+      --success: 164 50% 36%;
+      --success-foreground: 0 0% 100%;
+      --warning: 40 87% 62%;
+      --warning-foreground: 207 93% 11%;
+      --info: 207 55% 45%;
+      --info-foreground: 0 0% 100%;
+
+      --input: 190 18% 86%;
+      --ring: 177 96% 40%;
+
+      --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      --font-heading: "Poppins", "Inter", system-ui, Arial, sans-serif;
+
+      --radius: 0.5rem;
+      --radius-button: 0.6875rem;
+      --radius-card: 0.75rem;
+      --radius-input: 0.5rem;
+
+      --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.02);
+      --shadow-sm: 0 2px 8px 0 rgb(0 0 0 / 0.04);
+      --shadow-card: 0 2px 8px 0 rgb(1 55 101 / 0.06);
+      --shadow-card-hover: 0 8px 20px -4px rgb(1 55 101 / 0.10);
+
+      --bg: hsl(var(--background));
+      --fg: hsl(var(--foreground));
+      --bd: hsl(var(--border));
+      --pri: hsl(var(--primary));
+      --pri-fg: hsl(var(--primary-foreground));
+      --sec: hsl(var(--secondary));
+      --sec-fg: hsl(var(--secondary-foreground));
+      --mut: hsl(var(--muted));
+      --mut-fg: hsl(var(--muted-foreground));
+      --acc: hsl(var(--accent));
+      --acc-fg: hsl(var(--accent-foreground));
+      --des: hsl(var(--destructive));
+      --ok: hsl(var(--success));
+      --warn: hsl(var(--warning));
+      --inf: hsl(var(--info));
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3 { font-family: var(--font-heading); letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+    h1 { font-size: 1.875rem; font-weight: 700; }
+    h2 { font-size: 1.25rem; font-weight: 600; }
+    h3 { font-size: 1rem; font-weight: 600; }
+    p { margin: 0 0 1rem; color: var(--mut-fg); font-size: 0.9375rem; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8em;
+      background: var(--mut);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    .hero {
+      background: linear-gradient(135deg, #013765 0%, #021F36 60%, #013765 100%);
+      color: #fff;
+      border-radius: var(--radius-card);
+      padding: 2rem 1.75rem;
+      margin-bottom: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: hsl(177 96% 40% / 0.15);
+      pointer-events: none;
+    }
+    .hero > * { position: relative; z-index: 1; }
+    .hero p { color: rgba(255,255,255,0.8); }
+    .hero .swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+    .swatch {
+      width: 2.5rem; height: 2.5rem; border-radius: 8px;
+      border: 2px solid rgba(255,255,255,0.35);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .section {
+      margin-bottom: 2.5rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--bd);
+    }
+    .section:last-child { border-bottom: 0; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1rem 0; }
+    .stack { display: flex; flex-direction: column; gap: 0.75rem; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+    .note {
+      background: var(--mut);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      font-size: 0.875rem;
+      color: var(--mut-fg);
+    }
+
+    /* ========== BUTTONS ========== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      white-space: nowrap;
+      font-size: 0.875rem;
+      font-weight: 500;
+      font-family: inherit;
+      min-height: 2.5rem;
+      padding: 0.625rem 1rem;
+      border-radius: var(--radius-button);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease-out;
+      text-decoration: none;
+      line-height: 1.25;
+    }
+    .btn:disabled { opacity: 0.5; pointer-events: none; }
+    .btn:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--pri);
+    }
+    .btn svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+
+    .btn-default {
+      background: var(--pri);
+      color: var(--pri-fg);
+      border-color: color-mix(in srgb, var(--pri) 90%, #000);
+      box-shadow: var(--shadow-xs);
+    }
+    .btn-default:hover { filter: brightness(0.95); }
+    .btn-default:active { filter: brightness(0.9); }
+
+    /* Brand CTA — teal gradient (primary CTAs: Gallery, Complete, Analyse) */
+    .btn-brand {
+      color: #fff;
+      font-weight: 600;
+      border: 0;
+      background: linear-gradient(135deg, #2DE0C5 0%, #04C6BD 50%, #00A89A 100%);
+    }
+    .btn-brand:hover {
+      background: linear-gradient(135deg, #1FD4B8 0%, #03B4AB 50%, #009688 100%);
+    }
+    .btn-brand:active {
+      background: linear-gradient(135deg, #00A89A 0%, #009688 50%, #007F74 100%);
+    }
+
+    .btn-destructive {
+      background: var(--des);
+      color: #fff;
+      box-shadow: var(--shadow-xs);
+    }
+    .btn-destructive:hover { filter: brightness(0.92); }
+
+    .btn-outline {
+      background: var(--bg);
+      color: var(--fg);
+      border-color: var(--button-outline);
+      box-shadow: var(--shadow-xs);
+    }
+    .btn-outline:hover { background: color-mix(in srgb, var(--mut) 60%, transparent); }
+
+    .btn-secondary {
+      background: var(--sec);
+      color: var(--sec-fg);
+      border-color: color-mix(in srgb, var(--sec) 80%, #000);
+    }
+    .btn-secondary:hover { filter: brightness(0.97); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--fg);
+      border-color: transparent;
+    }
+    .btn-ghost:hover { background: color-mix(in srgb, var(--mut) 60%, transparent); }
+
+    .btn-sm { min-height: 2.25rem; padding: 0.5rem 0.875rem; font-size: 0.75rem; }
+    .btn-lg { min-height: 2.75rem; padding: 0.625rem 2rem; }
+    .btn-icon { width: 2.5rem; height: 2.5rem; min-height: 2.5rem; padding: 0; }
+
+    /* ========== BADGES ========== */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      padding: 0.125rem 0.625rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-default { background: var(--pri); color: var(--pri-fg); box-shadow: var(--shadow-xs); }
+    .badge-secondary { background: var(--sec); color: var(--sec-fg); }
+    .badge-destructive { background: var(--des); color: #fff; }
+    .badge-success { background: var(--ok); color: #fff; }
+    .badge-warning { background: var(--warn); color: var(--fg); }
+    .badge-info { background: var(--inf); color: #fff; }
+    .badge-outline { border-color: var(--badge-outline); background: var(--bg); color: var(--fg); box-shadow: var(--shadow-xs); }
+
+    /* ========== CARDS ========== */
+    .card {
+      background: hsl(var(--card));
+      color: hsl(var(--card-foreground));
+      border: 1px solid hsl(var(--card-border));
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .card-hover { transition: all 0.2s ease-out; }
+    .card-hover:hover {
+      box-shadow: var(--shadow-card-hover);
+      transform: translateY(-2px);
+    }
+    .card-header { padding: 1.5rem 1.5rem 0.5rem; }
+    .card-body { padding: 1rem 1.5rem 1.5rem; }
+    .card-title { font-family: var(--font-heading); font-size: 1.125rem; font-weight: 600; margin: 0 0 0.25rem; color: var(--fg); }
+    .card-desc { font-size: 0.875rem; color: var(--mut-fg); margin: 0; }
+    .card-footer {
+      padding: 0 1.5rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .link-primary {
+      color: var(--pri);
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .link-primary:hover { text-decoration: underline; }
+
+    /* ========== INPUTS ========== */
+    .label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.375rem;
+      color: var(--fg);
+    }
+    .input, .textarea, .select {
+      display: flex;
+      width: 100%;
+      max-width: 360px;
+      height: 2.25rem;
+      border-radius: var(--radius-input);
+      border: 1px solid hsl(var(--input));
+      background: var(--bg);
+      padding: 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      font-family: inherit;
+      color: var(--fg);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .textarea { height: auto; min-height: 5rem; resize: vertical; }
+    .input:focus, .textarea:focus, .select:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--pri) 40%, hsl(var(--input)));
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--pri) 25%, transparent);
+    }
+    .input::placeholder { color: var(--mut-fg); }
+
+    /* ========== TABS (Action Required style) ========== */
+    .tabs {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+      padding: 0.25rem;
+      border-radius: 0.5rem;
+      background: color-mix(in srgb, var(--mut) 80%, transparent);
+      border: 1px solid color-mix(in srgb, var(--bd) 60%, transparent);
+    }
+    .tab {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--mut-fg);
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 0.375rem 0.75rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-bottom: 2px solid transparent;
+    }
+    .tab:hover { color: var(--fg); background: color-mix(in srgb, var(--bg) 60%, transparent); }
+    .tab[aria-selected="true"], .tab.active {
+      background: var(--bg);
+      color: var(--fg);
+      box-shadow: var(--shadow-xs);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--pri) 25%, transparent);
+      border-bottom: 2px solid var(--pri);
+    }
+
+    /* ========== ALERTS ========== */
+    .alert {
+      border-radius: var(--radius);
+      border: 1px solid var(--bd);
+      padding: 0.875rem 1rem;
+      font-size: 0.875rem;
+    }
+    .alert-info { background: color-mix(in srgb, var(--inf) 10%, #fff); border-color: color-mix(in srgb, var(--inf) 30%, var(--bd)); }
+    .alert-success { background: color-mix(in srgb, var(--ok) 10%, #fff); border-color: color-mix(in srgb, var(--ok) 30%, var(--bd)); }
+    .alert-warning { background: color-mix(in srgb, var(--warn) 18%, #fff); border-color: color-mix(in srgb, var(--warn) 40%, var(--bd)); }
+    .alert-destructive { background: color-mix(in srgb, var(--des) 10%, #fff); border-color: color-mix(in srgb, var(--des) 30%, var(--bd)); }
+
+    /* ========== PROGRESS ========== */
+    .progress {
+      height: 0.5rem;
+      width: 100%;
+      max-width: 320px;
+      background: var(--mut);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress > span {
+      display: block;
+      height: 100%;
+      background: var(--pri);
+      border-radius: inherit;
+    }
+
+    /* ========== SWITCH (visual) ========== */
+    .switch {
+      width: 2.75rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      background: hsl(var(--input));
+      border: none;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .switch[aria-checked="true"] { background: var(--pri); }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 1.125rem; height: 1.125rem;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: var(--shadow-xs);
+      transition: transform 0.2s;
+    }
+    .switch[aria-checked="true"]::after { transform: translateX(1.25rem); }
+
+    /* ========== COLOR TABLE ========== */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+    .color-card {
+      border: 1px solid var(--bd);
+      border-radius: var(--radius);
+      overflow: hidden;
+      font-size: 0.75rem;
+    }
+    .color-card .chip { height: 3rem; }
+    .color-card .meta { padding: 0.5rem 0.625rem; }
+    .color-card strong { display: block; color: var(--fg); }
+    .color-card span { color: var(--mut-fg); }
+
+    .howto {
+      background: #F2F7F8;
+      border: 1px solid var(--bd);
+      border-radius: var(--radius-card);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .howto ol { margin: 0.5rem 0 0; padding-left: 1.25rem; color: var(--mut-fg); font-size: 0.9rem; }
+    .howto li { margin-bottom: 0.35rem; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <h1>Inspect360 UI Kit</h1>
+      <p>Portable design system extracted from Inspect360 — tokens, buttons, badges, cards, inputs, tabs. Open this file in a browser or copy the <code>:root</code> CSS into another project.</p>
+      <div class="swatches" aria-label="Brand colors">
+        <div class="swatch" style="background:#013765" title="Navy"></div>
+        <div class="swatch" style="background:#04C6BD" title="Teal"></div>
+        <div class="swatch" style="background:#021F36" title="Deep Navy"></div>
+        <div class="swatch" style="background:#405B70" title="Slate"></div>
+        <div class="swatch" style="background:#F2F7F8" title="Mist"></div>
+        <div class="swatch" style="background:#2E8B75" title="Success"></div>
+        <div class="swatch" style="background:#F2B84B" title="Warning"></div>
+        <div class="swatch" style="background:#D94F4F" title="Critical"></div>
+      </div>
+    </header>
+
+    <div class="howto">
+      <h2>How to reuse in another project</h2>
+      <ol>
+        <li>Copy the entire <code>:root { … }</code> block from this file’s <code>&lt;style&gt;</code> into your global CSS.</li>
+        <li>Copy the component classes you need (<code>.btn-*</code>, <code>.badge-*</code>, <code>.card</code>, <code>.input</code>, <code>.tabs</code>).</li>
+        <li>Fonts: load <strong>Inter</strong> (body) + <strong>Poppins</strong> (headings), or swap for your brand fonts.</li>
+        <li>In React/Tailwind projects, map these HSL tokens to <code>tailwind.config</code> the same way Inspect360 does in <code>client/src/index.css</code>.</li>
+        <li>Primary CTA pattern: use <code>.btn-brand</code> (teal gradient), not flat navy.</li>
+      </ol>
+    </div>
+
+    <!-- COLORS -->
+    <section class="section">
+      <h2>Brand colors</h2>
+      <p>Navy = structure / text. Teal = action. Mist = soft surfaces. Status colors for feedback.</p>
+      <div class="color-grid">
+        <div class="color-card"><div class="chip" style="background:#013765"></div><div class="meta"><strong>Navy</strong><span>#013765</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#04C6BD"></div><div class="meta"><strong>Teal (Primary)</strong><span>#04C6BD</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#021F36"></div><div class="meta"><strong>Deep Navy</strong><span>#021F36</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#405B70"></div><div class="meta"><strong>Slate</strong><span>#405B70</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#F2F7F8"></div><div class="meta"><strong>Mist</strong><span>#F2F7F8</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#2E8B75"></div><div class="meta"><strong>Success</strong><span>#2E8B75</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#F2B84B"></div><div class="meta"><strong>Warning</strong><span>#F2B84B</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#D94F4F"></div><div class="meta"><strong>Critical</strong><span>#D94F4F</span></div></div>
+        <div class="color-card"><div class="chip" style="background:#3378B3"></div><div class="meta"><strong>Info</strong><span>#3378B3</span></div></div>
+      </div>
+    </section>
+
+    <!-- BUTTONS -->
+    <section class="section">
+      <h2>Buttons</h2>
+      <p>Variants match <code>client/src/components/ui/button.tsx</code>. Prefer <code>brand</code> for main CTAs.</p>
+      <div class="row">
+        <button class="btn btn-brand" type="button">Brand CTA</button>
+        <button class="btn btn-default" type="button">Default / Primary</button>
+        <button class="btn btn-secondary" type="button">Secondary</button>
+        <button class="btn btn-outline" type="button">Outline</button>
+        <button class="btn btn-ghost" type="button">Ghost</button>
+        <button class="btn btn-destructive" type="button">Destructive</button>
+      </div>
+      <div class="row">
+        <button class="btn btn-brand btn-sm" type="button">Small</button>
+        <button class="btn btn-brand" type="button">Default</button>
+        <button class="btn btn-brand btn-lg" type="button">Large</button>
+        <button class="btn btn-brand btn-icon" type="button" aria-label="Icon">★</button>
+        <button class="btn btn-brand" type="button" disabled>Disabled</button>
+      </div>
+      <div class="note">
+        Brand gradient stops: <code>#2DE0C5 → #04C6BD → #00A89A</code>
+      </div>
+    </section>
+
+    <!-- BADGES -->
+    <section class="section">
+      <h2>Badges</h2>
+      <div class="row">
+        <span class="badge badge-default">Default</span>
+        <span class="badge badge-secondary">Secondary</span>
+        <span class="badge badge-outline">Outline</span>
+        <span class="badge badge-success">Success</span>
+        <span class="badge badge-warning">Warning</span>
+        <span class="badge badge-info">Info</span>
+        <span class="badge badge-destructive">Critical</span>
+      </div>
+    </section>
+
+    <!-- TABS -->
+    <section class="section">
+      <h2>Tabs</h2>
+      <p>Active tab: white surface, soft teal ring, thick teal bottom edge (Dashboard “Action Required” pattern).</p>
+      <div class="tabs" role="tablist">
+        <button class="tab active" type="button" role="tab" aria-selected="true">Inspections (2)</button>
+        <button class="tab" type="button" role="tab" aria-selected="false">Maintenance</button>
+        <button class="tab" type="button" role="tab" aria-selected="false">Compliance</button>
+      </div>
+    </section>
+
+    <!-- CARDS -->
+    <section class="section">
+      <h2>Cards</h2>
+      <div class="grid-2">
+        <article class="card card-hover">
+          <div class="card-header">
+            <div class="badge badge-default" style="margin-bottom:0.5rem">Report</div>
+            <h3 class="card-title">Portfolio Report</h3>
+            <p class="card-desc">Full portfolio export as PDF or Excel — blocks, properties, inspections.</p>
+          </div>
+          <div class="card-footer">
+            <a class="link-primary" href="#">View Report →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-header">
+            <h3 class="card-title">Static card</h3>
+            <p class="card-desc">Radius 12px, soft navy-tinted shadow. Use <code>.card-hover</code> for lift on hover.</p>
+          </div>
+          <div class="card-body">
+            <div class="progress" aria-hidden="true"><span style="width:42%"></span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- FORMS -->
+    <section class="section">
+      <h2>Form controls</h2>
+      <div class="stack" style="max-width:360px">
+        <div>
+          <label class="label" for="name">Inspector name</label>
+          <input class="input" id="name" type="text" placeholder="Jane Smith" />
+        </div>
+        <div>
+          <label class="label" for="notes">Notes</label>
+          <textarea class="textarea" id="notes" placeholder="Optional notes…"></textarea>
+        </div>
+        <div class="row">
+          <button class="switch" type="button" role="switch" aria-checked="true" id="sw" aria-label="Toggle"></button>
+          <span style="font-size:0.875rem">Online sync enabled</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALERTS -->
+    <section class="section">
+      <h2>Alerts</h2>
+      <div class="stack">
+        <div class="alert alert-info">Info — informational notice with soft blue tint.</div>
+        <div class="alert alert-success">Success — action completed.</div>
+        <div class="alert alert-warning">Warning — needs attention soon.</div>
+        <div class="alert alert-destructive">Critical — blocking error or overdue item.</div>
+      </div>
+    </section>
+
+    <!-- TYPOGRAPHY -->
+    <section class="section">
+      <h2>Typography</h2>
+      <p style="color:var(--fg)"><strong>Headings:</strong> Poppins semibold/bold. <strong>Body / UI:</strong> Inter. Deep navy text on white; muted slate for secondary copy.</p>
+      <h1>Heading 1</h1>
+      <h2>Heading 2</h2>
+      <h3>Heading 3</h3>
+      <p>Body text uses Operational Slate for secondary lines. Keep primary actions in teal so navy stays reserved for structure.</p>
+    </section>
+
+    <!-- RADIUS / SHADOW -->
+    <section class="section">
+      <h2>Radius &amp; shadow</h2>
+      <div class="row">
+        <div class="card" style="padding:1rem; border-radius:8px"><code>--radius 8px</code></div>
+        <div class="card" style="padding:1rem; border-radius:11px"><code>--radius-button 11px</code></div>
+        <div class="card" style="padding:1rem; border-radius:12px"><code>--radius-card 12px</code></div>
+      </div>
+    </section>
+
+    <p class="note">
+      Source of truth in repo: <code>client/src/index.css</code> (tokens),
+      <code>client/src/components/ui/button.tsx</code>,
+      <code>badge.tsx</code>, <code>card.tsx</code>, <code>input.tsx</code>, <code>tabs.tsx</code>.
+      This file is a standalone extract for porting the look to other projects.
+    </p>
+  </div>
+
+  <script>
+    // Demo: tab switching
+    document.querySelectorAll(".tabs").forEach((list) => {
+      list.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          list.querySelectorAll(".tab").forEach((t) => {
+            t.classList.remove("active");
+            t.setAttribute("aria-selected", "false");
+          });
+          tab.classList.add("active");
+          tab.setAttribute("aria-selected", "true");
+        });
+      });
+    });
+    // Demo: switch
+    document.getElementById("sw")?.addEventListener("click", (e) => {
+      const el = e.currentTarget;
+      const on = el.getAttribute("aria-checked") === "true";
+      el.setAttribute("aria-checked", on ? "false" : "true");
+    });
+  </script>
+</body>
+</html>

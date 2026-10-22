@@ -66,11 +66,30 @@ Analyse the floor-plan image(s) or OCR text carefully. Return ONLY a JSON object
 ROOM LIST (critical):
 - List EVERY distinct labelled room/area on the plan as its own "rooms" entry.
 - Include: bedrooms, bathrooms, en-suites, WCs, kitchens, living/lounge/reception/dining,
-  hallway/landing, utility, study, cupboard/storage, garage, conservatory, garden/terrace when shown.
+  hallway, landing, utility, study, cupboard/storage, garage, conservatory, garden/terrace when shown.
 - Do NOT merge separate rooms. "Bedroom 1" and "Bedroom 2" are two entries.
 - Aggregate counts MUST match the rooms list (bedrooms count = number of bedroom-category rooms, etc.).
-- Living rooms = lounges / reception / sitting rooms (not bedrooms, not dining unless dual-labelled reception).
+- Living rooms = lounges / reception / sitting rooms (not bedrooms). A dual-labelled
+  "Lounge / Diner" (or Lounge/Dining) is ONE living room entry — do not also add a separate dining room
+  unless a distinctly labelled separate dining room exists.
 - Bathrooms include ensuites and separate WCs/cloakrooms when they are rooms.
+
+LANDINGS / STAIRS (critical — common failure):
+- A landing is the floor area at a staircase (the space you step onto from the stairs).
+- UP / DN / DOWN arrows on different floors of the SAME staircase are the SAME stair — count
+  ONE landing for that staircase, not one per floor and not one per arrow.
+- Example: ground floor shows "UP" and first floor shows "DN" for one stair core → rooms list
+  has a single entry: name "Landing", category "Hallway" (or "Landing").
+- Only create multiple landings when there are clearly separate staircases (e.g. front stair
+  and rear stair, or a second independent stair core).
+- Do NOT invent rooms named only "UP", "DN", "DOWN", or "IN" — those are stair direction markers.
+- A distinctly labelled entrance hall / corridor (with its own label/dimensions) may be listed
+  separately from the stair landing.
+
+OTHER DEDUPE RULES:
+- Do not list the same physical room twice under different names.
+- Garden / terrace / patio: one entry unless clearly separate outdoor spaces are labelled.
+- Cupboards inside a room are not separate rooms unless labelled as a walk-in / storage room.
 
 DIMENSIONS (critical — match ChatGPT-quality reading):
 - ALWAYS return widthM and lengthM in METRES (never put feet into widthM/lengthM).
@@ -298,8 +317,11 @@ async function analyseWithVision(imageDataUrls: string[]): Promise<{
     {
       type: "text",
       text:
-        "Analyse this residential floor plan. List every room with widthM/lengthM in metres " +
-        "(convert any feet/inches labels). Return complete JSON as specified.",
+        "Analyse this residential floor plan. Detect landings, bedrooms, kitchens, bathrooms, " +
+        "lounges/living rooms, utility rooms, halls, and garden spaces, with dimensions for each. " +
+        "One staircase (UP on one floor / DN on another) = ONE landing — never duplicate landings " +
+        "for the same stair. List every room with widthM/lengthM in metres (convert any feet/inches). " +
+        "Return complete JSON as specified.",
     },
     ...imageDataUrls.slice(0, 3).map(
       (url): OpenAI.Chat.ChatCompletionContentPart => ({
@@ -323,7 +345,10 @@ async function analyseWithText(text: string): Promise<{
     { role: "system", content: FLOOR_PLAN_SYSTEM_PROMPT },
     {
       role: "user",
-      content: `Floor plan text/OCR excerpt:\n\n${text.slice(0, 16000)}\n\nList every room with dimensions in metres as JSON.`,
+      content:
+        `Floor plan text/OCR excerpt:\n\n${text.slice(0, 16000)}\n\n` +
+        `Detect landings, bedrooms, kitchens, bathrooms, lounges, utility, halls, and gardens. ` +
+        `One staircase (UP/DN on different floors) = ONE landing. List every room with dimensions in metres as JSON.`,
     },
   ]);
   return enrichSuggestion(parsed);

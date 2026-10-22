@@ -67,6 +67,17 @@ export function RemoteImage({
       setFailed(true);
       return;
     }
+    // Local offline / device files — display directly
+    if (
+      next.startsWith('file://') ||
+      next.startsWith('content://') ||
+      next.includes('offline_images')
+    ) {
+      setDisplayUri(next.startsWith('/') && !next.startsWith('file://') ? `file://${next}` : next);
+      setLoading(false);
+      setFailed(false);
+      return;
+    }
     if (uriCache.has(next)) {
       setDisplayUri(uriCache.get(next)!);
       setLoading(false);

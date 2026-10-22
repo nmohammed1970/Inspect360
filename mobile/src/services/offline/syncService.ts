@@ -13,6 +13,11 @@ import {
   markInspectionDeleted,
   markEntryDeleted,
   getAllInspections,
+  addToSyncQueue,
+  updateLocalImage,
+  updateLocalImageMeta,
+  parseLocalImageMeta,
+  type LocalImageRecord,
 } from './database';
 import {
   updateImageWithServerUrl,
@@ -20,6 +25,7 @@ import {
   getLocalImageUri,
   isLocalPath,
 } from './storage';
+import { buildUploadDirectUrl } from './galleryOfflineHelpers';
 import { ConflictResolver } from './conflictResolver';
 import { getAPI_URL } from '../api';
 import { inspectionGalleryService } from '../inspectionGallery';
@@ -235,73 +241,89 @@ export class SyncService {
       });
 
       for (const image of images) {
+        const meta = parseLocalImageMeta(image.metaJson);
+        // User deleted before sync — drop local row, never upload
+        if (meta.deleted) {
+          try {
+            await deleteLocalImageFile(image.localPath);
+          } catch {
+            await updateLocalImage(image.localPath, { syncStatus: 'synced' });
+          }
+          continue;
+        }
+
         let uploadSuccess = false;
         let lastError: any = null;
-        
+        let serverUrl: string | null = image.serverUrl;
+
         // Retry logic for each image (up to 3 attempts)
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             if (attempt > 0) {
-              // Wait before retry with exponential backoff
-              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s (max 5s)
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
               await new Promise(resolve => setTimeout(resolve, delay));
               console.log(`[SyncService] Retrying image upload (attempt ${attempt + 1}/3): ${image.localPath}`);
             }
 
             this.reportProgress({
-              currentOperation: attempt === 0 
+              currentOperation: attempt === 0
                 ? `Uploading image ${uploaded + failedCount + 1}/${images.length}`
                 : `Retrying image ${uploaded + failedCount + 1}/${images.length} (attempt ${attempt + 1}/3)`,
             });
 
-            // Verify file exists before attempting upload
-            const fileInfo = await FileSystem.getInfoAsync(image.localPath);
-            if (!fileInfo.exists) {
-              console.error(`[SyncService] Image file not found: ${image.localPath}`);
-              // File doesn't exist - mark as failed and skip
-              lastError = new Error('Image file not found');
-              break; // Don't retry if file doesn't exist
+            if (!serverUrl) {
+              const fileInfo = await FileSystem.getInfoAsync(image.localPath);
+              if (!fileInfo.exists) {
+                console.error(`[SyncService] Image file not found: ${image.localPath}`);
+                lastError = new Error('Image file not found');
+                break;
+              }
+
+              serverUrl = await this.uploadImage(image.localPath, image.id);
+              if (!serverUrl) {
+                throw new Error('Upload returned no URL');
+              }
+              // Persist URL but keep pending until gallery register (if needed) finishes
+              if ((image.purpose || 'field') === 'gallery') {
+                await updateLocalImage(image.localPath, {
+                  serverUrl,
+                  syncStatus: 'pending',
+                });
+              } else {
+                await updateImageWithServerUrl(image.localPath, serverUrl);
+              }
             }
 
-            const serverUrl = await this.uploadImage(image.localPath);
-            if (serverUrl) {
-              // Update image record with server URL
-              await updateImageWithServerUrl(image.localPath, serverUrl);
-              // Map local path to server URL for entry updates
-              imageUrlMap.set(image.localPath, serverUrl);
-              
-              // Also map any variations of the path (with/without file:// prefix)
-              const pathVariations = [
-                image.localPath,
-                image.localPath.replace('file://', ''),
-                `file://${image.localPath}`,
-              ];
-              pathVariations.forEach(path => {
-                if (path !== image.localPath) {
-                  imageUrlMap.set(path, serverUrl);
-                }
-              });
-              
-              uploaded++;
-              uploadSuccess = true;
-              this.reportProgress({ completed: uploaded });
-              break; // Success - exit retry loop
-            } else {
-              throw new Error('Upload returned no URL');
+            imageUrlMap.set(image.localPath, serverUrl);
+            const pathVariations = [
+              image.localPath,
+              image.localPath.replace('file://', ''),
+              `file://${image.localPath}`,
+            ];
+            pathVariations.forEach(path => {
+              if (path !== image.localPath) {
+                imageUrlMap.set(path, serverUrl!);
+              }
+            });
+
+            // Gallery-tab images: register metadata after bytes are on the server
+            if ((image.purpose || 'field') === 'gallery') {
+              await this.registerGalleryImageAfterUpload(image, serverUrl);
             }
+
+            uploaded++;
+            uploadSuccess = true;
+            this.reportProgress({ completed: uploaded });
+            break;
           } catch (error: any) {
             lastError = error;
-            // Check if error is retryable
             const isRetryable = this.isRetryableError(error);
             if (!isRetryable || attempt === 2) {
-              // Non-retryable error or max retries reached
               break;
             }
-            // Will retry on next iteration
           }
         }
 
-        // If upload failed after all retries, mark as failed but continue
         if (!uploadSuccess) {
           console.error('[SyncService] Image upload failed after retries:', {
             localPath: image.localPath,
@@ -309,11 +331,11 @@ export class SyncService {
             inspectionId: image.inspectionId,
             error: lastError?.message,
           });
-          // CRITICAL: Image remains pending for next sync attempt
-          // The image record stays in local_images with syncStatus='pending'
-          // It will be retried on the next sync
-          // Don't increment failedCount here - it will be counted at the end
-          // Don't block other images from uploading
+          try {
+            await updateLocalImage(image.localPath, { syncStatus: 'failed' });
+          } catch {
+            // keep pending for next sync
+          }
         }
       }
 
@@ -733,9 +755,9 @@ export class SyncService {
   }
 
   /**
-   * Upload a single image
+   * Upload a single image. Pass stable objectId (local_images.id) for idempotent retries.
    */
-  private async uploadImage(localPath: string): Promise<string | null> {
+  private async uploadImage(localPath: string, objectId?: string): Promise<string | null> {
     try {
       const fileInfo = await FileSystem.getInfoAsync(localPath);
       if (!fileInfo.exists) {
@@ -746,15 +768,13 @@ export class SyncService {
       const extension = localPath.split('.').pop() || 'jpg';
       const mimeType = `image/${extension === 'jpg' || extension === 'jpeg' ? 'jpeg' : extension}`;
 
-      // Create FormData
       const formData = new FormData();
-      // Ensure file:// prefix for React Native
       const fileUri = localPath.startsWith('file://') ? localPath : `file://${localPath}`;
-      
+
       formData.append('file', {
         uri: fileUri,
         type: mimeType,
-        name: `photo_${Date.now()}.${extension}`,
+        name: `photo_${objectId || Date.now()}.${extension}`,
       } as any);
 
       const apiUrl = getAPI_URL();
@@ -762,19 +782,18 @@ export class SyncService {
         throw new Error(`Invalid API URL: ${apiUrl}`);
       }
 
-      const uploadUrl = `${apiUrl}/api/objects/upload-direct`;
-
-      // Removed upload start logging to reduce console noise
+      const uploadUrl = objectId
+        ? buildUploadDirectUrl(apiUrl, objectId)
+        : `${apiUrl.replace(/\/$/, '')}/api/objects/upload-direct`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       try {
         const response = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
-            // DO NOT set 'Content-Type' - React Native sets it automatically
           },
           body: formData,
           credentials: 'include',
@@ -797,7 +816,6 @@ export class SyncService {
 
         const data = await response.json();
         const serverUrl = data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
-        // Removed successful upload logging to reduce console noise
         return serverUrl;
       } catch (fetchError: any) {
         clearTimeout(timeoutId);
@@ -813,8 +831,69 @@ export class SyncService {
   }
 
   /**
-   * Process a sync queue item
+   * Register a gallery-purpose local image on the server after object upload.
+   * On register failure, enqueue gallery_register with the known objectUrl (no re-upload).
    */
+  private async registerGalleryImageAfterUpload(
+    image: LocalImageRecord,
+    serverUrl: string,
+  ): Promise<void> {
+    const meta = parseLocalImageMeta(image.metaJson);
+    const assign = meta.pendingAssign || null;
+    try {
+      const registered = await inspectionGalleryService.register(
+        image.inspectionId,
+        [
+          {
+            objectUrl: serverUrl,
+            fileName: meta.fileName || undefined,
+            mimeType: meta.mimeType || 'image/jpeg',
+            captureLatitude: meta.captureLatitude ?? null,
+            captureLongitude: meta.captureLongitude ?? null,
+          },
+        ],
+        assign,
+        meta.captureLatitude != null && meta.captureLongitude != null
+          ? { latitude: meta.captureLatitude, longitude: meta.captureLongitude }
+          : null,
+      );
+      const serverGalleryImageId = registered?.images?.[0]?.id || null;
+      await updateLocalImageMeta(image.localPath, {
+        serverGalleryImageId,
+        pendingAssign: null,
+      });
+      await updateLocalImage(image.localPath, {
+        serverUrl,
+        syncStatus: 'synced',
+      });
+    } catch (err: any) {
+      console.warn('[SyncService] Gallery register after upload failed, queueing:', err?.message);
+      await addToSyncQueue({
+        operation: 'gallery_register',
+        entityType: 'gallery',
+        entityId: `${image.inspectionId}:${serverUrl}`,
+        data: JSON.stringify({
+          inspectionId: image.inspectionId,
+          images: [
+            {
+              objectUrl: serverUrl,
+              fileName: meta.fileName || undefined,
+              mimeType: meta.mimeType || 'image/jpeg',
+              captureLatitude: meta.captureLatitude ?? null,
+              captureLongitude: meta.captureLongitude ?? null,
+            },
+          ],
+          assign,
+          localPath: image.localPath,
+        }),
+        retryCount: 0,
+        lastError: err?.message || null,
+      });
+      // Bytes are on the server; leave syncStatus pending so the next sync retries
+      // register (idempotent by objectUrl). Do not throw — avoid blocking other images.
+    }
+  }
+
   private async processQueueItem(item: any): Promise<void> {
     const data = JSON.parse(item.data);
     
@@ -831,13 +910,32 @@ export class SyncService {
         const images = Array.isArray(data.images) ? data.images : [];
         const assign = data.assign || null;
         if (inspectionId && images.length) {
-          await inspectionGalleryService.register(inspectionId, images, assign);
+          const registered = await inspectionGalleryService.register(inspectionId, images, assign);
+          if (data.localPath) {
+            const serverGalleryImageId = registered?.images?.[0]?.id || null;
+            await updateLocalImageMeta(data.localPath, {
+              serverGalleryImageId,
+              pendingAssign: null,
+            });
+            await updateLocalImage(data.localPath, {
+              serverUrl: images[0]?.objectUrl || undefined,
+              syncStatus: 'synced',
+            });
+          }
         }
         break;
       }
       case 'gallery_assign': {
         const inspectionId = data.inspectionId as string;
-        const imageIds = Array.isArray(data.imageIds) ? data.imageIds : [];
+        let imageIds = Array.isArray(data.imageIds) ? data.imageIds : [];
+        // Resolve local: ids via objectUrl map if provided
+        if (Array.isArray(data.objectUrls) && data.objectUrls.length) {
+          const listed = await inspectionGalleryService.list(inspectionId);
+          const byUrl = new Map(listed.images.map((i) => [i.objectUrl, i.id]));
+          imageIds = data.objectUrls
+            .map((url: string) => byUrl.get(url))
+            .filter(Boolean) as string[];
+        }
         if (inspectionId && imageIds.length && data.sectionRef && data.fieldKey) {
           await inspectionGalleryService.assign(
             inspectionId,
@@ -845,6 +943,21 @@ export class SyncService {
             data.sectionRef,
             data.fieldKey,
           );
+        }
+        break;
+      }
+      case 'gallery_delete': {
+        const inspectionId = data.inspectionId as string;
+        let imageIds = Array.isArray(data.imageIds) ? data.imageIds : [];
+        if (Array.isArray(data.objectUrls) && data.objectUrls.length) {
+          const listed = await inspectionGalleryService.list(inspectionId);
+          const byUrl = new Map(listed.images.map((i) => [i.objectUrl, i.id]));
+          imageIds = data.objectUrls
+            .map((url: string) => byUrl.get(url))
+            .filter(Boolean) as string[];
+        }
+        if (inspectionId && imageIds.length) {
+          await inspectionGalleryService.delete(inspectionId, imageIds);
         }
         break;
       }

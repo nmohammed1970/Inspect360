@@ -1,7 +1,23 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { saveLocalImage, updateLocalImage, deleteLocalImage, getLocalImage } from './database';
+import { v4 as uuidv4 } from 'uuid';
+import {
+  saveLocalImage,
+  updateLocalImage,
+  deleteLocalImage,
+  getLocalImage,
+  type LocalImageMeta,
+  type LocalImagePurpose,
+} from './database';
 
 const IMAGES_DIR = `${FileSystem.documentDirectory}offline_images/`;
+
+export type StoreImageOptions = {
+  entryId?: string;
+  purpose?: LocalImagePurpose;
+  meta?: LocalImageMeta;
+  /** Stable id used as upload-direct objectId; defaults to new UUID */
+  id?: string;
+};
 
 // Ensure images directory exists
 async function ensureImagesDirectory(): Promise<void> {
@@ -12,40 +28,75 @@ async function ensureImagesDirectory(): Promise<void> {
 }
 
 /**
- * Store an image locally and return the local path
+ * Store an image locally and return the local path.
+ * Also returns the stable row id via getLocalImage after save when needed.
  */
 export async function storeImageLocally(
   imageUri: string,
   inspectionId: string,
-  entryId?: string
+  entryIdOrOptions?: string | StoreImageOptions,
 ): Promise<string> {
   await ensureImagesDirectory();
 
-  // Generate unique filename
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 9);
-  const extension = imageUri.split('.').pop() || 'jpg';
-  const filename = `img_${timestamp}_${random}.${extension}`;
+  const options: StoreImageOptions =
+    typeof entryIdOrOptions === 'string' || entryIdOrOptions === undefined
+      ? { entryId: entryIdOrOptions }
+      : entryIdOrOptions;
+
+  const id = options.id || uuidv4();
+  const purpose: LocalImagePurpose = options.purpose || 'field';
+  const metaJson = options.meta ? JSON.stringify(options.meta) : null;
+
+  // Prefer jpeg extension for gallery uploads (manipulator normalizes to jpeg)
+  const sourceExt = imageUri.split('?')[0].split('.').pop()?.toLowerCase() || 'jpg';
+  const extension = purpose === 'gallery' ? 'jpg' : sourceExt;
+  const filename = `img_${id.replace(/-/g, '').slice(0, 16)}_${Date.now()}.${extension}`;
   const localPath = `${IMAGES_DIR}${filename}`;
 
   // Copy file to local storage
-  // Handle both file:// URIs and regular paths
   const sourceUri = imageUri.startsWith('file://') ? imageUri : `file://${imageUri}`;
   await FileSystem.copyAsync({
     from: sourceUri,
     to: localPath,
   });
 
-  // Save to database
   await saveLocalImage({
+    id,
     localPath,
     serverUrl: null,
-    entryId: entryId || null,
+    entryId: options.entryId || null,
     inspectionId,
     syncStatus: 'pending',
+    purpose,
+    metaJson,
   });
 
   return localPath;
+}
+
+/**
+ * Persist a gallery pick/capture and return { localPath, id }.
+ */
+export async function storeGalleryImageLocally(
+  imageUri: string,
+  inspectionId: string,
+  meta?: LocalImageMeta,
+): Promise<{ localPath: string; id: string }> {
+  const id = uuidv4();
+  const localPath = await storeImageLocally(imageUri, inspectionId, {
+    id,
+    purpose: 'gallery',
+    meta: {
+      fileName: meta?.fileName || `gallery_${Date.now()}.jpg`,
+      mimeType: meta?.mimeType || 'image/jpeg',
+      captureLatitude: meta?.captureLatitude ?? null,
+      captureLongitude: meta?.captureLongitude ?? null,
+      pendingAssign: meta?.pendingAssign ?? null,
+      deleted: false,
+      ...meta,
+    },
+  });
+  return { localPath, id };
 }
 
 /**
@@ -236,4 +287,3 @@ export function getImageSource(localPath: string): { uri: string } {
   // Otherwise, assume it's relative and add file:// prefix
   return { uri: `file://${localPath}` };
 }
-

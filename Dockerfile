@@ -2,7 +2,7 @@
 
 # Inspect360 — single production container (API + SPA + WebSocket)
 
-FROM node:20-bookworm-slim AS deps
+FROM node:26-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -15,7 +15,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm ci
 
-FROM node:20-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
@@ -26,7 +26,7 @@ COPY attached_assets ./attached_assets
 COPY vite.config.ts tsconfig.json drizzle.config.ts esbuild.config.mjs postcss.config.js tailwind.config.ts components.json ./
 RUN npm run build
 
-FROM node:20-bookworm-slim AS production
+FROM node:26-bookworm-slim AS production
 WORKDIR /app
 
 ENV NODE_ENV=production \

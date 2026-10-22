@@ -51,7 +51,7 @@ Urdu is **not** supported by the current API contract (would need `language` / a
 
 ### 1.6 Deployment
 
-- Single container [`docker-compose.contabo.yml`](../../docker-compose.contabo.yml): Node 20 bookworm-slim, no STT sidecar, no CPU/RAM limits in compose.
+- Single container [`docker-compose.contabo.yml`](../../docker-compose.contabo.yml): Node 26 bookworm-slim, no STT sidecar, no CPU/RAM limits in compose.
 - Image already includes build tools in **deps** stage; production image has Chromium-related libs; **`ffmpeg-static`** ships in `node_modules`.
 - No DB table or billing counter for transcription minutes.
 
