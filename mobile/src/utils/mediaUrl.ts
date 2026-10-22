@@ -29,6 +29,18 @@ export function resolveMediaUrl(url: string | null | undefined): string | null {
   const trimmed = url.trim();
   if (!trimmed) return null;
 
+  // Local offline files — use as-is (do not rewrite to API)
+  if (
+    trimmed.startsWith('file://') ||
+    trimmed.startsWith('content://') ||
+    trimmed.includes('offline_images')
+  ) {
+    if (trimmed.startsWith('/') && !trimmed.startsWith('file://')) {
+      return `file://${trimmed}`;
+    }
+    return trimmed;
+  }
+
   const apiBase = getAPI_URL().replace(/\/$/, '');
 
   if (trimmed.includes('localhost') || trimmed.includes('127.0.0.1')) {

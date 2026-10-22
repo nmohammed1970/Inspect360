@@ -207,6 +207,125 @@ export function roomTypeFromCategorySlug(slug: string | null | undefined): Categ
   return "other";
 }
 
+/** Stair-direction markers that must never become rooms. */
+const STAIR_MARKER_ONLY = /^(up|dn|down|in|out|void)$/i;
+
+/**
+ * Stair landing / stairwell labels — one physical staircase = one landing,
+ * even when UP appears on one floor and DN on another.
+ */
+export function isLandingLikeLabel(
+  name: string | null | undefined,
+  category?: string | null,
+): boolean {
+  const hay = normalizeCategoryName(`${category || ""} ${name || ""}`);
+  if (!hay) return false;
+  return /\b(landing|stairwell|staircase|\bstairs\b|\bstair\b)\b/.test(hay);
+}
+
+/** True when the AI invented a room from a stair arrow label alone. */
+export function isStairMarkerOnlyLabel(name: string | null | undefined): boolean {
+  const n = String(name || "").trim();
+  return STAIR_MARKER_ONLY.test(n);
+}
+
+function roomHasUsableDims(room: AiProposedRoom): boolean {
+  return (
+    (room.widthM != null && room.widthM > 0) ||
+    (room.lengthM != null && room.lengthM > 0) ||
+    (room.areaM2 != null && room.areaM2 > 0)
+  );
+}
+
+function confidenceRank(c: ConfidenceLevel | undefined): number {
+  if (c === "high") return 3;
+  if (c === "medium") return 2;
+  if (c === "low") return 1;
+  return 0;
+}
+
+/** Prefer the stronger of two AI room proposals when merging duplicates. */
+function pickBetterAiRoom(a: AiProposedRoom, b: AiProposedRoom): AiProposedRoom {
+  const aDims = roomHasUsableDims(a) ? 1 : 0;
+  const bDims = roomHasUsableDims(b) ? 1 : 0;
+  if (aDims !== bDims) return aDims > bDims ? a : b;
+  const aConf = confidenceRank(a.confidence);
+  const bConf = confidenceRank(b.confidence);
+  if (aConf !== bConf) return aConf > bConf ? a : b;
+  const aArea = a.areaM2 ?? (a.widthM && a.lengthM ? a.widthM * a.lengthM : 0);
+  const bArea = b.areaM2 ?? (b.widthM && b.lengthM ? b.widthM * b.lengthM : 0);
+  return aArea >= bArea ? a : b;
+}
+
+/**
+ * Collapse duplicate stair landings and exact duplicate room rows from floor-plan AI.
+ * UP/DN on the same staircase must not produce multiple Landing entries.
+ */
+export function dedupeAiProposedRooms(rooms: AiProposedRoom[]): AiProposedRoom[] {
+  if (!rooms.length) return rooms;
+
+  const withoutMarkers = rooms.filter((r) => !isStairMarkerOnlyLabel(r.name));
+
+  const landings: AiProposedRoom[] = [];
+  const others: AiProposedRoom[] = [];
+  for (const room of withoutMarkers) {
+    if (isLandingLikeLabel(room.name, room.category)) {
+      landings.push(room);
+    } else {
+      others.push(room);
+    }
+  }
+
+  // One landing per staircase: keep a single best landing-like entry
+  if (landings.length > 1) {
+    const best = landings.reduce((acc, cur) => pickBetterAiRoom(acc, cur));
+    landings.length = 0;
+    landings.push({
+      ...best,
+      name: /landing/i.test(best.name) ? best.name.replace(/\s+\d+$/, "").trim() || "Landing" : "Landing",
+      category: "Hallway",
+    });
+  } else if (landings.length === 1) {
+    landings[0] = {
+      ...landings[0],
+      category: resolveSystemCategoryForLabel(landings[0].name, landings[0].category).name,
+    };
+    if (landings[0].category === "Other" || isLandingLikeLabel(landings[0].name, landings[0].category)) {
+      landings[0] = { ...landings[0], category: "Hallway" };
+    }
+  }
+
+  // Exact duplicate name+category (case-insensitive), e.g. two "Garden"
+  const mergedOthers: AiProposedRoom[] = [];
+  const seen = new Map<string, number>();
+  for (const room of others) {
+    const key = `${normalizeCategoryName(room.category)}::${normalizeCategoryName(room.name)}`;
+    const idx = seen.get(key);
+    if (idx == null) {
+      seen.set(key, mergedOthers.length);
+      mergedOthers.push(room);
+    } else {
+      mergedOthers[idx] = pickBetterAiRoom(mergedOthers[idx], room);
+    }
+  }
+
+  // Lounge/Diner style dual labels: drop a bare "Dining Room" when a lounge/diner already exists
+  const hasLoungeDiner = mergedOthers.some((r) => {
+    const hay = normalizeCategoryName(`${r.name} ${r.category}`);
+    return /\b(lounge|living|reception)\b/.test(hay) && /\b(diner|dining)\b/.test(hay);
+  });
+  const filteredOthers = hasLoungeDiner
+    ? mergedOthers.filter((r) => {
+        const hay = normalizeCategoryName(`${r.name} ${r.category}`);
+        const diningOnly =
+          /\b(dining|diner)\b/.test(hay) && !/\b(lounge|living|reception|kitchen)\b/.test(hay);
+        return !diningOnly;
+      })
+    : mergedOthers;
+
+  return [...filteredOthers, ...landings];
+}
+
 export function roomTypeFromCategoryName(name: string | null | undefined): CategoryRoomType {
   return roomTypeFromCategorySlug(slugifyCategoryName(name || ""));
 }
@@ -243,6 +362,14 @@ export function resolveSystemCategoryForLabel(
     if (type === "other") continue;
     const byType = SYSTEM_ROOM_CATEGORIES.find((c) => c.roomType === type);
     if (byType) return byType;
+  }
+
+  // Landings / stairs → Hallway (no separate Landing system category)
+  for (const label of labels) {
+    if (isLandingLikeLabel(label) || isLandingLikeLabel("", label)) {
+      const hallway = SYSTEM_ROOM_CATEGORIES.find((c) => c.slug === "hallway");
+      if (hallway) return hallway;
+    }
   }
 
   // Non-count system rooms (Garden, Hallway, Study, …) matched by substring
@@ -524,11 +651,13 @@ export function normalizeAiRoomsResult(raw: unknown): {
     }
   }
 
+  const deduped = dedupeAiProposedRooms(rooms);
+
   const countsFromProposed = countsFromRooms(
-    rooms.map((r) => ({ categoryName: r.category, name: r.name })),
+    deduped.map((r) => ({ categoryName: r.category, name: r.name })),
   );
   // Prefer room-list tallies when the model listed rooms — more accurate than aggregate counts
-  const counts = rooms.length
+  const counts = deduped.length
     ? countsFromProposed
     : parseRoomCounts({
         bedrooms: obj.bedrooms,
@@ -538,7 +667,7 @@ export function normalizeAiRoomsResult(raw: unknown): {
       });
 
   return {
-    rooms,
+    rooms: deduped,
     counts,
     notes: typeof obj.notes === "string" ? obj.notes.slice(0, 500) : undefined,
   };

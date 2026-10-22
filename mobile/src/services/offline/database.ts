@@ -3,7 +3,7 @@ import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 
 const DB_NAME = 'inspect360_offline.db';
-const DB_VERSION = 2; // Increment to force schema recreation
+const DB_VERSION = 3; // v3: local_images.purpose + metaJson for offline gallery
 
 export interface InspectionRecord {
   id: string;
@@ -42,7 +42,8 @@ export interface SyncQueueRecord {
     | 'upload_image'
     | 'delete_entry'
     | 'gallery_register'
-    | 'gallery_assign';
+    | 'gallery_assign'
+    | 'gallery_delete';
   entityType: 'entry' | 'image' | 'gallery';
   entityId: string;
   data: string; // JSON string of operation data
@@ -52,6 +53,18 @@ export interface SyncQueueRecord {
   updatedAt: string;
 }
 
+export type LocalImagePurpose = 'field' | 'gallery';
+
+export type LocalImageMeta = {
+  fileName?: string | null;
+  mimeType?: string | null;
+  captureLatitude?: number | null;
+  captureLongitude?: number | null;
+  pendingAssign?: { sectionRef: string; fieldKey: string } | null;
+  deleted?: boolean;
+  serverGalleryImageId?: string | null;
+};
+
 export interface LocalImageRecord {
   id: string;
   localPath: string;
@@ -59,8 +72,22 @@ export interface LocalImageRecord {
   entryId: string | null;
   inspectionId: string;
   syncStatus: 'pending' | 'synced' | 'failed';
+  /** field = CIP/entry photos; gallery = Gallery-tab captures */
+  purpose: LocalImagePurpose;
+  /** JSON string of LocalImageMeta */
+  metaJson: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export function parseLocalImageMeta(metaJson: string | null | undefined): LocalImageMeta {
+  if (!metaJson) return {};
+  try {
+    const parsed = JSON.parse(metaJson);
+    return parsed && typeof parsed === 'object' ? (parsed as LocalImageMeta) : {};
+  } catch {
+    return {};
+  }
 }
 
 let db: SQLite.SQLiteDatabase | null = null;
@@ -153,22 +180,21 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       // Set WAL mode for better concurrency (allows multiple readers)
       await retryDatabaseOperation(() => db.execAsync('PRAGMA journal_mode = WAL;'), 3, 50);
       
-      // Check if we need to migrate (simple version check)
-      let versionCheck: { version: number } | null = null;
+      // Read schema version from db_version table (not sqlite_master)
+      let currentVersion = 0;
       try {
-        versionCheck = await retryDatabaseOperation(() => 
-          db.getFirstAsync<{ version: number }>(
-            "SELECT version FROM sqlite_master WHERE type='table' AND name='db_version'"
-          ), 3, 50
+        const versionCheck = await retryDatabaseOperation(() =>
+          db.getFirstAsync<{ version: number }>('SELECT version FROM db_version LIMIT 1'),
+          3,
+          50,
         );
-      } catch (e) {
-        // Table doesn't exist yet, versionCheck remains null
+        currentVersion = versionCheck?.version || 0;
+      } catch {
+        currentVersion = 0;
       }
 
-      const currentVersion = versionCheck?.version || 0;
-      
-      if (currentVersion < DB_VERSION) {
-        // Drop all tables and recreate (for development/testing)
+      if (currentVersion > 0 && currentVersion < 2) {
+        // Legacy: full recreate for pre-v2 schemas
         console.log('[Database] Migrating database from version', currentVersion, 'to', DB_VERSION);
         await retryDatabaseOperation(() => db.execAsync(`
           DROP TABLE IF EXISTS local_images;
@@ -177,14 +203,19 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
           DROP TABLE IF EXISTS inspections;
           DROP TABLE IF EXISTS db_version;
         `), 5, 100);
+        currentVersion = 0;
       }
-      
+
       // Enable foreign keys
       await retryDatabaseOperation(() => db.execAsync('PRAGMA foreign_keys = ON;'), 3, 50);
-      
+
       // Create tables
       await createTables(db);
-      
+
+      if (currentVersion < 3) {
+        await migrateLocalImagesV3(db);
+      }
+
       // Store version
       await retryDatabaseOperation(() => db.execAsync(`
         CREATE TABLE IF NOT EXISTS db_version (
@@ -299,6 +330,8 @@ async function createTables(database: SQLite.SQLiteDatabase): Promise<void> {
       entryId TEXT,
       inspectionId TEXT NOT NULL,
       syncStatus TEXT NOT NULL DEFAULT 'pending',
+      purpose TEXT NOT NULL DEFAULT 'field',
+      metaJson TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
       FOREIGN KEY (inspectionId) REFERENCES inspections(inspectionId) ON DELETE CASCADE
@@ -315,7 +348,32 @@ async function createTables(database: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sync_queue_operation ON sync_queue(operation);
     CREATE INDEX IF NOT EXISTS idx_local_images_inspectionId ON local_images(inspectionId);
     CREATE INDEX IF NOT EXISTS idx_local_images_syncStatus ON local_images(syncStatus);
+    CREATE INDEX IF NOT EXISTS idx_local_images_purpose ON local_images(purpose);
   `), 5, 100);
+}
+
+/** Additive v3 columns for existing installs (avoids wiping pending offline data). */
+async function migrateLocalImagesV3(database: SQLite.SQLiteDatabase): Promise<void> {
+  const cols = await retryDatabaseOperation(
+    () => database.getAllAsync<{ name: string }>(`PRAGMA table_info(local_images)`),
+    3,
+    50,
+  );
+  const names = new Set((cols || []).map((c) => c.name));
+  if (!names.has('purpose')) {
+    await retryDatabaseOperation(
+      () => database.execAsync(`ALTER TABLE local_images ADD COLUMN purpose TEXT NOT NULL DEFAULT 'field'`),
+      5,
+      100,
+    );
+  }
+  if (!names.has('metaJson')) {
+    await retryDatabaseOperation(
+      () => database.execAsync(`ALTER TABLE local_images ADD COLUMN metaJson TEXT`),
+      5,
+      100,
+    );
+  }
 }
 
 // Inspection operations
@@ -566,14 +624,19 @@ export async function updateSyncQueueItem(queueId: string, updates: Partial<Sync
 }
 
 // Local images operations
-export async function saveLocalImage(image: Omit<LocalImageRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+export async function saveLocalImage(
+  image: Omit<LocalImageRecord, 'id' | 'createdAt' | 'updatedAt'> & { id?: string },
+): Promise<string> {
   const database = await getDatabase();
   const now = new Date().toISOString();
-  const id = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  // Stable UUID used as upload-direct ?objectId= for idempotent retries
+  const id = image.id || uuidv4();
+  const purpose = image.purpose || 'field';
+  const metaJson = image.metaJson ?? null;
 
   await retryDatabaseOperation(() => database.runAsync(
-    `INSERT INTO local_images (id, localPath, serverUrl, entryId, inspectionId, syncStatus, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO local_images (id, localPath, serverUrl, entryId, inspectionId, syncStatus, purpose, metaJson, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       image.localPath,
@@ -581,11 +644,22 @@ export async function saveLocalImage(image: Omit<LocalImageRecord, 'id' | 'creat
       image.entryId,
       image.inspectionId,
       image.syncStatus,
+      purpose,
+      metaJson,
       now,
       now,
     ]
   ), 5, 50);
   return id;
+}
+
+function normalizeLocalImageRow(row: LocalImageRecord | null): LocalImageRecord | null {
+  if (!row) return null;
+  return {
+    ...row,
+    purpose: (row.purpose as LocalImagePurpose) || 'field',
+    metaJson: row.metaJson ?? null,
+  };
 }
 
 export async function getLocalImage(localPath: string): Promise<LocalImageRecord | null> {
@@ -594,15 +668,44 @@ export async function getLocalImage(localPath: string): Promise<LocalImageRecord
     `SELECT * FROM local_images WHERE localPath = ?`,
     [localPath]
   ), 5, 50);
-  return result || null;
+  return normalizeLocalImageRow(result || null);
+}
+
+export async function getLocalImageById(id: string): Promise<LocalImageRecord | null> {
+  const database = await getDatabase();
+  const result = await retryDatabaseOperation(() => database.getFirstAsync<LocalImageRecord>(
+    `SELECT * FROM local_images WHERE id = ?`,
+    [id]
+  ), 5, 50);
+  return normalizeLocalImageRow(result || null);
 }
 
 export async function getPendingImages(): Promise<LocalImageRecord[]> {
   const database = await getDatabase();
   const result = await retryDatabaseOperation(() => database.getAllAsync<LocalImageRecord>(
-    `SELECT * FROM local_images WHERE syncStatus = 'pending'`
+    `SELECT * FROM local_images WHERE syncStatus IN ('pending', 'failed')`
   ), 5, 50);
-  return result;
+  return (result || []).map((r) => normalizeLocalImageRow(r)!);
+}
+
+/** Pending gallery-purpose images for one inspection (excludes tombstoned). */
+export async function getPendingGalleryImages(inspectionId: string): Promise<LocalImageRecord[]> {
+  const all = await listLocalGalleryImages(inspectionId);
+  return all.filter((img) => {
+    if (img.syncStatus !== 'pending' && img.syncStatus !== 'failed') return false;
+    const meta = parseLocalImageMeta(img.metaJson);
+    return !meta.deleted;
+  });
+}
+
+/** All gallery-purpose local rows for an inspection (for UI merge). */
+export async function listLocalGalleryImages(inspectionId: string): Promise<LocalImageRecord[]> {
+  const database = await getDatabase();
+  const result = await retryDatabaseOperation(() => database.getAllAsync<LocalImageRecord>(
+    `SELECT * FROM local_images WHERE inspectionId = ? AND purpose = 'gallery' ORDER BY createdAt DESC`,
+    [inspectionId]
+  ), 5, 50);
+  return (result || []).map((r) => normalizeLocalImageRow(r)!);
 }
 
 export async function updateLocalImage(localPath: string, updates: Partial<LocalImageRecord>): Promise<void> {
@@ -627,15 +730,22 @@ export async function updateLocalImage(localPath: string, updates: Partial<Local
     fields.push('entryId = ?');
     values.push(updates.entryId);
   }
-  
+  if (updates.purpose !== undefined) {
+    fields.push('purpose = ?');
+    values.push(updates.purpose);
+  }
+  if (updates.metaJson !== undefined) {
+    fields.push('metaJson = ?');
+    values.push(updates.metaJson);
+  }
+
   // Always update updatedAt
   fields.push('updatedAt = ?');
   values.push(now);
-  
+
   // Add localPath to values for WHERE clause
   values.push(localPath);
 
-  // Ensure we have at least one field to update
   if (fields.length === 0) {
     console.warn('[Database] updateLocalImage called with no updates');
     return;
@@ -645,6 +755,16 @@ export async function updateLocalImage(localPath: string, updates: Partial<Local
     `UPDATE local_images SET ${fields.join(', ')} WHERE localPath = ?`,
     values
   ), 5, 50);
+}
+
+export async function updateLocalImageMeta(
+  localPath: string,
+  patch: Partial<LocalImageMeta>,
+): Promise<void> {
+  const existing = await getLocalImage(localPath);
+  if (!existing) return;
+  const meta = { ...parseLocalImageMeta(existing.metaJson), ...patch };
+  await updateLocalImage(localPath, { metaJson: JSON.stringify(meta) });
 }
 
 export async function deleteLocalImage(localPath: string): Promise<void> {

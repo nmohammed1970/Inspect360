@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, ImagePlus, Trash2, Check, Calendar, User } from 'lucide-react-native';
+import { Camera, ImagePlus, Trash2, Check, Calendar, User, CloudOff, AlertCircle } from 'lucide-react-native';
 import {
   inspectionGalleryService,
   type GalleryImage,
@@ -30,6 +30,22 @@ import {
   GALLERY_REGISTER_BATCH_MAX,
   GALLERY_UPLOAD_SELECT_MAX,
 } from '../../../../shared/inspectionGallery';
+import {
+  listLocalGalleryImages,
+  getLocalImageById,
+  addToSyncQueue,
+  updateLocalImageMeta,
+  parseLocalImageMeta,
+} from '../../services/offline/database';
+import { storeGalleryImageLocally, deleteLocalImageFile } from '../../services/offline/storage';
+import {
+  mergeGalleryImages,
+  isLocalGalleryImageId,
+  localIdFromGalleryImageId,
+  type MergedGalleryImage,
+} from '../../services/offline/galleryOfflineHelpers';
+import { getLocalGalleryDestinations } from '../../services/offline/galleryDestinations';
+import { triggerSync } from '../../services/offline/backgroundSync';
 
 type FilterKey = 'all' | 'unassigned' | 'assigned';
 
@@ -54,20 +70,46 @@ export function InspectionGalleryPanel({
   const [assignOpen, setAssignOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [localTick, setLocalTick] = useState(0);
 
-  const galleryQuery = useQuery({
+  const bumpLocal = useCallback(() => setLocalTick((t) => t + 1), []);
+
+  const serverGalleryQuery = useQuery({
     queryKey: ['gallery', inspectionId],
     queryFn: () => inspectionGalleryService.list(inspectionId),
     enabled: !!inspectionId && isOnline,
+    retry: false,
+  });
+
+  const localGalleryQuery = useQuery({
+    queryKey: ['gallery-local', inspectionId, localTick],
+    queryFn: () => listLocalGalleryImages(inspectionId),
+    enabled: !!inspectionId,
   });
 
   const destinationsQuery = useQuery({
-    queryKey: ['gallery-destinations', inspectionId],
-    queryFn: () => inspectionGalleryService.destinations(inspectionId),
-    enabled: !!inspectionId && isOnline && assignOpen,
+    queryKey: ['gallery-destinations', inspectionId, isOnline],
+    queryFn: async () => {
+      if (isOnline) {
+        try {
+          return await inspectionGalleryService.destinations(inspectionId);
+        } catch {
+          // fall through to local
+        }
+      }
+      const destinations = await getLocalGalleryDestinations(inspectionId);
+      return { destinations };
+    },
+    enabled: !!inspectionId && assignOpen,
   });
 
-  const images = galleryQuery.data?.images || [];
+  const images: MergedGalleryImage[] = useMemo(() => {
+    const server = serverGalleryQuery.data?.images || [];
+    const local = localGalleryQuery.data || [];
+    return mergeGalleryImages(server, local);
+  }, [serverGalleryQuery.data?.images, localGalleryQuery.data]);
+
   const destinations = destinationsQuery.data?.destinations || [];
 
   const filtered = useMemo(() => {
@@ -78,9 +120,11 @@ export function InspectionGalleryPanel({
 
   const invalidate = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['gallery', inspectionId] });
+    await queryClient.invalidateQueries({ queryKey: ['gallery-local', inspectionId] });
     await queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+    bumpLocal();
     onEntriesChanged?.();
-  }, [inspectionId, onEntriesChanged, queryClient]);
+  }, [inspectionId, onEntriesChanged, queryClient, bumpLocal]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -90,8 +134,6 @@ export function InspectionGalleryPanel({
       return next;
     });
   };
-
-  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 
   const uploadUris = async (uris: string[]) => {
     if (!uris.length) return;
@@ -103,39 +145,114 @@ export function InspectionGalleryPanel({
       return;
     }
     setUploading(true);
-    setUploadProgress(`Uploading 0/${uris.length}…`);
+    setUploadProgress(`Saving 0/${uris.length}…`);
     try {
-      const registered: Array<{ objectUrl: string; fileName?: string; mimeType?: string }> = [];
+      let gps: { latitude: number; longitude: number } | null = null;
+      try {
+        gps = await captureDeviceGps();
+      } catch {
+        gps = null;
+      }
+
+      const stored: Array<{ localPath: string; id: string }> = [];
       for (let i = 0; i < uris.length; i++) {
-        setUploadProgress(`Uploading ${i + 1}/${uris.length}…`);
-        const objectUrl = await uploadLocalFile(uris[i], { mimeType: 'image/jpeg' });
-        registered.push({
-          objectUrl,
+        setUploadProgress(`Saving ${i + 1}/${uris.length}…`);
+        const result = await storeGalleryImageLocally(uris[i], inspectionId, {
           fileName: `gallery_${Date.now()}_${i}.jpg`,
           mimeType: 'image/jpeg',
+          captureLatitude: gps?.latitude ?? null,
+          captureLongitude: gps?.longitude ?? null,
         });
+        stored.push(result);
       }
-      if (registered.length) {
-        setUploadProgress('Capturing location…');
-        const gps = await captureDeviceGps();
-        setUploadProgress('Saving to gallery…');
-        for (let i = 0; i < registered.length; i += GALLERY_REGISTER_BATCH_MAX) {
-          const chunk = registered.slice(i, i + GALLERY_REGISTER_BATCH_MAX).map((item) => ({
-            ...item,
-            captureLatitude: gps?.latitude ?? null,
-            captureLongitude: gps?.longitude ?? null,
-          }));
-          await inspectionGalleryService.register(
-            inspectionId,
-            chunk,
-            null,
-            gps,
-          );
+      await invalidate();
+
+      if (isOnline && stored.length) {
+        setUploadProgress(`Uploading 0/${stored.length}…`);
+        const registered: Array<{
+          objectUrl: string;
+          fileName?: string;
+          mimeType?: string;
+          captureLatitude?: number | null;
+          captureLongitude?: number | null;
+        }> = [];
+
+        for (let i = 0; i < stored.length; i++) {
+          setUploadProgress(`Uploading ${i + 1}/${stored.length}…`);
+          const row = stored[i];
+          try {
+            const objectUrl = await uploadLocalFile(row.localPath, {
+              mimeType: 'image/jpeg',
+              objectId: row.id,
+            });
+            const meta = parseLocalImageMeta(
+              (await getLocalImageById(row.id))?.metaJson,
+            );
+            registered.push({
+              objectUrl,
+              fileName: meta.fileName || `gallery_${row.id}.jpg`,
+              mimeType: 'image/jpeg',
+              captureLatitude: meta.captureLatitude ?? null,
+              captureLongitude: meta.captureLongitude ?? null,
+            });
+            const { updateLocalImage } = await import('../../services/offline/database');
+            await updateLocalImage(row.localPath, {
+              serverUrl: objectUrl,
+              syncStatus: 'pending',
+            });
+          } catch (e: any) {
+            console.warn('[Gallery] Immediate upload failed, will sync later:', e?.message);
+          }
+        }
+
+        if (registered.length) {
+          setUploadProgress('Saving to gallery…');
+          const { updateLocalImage } = await import('../../services/offline/database');
+          for (let i = 0; i < registered.length; i += GALLERY_REGISTER_BATCH_MAX) {
+            const chunk = registered.slice(i, i + GALLERY_REGISTER_BATCH_MAX);
+            try {
+              const result = await inspectionGalleryService.register(
+                inspectionId,
+                chunk,
+                null,
+                gps,
+              );
+              const byUrl = new Map((result.images || []).map((ri) => [ri.objectUrl, ri.id]));
+              for (const s of stored) {
+                const local = await getLocalImageById(s.id);
+                if (!local?.serverUrl) continue;
+                if (!chunk.some((c) => c.objectUrl === local.serverUrl)) continue;
+                await updateLocalImage(s.localPath, {
+                  serverUrl: local.serverUrl,
+                  syncStatus: 'synced',
+                });
+                await updateLocalImageMeta(s.localPath, {
+                  serverGalleryImageId: byUrl.get(local.serverUrl) || null,
+                });
+              }
+            } catch (e: any) {
+              console.warn('[Gallery] Register failed, queued for sync:', e?.message);
+              await addToSyncQueue({
+                operation: 'gallery_register',
+                entityType: 'gallery',
+                entityId: `${inspectionId}:batch:${Date.now()}`,
+                data: JSON.stringify({
+                  inspectionId,
+                  images: chunk,
+                  assign: null,
+                }),
+                retryCount: 0,
+                lastError: e?.message || null,
+              });
+            }
+          }
+        } else {
+          triggerSync().catch(() => {});
         }
         await invalidate();
       }
     } catch (e: any) {
-      Alert.alert('Upload Failed', e?.message || 'Could not upload photos');
+      Alert.alert('Save Failed', e?.message || 'Could not save photos locally');
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -187,15 +304,67 @@ export function InspectionGalleryPanel({
     }
     setBusy(true);
     try {
-      await inspectionGalleryService.assign(
-        inspectionId,
-        Array.from(selected),
-        dest.sectionRef,
-        dest.fieldKey,
-      );
+      const ids = Array.from(selected);
+      const localIds = ids.filter(isLocalGalleryImageId);
+      const serverIds = ids.filter((id) => !isLocalGalleryImageId(id));
+
+      for (const lid of localIds) {
+        const realId = localIdFromGalleryImageId(lid);
+        if (!realId) continue;
+        const row = await getLocalImageById(realId);
+        if (!row) continue;
+        await updateLocalImageMeta(row.localPath, {
+          pendingAssign: { sectionRef: dest.sectionRef, fieldKey: dest.fieldKey },
+        });
+        if (row.serverUrl) {
+          await addToSyncQueue({
+            operation: 'gallery_assign',
+            entityType: 'gallery',
+            entityId: `${inspectionId}:${row.serverUrl}:${dest.sectionRef}:${dest.fieldKey}`,
+            data: JSON.stringify({
+              inspectionId,
+              objectUrls: [row.serverUrl],
+              imageIds: [],
+              sectionRef: dest.sectionRef,
+              fieldKey: dest.fieldKey,
+            }),
+            retryCount: 0,
+            lastError: null,
+          });
+        }
+      }
+
+      if (serverIds.length) {
+        if (isOnline) {
+          await inspectionGalleryService.assign(
+            inspectionId,
+            serverIds,
+            dest.sectionRef,
+            dest.fieldKey,
+          );
+        } else {
+          await addToSyncQueue({
+            operation: 'gallery_assign',
+            entityType: 'gallery',
+            entityId: `${inspectionId}:assign:${dest.sectionRef}:${dest.fieldKey}:${serverIds.join(',')}`,
+            data: JSON.stringify({
+              inspectionId,
+              imageIds: serverIds,
+              sectionRef: dest.sectionRef,
+              fieldKey: dest.fieldKey,
+            }),
+            retryCount: 0,
+            lastError: null,
+          });
+        }
+      }
+
       setSelected(new Set());
       setAssignOpen(false);
       await invalidate();
+      if (!isOnline) {
+        Alert.alert('Saved offline', 'Assignment will sync when you reconnect.');
+      }
     } catch (e: any) {
       Alert.alert('Assign Failed', e?.message || 'Could not assign photos');
     } finally {
@@ -216,7 +385,53 @@ export function InspectionGalleryPanel({
           onPress: async () => {
             setBusy(true);
             try {
-              await inspectionGalleryService.delete(inspectionId, Array.from(selected));
+              const ids = Array.from(selected);
+              const localIds = ids.filter(isLocalGalleryImageId);
+              const serverIds = ids.filter((id) => !isLocalGalleryImageId(id));
+
+              for (const lid of localIds) {
+                const realId = localIdFromGalleryImageId(lid);
+                if (!realId) continue;
+                const row = await getLocalImageById(realId);
+                if (!row) continue;
+                if (row.syncStatus !== 'synced' || !row.serverUrl) {
+                  await deleteLocalImageFile(row.localPath);
+                } else {
+                  await updateLocalImageMeta(row.localPath, { deleted: true });
+                  await addToSyncQueue({
+                    operation: 'gallery_delete',
+                    entityType: 'gallery',
+                    entityId: `${inspectionId}:del:${row.serverUrl}`,
+                    data: JSON.stringify({
+                      inspectionId,
+                      objectUrls: [row.serverUrl],
+                      imageIds: [],
+                    }),
+                    retryCount: 0,
+                    lastError: null,
+                  });
+                  await deleteLocalImageFile(row.localPath);
+                }
+              }
+
+              if (serverIds.length) {
+                if (isOnline) {
+                  await inspectionGalleryService.delete(inspectionId, serverIds);
+                } else {
+                  await addToSyncQueue({
+                    operation: 'gallery_delete',
+                    entityType: 'gallery',
+                    entityId: `${inspectionId}:del:${serverIds.join(',')}`,
+                    data: JSON.stringify({
+                      inspectionId,
+                      imageIds: serverIds,
+                    }),
+                    retryCount: 0,
+                    lastError: null,
+                  });
+                }
+              }
+
               setSelected(new Set());
               await invalidate();
             } catch (e: any) {
@@ -230,7 +445,7 @@ export function InspectionGalleryPanel({
     );
   };
 
-  const badgeLabel = (image: GalleryImage) => {
+  const badgeLabel = (image: GalleryImage | MergedGalleryImage) => {
     if (!image.assignments.length) return 'Not assigned';
     const first = image.assignments[0].label;
     const extra = image.assignments.length - 1;
@@ -254,18 +469,36 @@ export function InspectionGalleryPanel({
     }
   };
 
-  if (!isOnline) {
+  const syncBadge = (image: MergedGalleryImage) => {
+    if (!image._local?.isLocalPending) return null;
+    const status = image._local.syncBadge;
+    if (status === 'failed') {
+      return (
+        <View style={[styles.syncChip, { backgroundColor: 'rgba(220,38,38,0.9)' }]}>
+          <AlertCircle size={10} color="#fff" />
+          <Text style={styles.syncChipText}>Failed</Text>
+        </View>
+      );
+    }
     return (
-      <View style={[styles.centered, { padding: spacing[6] }]}>
-        <Text style={{ color: themeColors.text.secondary, textAlign: 'center' }}>
-          Gallery requires an internet connection. Photos added offline will sync into the gallery when you reconnect.
-        </Text>
+      <View style={[styles.syncChip, { backgroundColor: 'rgba(15,23,42,0.75)' }]}>
+        <CloudOff size={10} color="#fff" />
+        <Text style={styles.syncChipText}>Pending</Text>
       </View>
     );
-  }
+  };
 
   return (
     <View style={styles.root}>
+      {!isOnline && (
+        <View style={[styles.offlineBanner, { backgroundColor: themeColors.muted?.DEFAULT || '#f1f5f9' }]}>
+          <CloudOff size={14} color={themeColors.warning || '#d97706'} />
+          <Text style={{ color: themeColors.text.secondary, flex: 1, fontSize: 12, marginLeft: 6 }}>
+            Offline — photos are saved on this device and will upload when you reconnect.
+          </Text>
+        </View>
+      )}
+
       <View style={styles.toolbar}>
         {(['all', 'unassigned', 'assigned'] as FilterKey[]).map((key) => (
           <TouchableOpacity
@@ -347,12 +580,12 @@ export function InspectionGalleryPanel({
         </View>
       )}
 
-      {(galleryQuery.isLoading || uploading || busy) && (
+      {(uploading || busy || (isOnline && serverGalleryQuery.isLoading && !localGalleryQuery.data?.length)) && (
         <View style={styles.loadingRow}>
           <ActivityIndicator color={themeColors.primary.DEFAULT} />
           <Text style={{ color: themeColors.text.secondary, marginLeft: 8 }}>
             {uploading
-              ? uploadProgress || 'Uploading…'
+              ? uploadProgress || 'Saving…'
               : busy
                 ? 'Working…'
                 : 'Loading gallery…'}
@@ -360,14 +593,14 @@ export function InspectionGalleryPanel({
         </View>
       )}
 
-      {galleryQuery.isError && (
+      {isOnline && serverGalleryQuery.isError && images.length === 0 && (
         <View style={styles.centered}>
           <Text style={{ color: themeColors.destructive.DEFAULT }}>Unable to load gallery.</Text>
-          <Button title="Retry" onPress={() => galleryQuery.refetch()} variant="outline" />
+          <Button title="Retry" onPress={() => serverGalleryQuery.refetch()} variant="outline" />
         </View>
       )}
 
-      {!galleryQuery.isLoading && !galleryQuery.isError && filtered.length === 0 && (
+      {!uploading && filtered.length === 0 && (
         <View style={styles.centered}>
           <Text style={{ color: themeColors.text.secondary, textAlign: 'center' }}>
             No photos yet. Use Camera or Upload to add images to this inspection gallery.
@@ -375,7 +608,6 @@ export function InspectionGalleryPanel({
         </View>
       )}
 
-      {/* Plain flex grid — avoids VirtualizedList nested in FormScreen ScrollView */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.grid}
@@ -399,6 +631,7 @@ export function InspectionGalleryPanel({
               activeOpacity={0.85}
             >
               <RemoteImage uri={item.objectUrl} style={styles.tileImage} resizeMode="cover" />
+              {syncBadge(item)}
               <View style={styles.tileBadge}>
                 <Badge variant={item.assignments.length ? 'default' : 'secondary'} size="sm">
                   {badgeLabel(item)}
@@ -468,6 +701,13 @@ export function InspectionGalleryPanel({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { alignItems: 'center', justifyContent: 'center', padding: spacing[4] },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing[2],
+    borderRadius: borderRadius.md || 8,
+    marginBottom: spacing[2],
+  },
   toolbar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -525,6 +765,19 @@ const styles = StyleSheet.create({
   metaBlock: { gap: 2, marginTop: 2 },
   metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
   metaText: { flex: 1, fontSize: 10, lineHeight: 13 },
+  syncChip: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 999,
+    zIndex: 2,
+  },
+  syncChipText: { color: '#fff', fontSize: 10, fontWeight: '600' },
   checkMark: {
     position: 'absolute',
     top: 6,

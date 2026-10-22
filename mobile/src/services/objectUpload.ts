@@ -7,6 +7,8 @@ import { getAPI_URL } from './api';
 type UploadLocalFileOptions = {
   mimeType?: string;
   fileName?: string;
+  /** Stable client id → `/api/objects/upload-direct?objectId=` for idempotent retries */
+  objectId?: string;
 };
 
 function guessExtension(uri: string, fileName?: string): string {
@@ -214,7 +216,9 @@ export async function uploadLocalFile(
   const extension = guessExtension(uri, options.fileName);
   const initialMime = guessMimeType(extension, options.mimeType);
   const prepared = await prepareLocalFile(uri, initialMime);
-  const uploadUrl = `${apiUrl}/api/objects/upload-direct`;
+  const uploadUrl = options.objectId
+    ? `${apiUrl.replace(/\/$/, '')}/api/objects/upload-direct?objectId=${encodeURIComponent(options.objectId)}`
+    : `${apiUrl.replace(/\/$/, '')}/api/objects/upload-direct`;
 
   const info = await FileSystem.getInfoAsync(prepared.uri);
   if (!info.exists) {

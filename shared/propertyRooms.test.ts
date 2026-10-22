@@ -18,6 +18,9 @@ import {
   synthesizeRoomsFromPropertyRoomInstances,
   resolveSystemCategoryForLabel,
   roomTypeFromRoomLike,
+  isLandingLikeLabel,
+  isStairMarkerOnlyLabel,
+  dedupeAiProposedRooms,
   singularizeSectionTitle,
   slugifyCategoryName,
   toMillimetres,
@@ -64,7 +67,60 @@ assert.equal(resolveSystemCategoryForLabel("Bedroom 1", "Other").slug, "bedroom"
 assert.equal(resolveSystemCategoryForLabel("Reception Room", "Other").slug, "living-room");
 assert.equal(resolveSystemCategoryForLabel("Kitchen", "Other").slug, "kitchen");
 assert.equal(resolveSystemCategoryForLabel("Garden", "Other").slug, "garden");
+assert.equal(resolveSystemCategoryForLabel("Landing", "Other").slug, "hallway");
+assert.equal(resolveSystemCategoryForLabel("First Floor Landing", "Landing").slug, "hallway");
+assert.equal(isLandingLikeLabel("Landing"), true);
+assert.equal(isLandingLikeLabel("Ground Floor Landing"), true);
+assert.equal(isLandingLikeLabel("Stairs"), true);
+assert.equal(isLandingLikeLabel("Bedroom 1"), false);
+assert.equal(isStairMarkerOnlyLabel("UP"), true);
+assert.equal(isStairMarkerOnlyLabel("DN"), true);
+assert.equal(isStairMarkerOnlyLabel("Landing"), false);
 assert.equal(roomTypeFromRoomLike({ categorySlug: "other", name: "Bedroom 2" }), "bedrooms");
+
+// Pinner Road-style plan: UP + DN on one stair must not create two landings
+const pinnerLandings = normalizeAiRoomsResult({
+  rooms: [
+    { name: "Bedroom 1", category: "Bedroom", widthM: 3.65, lengthM: 2.9 },
+    { name: "Bedroom 2", category: "Bedroom", widthM: 3.65, lengthM: 2.83 },
+    { name: "Kitchen", category: "Kitchen", widthM: 3.65, lengthM: 2.86 },
+    { name: "Lounge / Diner", category: "Living Room", widthM: 5.77, lengthM: 4.2 },
+    { name: "Landing", category: "Landing", widthM: null, lengthM: null, confidence: "medium" },
+    { name: "First Floor Landing", category: "Hallway", widthM: null, lengthM: null, confidence: "low" },
+    { name: "UP", category: "Other" },
+    { name: "DN", category: "Other" },
+  ],
+});
+assert.ok(pinnerLandings);
+assert.equal(
+  pinnerLandings!.rooms.filter((r) => isLandingLikeLabel(r.name, r.category)).length,
+  1,
+  "exactly one landing after dedupe",
+);
+assert.equal(pinnerLandings!.rooms.some((r) => r.name === "UP" || r.name === "DN"), false);
+assert.equal(pinnerLandings!.counts.bedrooms, 2);
+assert.equal(pinnerLandings!.counts.kitchens, 1);
+assert.equal(pinnerLandings!.counts.livingRooms, 1);
+
+// Lounge/Diner should drop a redundant bare Dining Room
+const loungeDiner = dedupeAiProposedRooms([
+  { name: "Lounge / Diner", category: "Living Room", widthM: 5, lengthM: 4 },
+  { name: "Dining Room", category: "Dining Room", widthM: 3, lengthM: 3 },
+  { name: "Kitchen", category: "Kitchen", widthM: 3, lengthM: 3 },
+]);
+assert.equal(loungeDiner.filter((r) => /dining/i.test(r.name) && !/lounge/i.test(r.name)).length, 0);
+assert.equal(loungeDiner.some((r) => /lounge/i.test(r.name)), true);
+
+// Exact duplicate gardens collapse to one
+const gardens = normalizeAiRoomsResult({
+  rooms: [
+    { name: "Garden", category: "Garden", widthM: 10, lengthM: 5, confidence: "high" },
+    { name: "Garden", category: "Garden", widthM: null, lengthM: null, confidence: "low" },
+  ],
+});
+assert.ok(gardens);
+assert.equal(gardens!.rooms.filter((r) => /garden/i.test(r.name)).length, 1);
+assert.equal(gardens!.rooms[0]!.widthM, 10);
 assert.deepEqual(
   countsFromRooms([
     { categorySlug: "other", categoryName: "Other", name: "Bedroom 1" },
