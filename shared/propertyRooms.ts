@@ -109,10 +109,59 @@ export function toMillimetres(value: number, unit: LengthUnit): number | null {
 
 export function fromMillimetres(mm: number | null | undefined, unit: LengthUnit): number | null {
   if (mm == null || !Number.isFinite(mm) || mm <= 0) return null;
-  const v = mm / MM_PER[unit];
-  if (unit === "mm") return Math.round(v);
-  if (unit === "cm" || unit === "in") return Math.round(v * 10) / 10;
-  return Math.round(v * 100) / 100;
+  if (unit === "mm") return Math.round(mm);
+  if (unit === "in") return Math.round((mm / MM_PER.in) * 10) / 10;
+  if (unit === "cm") return Math.round((mm / MM_PER.cm) * 10) / 10;
+  if (unit === "ft") {
+    // Round to nearest inch so 8'9" displays as 8.75, not 8.73 from metric rounding
+    const totalInches = Math.round(mm / MM_PER.in);
+    return Math.round((totalInches / 12) * 100) / 100;
+  }
+  return Math.round((mm / MM_PER.m) * 100) / 100;
+}
+
+/** Display mm as floor-plan style feet/inches, e.g. 12'3". */
+export function formatMillimetresAsFeetInches(
+  mm: number | null | undefined,
+): string {
+  if (mm == null || !Number.isFinite(mm) || mm <= 0) return "";
+  const totalInches = Math.round(mm / MM_PER.in);
+  const feet = Math.floor(totalInches / 12);
+  const inches = totalInches % 12;
+  return `${feet}'${inches}"`;
+}
+
+/**
+ * Parse a length field into mm.
+ * Accepts feet/inches ("12'3\"", "12 ft 3 in"), decimal feet when unit is ft,
+ * or a plain number in the selected unit.
+ */
+export function parseLengthInputToMillimetres(
+  raw: string,
+  unit: LengthUnit,
+): number | null {
+  const s = raw.trim();
+  if (!s) return null;
+
+  // Feet + inches text (with or without inch mark)
+  if (/(?:'|ft|feet)/i.test(s) || /"|″|in\b/i.test(s)) {
+    const metres = parseAiDimensionMetres(s);
+    return metresToMm(metres);
+  }
+
+  const n = Number(s.replace(/,/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return toMillimetres(n, unit);
+}
+
+/** Format a stored mm length for an input, using ft/in when unit is ft. */
+export function formatLengthInput(
+  mm: number | null | undefined,
+  unit: LengthUnit,
+): string {
+  if (unit === "ft") return formatMillimetresAsFeetInches(mm);
+  const v = fromMillimetres(mm, unit);
+  return v == null ? "" : String(v);
 }
 
 export function floorAreaM2(
@@ -314,6 +363,131 @@ export type AiProposedRoom = {
 };
 
 /**
+ * Parse a single AI dimension into metres.
+ * Accepts numbers (m, or mm when clearly large), feet/inches text, and unit suffixes.
+ */
+export function parseAiDimensionMetres(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    // Printed plans sometimes return millimetres as a bare number (e.g. 3660)
+    if (raw >= 100) return Math.round((raw / 1000) * 100) / 100;
+    return Math.round(raw * 100) / 100;
+  }
+
+  const s = String(raw).trim().toLowerCase().replace(/,/g, "");
+  if (!s) return null;
+
+  // Explicit metres / cm / mm
+  const metric = s.match(/^([\d.]+)\s*(m|metres?|meters?|cm|mm)\b/);
+  if (metric) {
+    const n = Number(metric[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const unit = metric[2];
+    if (unit === "mm") return Math.round((n / 1000) * 100) / 100;
+    if (unit === "cm") return Math.round((n / 100) * 100) / 100;
+    return Math.round(n * 100) / 100;
+  }
+
+  // Feet + inches: 12'6", 12' 6", 12 ft 6 in, 12ft6in
+  const ftIn = s.match(
+    /^(\d+(?:\.\d+)?)\s*(?:'|ft|feet)\s*(\d+(?:\.\d+)?)?\s*(?:"|″|in|ins|inches)?$/,
+  );
+  if (ftIn) {
+    const feet = Number(ftIn[1]);
+    const inches = ftIn[2] != null ? Number(ftIn[2]) : 0;
+    if (!Number.isFinite(feet) || feet < 0) return null;
+    const totalIn = feet * 12 + (Number.isFinite(inches) ? inches : 0);
+    // 3 d.p. metres so 8'9" → 2.667 (not 2.66)
+    return Math.round(totalIn * 0.0254 * 1000) / 1000;
+  }
+
+  // Bare feet: 12.5 ft / 12 feet
+  const ftOnly = s.match(/^([\d.]+)\s*(ft|feet)\b/);
+  if (ftOnly) {
+    const feet = Number(ftOnly[1]);
+    if (!Number.isFinite(feet) || feet <= 0) return null;
+    return Math.round(feet * 0.3048 * 1000) / 1000;
+  }
+
+  // Plain number string — same rules as numeric
+  const plain = Number(s);
+  if (Number.isFinite(plain) && plain > 0) return parseAiDimensionMetres(plain);
+  return null;
+}
+
+function feetFieldToMetres(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return Math.round(raw * 0.3048 * 1000) / 1000;
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  // Already has a unit → general parser; bare number → treat as feet
+  if (/\d/.test(s) && /(ft|feet|'|m|cm|mm|in)/i.test(s)) {
+    return parseAiDimensionMetres(s);
+  }
+  const n = Number(s);
+  if (Number.isFinite(n) && n > 0) return Math.round(n * 0.3048 * 1000) / 1000;
+  return parseAiDimensionMetres(s);
+}
+
+function resolveRoomDimensions(m: Record<string, unknown>): {
+  widthM: number | null;
+  lengthM: number | null;
+  areaM2: number | null;
+} {
+  // Prefer printed imperial labels when present (avoids rounded metric → wrong feet display)
+  const imperialWidth = parseAiDimensionMetres(
+    m.widthImperial ?? m.widthLabel ?? m.width_ft_in ?? m.widthFtIn,
+  );
+  const imperialLength = parseAiDimensionMetres(
+    m.lengthImperial ?? m.lengthLabel ?? m.length_ft_in ?? m.lengthFtIn,
+  );
+
+  let widthM =
+    imperialWidth ??
+    parseAiDimensionMetres(m.widthM ?? m.width ?? m.width_m) ??
+    feetFieldToMetres(m.widthFt ?? m.width_ft ?? m.widthFeet);
+  let lengthM =
+    imperialLength ??
+    parseAiDimensionMetres(m.lengthM ?? m.length ?? m.length_m) ??
+    feetFieldToMetres(m.lengthFt ?? m.length_ft ?? m.lengthFeet);
+
+  let areaM2 = Number(m.areaM2 ?? m.area ?? m.area_m2);
+  if (!Number.isFinite(areaM2) || areaM2 <= 0) {
+    const areaFt2 = Number(m.areaFt2 ?? m.area_ft2 ?? m.sqft ?? m.sqFt);
+    if (Number.isFinite(areaFt2) && areaFt2 > 0) {
+      areaM2 = Math.round(areaFt2 * 0.092903 * 100) / 100;
+    } else {
+      areaM2 = NaN;
+    }
+  } else {
+    areaM2 = Math.round(areaM2 * 100) / 100;
+  }
+
+  // Derive missing side from area when one side is known
+  if (areaM2 > 0) {
+    if (widthM != null && lengthM == null) {
+      lengthM = Math.round((areaM2 / widthM) * 100) / 100;
+    } else if (lengthM != null && widthM == null) {
+      widthM = Math.round((areaM2 / lengthM) * 100) / 100;
+    } else if (widthM == null && lengthM == null) {
+      // Square approximation only when area is all we have — skip (unreliable shape)
+    }
+  } else if (widthM != null && lengthM != null) {
+    areaM2 = Math.round(widthM * lengthM * 100) / 100;
+  }
+
+  return {
+    widthM,
+    lengthM,
+    areaM2: Number.isFinite(areaM2) && areaM2 > 0 ? areaM2 : null,
+  };
+}
+
+/**
  * Normalize AI room-list output. Dimensions left null when unreliable.
  * Also derives four aggregate counts for legacy columns.
  */
@@ -328,7 +502,7 @@ export function normalizeAiRoomsResult(raw: unknown): {
   const rooms: AiProposedRoom[] = [];
 
   if (Array.isArray(listRaw)) {
-    for (const item of listRaw.slice(0, 60)) {
+    for (const item of listRaw.slice(0, 80)) {
       if (!item || typeof item !== "object") continue;
       const m = item as Record<string, unknown>;
       const name = String(m.name ?? m.roomLabel ?? m.label ?? "").trim().slice(0, 160);
@@ -336,16 +510,14 @@ export function normalizeAiRoomsResult(raw: unknown): {
       const rawCategory =
         String(m.category ?? m.roomType ?? m.type ?? "").trim().slice(0, 120) || "Other";
       const category = resolveSystemCategoryForLabel(name, rawCategory).name;
-      const widthM = Number(m.widthM ?? m.width ?? m.width_m);
-      const lengthM = Number(m.lengthM ?? m.length ?? m.length_m);
-      const areaM2 = Number(m.areaM2 ?? m.area ?? m.area_m2);
+      const dims = resolveRoomDimensions(m);
       const conf = m.confidence;
       rooms.push({
         name,
         category,
-        widthM: Number.isFinite(widthM) && widthM > 0 ? Math.round(widthM * 100) / 100 : null,
-        lengthM: Number.isFinite(lengthM) && lengthM > 0 ? Math.round(lengthM * 100) / 100 : null,
-        areaM2: Number.isFinite(areaM2) && areaM2 > 0 ? Math.round(areaM2 * 100) / 100 : null,
+        widthM: dims.widthM,
+        lengthM: dims.lengthM,
+        areaM2: dims.areaM2,
         confidence:
           conf === "high" || conf === "medium" || conf === "low" ? conf : undefined,
       });
@@ -355,12 +527,15 @@ export function normalizeAiRoomsResult(raw: unknown): {
   const countsFromProposed = countsFromRooms(
     rooms.map((r) => ({ categoryName: r.category, name: r.name })),
   );
-  const counts = parseRoomCounts({
-    bedrooms: obj.bedrooms ?? countsFromProposed.bedrooms,
-    kitchens: obj.kitchens ?? countsFromProposed.kitchens,
-    bathrooms: obj.bathrooms ?? countsFromProposed.bathrooms,
-    livingRooms: obj.livingRooms ?? obj.living_rooms ?? countsFromProposed.livingRooms,
-  });
+  // Prefer room-list tallies when the model listed rooms — more accurate than aggregate counts
+  const counts = rooms.length
+    ? countsFromProposed
+    : parseRoomCounts({
+        bedrooms: obj.bedrooms,
+        kitchens: obj.kitchens,
+        bathrooms: obj.bathrooms,
+        livingRooms: obj.livingRooms ?? obj.living_rooms,
+      });
 
   return {
     rooms,

@@ -1,10 +1,12 @@
 /** Inspection gallery destinations + validation helpers (template snapshot driven). */
 
 import {
+  cipInstanceLabel,
   expandCipFieldsForCount,
   getCipsForSection,
   isMetaSection,
   parseCipCountValue,
+  parseCipExpandedFieldKey,
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from "./templateCustomInspectionPoints";
@@ -298,19 +300,62 @@ export function assertDestinationValid(
   repeatableCounts: Record<string, number> = {},
   cipCounts?: CipCountMap,
 ): PhotoDestination | null {
-  const dest = listPhotoDestinations(structure, repeatableCounts, cipCounts).find(
+  // When validating a specific CIP expanded field, ensure that instance is listed
+  // even if the CIP count entry is missing/stale (common right after Browse upload).
+  const cipParsed = parseCipExpandedFieldKey(fieldKey);
+  const countsForList: CipCountMap = { ...(cipCounts || {}) };
+  if (cipParsed) {
+    const ref = String(sectionRef || "").trim();
+    const scopedKey = `${ref}::${cipParsed.cipId}`;
+    const current = countsForList[scopedKey] ?? countsForList[cipParsed.cipId] ?? 0;
+    if (current < cipParsed.instanceIndex) {
+      countsForList[scopedKey] = cipParsed.instanceIndex;
+    }
+  }
+
+  const dest = listPhotoDestinations(structure, repeatableCounts, countsForList).find(
     (d) => d.sectionRef === sectionRef && d.fieldKey === fieldKey,
   );
   if (dest) return dest;
 
   const ref = String(sectionRef || "").trim();
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+
+  // CIP expanded keys: resolve directly from template (works for non-repeatable sections too)
+  if (cipParsed && structure) {
+    const sectionId = ref.includes("/") ? ref.split("/")[0]! : ref;
+    const section =
+      sections.find((s) => s.id === sectionId) ||
+      ({ id: sectionId, title: sectionId } as GalleryTemplateSection);
+    if (!isMetaSection(section)) {
+      const cips = getCipsForSection(structure, section);
+      const cip = cips.find((c) => c.id === cipParsed.cipId);
+      const baseField = (cip?.fields || []).find((f) => fieldKeyOf(f) === cipParsed.fieldId);
+      if (cip && baseField && isPhotoFieldType(baseField.type)) {
+        const slash = ref.indexOf("/");
+        const sectionLabel =
+          slash > 0
+            ? ref.slice(slash + 1).trim() || (section.title || sectionId)
+            : (section.title || sectionId).trim() || sectionId;
+        return {
+          sectionId,
+          sectionRef: ref,
+          sectionLabel,
+          fieldKey,
+          fieldLabel:
+            `${cipInstanceLabel(cip.label, cipParsed.instanceIndex)} — ${baseField.label || cipParsed.fieldId}`.trim(),
+          fieldType: baseField.type,
+        };
+      }
+    }
+  }
+
   const slash = ref.indexOf("/");
   if (slash <= 0) return null;
   const sectionId = ref.slice(0, slash);
   const instancePart = ref.slice(slash + 1).trim();
   if (!sectionId || !instancePart) return null;
 
-  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
   const section = sections.find((s) => s.id === sectionId);
   if (!section?.repeatable) return null;
 

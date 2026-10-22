@@ -15,8 +15,8 @@ import chromium from "@sparticuz/chromium";
 import { db } from "./db";
 import { properties, type Property } from "@shared/schema";
 import { ObjectStorageService } from "./objectStorage";
-import { toOpenAIImageDataUrl } from "./imageForAi";
-import { getChatModel } from "./aiModels";
+import { toFloorPlanImageDataUrl } from "./imageForAi";
+import { getFloorPlanModel } from "./aiModels";
 import { extractTextFromFile } from "./documentProcessor";
 import {
   FLOOR_PLAN_MAX_BYTES,
@@ -30,13 +30,18 @@ import {
   type AiProposedRoom,
 } from "@shared/propertyRooms";
 
-const FLOOR_PLAN_SYSTEM_PROMPT = `You analyse residential property floor-plan images (and OCR/text from floor-plan PDFs).
-Return ONLY a JSON object with this shape:
+function isGpt5Family(model: string): boolean {
+  return /^gpt-5/i.test(model.trim());
+}
+
+const FLOOR_PLAN_SYSTEM_PROMPT = `You are an expert residential floor-plan reader (estate-agent / surveyor grade).
+Analyse the floor-plan image(s) or OCR text carefully. Return ONLY a JSON object:
+
 {
-  "bedrooms": <integer 1-30>,
-  "kitchens": <integer 1-30>,
-  "bathrooms": <integer 1-30>,
-  "livingRooms": <integer 1-30>,
+  "bedrooms": <integer>,
+  "kitchens": <integer>,
+  "bathrooms": <integer>,
+  "livingRooms": <integer>,
   "confidence": {
     "bedrooms": "high"|"medium"|"low",
     "kitchens": "high"|"medium"|"low",
@@ -47,41 +52,54 @@ Return ONLY a JSON object with this shape:
     {
       "name": "Master Bedroom",
       "category": "Master Bedroom",
-      "widthM": <number or null>,
-      "lengthM": <number or null>,
+      "widthImperial": "12'3\\"",
+      "lengthImperial": "8'9\\"",
+      "widthM": <number metres, 3 d.p.>,
+      "lengthM": <number metres, 3 d.p.>,
       "areaM2": <number or null>,
       "confidence": "high"|"medium"|"low"
     }
   ],
-  "estimatedMeasurements": [
-    {
-      "roomLabel": "Bedroom 1",
-      "roomType": "bedrooms"|"kitchens"|"bathrooms"|"livingRooms"|"other",
-      "lengthM": <number or null>,
-      "widthM": <number or null>,
-      "areaM2": <number or null>
-    }
-  ],
   "notes": "<optional short caveat>"
 }
-List every distinct room/area in "rooms" with a human name and category
-(e.g. Master Bedroom, En-suite, Kitchen, Hallway, Garden, Garage, Study, Utility).
-Do not collapse different rooms into generic counts only — counts must still match the rooms list.
-Count bathrooms including ensuites and WCs when clearly rooms.
-Living rooms include lounges/reception rooms (not bedrooms).
-Measurements are estimates only when dimensions/scale are visible; otherwise null. Never invent dimensions.
-If unsure, use best estimate with low confidence. Never invent dozens of rooms.`;
+
+ROOM LIST (critical):
+- List EVERY distinct labelled room/area on the plan as its own "rooms" entry.
+- Include: bedrooms, bathrooms, en-suites, WCs, kitchens, living/lounge/reception/dining,
+  hallway/landing, utility, study, cupboard/storage, garage, conservatory, garden/terrace when shown.
+- Do NOT merge separate rooms. "Bedroom 1" and "Bedroom 2" are two entries.
+- Aggregate counts MUST match the rooms list (bedrooms count = number of bedroom-category rooms, etc.).
+- Living rooms = lounges / reception / sitting rooms (not bedrooms, not dining unless dual-labelled reception).
+- Bathrooms include ensuites and separate WCs/cloakrooms when they are rooms.
+
+DIMENSIONS (critical — match ChatGPT-quality reading):
+- ALWAYS return widthM and lengthM in METRES (never put feet into widthM/lengthM).
+- Also copy the printed imperial strings into widthImperial / lengthImperial when shown (e.g. "12'3\\"", "8'9\\"").
+- When BOTH imperial and metric are printed on the plan, convert FROM the imperial feet/inches only.
+  Do NOT use the rounded metric reprint (it causes errors like 8'9\\" → 2.66 m → 8.73 ft).
+  Exact conversion: metres = (feet + inches/12) × 0.3048, round to 3 d.p.
+  Example: 12'3\\" × 8'9\\" → widthImperial "12'3\\"", lengthImperial "8'9\\"",
+  widthM 3.734, lengthM 2.667 (NOT 3.75 / 2.66).
+- When only metric is printed, use those metres.
+- When only imperial is printed, convert as above.
+- Prefer the larger side as lengthM when orientation is unclear.
+- If a scale bar is visible and a room has no printed size, estimate from the scale (confidence "medium"/"low").
+- Only leave widthM/lengthM null when there is truly no label AND no usable scale.
+- Do not invent dozens of rooms or impossible sizes (typical residential rooms ≈ 1.2–8 m per side).`;
 
 function enrichSuggestion(raw: unknown): {
   suggestion: AiLayoutSuggestion;
   proposedRooms: AiProposedRoom[];
 } {
-  const suggestion = normalizeAiLayoutResult(raw);
-  if (!suggestion) throw httpError("AI returned invalid layout JSON", 502);
   const roomsNorm = normalizeAiRoomsResult(raw);
+  const layout = normalizeAiLayoutResult(raw);
+  if (!layout && !roomsNorm?.rooms?.length) {
+    throw httpError("AI returned invalid layout JSON", 502);
+  }
+
   const proposedRooms = roomsNorm?.rooms?.length
     ? roomsNorm.rooms
-    : (suggestion.estimatedMeasurements || []).map((m) => ({
+    : (layout?.estimatedMeasurements || []).map((m) => ({
         name: m.roomLabel,
         category:
           m.roomType === "bedrooms"
@@ -98,6 +116,20 @@ function enrichSuggestion(raw: unknown): {
         areaM2: m.areaM2 ?? null,
         confidence: undefined as undefined,
       }));
+
+  // Prefer counts derived from the room list when present
+  const counts = roomsNorm?.counts ?? {
+    bedrooms: layout!.bedrooms,
+    kitchens: layout!.kitchens,
+    bathrooms: layout!.bathrooms,
+    livingRooms: layout!.livingRooms,
+  };
+  const suggestion: AiLayoutSuggestion = {
+    ...counts,
+    confidence: layout?.confidence,
+    estimatedMeasurements: layout?.estimatedMeasurements,
+    notes: roomsNorm?.notes ?? layout?.notes,
+  };
   return { suggestion, proposedRooms };
 }
 
@@ -209,15 +241,20 @@ async function rasterizePdfPages(pdfBuffer: Buffer, maxPages = 3): Promise<strin
   const browser = await launchBrowser();
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 1600, deviceScaleFactor: 1 });
+    // High DPI so printed room dimensions remain readable to vision
+    await page.setViewport({ width: 1600, height: 2000, deviceScaleFactor: 2 });
     await page.goto(pathToFileURL(tmpPath).href, {
       waitUntil: "networkidle0",
       timeout: 60000,
     });
     const urls: string[] = [];
     for (let i = 0; i < maxPages; i++) {
-      const shot = (await page.screenshot({ type: "jpeg", quality: 82 })) as Buffer;
-      urls.push(`data:image/jpeg;base64,${shot.toString("base64")}`);
+      const shot = (await page.screenshot({
+        type: "jpeg",
+        quality: 92,
+        fullPage: i === 0,
+      })) as Buffer;
+      urls.push(await toFloorPlanImageDataUrl(shot));
       await page.keyboard.press("PageDown");
       await new Promise((r) => setTimeout(r, 400));
     }
@@ -228,15 +265,41 @@ async function rasterizePdfPages(pdfBuffer: Buffer, maxPages = 3): Promise<strin
   }
 }
 
+async function createFloorPlanCompletion(
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+): Promise<unknown> {
+  const client = getOpenAI();
+  const model = getFloorPlanModel();
+  const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
+    model,
+    response_format: { type: "json_object" },
+    messages,
+  };
+  // gpt-5* only allows default temperature (1); older models use 0 for stable JSON
+  if (!isGpt5Family(model)) {
+    params.temperature = 0;
+  }
+  const response = await client.chat.completions.create(params);
+  const content = response.choices[0]?.message?.content || "{}";
+  if (!content.trim() || content.trim() === "{}") {
+    throw httpError(
+      `Floor plan model returned empty JSON (model=${model}, finish=${response.choices[0]?.finish_reason || "unknown"})`,
+      502,
+    );
+  }
+  return extractJsonObject(content);
+}
+
 async function analyseWithVision(imageDataUrls: string[]): Promise<{
   suggestion: AiLayoutSuggestion;
   proposedRooms: AiProposedRoom[];
 }> {
-  const client = getOpenAI();
   const content: OpenAI.Chat.ChatCompletionContentPart[] = [
     {
       type: "text",
-      text: "Analyse this floor plan and return rooms and room counts as JSON.",
+      text:
+        "Analyse this residential floor plan. List every room with widthM/lengthM in metres " +
+        "(convert any feet/inches labels). Return complete JSON as specified.",
     },
     ...imageDataUrls.slice(0, 3).map(
       (url): OpenAI.Chat.ChatCompletionContentPart => ({
@@ -245,16 +308,10 @@ async function analyseWithVision(imageDataUrls: string[]): Promise<{
       }),
     ),
   ];
-  const response = await client.chat.completions.create({
-    model: getChatModel(),
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: FLOOR_PLAN_SYSTEM_PROMPT },
-      { role: "user", content },
-    ],
-  });
-  const parsed = extractJsonObject(response.choices[0]?.message?.content || "{}");
+  const parsed = await createFloorPlanCompletion([
+    { role: "system", content: FLOOR_PLAN_SYSTEM_PROMPT },
+    { role: "user", content },
+  ]);
   return enrichSuggestion(parsed);
 }
 
@@ -262,20 +319,13 @@ async function analyseWithText(text: string): Promise<{
   suggestion: AiLayoutSuggestion;
   proposedRooms: AiProposedRoom[];
 }> {
-  const client = getOpenAI();
-  const response = await client.chat.completions.create({
-    model: getChatModel(),
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: FLOOR_PLAN_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Floor plan text/OCR excerpt:\n\n${text.slice(0, 12000)}\n\nReturn rooms and room counts as JSON.`,
-      },
-    ],
-  });
-  const parsed = extractJsonObject(response.choices[0]?.message?.content || "{}");
+  const parsed = await createFloorPlanCompletion([
+    { role: "system", content: FLOOR_PLAN_SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: `Floor plan text/OCR excerpt:\n\n${text.slice(0, 16000)}\n\nList every room with dimensions in metres as JSON.`,
+    },
+  ]);
   return enrichSuggestion(parsed);
 }
 
@@ -411,7 +461,7 @@ export async function analyseFloorPlanObject(input: {
       }
     } else {
       const buf = await loadObjectBuffer(path);
-      const dataUrl = await toOpenAIImageDataUrl(buf);
+      const dataUrl = await toFloorPlanImageDataUrl(buf);
       analysed = await analyseWithVision([dataUrl]);
     }
 
@@ -424,6 +474,7 @@ export async function analyseFloorPlanObject(input: {
         proposedRooms,
         analysedAt: new Date().toISOString(),
         estimated: true,
+        model: getFloorPlanModel(),
         disclaimer:
           "AI estimated rooms from floor plan — review and apply before saving. Adjust dimensions if needed.",
       },
@@ -491,6 +542,7 @@ export async function analyseFloorPlan(input: {
       e?.status === 503
         ? "AI is not configured"
         : e?.message || "Could not analyse floor plan";
+    console.error("[FloorPlan] analyse failed:", message, e?.status || "", e?.code || "");
     const [updated] = await db
       .update(properties)
       .set({
@@ -499,7 +551,7 @@ export async function analyseFloorPlan(input: {
           error: message.includes("AI is not configured")
             ? "AI is not configured"
             : "We couldn't analyse the floor plan automatically. You can enter the room counts manually.",
-          detail: message.slice(0, 300),
+          detail: message.slice(0, 500),
         } as any,
         floorPlanAnalysedAt: new Date(),
         updatedAt: new Date(),

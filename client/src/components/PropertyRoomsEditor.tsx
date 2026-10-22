@@ -20,21 +20,20 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useLocale } from "@/contexts/LocaleContext";
 import { cn } from "@/lib/utils";
 import { Loader2, Plus, Trash2, Sparkles } from "lucide-react";
 import {
-  defaultLengthUnitForCountry,
-  defaultAreaUnitForCountry,
   floorAreaM2,
   floorAreaFt2,
-  fromMillimetres,
-  toMillimetres,
+  formatLengthInput,
+  formatMillimetresAsFeetInches,
+  parseLengthInputToMillimetres,
   metresToMm,
   countsFromRooms,
   resolveSystemCategoryForLabel,
   roomTypeFromCategorySlug,
   type LengthUnit,
+  type AreaUnit,
   type AiProposedRoom,
 } from "@shared/propertyRooms";
 import type { PropertyRoomCounts } from "@shared/propertyLayout";
@@ -86,11 +85,9 @@ export function PropertyRoomsEditor({
   className,
 }: PropertyRoomsEditorProps) {
   const { toast } = useToast();
-  const locale = useLocale();
-  const [unit, setUnit] = useState<LengthUnit>(() =>
-    defaultLengthUnitForCountry(locale.countryCode),
-  );
-  const areaUnit = defaultAreaUnitForCountry(locale.countryCode);
+  // Default to feet (floor plans commonly print ft/in); user can switch
+  const [unit, setUnit] = useState<LengthUnit>("ft");
+  const areaUnit: AreaUnit = unit === "ft" || unit === "in" ? "ft2" : "m2";
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -99,10 +96,6 @@ export function PropertyRoomsEditor({
   const { data: categories = [], isLoading: catsLoading } = useQuery<Category[]>({
     queryKey: ["/api/room-categories"],
   });
-
-  useEffect(() => {
-    setUnit(defaultLengthUnitForCountry(locale.countryCode));
-  }, [locale.countryCode]);
 
   useEffect(() => {
     if (aiProposedRooms && aiProposedRooms.length > 0) {
@@ -251,24 +244,19 @@ export function PropertyRoomsEditor({
     ]);
   };
 
-  const unitOptions: LengthUnit[] =
-    locale.countryCode?.toUpperCase() === "US"
-      ? ["ft", "in", "m", "cm", "mm"]
-      : ["m", "cm", "mm", "ft", "in"];
+  const unitOptions: LengthUnit[] = ["ft", "in", "m", "cm", "mm"];
 
-  const dimDisplay = (mm: number | null) => {
-    const v = fromMillimetres(mm, unit);
-    return v == null ? "" : String(v);
-  };
+  const dimDisplay = (mm: number | null) => formatLengthInput(mm, unit);
+  const dimUnitLabel = unit === "ft" ? "ft/in" : unit;
 
   const setDim = (clientKey: string, field: "widthMm" | "lengthMm" | "ceilingHeightMm", raw: string) => {
     if (raw.trim() === "") {
       updateRoom(clientKey, { [field]: null });
       return;
     }
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return;
-    updateRoom(clientKey, { [field]: toMillimetres(n, unit) });
+    const mm = parseLengthInputToMillimetres(raw, unit);
+    if (mm == null) return;
+    updateRoom(clientKey, { [field]: mm });
   };
 
   return (
@@ -283,12 +271,12 @@ export function PropertyRoomsEditor({
         <div className="flex flex-wrap items-center gap-2">
           <Select value={unit} onValueChange={(v) => setUnit(v as LengthUnit)}>
             <SelectTrigger className="w-[100px] h-9" data-testid="select-length-unit">
-              <SelectValue />
+              <SelectValue>{unit === "ft" ? "ft/in" : unit}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {unitOptions.map((u) => (
                 <SelectItem key={u} value={u}>
-                  {u}
+                  {u === "ft" ? "ft/in" : u}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -403,33 +391,33 @@ export function PropertyRoomsEditor({
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="space-y-1.5">
-                    <Label>Width ({unit})</Label>
+                    <Label>Width ({dimUnitLabel})</Label>
                     <Input
-                      inputMode="decimal"
+                      inputMode="text"
                       value={dimDisplay(room.widthMm)}
                       disabled={disabled}
                       onChange={(e) => setDim(room.clientKey, "widthMm", e.target.value)}
-                      placeholder="—"
+                      placeholder={unit === "ft" ? "12'3\"" : "—"}
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Length ({unit})</Label>
+                    <Label>Length ({dimUnitLabel})</Label>
                     <Input
-                      inputMode="decimal"
+                      inputMode="text"
                       value={dimDisplay(room.lengthMm)}
                       disabled={disabled}
                       onChange={(e) => setDim(room.clientKey, "lengthMm", e.target.value)}
-                      placeholder="—"
+                      placeholder={unit === "ft" ? "8'9\"" : "—"}
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Room height ({unit})</Label>
+                    <Label>Room height ({dimUnitLabel})</Label>
                     <Input
-                      inputMode="decimal"
+                      inputMode="text"
                       value={dimDisplay(room.ceilingHeightMm)}
                       disabled={disabled}
                       onChange={(e) => setDim(room.clientKey, "ceilingHeightMm", e.target.value)}
-                      placeholder="Optional"
+                      placeholder={unit === "ft" ? "Optional e.g. 8'0\"" : "Optional"}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -532,8 +520,14 @@ export function PropertyRoomsEditor({
                 />
                 <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                   <span>
-                    W: {r.widthM != null ? `${r.widthM} m` : "—"} · L:{" "}
-                    {r.lengthM != null ? `${r.lengthM} m` : "—"}
+                    W:{" "}
+                    {r.widthM != null
+                      ? formatMillimetresAsFeetInches(metresToMm(r.widthM)) || `${r.widthM} m`
+                      : "—"}{" "}
+                    · L:{" "}
+                    {r.lengthM != null
+                      ? formatMillimetresAsFeetInches(metresToMm(r.lengthM)) || `${r.lengthM} m`
+                      : "—"}
                   </span>
                 </div>
               </div>

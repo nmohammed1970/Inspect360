@@ -68,6 +68,7 @@ import {
   defaultLengthUnitForCountry,
   defaultAreaUnitForCountry,
   formatFloorArea,
+  formatMillimetresAsFeetInches,
   fromMillimetres,
 } from "@shared/propertyRooms";
 
@@ -220,7 +221,7 @@ export default function PropertyDetail() {
   const canSeeReapitSource = user?.role === "owner" || user?.role === "clerk";
   const lengthUnit = defaultLengthUnitForCountry(locale.countryCode);
   const areaUnit = defaultAreaUnitForCountry(locale.countryCode);
-  const lengthUnitLabel = lengthUnit === "ft" ? "ft" : "m";
+  const lengthUnitLabel = lengthUnit === "ft" ? "ft/in" : "m";
 
   useEffect(() => {
     setActiveTab(resolvedTab);
@@ -391,14 +392,28 @@ export default function PropertyDetail() {
   const formatRoomDimensions = (
     room: Pick<OverviewRoom, "widthMm" | "lengthMm" | "ceilingHeightMm">,
   ) => {
-    const w = fromMillimetres(room.widthMm, lengthUnit);
-    const l = fromMillimetres(room.lengthMm, lengthUnit);
+    const formatSide = (mm: number | null | undefined) => {
+      if (lengthUnit === "ft") {
+        const s = formatMillimetresAsFeetInches(mm);
+        return s || null;
+      }
+      const v = fromMillimetres(mm, lengthUnit);
+      return v == null ? null : `${v} ${lengthUnitLabel}`;
+    };
+    const w = formatSide(room.widthMm);
+    const l = formatSide(room.lengthMm);
     if (w == null || l == null) return null;
     const area = formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
-    const ceiling = fromMillimetres(room.ceilingHeightMm, lengthUnit);
-    const parts = [`${w} ${lengthUnitLabel} × ${l} ${lengthUnitLabel}`];
+    const ceiling =
+      lengthUnit === "ft"
+        ? formatMillimetresAsFeetInches(room.ceilingHeightMm) || null
+        : (() => {
+            const v = fromMillimetres(room.ceilingHeightMm, lengthUnit);
+            return v == null ? null : `${v} ${lengthUnitLabel}`;
+          })();
+    const parts = [`${w} × ${l}`];
     if (area) parts.push(area);
-    if (ceiling != null) parts.push(`Ceiling ${ceiling} ${lengthUnitLabel}`);
+    if (ceiling) parts.push(`Ceiling ${ceiling}`);
     return parts.join(" · ");
   };
 

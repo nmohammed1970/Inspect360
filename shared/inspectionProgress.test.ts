@@ -122,6 +122,10 @@ assert.equal(progress.totalFields, 6);
 assert.equal(progress.completedFields, 6);
 assert.equal(progress.progress, 100);
 assert.ok(progress.completedFields <= progress.totalFields);
+assert.equal(progress.bySection.general?.remainingFields, 0);
+assert.equal(progress.bySection.bedrooms?.remainingFields, 0);
+assert.equal(progress.bySection.general?.totalFields, 1);
+assert.equal(progress.bySection.bedrooms?.totalFields, 5);
 
 const withTenantSig = computeInspectionCaptureProgress({
   sections,

@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -26,12 +26,14 @@ import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
 import type { Inspection } from "@shared/schema";
 import { FieldWidget } from "@/components/FieldWidget";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
 import { InspectionQuickActions } from "@/components/InspectionQuickActions";
 import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
 import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
 import { formatSignerDisplayName, isTenantSignatureField } from "@shared/signature";
+import { isGeneralInformationSection } from "@shared/defaultGeneralInformationSection";
 import {
   applyPropertyCountsToTemplateSnapshot,
   findBathroomCountField,
@@ -174,6 +176,8 @@ export default function InspectionCapture() {
     label: string;
     sectionId: string;
   } | null>(null);
+  /** Explicit open/closed overrides for inspection points (CIP cards / room shells). */
+  const [inspectionPointOpen, setInspectionPointOpen] = useState<Record<string, boolean>>({});
   const [isDeletingInstance, setIsDeletingInstance] = useState(false);
   const [showSendToTenantDialog, setShowSendToTenantDialog] = useState(false);
   const [pendingCompleteWithAI, setPendingCompleteWithAI] = useState(false);
@@ -920,7 +924,7 @@ export default function InspectionCapture() {
 
   // Progress uses the same field set the UI renders (instances × fields + CIPs).
   // Never count raw entries — orphans / __repeatable_count_* inflate completed > total.
-  const { totalFields, completedFields, progress } = React.useMemo(
+  const { totalFields, completedFields, progress, bySection } = React.useMemo(
     () =>
       computeInspectionCaptureProgress({
         sections,
@@ -1634,10 +1638,18 @@ export default function InspectionCapture() {
     );
   };
 
+  const isInspectionPointOpen = (key: string, defaultOpen: boolean) =>
+    inspectionPointOpen[key] !== undefined ? inspectionPointOpen[key]! : defaultOpen;
+
+  const setInspectionPointOpenState = (key: string, open: boolean) => {
+    setInspectionPointOpen((prev) => ({ ...prev, [key]: open }));
+  };
+
   const renderCipInstanceCards = (
     sectionRef: string,
     instanceName: string,
     sectionCips: CustomInspectionPoint[],
+    pointsDefaultOpen = false,
   ) => {
     if (!sectionCips.length) return null;
 
@@ -1700,82 +1712,107 @@ export default function InspectionCapture() {
             const expandedForInstance = expandCipFieldsForCount(cip, count).filter(
               (f) => f.cipInstanceIndex === instanceIndex,
             );
+            const pointKey = `cip:${sectionRef}:${cip.id}:${instanceIndex}`;
+            const pointOpen = isInspectionPointOpen(pointKey, pointsDefaultOpen);
+            const pointTitle = cipInstanceLabel(cip.label, instanceIndex);
             return (
-              <div
+              <Collapsible
                 key={`cip-card-${sectionRef}-${cip.id}-${instanceIndex}`}
-                className="space-y-6 p-3 sm:p-5 border-2 rounded-xl bg-muted/30 min-w-0"
+                open={pointOpen}
+                onOpenChange={(open) => setInspectionPointOpenState(pointKey, open)}
+                className="border-2 rounded-xl bg-muted/30 min-w-0 overflow-hidden"
               >
-                <h4 className="text-base font-semibold text-primary break-words">
-                  {cipInstanceLabel(cip.label, instanceIndex)}
-                </h4>
-                {expandedForInstance.map((expanded) => {
-                  const baseField = (cip.fields || []).find(
-                    (f) => String(f.id || f.key || "") === parseCipExpandedFieldKey(expanded.id)?.fieldId,
-                  );
-                  const fieldForWidget: TemplateField = {
-                    ...(baseField as TemplateField),
-                    id: expanded.id,
-                    key: expanded.id,
-                    label: (baseField?.label as string) || expanded.label,
-                  };
-                  if (
-                    !tenanciesEnabled &&
-                    fieldForWidget.type === "signature" &&
-                    isTenantSignatureField(fieldForWidget)
-                  ) {
-                    return null;
-                  }
-                  const entryKey = `${sectionRef}-${expanded.id}`;
-                  const entry = entries[entryKey];
-                  return (
-                    <div key={expanded.id} className="min-w-0">
-                      <FieldWidget
-                        field={fieldForWidget}
-                        value={entry?.valueJson}
-                        note={entry?.note}
-                        photos={entry?.photos}
-                        inspectionId={id}
-                        entryId={entry?.id}
-                        isCheckOut={inspection?.type === "check_out"}
-                        markedForReview={entry?.markedForReview || false}
-                        sectionName={instanceName}
-                        sectionRef={sectionRef}
-                        autoContext={autoContext}
-                        onChange={(value: any, note?: string, photos?: string[]) =>
-                          handleScopedFieldChange(
-                            sectionRef,
-                            fieldForWidget,
-                            expanded.id,
-                            value,
-                            note,
-                            photos,
-                          )
-                        }
-                        onMarkedForReviewChange={(marked: boolean) =>
-                          handleScopedMarkedForReviewChange(sectionRef, expanded.id, marked)
-                        }
-                        onLogMaintenance={
-                          maintenanceEnabled
-                            ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
-                                const fieldPhotos = (photos?.length ? photos : entry?.photos || []).filter(
-                                  Boolean,
-                                );
-                                setMaintenanceContext({
-                                  fieldLabel,
-                                  sectionTitle: instanceName,
-                                  entryId: entry?.id,
-                                  photos: fieldPhotos,
-                                  note: fieldNote || entry?.note || undefined,
-                                });
-                                setShowMaintenanceSheet(true);
-                              }
-                            : undefined
-                        }
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 p-3 sm:p-4 text-left hover:bg-muted/50 transition-colors"
+                    data-testid={`button-toggle-cip-${cip.id}-${instanceIndex}`}
+                    aria-expanded={pointOpen}
+                  >
+                    {pointOpen ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <h4 className="text-base font-semibold text-primary break-words min-w-0">
+                      {pointTitle}
+                    </h4>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-6 px-3 sm:px-5 pb-3 sm:pb-5">
+                    {expandedForInstance.map((expanded) => {
+                      const baseField = (cip.fields || []).find(
+                        (f) =>
+                          String(f.id || f.key || "") ===
+                          parseCipExpandedFieldKey(expanded.id)?.fieldId,
+                      );
+                      const fieldForWidget: TemplateField = {
+                        ...(baseField as TemplateField),
+                        id: expanded.id,
+                        key: expanded.id,
+                        label: (baseField?.label as string) || expanded.label,
+                      };
+                      if (
+                        !tenanciesEnabled &&
+                        fieldForWidget.type === "signature" &&
+                        isTenantSignatureField(fieldForWidget)
+                      ) {
+                        return null;
+                      }
+                      const entryKey = `${sectionRef}-${expanded.id}`;
+                      const entry = entries[entryKey];
+                      return (
+                        <div key={expanded.id} className="min-w-0">
+                          <FieldWidget
+                            field={fieldForWidget}
+                            value={entry?.valueJson}
+                            note={entry?.note}
+                            photos={entry?.photos}
+                            inspectionId={id}
+                            entryId={entry?.id}
+                            isCheckOut={inspection?.type === "check_out"}
+                            markedForReview={entry?.markedForReview || false}
+                            sectionName={instanceName}
+                            sectionRef={sectionRef}
+                            autoContext={autoContext}
+                            onChange={(value: any, note?: string, photos?: string[]) =>
+                              handleScopedFieldChange(
+                                sectionRef,
+                                fieldForWidget,
+                                expanded.id,
+                                value,
+                                note,
+                                photos,
+                              )
+                            }
+                            onMarkedForReviewChange={(marked: boolean) =>
+                              handleScopedMarkedForReviewChange(sectionRef, expanded.id, marked)
+                            }
+                            onLogMaintenance={
+                              maintenanceEnabled
+                                ? (fieldLabel: string, photos: string[], fieldNote?: string) => {
+                                    const fieldPhotos = (
+                                      photos?.length ? photos : entry?.photos || []
+                                    ).filter(Boolean);
+                                    setMaintenanceContext({
+                                      fieldLabel,
+                                      sectionTitle: instanceName,
+                                      entryId: entry?.id,
+                                      photos: fieldPhotos,
+                                      note: fieldNote || entry?.note || undefined,
+                                    });
+                                    setShowMaintenanceSheet(true);
+                                  }
+                                : undefined
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             );
           });
         })}
@@ -2536,15 +2573,16 @@ export default function InspectionCapture() {
         </CardContent>
       </Card>
 
-      {/* Section navigation + Gallery (pinned right) */}
-      <div className="flex items-center gap-2 min-w-0 pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
-        <div className="flex-1 min-w-0 overflow-x-auto flex items-center gap-2">
+      {/* Section tabs + Gallery: divider separates them; brand Gallery chrome restored */}
+      <div className="flex flex-nowrap items-start gap-5 sm:gap-6 min-w-0 pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden flex flex-nowrap items-center gap-2 pr-3">
           {sections.map((section, index) => {
             const isActive = captureMode === "sections" && index === currentSectionIndex;
+            const remaining = bySection[section.id]?.remainingFields ?? 0;
             return (
             <Button
               key={section.id}
-              variant={isActive ? "brand" : "outline"}
+              variant="ghost"
               size="sm"
               onClick={() => {
                 setCaptureMode("sections");
@@ -2552,36 +2590,64 @@ export default function InspectionCapture() {
                 scrollCaptureToTop();
               }}
               data-testid={`button-section-${index}`}
+              aria-pressed={isActive}
+              title={
+                remaining > 0
+                  ? `${remaining} field${remaining === 1 ? "" : "s"} remaining in this section`
+                  : "Section complete"
+              }
               className={cn(
-                "text-xs sm:text-sm whitespace-nowrap shrink-0 min-h-11 px-3",
-                !isActive && "bg-card",
+                "relative text-xs sm:text-sm whitespace-nowrap shrink-0 h-11 min-h-11 px-3 gap-1.5 rounded-md",
+                isActive
+                  ? // Match dashboard Action Required TabsTrigger: soft primary on sides + thick bottom
+                    "bg-background text-foreground font-semibold shadow-sm " +
+                    "ring-1 ring-primary/25 " +
+                    "border border-primary/25 border-b-2 border-b-primary " +
+                    "hover:bg-background hover:text-foreground"
+                  : "border border-transparent bg-transparent text-muted-foreground font-medium hover:text-foreground hover:bg-background/60",
               )}
             >
-              {formatDisplayHeading(section.title)}
+              <span>{formatDisplayHeading(section.title)}</span>
+              {remaining > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-bold tabular-nums leading-none bg-amber-100 text-amber-800 ring-1 ring-amber-300/80"
+                  data-testid={`badge-section-remaining-${index}`}
+                  aria-label={`${remaining} remaining`}
+                >
+                  {remaining > 99 ? "99+" : remaining}
+                </span>
+              )}
             </Button>
             );
           })}
         </div>
-        <Button
-          type="button"
-          variant="brand"
-          size="default"
-          onClick={() => setCaptureMode("gallery")}
-          data-testid="button-mode-gallery"
-          title="Inspection photo gallery"
-          aria-pressed={captureMode === "gallery"}
-          className={cn(
-            "group shrink-0 min-h-11 gap-2.5 pl-1.5 pr-3 py-1.5",
-            captureMode === "gallery" &&
-              "from-[#00A89A] via-[#009688] to-[#007F74]",
-          )}
+
+        <div
+          className="shrink-0 flex items-center pl-3 sm:pl-4 border-l border-border/70"
+          role="group"
+          aria-label="Inspection tools"
         >
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-[9px] bg-white/20 ring-1 ring-white/25 shrink-0">
-            <Images className="h-4 w-4 text-white" aria-hidden />
-          </span>
-          <span className="tracking-wide">Gallery</span>
-          <ArrowRight className="h-4 w-4 text-white/95 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
-        </Button>
+          <Button
+            type="button"
+            variant="brand"
+            size="sm"
+            onClick={() => setCaptureMode("gallery")}
+            data-testid="button-mode-gallery"
+            title="Inspection photo gallery"
+            aria-pressed={captureMode === "gallery"}
+            className={cn(
+              "group h-11 min-h-11 gap-2 pl-1.5 pr-3",
+              captureMode === "gallery" &&
+                "from-[#00A89A] via-[#009688] to-[#007F74]",
+            )}
+          >
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white/20 ring-1 ring-white/25 shrink-0">
+              <Images className="h-3.5 w-3.5 text-white" aria-hidden />
+            </span>
+            <span className="tracking-wide text-xs sm:text-sm">Gallery</span>
+            <ArrowRight className="h-4 w-4 text-white/95 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden />
+          </Button>
+        </div>
       </div>
 
       {captureMode === "gallery" && id && (
@@ -2702,15 +2768,36 @@ export default function InspectionCapture() {
                   roomInst?.sectionRef ||
                   `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                 const canDeleteInstance = inspection?.status !== "completed";
+                const roomShellKey = `room:${sectionRef}`;
+                const roomShellOpen = isInspectionPointOpen(roomShellKey, instanceIndex === 0);
                 return (
-                  <div key={roomInst?.roomId || `instance-${instanceIndex}`} className="space-y-8 p-3 sm:p-5 border-2 rounded-xl bg-background min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-base sm:text-lg font-semibold text-primary break-words min-w-0">
-                        {instanceName}
-                        {dimLabel && (
-                          <span className="text-sm font-normal text-muted-foreground">{dimLabel}</span>
-                        )}
-                      </h3>
+                  <Collapsible
+                    key={roomInst?.roomId || `instance-${instanceIndex}`}
+                    open={roomShellOpen}
+                    onOpenChange={(open) => setInspectionPointOpenState(roomShellKey, open)}
+                    className="border-2 rounded-xl bg-background min-w-0 overflow-hidden"
+                  >
+                    <div className="flex items-start justify-between gap-3 p-3 sm:p-5 pb-0 sm:pb-0">
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-90"
+                          data-testid={`button-toggle-room-instance-${instanceIndex}`}
+                          aria-expanded={roomShellOpen}
+                        >
+                          {roomShellOpen ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <h3 className="text-base sm:text-lg font-semibold text-primary break-words min-w-0">
+                            {instanceName}
+                            {dimLabel && (
+                              <span className="text-sm font-normal text-muted-foreground">{dimLabel}</span>
+                            )}
+                          </h3>
+                        </button>
+                      </CollapsibleTrigger>
                       {canDeleteInstance && (
                         <Button
                           type="button"
@@ -2732,6 +2819,8 @@ export default function InspectionCapture() {
                         </Button>
                       )}
                     </div>
+                    <CollapsibleContent>
+                    <div className="space-y-8 p-3 sm:p-5 pt-3">
                     {(() => {
                       const sectionCips = sectionCipsFor(currentSection);
                       return sectionCips.length ? renderCipCountInputs(sectionRef, sectionCips) : null;
@@ -2843,10 +2932,17 @@ export default function InspectionCapture() {
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                       const sectionCips = sectionCipsFor(currentSection);
                       return sectionCips.length
-                        ? renderCipInstanceCards(sectionRef, instanceName, sectionCips)
+                        ? renderCipInstanceCards(
+                            sectionRef,
+                            instanceName,
+                            sectionCips,
+                            isGeneralInformationSection(currentSection),
+                          )
                         : null;
                     })()}
-                  </div>
+                    </div>
+                    </CollapsibleContent>
+                  </Collapsible>
                 );
                 });
               })()
@@ -2964,6 +3060,7 @@ export default function InspectionCapture() {
                         currentSection.id,
                         currentSection.title,
                         sectionCips,
+                        isGeneralInformationSection(currentSection),
                       )
                     : null;
                 })()}

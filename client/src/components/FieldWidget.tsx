@@ -545,17 +545,62 @@ export function FieldWidget({
   };
 
   const syncPhotosToGallery = async (urls: string[]) => {
-    if (!inspectionId || !sectionRef || !urls.length || !navigator.onLine) return;
+    if (!inspectionId || !urls.length || !navigator.onLine) return;
+    const fieldKey = String(field.id || field.key || "").trim();
+    if (!fieldKey) return;
+
+    const normalized = urls
+      .map((u) => {
+        if (!u || typeof u !== "string") return null;
+        if (u.startsWith("offline://") || u.startsWith("blob:")) return null;
+        if (u.startsWith("/objects/")) return u.split("?")[0];
+        if (u.includes("/objects/")) {
+          try {
+            if (u.startsWith("http://") || u.startsWith("https://")) {
+              return new URL(u).pathname.split("?")[0];
+            }
+          } catch {
+            /* fall through */
+          }
+          return `/objects/${u.split("/objects/")[1]?.split("?")[0] || ""}`;
+        }
+        return null;
+      })
+      .filter((u): u is string => !!u && u.startsWith("/objects/"));
+
+    if (!normalized.length) return;
+
+    const assign =
+      sectionRef && fieldKey
+        ? { sectionRef, fieldKey }
+        : null;
+
     try {
       await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/register`, {
-        images: urls.map((objectUrl) => ({ objectUrl })),
-        assign: { sectionRef, fieldKey: field.id },
+        images: normalized.map((objectUrl) => ({ objectUrl })),
+        ...(assign ? { assign } : {}),
       });
       queryClient.invalidateQueries({
         queryKey: ["/api/inspections", inspectionId, "gallery"],
       });
     } catch (e) {
-      console.warn("[FieldWidget] Gallery register/assign failed:", e);
+      // Retry register without assign so the photo still lands in the gallery
+      if (assign) {
+        try {
+          await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/register`, {
+            images: normalized.map((objectUrl) => ({ objectUrl })),
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["/api/inspections", inspectionId, "gallery"],
+          });
+          console.warn("[FieldWidget] Gallery register without assign (assign failed):", e);
+          return;
+        } catch (e2) {
+          console.warn("[FieldWidget] Gallery register failed:", e2);
+        }
+      } else {
+        console.warn("[FieldWidget] Gallery register failed:", e);
+      }
     }
   };
 

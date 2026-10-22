@@ -184,4 +184,29 @@ assert.ok(
   assertDestinationValid(structure, "section_bedrooms/room-abc", "field_floor", {}),
 );
 
+// CIP photo destinations assign even when CIP count entries are missing
+const withCips = {
+  sections: [
+    {
+      id: "section_decoration",
+      title: "Decoration and Repairs",
+      customInspectionPointIds: ["cip_walls"],
+      fields: [],
+    },
+  ],
+  customInspectionPoints: [
+    {
+      id: "cip_walls",
+      label: "Walls",
+      repeatable: true,
+      fields: [{ id: "field_paint", label: "Paint Condition", type: "photo_array" }],
+    },
+  ],
+};
+const cipFieldKey = "cip_walls__i1__field_paint";
+const cipDest = assertDestinationValid(withCips, "section_decoration", cipFieldKey, {}, {});
+assert.ok(cipDest);
+assert.equal(cipDest!.fieldKey, cipFieldKey);
+assert.ok(cipDest!.fieldLabel.includes("Paint Condition"));
+
 console.log("inspectionGallery.test.ts: ok");
