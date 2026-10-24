@@ -9,11 +9,21 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter, Eye, EyeOff } from "lucide-react";
+import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter, Eye, EyeOff, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { User } from "@shared/schema";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
@@ -26,6 +36,7 @@ import { FiltersSection } from "@/components/FiltersSection";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { useAuth } from "@/hooks/useAuth";
 
 /** Username input removed from UI; API still requires username — derive a safe value from email. */
 function defaultUsernameFromEmail(email: string): string {
@@ -84,6 +95,8 @@ export default function Team() {
   const [profileImageUrl, setProfileImageUrl] = useState("");
   const [certificateUrls, setCertificateUrls] = useState<string[]>([]);
   const [showPassword, setShowPassword] = useState(false);
+  const [memberPendingDelete, setMemberPendingDelete] = useState<User | null>(null);
+  const { user: currentUser } = useAuth();
 
   const { data: teamMembers, isLoading } = useQuery<User[]>({
     queryKey: ["/api/team"],
@@ -98,9 +111,22 @@ export default function Team() {
       }
       return await res.json();
     },
-    onSuccess: async () => {
+    onSuccess: async (created: { welcomeEmailSent?: boolean; welcomeEmailError?: string }) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
-      toast({ title: "Team member created successfully" });
+      if (created?.welcomeEmailSent) {
+        toast({
+          title: "Team member created",
+          description: "Login details have been emailed to them. Ask them to change their password after first login.",
+        });
+      } else if (created?.welcomeEmailError) {
+        toast({
+          title: "Team member created",
+          description: "Account was created, but the welcome email could not be sent. Share the login details manually.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Team member created successfully" });
+      }
       handleCloseDialog();
     },
     onError: (error: Error) => {
@@ -164,6 +190,32 @@ export default function Team() {
         variant: "destructive",
         title: "Error",
         description: error.message || "Failed to update status",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiRequest("DELETE", `/api/team/${userId}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        throw new Error(errorData.message || `Server error: ${res.status}`);
+      }
+      return await res.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
+      setMemberPendingDelete(null);
+      toast({
+        title: "Team member deleted",
+        description: "Their account was removed. Assignments were cleared and the email can be used again.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Could not delete team member",
+        description: error.message || "Failed to delete team member",
       });
     },
   });
@@ -700,15 +752,28 @@ export default function Team() {
                       variant={member.isActive ? "destructive" : "default"}
                       size="sm"
                       onClick={() => toggleStatusMutation.mutate({ userId: member.id, isActive: !member.isActive })}
-                      disabled={toggleStatusMutation.isPending}
+                      disabled={toggleStatusMutation.isPending || currentUser?.id === member.id}
                       data-testid={`button-toggle-status-${member.id}`}
                     >
                       {member.isActive ? "Disable Account" : "Enable Account"}
                     </Button>
+                    {currentUser?.id !== member.id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800"
+                        onClick={() => setMemberPendingDelete(member)}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`button-delete-${member.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                        Delete
+                      </Button>
+                    )}
                     <Select
                       value={member.role}
                       onValueChange={(role) => updateRoleMutation.mutate({ userId: member.id, role })}
-                      disabled={updateRoleMutation.isPending}
+                      disabled={updateRoleMutation.isPending || currentUser?.id === member.id}
                     >
                       <SelectTrigger className="w-40" data-testid={`select-role-${member.id}`}>
                         <SelectValue />
@@ -1222,6 +1287,53 @@ export default function Team() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!memberPendingDelete}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setMemberPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete team member permanently?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This will permanently remove{" "}
+                  <span className="font-medium text-foreground">
+                    {memberPendingDelete?.firstName && memberPendingDelete?.lastName
+                      ? `${memberPendingDelete.firstName} ${memberPendingDelete.lastName}`
+                      : memberPendingDelete?.email}
+                  </span>{" "}
+                  ({memberPendingDelete?.email}) from your organisation.
+                </p>
+                <p>
+                  Their inspections, maintenance jobs, and work orders will be unassigned. Historical
+                  records stay, but this account is wiped so the same email can be added again later
+                  (including under another organisation).
+                </p>
+                <p className="font-medium text-destructive">This cannot be undone.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending || !memberPendingDelete}
+              onClick={(e) => {
+                e.preventDefault();
+                if (memberPendingDelete) {
+                  deleteMutation.mutate(memberPendingDelete.id);
+                }
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

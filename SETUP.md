@@ -48,7 +48,7 @@ Edit your `.env` file and configure:
 - **DATABASE_URL**: Your PostgreSQL connection string (required)
 - **SESSION_SECRET**: Random secret for session management (required)
 - **RESEND_API_KEY**: Your Resend API key (optional, for email functionality)
-- **RESEND_FROM_EMAIL**: Email address to send emails from (optional, required if using email features)
+- **RESEND_FROM_EMAIL**: Sender address with display name, e.g. `Inspect360 <notifications@inspect360.ai>` (optional, required if using email features)
 - **TEXTMAGIC_USERNAME**: TextMagic account username (optional, for tenant SMS)
 - **TEXTMAGIC_API_KEY**: TextMagic API key (optional, required if enabling SMS)
 - **TEXTMAGIC_FROM**: Optional TextMagic sender id / phone

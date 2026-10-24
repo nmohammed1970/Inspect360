@@ -236,7 +236,7 @@ Add this rule in IIS Manager → URL Rewrite → Add Rule:
 | `STRIPE_PUBLISHABLE_KEY` | Stripe live publishable key | `pk_live_...` |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_...` |
 | `RESEND_API_KEY` | Resend email API key | `re_...` |
-| `RESEND_FROM_EMAIL` | Verified sender email | `noreply@domain.com` |
+| `RESEND_FROM_EMAIL` | Verified sender with display name | `Inspect360 <notifications@inspect360.ai>` |
 | `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
 | `BASE_URL` | Production URL | `https://yourdomain.com` |
 | `GCS_BUCKET_NAME` | GCS bucket for files | `inspect360-files` |

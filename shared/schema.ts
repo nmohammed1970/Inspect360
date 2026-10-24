@@ -1001,7 +1001,8 @@ export const inspections = pgTable("inspections", {
   // Inspection can be on either a block or a property (at least one must be set)
   blockId: varchar("block_id"),
   propertyId: varchar("property_id"),
-  inspectorId: varchar("inspector_id").notNull(),
+  /** Nullable so hard-deleted team members can be unassigned from past inspections. */
+  inspectorId: varchar("inspector_id"),
   type: inspectionTypeEnum("type").notNull(),
   status: inspectionStatusEnum("status").notNull().default("scheduled"),
   scheduledDate: timestamp("scheduled_date"),
