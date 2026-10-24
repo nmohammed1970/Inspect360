@@ -4782,6 +4782,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Permanently delete a team member (unassigns work, frees email for re-add)
+  app.delete("/api/team/:userId", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const requesterId = req.user.id;
+      const requester = await storage.getUser(requesterId);
+
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      const { userId } = req.params;
+      const { hardDeleteTeamMember } = await import("./teamMemberHardDelete");
+      const result = await hardDeleteTeamMember({
+        targetUserId: userId,
+        requesterId,
+        organizationId: requester.organizationId,
+      });
+
+      res.json({
+        message: "Team member deleted permanently",
+        deletedUserId: result.deletedUserId,
+        email: result.email,
+        unassigned: result.unassigned,
+      });
+    } catch (error: any) {
+      console.error("Error deleting team member:", error);
+      const status = typeof error?.status === "number" ? error.status : 500;
+      res.status(status).json({
+        message: error?.message || "Failed to delete team member",
+      });
+    }
+  });
+
   app.post("/api/team", isAuthenticated, requireRole("owner"), async (req: any, res) => {
     try {
       const requesterId = req.user.id;
@@ -4847,9 +4880,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Staff team members: send login credentials email (best-effort; never blocks create).
+      // Tenants keep the dedicated /send-password credentials flow.
+      let welcomeEmailSent = false;
+      let welcomeEmailError: string | undefined;
+      if (role !== "tenant") {
+        try {
+          const organization = await storage.getOrganization(requester.organizationId);
+          const recipientName = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
+          const companyName =
+            (organization?.brandingName || "").trim() ||
+            (organization?.name || "").trim() ||
+            null;
+          const { notifyTeamMemberWelcome } = await import("./teamMemberWelcomeNotification");
+          const emailResult = await notifyTeamMemberWelcome({
+            recipientName,
+            email,
+            password, // plaintext from request — hashed copy already stored
+            role,
+            organizationName: companyName,
+          });
+          welcomeEmailSent = emailResult.sent;
+          if (!emailResult.sent && emailResult.error && emailResult.error !== "skipped_tenant") {
+            welcomeEmailError = emailResult.error;
+          }
+        } catch (emailError: any) {
+          welcomeEmailError = emailError?.message || String(emailError);
+          console.error(
+            `Warning: Failed to send welcome email for team member ${newUser.id}:`,
+            emailError,
+          );
+        }
+      }
+
       // Don't return password
       const { password: _, ...userWithoutPassword } = newUser;
-      res.json(userWithoutPassword);
+      res.json({
+        ...userWithoutPassword,
+        welcomeEmailSent,
+        ...(welcomeEmailError ? { welcomeEmailError } : {}),
+      });
     } catch (error: any) {
       console.error("Error creating team member:", error);
       if (error.message?.includes("duplicate") || error.message?.includes("unique")) {
