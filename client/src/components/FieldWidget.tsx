@@ -32,6 +32,15 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { prepareImageForUpload } from "@/lib/compressImage";
 import { formatDisplayHeading } from "@shared/propertyRooms";
+import {
+  fieldOptionValues,
+  normalizeFieldOptions,
+  resolveBooleanOptionColor,
+  resolveOptionColor,
+  type BooleanOptionColors,
+  type FieldOption,
+} from "@shared/fieldOptionColors";
+import { OptionValueBadge } from "@/components/OptionValueBadge";
 
 interface TemplateField {
   id: string;
@@ -40,7 +49,8 @@ interface TemplateField {
   type: string;
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: FieldOption[];
+  booleanColors?: BooleanOptionColors;
   validation?: Record<string, any>;
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
@@ -1519,24 +1529,49 @@ export function FieldWidget({
           </div>
         );
 
-      case "select":
+      case "select": {
+        const selectOpts = normalizeFieldOptions(field.options);
+        const selectedHex = resolveOptionColor(field.options, localValue);
         return (
-          <Select value={localValue || ""} onValueChange={handleValueChange}>
-            <SelectTrigger data-testid={`select-${field.id}`} className="min-h-11">
-              <SelectValue placeholder={field.placeholder || "Select an option"} />
-            </SelectTrigger>
-            <SelectContent>
-              {field.options?.map((option) => (
-                <SelectItem key={option} value={option} data-testid={`select-option-${option}`}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="space-y-2">
+            {localValue ? (
+              <OptionValueBadge label={String(localValue)} colorHex={selectedHex} />
+            ) : null}
+            <Select value={localValue || ""} onValueChange={handleValueChange}>
+              <SelectTrigger data-testid={`select-${field.id}`} className="min-h-11">
+                <SelectValue placeholder={field.placeholder || "Select an option"} />
+              </SelectTrigger>
+              <SelectContent>
+                {selectOpts.map((option) => {
+                  const hex = resolveOptionColor(field.options, option.value);
+                  return (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      data-testid={`select-option-${option.value}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        {hex ? (
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: hex }}
+                            aria-hidden
+                          />
+                        ) : null}
+                        {option.label}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
         );
+      }
 
-      case "multiselect":
-        const selectedValues = localValue || [];
+      case "multiselect": {
+        const selectedValues: string[] = Array.isArray(localValue) ? localValue : [];
+        const multiOpts = fieldOptionValues(field.options);
         return (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2 mb-2">
@@ -1567,8 +1602,8 @@ export function FieldWidget({
                 <SelectValue placeholder="Add option..." />
               </SelectTrigger>
               <SelectContent>
-                {field.options
-                  ?.filter((opt) => !selectedValues.includes(opt))
+                {multiOpts
+                  .filter((opt) => !selectedValues.includes(opt))
                   .map((option) => (
                     <SelectItem key={option} value={option}>
                       {option}
@@ -1578,30 +1613,39 @@ export function FieldWidget({
             </Select>
           </div>
         );
+      }
 
       case "boolean": {
         const isYes = localValue === true || localValue === "true";
         const isNo = localValue === false || localValue === "false";
+        const yesHex = resolveBooleanOptionColor(field, true);
+        const noHex = resolveBooleanOptionColor(field, false);
         return (
-          <div className="flex flex-wrap items-center gap-6 min-h-11">
-            <label className="flex items-center gap-2 cursor-pointer min-w-0">
-              <Checkbox
-                checked={isYes}
-                onCheckedChange={(checked) => handleValueChange(checked === true ? true : null)}
-                data-testid={`checkbox-yes-${field.id}`}
-                className="h-5 w-5"
+          <div className="flex flex-wrap items-center gap-3 min-h-11">
+            <button
+              type="button"
+              onClick={() => handleValueChange(isYes ? null : true)}
+              data-testid={`checkbox-yes-${field.id}`}
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+            >
+              <OptionValueBadge
+                label="Yes"
+                colorHex={isYes ? yesHex : undefined}
+                className={!isYes ? "opacity-50" : "ring-1 ring-offset-1 ring-current"}
               />
-              <span className="text-sm break-words">Yes</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer min-w-0">
-              <Checkbox
-                checked={isNo}
-                onCheckedChange={(checked) => handleValueChange(checked === true ? false : null)}
-                data-testid={`checkbox-no-${field.id}`}
-                className="h-5 w-5"
+            </button>
+            <button
+              type="button"
+              onClick={() => handleValueChange(isNo ? null : false)}
+              data-testid={`checkbox-no-${field.id}`}
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+            >
+              <OptionValueBadge
+                label="No"
+                colorHex={isNo ? noHex : undefined}
+                className={!isNo ? "opacity-50" : "ring-1 ring-offset-1 ring-current"}
               />
-              <span className="text-sm break-words">No</span>
-            </label>
+            </button>
           </div>
         );
       }

@@ -68,6 +68,14 @@ import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { pagePad, textBreak } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 
+import {
+  resolveBooleanOptionColor,
+  resolveOptionColor,
+  type BooleanOptionColors,
+  type FieldOption,
+} from "@shared/fieldOptionColors";
+import { OptionValueBadge } from "@/components/OptionValueBadge";
+
 interface TemplateField {
   id: string;
   key?: string;
@@ -76,7 +84,8 @@ interface TemplateField {
   description?: string;
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: FieldOption[];
+  booleanColors?: BooleanOptionColors;
   validation?: Record<string, any>;
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
@@ -1031,37 +1040,28 @@ export default function InspectionReport() {
       case "toggle": {
         const isYes = actualValue === true || actualValue === "true" || actualValue === "Yes";
         const isNo = actualValue === false || actualValue === "false" || actualValue === "No";
-        displayValue = (
-          <div className="flex flex-wrap items-center gap-6 text-sm">
-            <span className="inline-flex items-center gap-2">
-              <span
-                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
-                  isYes ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                }`}
-                aria-hidden
-              >
-                {isYes ? "✓" : ""}
-              </span>
-              Yes
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <span
-                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
-                  isNo ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                }`}
-                aria-hidden
-              >
-                {isNo ? "✓" : ""}
-              </span>
-              No
-            </span>
-          </div>
-        );
+        if (isYes || isNo) {
+          displayValue = (
+            <OptionValueBadge
+              label={isYes ? "Yes" : "No"}
+              colorHex={resolveBooleanOptionColor(field, isYes)}
+            />
+          );
+        } else {
+          displayValue = <span className="text-muted-foreground italic">Not answered</span>;
+        }
         break;
       }
       case "select":
       case "radio":
-        displayValue = actualValue || <span className="text-muted-foreground italic">Not selected</span>;
+        displayValue = actualValue ? (
+          <OptionValueBadge
+            label={String(actualValue)}
+            colorHex={resolveOptionColor(field.options, String(actualValue))}
+          />
+        ) : (
+          <span className="text-muted-foreground italic">Not selected</span>
+        );
         break;
       case "multiselect":
       case "checkbox":

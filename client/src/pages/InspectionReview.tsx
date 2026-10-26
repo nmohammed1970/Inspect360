@@ -20,19 +20,28 @@ import {
 import { repeatableCountsFromPropertyLayout } from "@shared/propertyLayout";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import type { Inspection } from "@shared/schema";
-
-interface TemplateSection {
-  id: string;
-  title: string;
-  description?: string;
-  fields: TemplateField[];
-}
+import {
+  resolveBooleanOptionColor,
+  resolveOptionColor,
+  type BooleanOptionColors,
+  type FieldOption,
+} from "@shared/fieldOptionColors";
+import { OptionValueBadge } from "@/components/OptionValueBadge";
 
 interface TemplateField {
   id: string;
   label: string;
   type: string;
   required?: boolean;
+  options?: FieldOption[];
+  booleanColors?: BooleanOptionColors;
+}
+
+interface TemplateSection {
+  id: string;
+  title: string;
+  description?: string;
+  fields: TemplateField[];
 }
 
 export default function InspectionReview() {
@@ -128,31 +137,14 @@ export default function InspectionReview() {
       case "boolean": {
         const isYes = value === true || value === "true" || value === "Yes";
         const isNo = value === false || value === "false" || value === "No";
+        if (!isYes && !isNo) {
+          return <span className="text-muted-foreground italic">Not answered</span>;
+        }
         return (
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            <span className="inline-flex items-center gap-2">
-              <span
-                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] ${
-                  isYes ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                }`}
-                aria-hidden
-              >
-                {isYes ? "✓" : ""}
-              </span>
-              Yes
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <span
-                className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] ${
-                  isNo ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                }`}
-                aria-hidden
-              >
-                {isNo ? "✓" : ""}
-              </span>
-              No
-            </span>
-          </div>
+          <OptionValueBadge
+            label={isYes ? "Yes" : "No"}
+            colorHex={resolveBooleanOptionColor(field, isYes)}
+          />
         );
       }
       
@@ -178,7 +170,12 @@ export default function InspectionReview() {
         );
       
       case "select":
-        return <Badge variant="outline">{value}</Badge>;
+        return (
+          <OptionValueBadge
+            label={String(value)}
+            colorHex={resolveOptionColor(field.options, String(value))}
+          />
+        );
       
       case "photo":
       case "photo_array":
