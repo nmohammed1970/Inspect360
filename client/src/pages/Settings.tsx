@@ -1,5 +1,5 @@
 import { PreviewableImage } from "@/components/ImagePreview";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useSearch, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,6 +141,7 @@ export default function Settings() {
   const [brandingAddress, setBrandingAddress] = useState("");
   const [brandingWebsite, setBrandingWebsite] = useState("");
   const [reportPalette, setReportPalette] = useState<ReportBrandPalette>({ ...DEFAULT_REPORT_PALETTE });
+  const lastValidReportPaletteRef = useRef<ReportBrandPalette>({ ...DEFAULT_REPORT_PALETTE });
   const [paletteMeta, setPaletteMeta] = useState<ReportBrandPaletteMeta | null>(null);
   const [extractMessage, setExtractMessage] = useState<string | null>(null);
   const [financeEmail, setFinanceEmail] = useState("");
@@ -175,17 +176,23 @@ export default function Settings() {
       setBrandingWebsite(organization.brandingWebsite || "");
       const savedPalette = (organization as any).brandingReportPalette as ReportBrandPalette | null;
       if (savedPalette?.primary) {
-        setReportPalette({ ...DEFAULT_REPORT_PALETTE, ...savedPalette });
+        const next = { ...DEFAULT_REPORT_PALETTE, ...savedPalette };
+        setReportPalette(next);
+        lastValidReportPaletteRef.current = next;
       } else if (organization.brandingPrimaryColor) {
         const p = normalizeHexColor(organization.brandingPrimaryColor) || DEFAULT_REPORT_PALETTE.primary;
-        setReportPalette({
+        const next = {
           ...DEFAULT_REPORT_PALETTE,
           primary: p,
           secondary: DEFAULT_REPORT_PALETTE.secondary,
           accent: p,
-        });
+        };
+        setReportPalette(next);
+        lastValidReportPaletteRef.current = next;
       } else {
-        setReportPalette({ ...DEFAULT_REPORT_PALETTE });
+        const next = { ...DEFAULT_REPORT_PALETTE };
+        setReportPalette(next);
+        lastValidReportPaletteRef.current = next;
       }
       setPaletteMeta(((organization as any).brandingPaletteMeta as ReportBrandPaletteMeta) || null);
       setFinanceEmail(organization.financeEmail || "");
@@ -212,11 +219,24 @@ export default function Settings() {
         financeEmail: financeEmail || null,
         comparisonAlertThreshold,
         ...(isWhiteLabelEnabled
-          ? {
-              brandingReportPalette: reportPalette,
-              brandingPaletteMeta: paletteMeta,
-              brandingPrimaryColor: reportPalette.primary,
-            }
+          ? (() => {
+              const normalizedPalette = { ...DEFAULT_REPORT_PALETTE } as ReportBrandPalette;
+              (Object.keys(DEFAULT_REPORT_PALETTE) as Array<keyof ReportBrandPalette>).forEach((k) => {
+                normalizedPalette[k] =
+                  normalizeHexColor(reportPalette[k]) ||
+                  lastValidReportPaletteRef.current[k] ||
+                  DEFAULT_REPORT_PALETTE[k];
+              });
+              lastValidReportPaletteRef.current = normalizedPalette;
+              return {
+                brandingReportPalette: normalizedPalette,
+                brandingPaletteMeta: {
+                  ...(paletteMeta || {}),
+                  extractionStatus: paletteMeta?.extractionStatus || "manual",
+                },
+                brandingPrimaryColor: normalizedPalette.primary,
+              };
+            })()
           : {}),
       });
       return response.json();
@@ -254,9 +274,11 @@ export default function Settings() {
       meta: ReportBrandPaletteMeta;
       message?: string;
     }) => {
-      setReportPalette({ ...DEFAULT_REPORT_PALETTE, ...data.palette });
+      const next = { ...DEFAULT_REPORT_PALETTE, ...data.palette };
+      setReportPalette(next);
+      lastValidReportPaletteRef.current = next;
       setPaletteMeta(data.meta || null);
-      setExtractMessage(data.message || "Colours detected. Review and save to apply to reports.");
+      setExtractMessage(data.message || "Colours detected. Review and edit any swatch, then save to apply to reports.");
       if (data.meta?.sourceUrl) {
         try {
           const host = new URL(data.meta.sourceUrl).hostname;
@@ -298,7 +320,9 @@ export default function Settings() {
       return response.json();
     },
     onSuccess: () => {
-      setReportPalette({ ...DEFAULT_REPORT_PALETTE });
+      const next = { ...DEFAULT_REPORT_PALETTE };
+      setReportPalette(next);
+      lastValidReportPaletteRef.current = next;
       setPaletteMeta({ extractionStatus: "default", appliedAt: new Date().toISOString() });
       setExtractMessage(null);
       queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
@@ -906,8 +930,8 @@ export default function Settings() {
                               Website Brand Colours
                             </Label>
                             <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-                              Extract real colours from your company website and apply them to inspection report PDFs.
-                              Status colours (pass/fail, severity) stay unchanged.
+                              Extract colours from your company website, or edit any swatch below to override them.
+                              Changes apply to report PDFs after you save branding. Status colours (pass/fail, severity) stay unchanged.
                             </p>
                           </div>
                         </div>
@@ -962,18 +986,25 @@ export default function Settings() {
                             )}
 
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                              {PALETTE_ROLE_LABELS.map(({ key, label }) => (
+                              {PALETTE_ROLE_LABELS.map(({ key, label }) => {
+                                const stored = reportPalette[key] || "";
+                                const validHex = normalizeHexColor(stored);
+                                return (
                                 <div key={key} className="space-y-1.5">
                                   <Label className="text-xs">{label}</Label>
                                   <div className="flex items-center gap-2">
                                     <input
                                       type="color"
                                       aria-label={label}
-                                      value={normalizeHexColor(reportPalette[key] || "") || "#000000"}
+                                      value={validHex || "#000000"}
                                       onChange={(e) => {
                                         const hex = normalizeHexColor(e.target.value);
                                         if (!hex) return;
                                         setReportPalette((prev) => ({ ...prev, [key]: hex }));
+                                        lastValidReportPaletteRef.current = {
+                                          ...lastValidReportPaletteRef.current,
+                                          [key]: hex,
+                                        };
                                         setPaletteMeta((prev) => ({
                                           ...(prev || {}),
                                           extractionStatus: "manual",
@@ -983,21 +1014,59 @@ export default function Settings() {
                                       data-testid={`input-palette-${key}`}
                                     />
                                     <Input
-                                      value={reportPalette[key] || ""}
+                                      value={stored}
                                       onChange={(e) => {
-                                        const hex = normalizeHexColor(e.target.value);
-                                        if (!hex && e.target.value.trim() !== "") return;
+                                        // Allow free typing / paste; normalize when value becomes a valid hex
+                                        const raw = e.target.value;
+                                        const hex = normalizeHexColor(raw);
                                         setReportPalette((prev) => ({
                                           ...prev,
-                                          [key]: hex || prev[key],
+                                          [key]: hex || raw,
+                                        }));
+                                        if (hex) {
+                                          lastValidReportPaletteRef.current = {
+                                            ...lastValidReportPaletteRef.current,
+                                            [key]: hex,
+                                          };
+                                          setPaletteMeta((prev) => ({
+                                            ...(prev || {}),
+                                            extractionStatus: "manual",
+                                          }));
+                                        }
+                                      }}
+                                      onBlur={() => {
+                                        const hex = normalizeHexColor(reportPalette[key] || "");
+                                        if (hex) {
+                                          setReportPalette((prev) => ({ ...prev, [key]: hex }));
+                                          lastValidReportPaletteRef.current = {
+                                            ...lastValidReportPaletteRef.current,
+                                            [key]: hex,
+                                          };
+                                          setPaletteMeta((prev) => ({
+                                            ...(prev || {}),
+                                            extractionStatus: "manual",
+                                          }));
+                                          return;
+                                        }
+                                        // Revert incomplete/invalid edits to last valid colour for this role
+                                        const fallback =
+                                          lastValidReportPaletteRef.current[key] ||
+                                          DEFAULT_REPORT_PALETTE[key] ||
+                                          DEFAULT_REPORT_PALETTE.primary;
+                                        setReportPalette((prev) => ({
+                                          ...prev,
+                                          [key]: fallback,
                                         }));
                                       }}
                                       className="font-mono text-xs h-9"
                                       placeholder="#000000"
+                                      spellCheck={false}
+                                      data-testid={`input-palette-hex-${key}`}
                                     />
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
 
                             <div

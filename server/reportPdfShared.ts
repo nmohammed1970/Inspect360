@@ -4,6 +4,7 @@
  */
 
 import fs from "fs/promises";
+import { PDFDocument } from "pdf-lib";
 import { ObjectStorageService } from "./objectStorage";
 import { formatCurrency } from "@shared/countryUtils";
 import { resolveReportLogoUrl, REPORT_LOGO_ON_DARK, REPORT_LOGO_ON_LIGHT } from "./reportLogo";
@@ -203,8 +204,425 @@ export function coverSubjectImageCss(): string {
   `;
 }
 
-export async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): Promise<string | null> {
-  const url = resolveReportLogoUrl(logoUrl, "on-dark");
+/** White-cover photo styling (no white border; matches print mock). */
+export function whiteCoverSubjectImageCss(): string {
+  return `
+    .cover-subject-image-wrap {
+      margin: 18px auto 16px;
+      width: 150mm;
+      max-width: 82%;
+      position: relative;
+      z-index: 1;
+      flex-shrink: 0;
+    }
+    .cover-subject-image {
+      width: 100%;
+      height: 78mm;
+      max-height: 78mm;
+      object-fit: cover;
+      border-radius: 2px;
+      border: 1px solid #e5e7eb;
+      box-shadow: none;
+      display: block;
+    }
+  `;
+}
+
+export type CoverMetaRow = { label: string; value: string };
+
+/** White cover page CSS — accents from org branding theme. */
+export function whiteCoverCss(themeInput?: ReportTheme | OrgBrandThemeSource | null): string {
+  const theme =
+    themeInput && "primary" in themeInput && "primaryDark" in themeInput
+      ? (themeInput as ReportTheme)
+      : resolveReportTheme((themeInput as OrgBrandThemeSource) || null);
+  const primary = theme.primary;
+  const text = theme.text || "#111827";
+  const muted = theme.mutedText || "#6b7280";
+  return `
+    @page {
+      /* Margins come from page.pdf options (cover = 0, body = chrome room) */
+      margin: 0;
+      background: #ffffff;
+    }
+    @page :first {
+      margin: 0;
+      background: #ffffff;
+    }
+    html, body {
+      background: #ffffff !important;
+    }
+    .cover-page {
+      min-height: 100vh;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      text-align: center;
+      background: #ffffff !important;
+      color: ${text};
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+      box-sizing: border-box;
+      padding: 28mm 18mm 22mm;
+    }
+    .cover-page::before,
+    .cover-page::after { display: none; }
+    .cover-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      flex: 1;
+    }
+    .cover-logo-container {
+      margin-bottom: 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .cover-logo-img {
+      max-height: 96px;
+      max-width: 220px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      margin-top: 0;
+      background: transparent;
+      filter: none;
+    }
+    .cover-logo-text,
+    .cover-company-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: ${primary};
+      letter-spacing: 0.5px;
+    }
+    .cover-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 8px;
+      letter-spacing: 0.2px;
+      color: ${primary};
+    }
+    .cover-subtitle {
+      font-size: 15px;
+      font-weight: 400;
+      margin-bottom: 8px;
+      color: ${muted};
+      max-width: 90%;
+    }
+    .cover-address {
+      font-size: 18px;
+      font-weight: 700;
+      color: ${primary};
+      margin: 8px 0 20px;
+      max-width: 90%;
+      line-height: 1.35;
+    }
+    .cover-meta-table {
+      width: 72%;
+      max-width: 420px;
+      margin: 8px auto 0;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    .cover-meta-table tr {
+      border-top: 1px solid ${primary};
+    }
+    .cover-meta-table tr:last-child {
+      border-bottom: 1px solid ${primary};
+    }
+    .cover-meta-table td {
+      padding: 10px 4px;
+      font-size: 13px;
+      vertical-align: middle;
+      border: none;
+    }
+    .cover-meta-table td.meta-label {
+      font-weight: 700;
+      color: ${primary};
+      width: 48%;
+    }
+    .cover-meta-table td.meta-value {
+      font-weight: 400;
+      color: ${text};
+      text-align: right;
+    }
+    .cover-bottom-bar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 14mm;
+      background: ${primary};
+      z-index: 2;
+    }
+    .cover-contact { display: none; }
+    ${whiteCoverSubjectImageCss()}
+  `;
+}
+
+export function buildWhiteCoverHtml(params: {
+  logoHtml: string;
+  title: string;
+  subjectImageHtml?: string;
+  address?: string | null;
+  metaRows?: CoverMetaRow[];
+  subtitle?: string | null;
+}): string {
+  const metaRows = (params.metaRows || []).filter((r) => (r.label || "").trim() && (r.value || "").trim());
+  const metaTable =
+    metaRows.length > 0
+      ? `<table class="cover-meta-table"><tbody>${metaRows
+          .map(
+            (r) =>
+              `<tr><td class="meta-label">${escapeHtml(r.label)}</td><td class="meta-value">${escapeHtml(r.value)}</td></tr>`,
+          )
+          .join("")}</tbody></table>`
+      : "";
+  const addressHtml = params.address?.trim()
+    ? `<div class="cover-address">${escapeHtml(params.address.trim())}</div>`
+    : "";
+  const subtitleHtml = params.subtitle?.trim()
+    ? `<div class="cover-subtitle">${escapeHtml(params.subtitle.trim())}</div>`
+    : "";
+  return `
+  <div class="cover-page">
+    <div class="cover-content">
+      <div class="cover-logo-container">${params.logoHtml || ""}</div>
+      <div class="cover-title">${escapeHtml(params.title)}</div>
+      ${subtitleHtml}
+      ${params.subjectImageHtml || ""}
+      ${addressHtml}
+      ${metaTable}
+    </div>
+    <div class="cover-bottom-bar"></div>
+  </div>`;
+}
+
+/** Reserved vertical bands for repeating chrome (must match pdfPageOptionsWithChrome margins). */
+export const PDF_CHROME_MARGIN = {
+  top: "26mm",
+  right: "12mm",
+  bottom: "22mm",
+  left: "12mm",
+} as const;
+
+export function buildPdfHeaderTemplate(params: {
+  logoDataUrl?: string | null;
+  theme?: ReportTheme | null;
+}): string {
+  const theme = params.theme || resolveReportTheme(null);
+  const primary = theme.primary;
+  const logo = params.logoDataUrl?.trim();
+  const logoHtml = logo
+    ? `<img src="${logo.replace(/"/g, "&quot;")}" style="height:20px;width:auto;max-width:70px;object-fit:contain;display:block;" />`
+    : "";
+  // Compact right-aligned chrome. Lives only in the top margin band — never in content.
+  return `
+<div style="width:100%;font-size:9px;padding:6px 12mm 8px;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+  <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:22px;width:100%;">
+    <div style="flex:1;border-top:1.5px solid ${primary};"></div>
+    <div style="flex:0 0 auto;display:flex;align-items:center;">${logoHtml}</div>
+  </div>
+</div>`;
+}
+
+export function buildPdfFooterTemplate(params: {
+  address?: string | null;
+  propertyName?: string | null;
+  theme?: ReportTheme | null;
+}): string {
+  const theme = params.theme || resolveReportTheme(null);
+  const primary = theme.primary;
+  const left = escapeHtml((params.address || "").trim());
+  const right = escapeHtml((params.propertyName || "").trim());
+  return `
+<div style="width:100%;font-size:8px;padding:8px 12mm 6px;box-sizing:border-box;color:${primary};font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+  <div style="border-top:1px solid ${primary};padding-top:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+    <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${left}</span>
+    <span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${right}</span>
+  </div>
+</div>`;
+}
+
+export type PdfChromeOptions = {
+  landscape?: boolean;
+  format?: "A4" | "Letter";
+  theme?: ReportTheme | null;
+  address?: string | null;
+  propertyName?: string | null;
+  logoDataUrl?: string | null;
+  /** When false, skip repeating header/footer (rare). Default true. */
+  displayHeaderFooter?: boolean;
+};
+
+/** Shared Puppeteer page.pdf options with branded header/footer chrome. */
+export function pdfPageOptionsWithChrome(opts: PdfChromeOptions = {}) {
+  const theme = opts.theme || resolveReportTheme(null);
+  const showChrome = opts.displayHeaderFooter !== false;
+  return {
+    format: opts.format || ("A4" as const),
+    landscape: !!opts.landscape,
+    printBackground: true,
+    // When chrome is on, ignore @page { margin: 0 } from cover CSS — otherwise content
+    // paints under the header/footer and overlaps logo/address. Cover pass keeps CSS page size.
+    preferCSSPageSize: !showChrome,
+    displayHeaderFooter: showChrome,
+    headerTemplate: showChrome
+      ? buildPdfHeaderTemplate({ logoDataUrl: opts.logoDataUrl, theme })
+      : "<div></div>",
+    footerTemplate: showChrome
+      ? buildPdfFooterTemplate({
+          address: opts.address,
+          propertyName: opts.propertyName,
+          theme,
+        })
+      : "<div></div>",
+    margin: showChrome
+      ? { ...PDF_CHROME_MARGIN }
+      : { top: "0", right: "0", bottom: "0", left: "0" },
+  };
+}
+
+export async function mergePdfBuffers(parts: Array<Buffer | Uint8Array>): Promise<Buffer> {
+  const out = await PDFDocument.create();
+  for (const part of parts) {
+    if (!part || part.length === 0) continue;
+    const doc = await PDFDocument.load(part);
+    const pages = await out.copyPages(doc, doc.getPageIndices());
+    for (const page of pages) out.addPage(page);
+  }
+  return Buffer.from(await out.save());
+}
+
+/** Hide everything after the white cover (siblings of .cover-page). */
+const PDF_COVER_ONLY_STYLE = `<style id="pdf-cover-only-pass">
+  .cover-page ~ *,
+  .container > .cover-page ~ * { display: none !important; }
+</style>`;
+
+/**
+ * Hide the white cover so body pages start at page 1 of this pass.
+ * Also force @page margins that clear repeating header/footer (cover CSS sets margin: 0).
+ */
+const PDF_BODY_ONLY_STYLE = `<style id="pdf-body-only-pass">
+  .cover-page { display: none !important; }
+  @page {
+    margin: ${PDF_CHROME_MARGIN.top} ${PDF_CHROME_MARGIN.right} ${PDF_CHROME_MARGIN.bottom} ${PDF_CHROME_MARGIN.left} !important;
+    background: #ffffff;
+  }
+  @page :first {
+    margin: ${PDF_CHROME_MARGIN.top} ${PDF_CHROME_MARGIN.right} ${PDF_CHROME_MARGIN.bottom} ${PDF_CHROME_MARGIN.left} !important;
+    background: #ffffff;
+  }
+</style>`;
+
+function injectPdfPassStyle(html: string, styleTag: string): string {
+  if (html.includes("</head>")) {
+    return html.replace("</head>", `${styleTag}</head>`);
+  }
+  return `${styleTag}${html}`;
+}
+
+type PuppeteerPageLike = {
+  setContent: (
+    html: string,
+    options?: { waitUntil?: "domcontentloaded" | "load" | "networkidle0"; timeout?: number },
+  ) => Promise<void>;
+  pdf: (options: Record<string, unknown>) => Promise<Uint8Array>;
+  evaluate?: (fn: () => Promise<void> | void) => Promise<unknown>;
+};
+
+/**
+ * Render report HTML to PDF. When a white cover is present, page 1 is generated
+ * without header/footer; remaining pages get branded chrome.
+ */
+export async function renderHtmlToBrandedPdf(
+  page: PuppeteerPageLike,
+  html: string,
+  chromeOpts: PdfChromeOptions = {},
+): Promise<Buffer> {
+  const hasCover = /class=["']cover-page["']/.test(html);
+
+  const settleImages = async () => {
+    if (!page.evaluate) return;
+    try {
+      await Promise.race([
+        page.evaluate(async () => {
+          const images = Array.from(document.images);
+          await Promise.all(
+            images.map(
+              (img) =>
+                img.complete
+                  ? Promise.resolve()
+                  : new Promise<void>((resolve) => {
+                      img.addEventListener("load", () => resolve(), { once: true });
+                      img.addEventListener("error", () => resolve(), { once: true });
+                    }),
+            ),
+          );
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 45_000)),
+      ]);
+    } catch (err) {
+      console.warn("[PDF] Image settle wait failed; continuing:", err);
+    }
+  };
+
+  const loadHtml = async (documentHtml: string) => {
+    await page.setContent(documentHtml, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000,
+    });
+    await settleImages();
+  };
+
+  if (!hasCover) {
+    await loadHtml(html);
+    return Buffer.from(
+      await page.pdf(pdfPageOptionsWithChrome({ ...chromeOpts, displayHeaderFooter: chromeOpts.displayHeaderFooter !== false })),
+    );
+  }
+
+  // Pass 1: cover only, no repeating chrome
+  await loadHtml(injectPdfPassStyle(html, PDF_COVER_ONLY_STYLE));
+  const coverPdf = Buffer.from(
+    await page.pdf(
+      pdfPageOptionsWithChrome({
+        ...chromeOpts,
+        displayHeaderFooter: false,
+      }),
+    ),
+  );
+
+  // Pass 2: body pages with header/footer
+  await loadHtml(injectPdfPassStyle(html, PDF_BODY_ONLY_STYLE));
+  const bodyPdf = Buffer.from(
+    await page.pdf(
+      pdfPageOptionsWithChrome({
+        ...chromeOpts,
+        displayHeaderFooter: true,
+      }),
+    ),
+  );
+
+  return mergePdfBuffers([coverPdf, bodyPdf]);
+}
+
+export async function logoToDataUrl(
+  logoUrl?: string | null,
+  baseUrl?: string,
+  variant: "on-dark" | "on-light" = "on-dark",
+): Promise<string | null> {
+  const url = resolveReportLogoUrl(logoUrl, variant);
   if (url.startsWith("data:")) return url;
 
   try {
@@ -229,7 +647,7 @@ export async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): 
     const response = await fetch(absoluteUrl, { headers: { Accept: "image/*" } });
     if (!response.ok) {
       if (logoUrl) {
-        return logoToDataUrl(null, baseUrl);
+        return logoToDataUrl(null, baseUrl, variant);
       }
       return null;
     }
@@ -240,7 +658,7 @@ export async function logoToDataUrl(logoUrl?: string | null, baseUrl?: string): 
     console.warn("[Report PDF] Logo conversion failed:", error);
     if (logoUrl) {
       try {
-        return await logoToDataUrl(null, baseUrl);
+        return await logoToDataUrl(null, baseUrl, variant);
       } catch {
         return null;
       }
@@ -271,157 +689,91 @@ export function formatMoneyCents(value: unknown, currency: "GBP" | "USD" | "AED"
   return formatCurrency(num, currency, true);
 }
 
+/**
+ * Section heading banner used across all PDF reports.
+ * Left-aligned and shrink-to-text (not full page width) so it never collides with the chrome logo.
+ * Background = branding primary; white all-caps type (medium weight, no shadow).
+ */
+export function sectionHeadingBannerCss(primary: string): string {
+  const bg = primary || DEFAULT_REPORT_PALETTE.primary;
+  return `
+    .section-title,
+    .report-section-title,
+    h2.section-title,
+    h2.report-section-title {
+      display: inline-block;
+      width: auto;
+      max-width: calc(100% - 90px);
+      box-sizing: border-box;
+      margin: 0 0 18px 0;
+      padding: 8px 16px;
+      background: ${bg} !important;
+      color: #ffffff !important;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      line-height: 1.2;
+      text-transform: uppercase;
+      text-align: left;
+      border: none !important;
+      border-bottom: none !important;
+      border-radius: 4px;
+      text-shadow: none;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      position: relative;
+      float: none;
+      clear: both;
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    .section-title::before,
+    .section-title::after,
+    .report-section-title::before,
+    .report-section-title::after {
+      content: none !important;
+      display: none !important;
+    }
+  `;
+}
+
 export function sharedCss(themeInput?: ReportTheme | OrgBrandThemeSource | null): string {
   const theme = themeInput && "primary" in themeInput && "primaryDark" in themeInput
     ? (themeInput as ReportTheme)
     : resolveReportTheme((themeInput as OrgBrandThemeSource) || null);
   const primary = theme.primary;
-  const secondary = theme.secondary;
-  const primaryDark = theme.primaryDark || secondary;
   return `
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: ${theme.text || "#333"};
-      background: ${theme.background || "white"};
+      /* Print canvas stays white — brand accents apply to text/rules/tables only */
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, ${primary} 0%, ${primaryDark} 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-page::after {
-      content: '';
-      position: absolute;
-      bottom: -30%;
-      left: -10%;
-      width: 40%;
-      height: 150%;
-      background: rgba(255, 255, 255, 0.02);
-      transform: rotate(-10deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      /* Keep meta above absolutely positioned .cover-contact footer */
-      padding: 16px 24px 72px;
-      width: 100%;
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-    .cover-logo-container {
-      margin-bottom: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-img {
-      max-height: 72px;
-      max-width: 240px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      margin-top: 12px;
-      background: transparent;
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 28px;
-      font-weight: 600;
-      opacity: 0.95;
-      letter-spacing: 1px;
-    }
-    .cover-title {
-      font-size: 36px;
-      font-weight: 700;
-      margin-bottom: 8px;
-      letter-spacing: 0.5px;
-    }
-    .cover-subtitle {
-      font-size: 18px;
-      font-weight: 400;
-      margin-bottom: 12px;
-      opacity: 0.9;
-      max-width: 90%;
-    }
-    .cover-meta {
-      font-size: 15px;
-      opacity: 0.9;
-      margin-top: 6px;
-    }
-    .cover-contact {
-      position: absolute;
-      bottom: 28px;
-      left: 24px;
-      right: 24px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 2;
-      text-align: center;
-      pointer-events: none;
-    }
-    ${coverSubjectImageCss()}
+    ${whiteCoverCss(theme)}
     .page {
-      padding: 40px;
-      /* Flow sections onto shared pages; forced breaks caused large blank regions */
+      padding: 8px 0 16px;
+      background: transparent;
       page-break-after: auto;
       break-after: auto;
     }
+    /* Each major report section starts on its own page (cover already breaks after itself) */
     .page + .page {
-      margin-top: 8px;
-      padding-top: 32px;
-      border-top: 1px solid #e5e7eb;
+      page-break-before: always;
+      break-before: page;
+      margin-top: 0;
+      padding-top: 8px;
+      border-top: none;
     }
-    .section-title {
-      font-size: 26px;
-      font-weight: 800;
-      margin-bottom: 28px;
-      color: ${primary};
-      border-bottom: 4px solid ${primary};
-      padding-bottom: 12px;
-      padding-left: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      position: relative;
-      break-after: avoid;
-      page-break-after: avoid;
-    }
-    .section-title::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      bottom: -4px;
-      width: 60px;
-      height: 4px;
-      background: ${secondary};
-      border-radius: 2px;
+    ${sectionHeadingBannerCss(primary)}
+    /* Safety: if a section title appears mid-flow without a .page wrapper, still break */
+    .page .section-title {
+      break-before: avoid;
+      page-break-before: avoid;
     }
     .stats-grid {
       display: grid;
@@ -604,18 +956,25 @@ export async function buildCoverChrome(params: {
   organizationName: string;
   branding?: LandscapeReportBranding;
   baseUrl?: string;
+  /** White covers use on-light logo; legacy gradient covers used on-dark. */
+  logoVariant?: "on-dark" | "on-light";
 }): Promise<{
   displayName: string;
   companyNameHtml: string;
   logoHtml: string;
   contactInfoHtml: string;
+  logoDataUrl: string | null;
 }> {
   const displayName = resolveCompanyDisplayName(params.organizationName, params.branding?.brandingName);
-  const logoDataUrl = await logoToDataUrl(params.branding?.logoUrl, params.baseUrl);
+  const logoDataUrl = await logoToDataUrl(
+    params.branding?.logoUrl,
+    params.baseUrl,
+    params.logoVariant || "on-light",
+  );
   const companyNameHtml = `<div class="cover-company-name">${escapeHtml(displayName)}</div>`;
   const logoHtml = logoDataUrl
     ? `<img src="${sanitizeReportUrl(logoDataUrl)}" alt="${escapeHtml(displayName)}" class="cover-logo-img" />`
-    : "";
+    : companyNameHtml;
   const contactParts: string[] = [];
   if (params.branding?.brandingEmail) contactParts.push(escapeHtml(params.branding.brandingEmail));
   if (params.branding?.brandingPhone) contactParts.push(escapeHtml(params.branding.brandingPhone));
@@ -624,5 +983,5 @@ export async function buildCoverChrome(params: {
     contactParts.length > 0
       ? `<div class="cover-contact">${contactParts.join(" &nbsp;|&nbsp; ")}</div>`
       : "";
-  return { displayName, companyNameHtml, logoHtml, contactInfoHtml };
+  return { displayName, companyNameHtml, logoHtml, contactInfoHtml, logoDataUrl };
 }

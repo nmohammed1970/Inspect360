@@ -209,12 +209,12 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       // Enable foreign keys
       await retryDatabaseOperation(() => db.execAsync('PRAGMA foreign_keys = ON;'), 3, 50);
 
-      // Create tables
+      // Create tables (IF NOT EXISTS — does not add new columns on existing installs)
       await createTables(db);
 
-      if (currentVersion < 3) {
-        await migrateLocalImagesV3(db);
-      }
+      // Always run additive v3 migration (idempotent) before purpose index
+      await migrateLocalImagesV3(db);
+      await ensureLocalImagesPurposeIndex(db);
 
       // Store version
       await retryDatabaseOperation(() => db.execAsync(`
@@ -253,6 +253,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await retryDatabaseOperation(() => db.execAsync('PRAGMA journal_mode = WAL;'), 3, 50);
       await retryDatabaseOperation(() => db.execAsync('PRAGMA foreign_keys = ON;'), 3, 50);
       await createTables(db);
+      await migrateLocalImagesV3(db);
+      await ensureLocalImagesPurposeIndex(db);
       await retryDatabaseOperation(() => db.execAsync(`
         CREATE TABLE IF NOT EXISTS db_version (
           version INTEGER PRIMARY KEY
@@ -339,6 +341,8 @@ async function createTables(database: SQLite.SQLiteDatabase): Promise<void> {
   `), 5, 100);
 
   // Create indexes for better query performance
+  // Note: idx_local_images_purpose is created after migrateLocalImagesV3 so existing
+  // DBs get the purpose column before this index is applied.
   await retryDatabaseOperation(() => database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_inspections_syncStatus ON inspections(syncStatus);
     CREATE INDEX IF NOT EXISTS idx_inspections_isDeleted ON inspections(isDeleted);
@@ -348,8 +352,15 @@ async function createTables(database: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sync_queue_operation ON sync_queue(operation);
     CREATE INDEX IF NOT EXISTS idx_local_images_inspectionId ON local_images(inspectionId);
     CREATE INDEX IF NOT EXISTS idx_local_images_syncStatus ON local_images(syncStatus);
-    CREATE INDEX IF NOT EXISTS idx_local_images_purpose ON local_images(purpose);
   `), 5, 100);
+}
+
+async function ensureLocalImagesPurposeIndex(database: SQLite.SQLiteDatabase): Promise<void> {
+  await retryDatabaseOperation(
+    () => database.execAsync(`CREATE INDEX IF NOT EXISTS idx_local_images_purpose ON local_images(purpose)`),
+    5,
+    100,
+  );
 }
 
 /** Additive v3 columns for existing installs (avoids wiping pending offline data). */

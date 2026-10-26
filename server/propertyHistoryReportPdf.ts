@@ -14,6 +14,7 @@ import {
   renderTable,
   statusBadge,
   buildCoverChrome,
+  buildWhiteCoverHtml,
   sanitizeReportUrl,
   resolveReportImageToDataUrl,
   renderCoverSubjectImageHtml,
@@ -182,10 +183,11 @@ export async function generatePropertyHistoryReportHTML(params: {
 
   const currency = getCurrencyForCountry(countryCode || "GB");
   const reportDate = new Date().toLocaleDateString();
-  const { displayName, companyNameHtml, logoHtml, contactInfoHtml } = await buildCoverChrome({
+  const { displayName, logoHtml } = await buildCoverChrome({
     organizationName,
     branding,
     baseUrl,
+    logoVariant: "on-light",
   });
 
   let coverSubjectImageHtml = "";
@@ -320,20 +322,17 @@ export async function generatePropertyHistoryReportHTML(params: {
   <style>${sharedCss(branding)}</style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${companyNameHtml}
-        ${logoHtml}
-      </div>
-      <div class="cover-title">Property History Report</div>
-      ${coverSubjectImageHtml}
-      <div class="cover-subtitle">${escapeHtml(propertyTitle)}${propertyAddress ? ` — ${escapeHtml(propertyAddress)}` : ""}</div>
-      <div class="cover-meta"><strong>Organization:</strong> ${escapeHtml(displayName)}</div>
-      <div class="cover-meta"><strong>Report Date:</strong> ${escapeHtml(reportDate)}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Property History Report",
+    subjectImageHtml: coverSubjectImageHtml,
+    address: propertyAddress || propertyTitle,
+    metaRows: [
+      { label: "Property", value: propertyTitle },
+      { label: "Organization", value: displayName },
+      { label: "Report Date", value: reportDate },
+    ],
+  })}
 
   <div class="page">
     <h2 class="section-title">Summary</h2>

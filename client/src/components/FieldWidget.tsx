@@ -2359,16 +2359,77 @@ export function FieldWidget({
                       onClick={async () => {
                         setTranscribingUrl(url);
                         try {
-                          const response = await fetch(url);
-                          const audioBlob = await response.blob();
-                          const form = new FormData();
-                          form.append('audio', audioBlob, 'recording.webm');
-                          const res = await fetch('/api/audio/transcribe', { method: 'POST', body: form, credentials: 'include' });
-                          if (!res.ok) {
-                            const err = await res.json().catch(() => ({}));
-                            throw new Error(err.error || err.message || 'Transcription failed');
+                          // Must send cookies — object URLs may require auth; bare fetch can return HTML.
+                          const response = await fetch(url, { credentials: "include" });
+                          if (!response.ok) {
+                            throw new Error("Could not load the recording. Try again while signed in.");
                           }
-                          const result = await res.json();
+                          const arrayBuf = await response.arrayBuffer();
+                          if (arrayBuf.byteLength < 1000) {
+                            throw new Error("Recording file looks empty or corrupted. Try recording again.");
+                          }
+                          const bytes = new Uint8Array(arrayBuf);
+                          // iOS uploads are M4A (ftyp…); use base64 path (same as mobile) — more reliable than multipart.
+                          const isFtyp =
+                            bytes.length >= 12 &&
+                            bytes[4] === 0x66 &&
+                            bytes[5] === 0x74 &&
+                            bytes[6] === 0x79 &&
+                            bytes[7] === 0x70;
+                          const isWebm =
+                            bytes.length >= 4 &&
+                            bytes[0] === 0x1a &&
+                            bytes[1] === 0x45 &&
+                            bytes[2] === 0xdf &&
+                            bytes[3] === 0xa3;
+                          const urlExt = (url.split("?")[0].split(".").pop() || "").toLowerCase();
+                          const preferBase64 =
+                            isFtyp ||
+                            urlExt === "m4a" ||
+                            urlExt === "mp4" ||
+                            urlExt === "caf" ||
+                            (!isWebm && (url.includes("/objects/") || urlExt === "bin" || !urlExt));
+
+                          let result: { text?: string };
+                          if (preferBase64) {
+                            let binary = "";
+                            const chunk = 0x8000;
+                            for (let i = 0; i < bytes.length; i += chunk) {
+                              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+                            }
+                            const audioBase64 = btoa(binary);
+                            const res = await fetch("/api/audio/transcribe-base64", {
+                              method: "POST",
+                              credentials: "include",
+                              headers: { "Content-Type": "application/json", Accept: "application/json" },
+                              body: JSON.stringify({
+                                audioBase64,
+                                fileName: "recording.m4a",
+                              }),
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({}));
+                              throw new Error(err.error || err.message || "Transcription failed");
+                            }
+                            result = await res.json();
+                          } else {
+                            const mime = isWebm
+                              ? "audio/webm"
+                              : (response.headers.get("content-type") || "audio/webm");
+                            const ext = isWebm ? "webm" : urlExt || "webm";
+                            const form = new FormData();
+                            form.append("audio", new Blob([arrayBuf], { type: mime }), `recording.${ext}`);
+                            const res = await fetch("/api/audio/transcribe", {
+                              method: "POST",
+                              body: form,
+                              credentials: "include",
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({}));
+                              throw new Error(err.error || err.message || "Transcription failed");
+                            }
+                            result = await res.json();
+                          }
                           if (result.text) {
                             const newNote = appendVoiceTranscription(localNote || "", result.text);
                             commitNoteImmediately(newNote);

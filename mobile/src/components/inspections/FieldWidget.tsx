@@ -37,6 +37,8 @@ import {
   type GalleryImage,
 } from '../../services/inspectionGallery';
 import { addToSyncQueue } from '../../services/offline/database';
+import { uploadLocalFile } from '../../services/objectUpload';
+import { triggerSync } from '../../services/offline/backgroundSync';
 // No offline functionality - app requires server connection
 import { formatDisplayHeading } from '../../../../shared/propertyRooms';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
@@ -752,24 +754,24 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  // Upload photo to server (with offline support)
+  const applyLocalPhotoFallback = async (sourceUri: string): Promise<string> => {
+    const localPath = await storeImageLocally(sourceUri, inspectionId, entryId);
+    const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
+    onChange(composedValue, localNote, [...localPhotos, localPath]);
+    // Same as gallery: kick background sync so field photos reach the server.
+    triggerSync().catch(() => {});
+    return localPath;
+  };
+
+  // Upload photo to server (same path as gallery / profile — Expo File upload, not RN FormData uri hack)
   const uploadPhoto = async (uri: string): Promise<string> => {
     if (!inspectionId) {
       throw new Error('Missing inspection ID');
     }
 
-    // If offline, store locally and return local path
     if (!isOnline) {
       try {
-        const localPath = await storeImageLocally(uri, inspectionId, entryId);
-        console.log(`[FieldWidget] Photo stored locally: ${localPath}`);
-        
-        // Add local path to photos array
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-        const currentPhotos = [...localPhotos, localPath];
-        onChange(composedValue, localNote, currentPhotos);
-        
-        return localPath;
+        return await applyLocalPhotoFallback(uri);
       } catch (error: any) {
         console.error('[FieldWidget] Error storing photo locally:', error);
         Alert.alert('Error', 'Failed to save photo locally. Please try again.');
@@ -777,231 +779,28 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       }
     }
 
-    // Online - upload to server
     try {
-      // Ensure URI is in correct format for React Native
-      // In Expo Go, file URIs from ImagePicker are already in the correct format
-      let fileUri = uri;
-      if (!uri.startsWith('file://') && !uri.startsWith('content://') && !uri.startsWith('ph://')) {
-        // Add file:// prefix if not present and not a content:// or ph:// URI
-        fileUri = `file://${uri}`;
-      }
-      
-      console.log('[FieldWidget] File URI format:', {
-        original: uri,
-        processed: fileUri,
-        platform: Platform.OS,
+      const serverUrl = await uploadLocalFile(uri, {
+        mimeType: 'image/jpeg',
+        fileName: `photo_${Date.now()}.jpg`,
       });
-      
-      // Verify file exists before attempting upload
-      let fileInfo;
-      try {
-        fileInfo = await FileSystem.getInfoAsync(fileUri);
-        if (!fileInfo.exists) {
-          // Try without file:// prefix if it failed
-          if (fileUri.startsWith('file://')) {
-            const altUri = fileUri.replace('file://', '');
-            const altInfo = await FileSystem.getInfoAsync(altUri);
-            if (altInfo.exists) {
-              fileUri = altUri;
-              fileInfo = altInfo;
-              console.log('[FieldWidget] Using alternative URI format:', fileUri);
-            } else {
-              throw new Error('Image file not found. Please try capturing the photo again.');
-            }
-          } else {
-            throw new Error('Image file not found. Please try capturing the photo again.');
-          }
-        }
-      } catch (fileError: any) {
-        console.error('[FieldWidget] Error checking file:', fileError);
-        // Continue anyway - the file might still be accessible for upload
-        console.warn('[FieldWidget] Continuing with upload despite file check error');
-        fileInfo = { exists: true }; // Assume file exists for upload attempt
-      }
-      
-      // Read file extension from URI
-      const extension = uri.split('.').pop()?.toLowerCase() || 'jpg';
-      const mimeType = `image/${extension === 'jpg' || extension === 'jpeg' ? 'jpeg' : extension}`;
 
-      // Construct full URL
-      const apiUrl = getAPI_URL();
-      const uploadUrl = `${apiUrl}/api/objects/upload-direct`;
-      
-      console.log('[FieldWidget] Upload configuration:', {
-        apiUrl,
-        uploadUrl,
-        fileUri,
-        mimeType,
-        extension,
-      });
-      
-      // Validate API URL
-      if (!apiUrl || apiUrl === 'undefined' || !apiUrl.startsWith('http')) {
-        const errorMsg = `Invalid API URL: ${apiUrl}. Please check your EXPO_PUBLIC_API_URL configuration.`;
-        console.error(`[FieldWidget] ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
-
-      // Create FormData for React Native
-      // React Native FormData requires uri, type, and name properties
-      const formData = new FormData();
-      
-      // For React Native, use the file:// URI directly
-      formData.append('file', {
-        uri: fileUri,
-        type: mimeType,
-        name: `photo_${Date.now()}.${extension}`,
-      } as any);
-
-      // Create abort controller for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-      try {
-        console.log('[FieldWidget] Starting upload:', {
-          url: uploadUrl,
-          uri: fileUri,
-          mimeType,
-          hasFile: fileInfo?.exists,
-          formDataKeys: Object.keys(formData),
-        });
-
-        // For FormData, React Native automatically sets Content-Type with boundary
-        // DO NOT set Content-Type header manually - it will break the upload
-        const response = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            // DO NOT set 'Content-Type' - React Native sets it automatically with boundary
-          },
-          body: formData,
-          credentials: 'include',
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        console.log('[FieldWidget] Upload response:', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok,
-          headers: Object.fromEntries(response.headers.entries()),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          let errorMessage = 'Failed to upload photo';
-          try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.message || errorData.error || errorMessage;
-          } catch {
-            errorMessage = errorText || `Server error: ${response.status} ${response.statusText}`;
-          }
-          console.error(`[FieldWidget] Upload failed: ${errorMessage}`, {
-            status: response.status,
-            statusText: response.statusText,
-            errorText,
-          });
-          throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
-        console.log('[FieldWidget] Upload response data:', data);
-        
-        // The endpoint returns { url, uploadURL } - use url or uploadURL
-        const serverUrl = data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
-
-        if (!serverUrl) {
-          throw new Error('Server did not return a valid URL for the uploaded file');
-        }
-
-        console.log(`[FieldWidget] Photo uploaded successfully to server: ${serverUrl}`);
-
-        // Trigger onChange with updated photos array (server URLs only)
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-        const currentPhotos = [...localPhotos, serverUrl];
-        onChange(composedValue, localNote, currentPhotos);
-        void syncPhotosToGallery([serverUrl]);
-
-        return serverUrl;
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        
-        // Extract error message with better fallbacks
-        const errorMessage = fetchError?.message ||
-          fetchError?.error?.message ||
-          fetchError?.toString() ||
-          String(fetchError) ||
-          'Unknown upload error';
-
-        // Log detailed error for debugging
-        console.error('[FieldWidget] Upload error:', errorMessage, {
-          name: fetchError?.name || 'Unknown',
-          message: errorMessage,
-          url: uploadUrl,
-          uri: fileUri,
-          apiUrl: apiUrl,
-          isOnline: isOnline,
-          errorType: fetchError?.constructor?.name || typeof fetchError,
-          stack: fetchError?.stack,
-          fullError: fetchError,
-        });
-        
-        // CRITICAL: If upload fails, store image locally with pending status
-        // This ensures the image is not lost and will be retried when online
-        try {
-          console.log('[FieldWidget] Upload failed - storing image locally for retry:', fileUri);
-          const localPath = await storeImageLocally(fileUri, inspectionId, entryId);
-          console.log('[FieldWidget] Image stored locally for retry:', localPath);
-          
-          // Update photos array with local path so it can be synced later
-          const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-          const currentPhotos = [...localPhotos, localPath];
-          onChange(composedValue, localNote, currentPhotos);
-          
-          // Return local path - entry will be saved with local path and synced later
-          return localPath;
-        } catch (storeError: any) {
-          console.error('[FieldWidget] Error storing failed upload locally:', storeError);
-          // If storing locally also fails, throw the original error
-        }
-        
-        // Re-throw with user-friendly message
-        const errorMsg = errorMessage.toLowerCase();
-        if (fetchError?.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('timeout')) {
-          throw new Error('Upload timeout: The server took too long to respond. The image has been saved locally and will be uploaded when you have a better connection.');
-        } else if (errorMsg.includes('network request failed') || errorMsg.includes('failed to fetch') || errorMsg.includes('networkerror') || errorMsg.includes('network error')) {
-          // Check if it's a CORS or connectivity issue
-          throw new Error('Network request failed. The image has been saved locally and will be uploaded when you have a better connection.');
-        } else if (errorMsg.includes('cors') || errorMsg.includes('cross-origin')) {
-          throw new Error('CORS error: Unable to upload image. The image has been saved locally and will be uploaded when you have a better connection.');
-        } else {
-          throw new Error(`Upload failed: ${errorMessage}. The image has been saved locally and will be uploaded when you have a better connection.`);
-        }
-      }
+      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
+      onChange(composedValue, localNote, [...localPhotos, serverUrl]);
+      void syncPhotosToGallery([serverUrl]);
+      return serverUrl;
     } catch (error: any) {
-      console.error('[FieldWidget] Error in uploadPhoto:', error);
-      
-      // Last resort: try to store locally if we haven't already
-      if (!error.message?.includes('saved locally')) {
-        try {
-          console.log('[FieldWidget] Final attempt to store image locally:', uri);
-          const localPath = await storeImageLocally(uri, inspectionId, entryId);
-          console.log('[FieldWidget] Image stored locally as fallback:', localPath);
-          
-          // Update photos array with local path
-          const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-          const currentPhotos = [...localPhotos, localPath];
-          onChange(composedValue, localNote, currentPhotos);
-          
-          return localPath;
-        } catch (storeError: any) {
-          console.error('[FieldWidget] Final fallback storage also failed:', storeError);
-        }
+      console.error('[FieldWidget] Upload failed, storing locally for retry:', error?.message || error);
+      try {
+        return await applyLocalPhotoFallback(uri);
+      } catch (storeError: any) {
+        console.error('[FieldWidget] Local fallback also failed:', storeError);
+        throw new Error(
+          error?.message
+            ? `${error.message}. Could not save the photo locally either.`
+            : 'Failed to upload photo. Please try again.',
+        );
       }
-      
-      throw error;
     }
   };
 
