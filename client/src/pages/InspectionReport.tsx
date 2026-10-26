@@ -1340,9 +1340,25 @@ export default function InspectionReport() {
   const propertyAddress = inspection.property?.address || inspection.block?.address || "No address";
   const locationLabel = isBlockInspection || (!inspection.property && inspection.block) ? "Block" : "Property";
   const locationAddressLabel = locationLabel === "Block" ? "Block Address" : "Property Address";
+  const coverSubjectImageUrl =
+    inspection.property?.imageUrl || inspection.block?.imageUrl || null;
+  const printCoverTitle =
+    inspection.type === "check_out" ? "Check-out Inventory Report" : "Inspection Report";
+  const printInspectionDate = inspection.completedDate
+    ? locale.formatDate(new Date(inspection.completedDate), "MMMM d, yyyy")
+    : inspection.scheduledDate
+      ? locale.formatDate(new Date(inspection.scheduledDate), "MMMM d, yyyy")
+      : "Not Scheduled";
+  const printPresentedBy =
+    organization?.brandingName || organization?.name || "Inspect360";
+  const printCoverAddress =
+    propertyAddress && propertyAddress !== "No address" ? propertyAddress : propertyName;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div
+      className="min-h-screen bg-background"
+      style={{ ["--print-brand-primary" as string]: reportBrandPrimary }}
+    >
       {/* Print styles */}
       <style>{`
         @media print {
@@ -1358,11 +1374,54 @@ export default function InspectionReport() {
           }
           .print-cover-page {
             display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
             page-break-after: always;
-            min-height: 100%;
-            padding: 3rem 2rem;
+            min-height: 100vh;
+            height: 100vh;
+            padding: 28mm 18mm 22mm;
             margin: 0;
             box-sizing: border-box;
+            background: #ffffff !important;
+            position: relative;
+            text-align: center;
+          }
+          .print-cover-bottom-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 14mm;
+          }
+          .print-cover-meta {
+            width: 72%;
+            max-width: 420px;
+            margin: 8px auto 0;
+            border-collapse: collapse;
+            text-align: left;
+          }
+          .print-cover-meta tr {
+            border-top: 1px solid var(--print-brand-primary, #04C6BD);
+          }
+          .print-cover-meta tr:last-child {
+            border-bottom: 1px solid var(--print-brand-primary, #04C6BD);
+          }
+          .print-cover-meta td {
+            padding: 10px 4px;
+            font-size: 13px;
+            vertical-align: middle;
+            border: none;
+          }
+          .print-cover-meta td.meta-label {
+            font-weight: 700;
+            color: var(--print-brand-primary, #04C6BD);
+            width: 48%;
+          }
+          .print-cover-meta td.meta-value {
+            font-weight: 400;
+            color: #111827;
+            text-align: right;
           }
           body {
             background: white !important;
@@ -1410,15 +1469,14 @@ export default function InspectionReport() {
         }
       `}</style>
 
-      {/* PDF Cover Page - Only visible when printing */}
-      <div className="print-only print-cover-page hidden flex-col items-center justify-center text-center p-12" aria-hidden="true">
-        <div className="space-y-12 max-w-2xl mx-auto">
-          {/* Logo */}
-          <div className="flex justify-center mb-16">
+      {/* PDF Cover Page - Only visible when printing (matches server white cover) */}
+      <div className="print-only print-cover-page hidden" aria-hidden="true">
+        <div className="flex flex-col items-center w-full flex-1">
+          <div className="mb-7 flex flex-col items-center">
             <img
               src={reportCoverLogoSrc}
-              alt="Inspect360 Logo"
-              className="h-24 w-auto object-contain"
+              alt={printPresentedBy}
+              className="h-24 w-auto max-w-[220px] object-contain"
               onError={(e) => {
                 if (e.currentTarget.src !== BRAND_LOGO_MASTER) {
                   e.currentTarget.src = BRAND_LOGO_MASTER;
@@ -1426,133 +1484,57 @@ export default function InspectionReport() {
               }}
             />
           </div>
-
-          {/* Report Title - Different for Check-Out */}
-          <div className="space-y-4 mb-12">
-            <h1 className="text-5xl font-bold text-gray-900" style={{ color: '#000' }}>
-              {inspection.type === 'check_out' ? 'Check-out Inventory Report' : 'Inspection Report'}
-            </h1>
-            <div className="h-1 w-32 mx-auto" style={{ backgroundColor: reportBrandPrimary }}></div>
+          <h1
+            className="text-[28px] font-bold m-0 mb-2 tracking-wide"
+            style={{ color: reportBrandPrimary }}
+          >
+            {printCoverTitle}
+          </h1>
+          {coverSubjectImageUrl ? (
+            <div className="my-4 w-[70%] max-w-md">
+              <img
+                src={coverSubjectImageUrl}
+                alt={locationLabel}
+                className="w-full h-[180px] object-cover rounded-lg border border-gray-200"
+              />
+            </div>
+          ) : null}
+          <div
+            className="text-lg font-bold my-2 max-w-[90%] leading-snug"
+            style={{ color: reportBrandPrimary }}
+          >
+            {printCoverAddress}
           </div>
-
-          {/* Inspection Type */}
-          {inspection.type && inspection.type !== 'check_out' && (
-            <div className="text-2xl font-semibold text-gray-700 mb-12" style={{ color: '#333' }}>
-              {inspection.type.replace(/_/g, ' ').toUpperCase()}
-            </div>
-          )}
-
-          {/* Location Information */}
-          <div className="space-y-6 pt-8 border-t-2" style={{ borderColor: '#E5E7EB' }}>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">{locationLabel}</div>
-              <div className="text-2xl font-bold text-gray-900" style={{ color: '#000' }}>
-                {propertyName || `${locationLabel} Not Specified`}
-              </div>
-              {propertyAddress && propertyAddress !== "No address" && (
-                <div className="text-lg text-gray-600" style={{ color: '#666' }}>
-                  {propertyAddress}
-                </div>
-              )}
-            </div>
-
-            {/* Tenant Information - For Check-Out */}
-            {inspection.type === 'check_out' && (
-              <div className="space-y-2 pt-6">
-                <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Tenant</div>
-                <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
-                  {tenantAssignment?.tenant?.fullName || tenantAssignment?.tenants?.[0]?.fullName || 'Not Assigned'}
-                </div>
-                {(tenantAssignment?.tenant?.email || tenantAssignment?.tenants?.[0]?.email) && (
-                  <div className="text-base text-gray-600" style={{ color: '#666' }}>
-                    {tenantAssignment?.tenant?.email || tenantAssignment?.tenants?.[0]?.email}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Inspector / Contractor Information */}
-            <div className="space-y-2 pt-6">
-              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">{assigneeRoleLabel}</div>
-              <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
-                {inspectorName || `${assigneeRoleLabel} Not Assigned`}
-              </div>
-              {assignedInspector?.email && (
-                <div className="text-base text-gray-600" style={{ color: '#666' }}>
-                  {assignedInspector.email}
-                </div>
-              )}
-            </div>
-
-            {/* Inspection Date */}
-            <div className="space-y-2 pt-6">
-              <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Inspection Date</div>
-              <div className="text-xl font-semibold text-gray-900" style={{ color: '#000' }}>
-                {inspection.completedDate
-                  ? locale.formatDate(new Date(inspection.completedDate), "MMMM d, yyyy")
-                  : inspection.scheduledDate
-                    ? locale.formatDate(new Date(inspection.scheduledDate), "MMMM d, yyyy")
-                    : "Not Scheduled"}
-              </div>
-            </div>
-
-            {/* Status Badge */}
-            {inspection.status && (
-              <div className="pt-6">
-                <div className="inline-block px-6 py-2 text-sm font-semibold uppercase tracking-wide border-2 rounded-lg"
-                  style={{
-                    borderColor: inspection.status === 'completed' ? '#04C6BD' : '#9CA3AF',
-                    color: inspection.status === 'completed' ? '#04C6BD' : '#9CA3AF'
-                  }}>
-                  {inspection.status.replace(/_/g, ' ')}
-                </div>
-              </div>
-            )}
-
-            {/* Tenant Approval Status - tenancies module only */}
-            {tenanciesEnabled &&
-              inspection.type === "check_in" &&
-              inspection.tenantApprovalStatus && (
-              <div className="space-y-2 pt-6">
-                <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Tenant Approval</div>
-                <div className="flex items-center gap-2">
-                  {inspection.tenantApprovalStatus === 'approved' && (
-                    <Badge className="bg-green-500">Approved</Badge>
-                  )}
-                  {inspection.tenantApprovalStatus === 'disputed' && (
-                    <Badge className="bg-orange-500">Disputed</Badge>
-                  )}
-                  {inspection.tenantApprovalStatus === 'pending' && (
-                    <Badge variant="outline">Pending Review</Badge>
-                  )}
-                  {inspection.tenantApprovedAt && (
-                    <span className="text-sm text-gray-600">
-                      {locale.formatDateTime(new Date(inspection.tenantApprovedAt))}
-                    </span>
-                  )}
-                </div>
-                {inspection.tenantComments && (
-                  <div className="text-sm text-gray-600 mt-2 p-3 bg-gray-50 rounded">
-                    <div className="font-medium mb-1">Tenant Comments:</div>
-                    <div className="whitespace-pre-wrap">{inspection.tenantComments}</div>
-                  </div>
-                )}
-                {inspection.tenantApprovalDeadline && inspection.tenantApprovalStatus === 'pending' && (
-                  <div className="text-xs text-gray-500 mt-1">
-                    Deadline: {locale.formatDateTime(new Date(inspection.tenantApprovalDeadline))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Report ID */}
-          {inspection.id && (
-            <div className="pt-8 text-sm text-gray-500">
-              Report ID: {inspection.id}
-            </div>
-          )}
+          <table className="print-cover-meta">
+            <tbody>
+              <tr>
+                <td className="meta-label">{assigneeRoleLabel}</td>
+                <td className="meta-value">{inspectorName || `${assigneeRoleLabel} Not Assigned`}</td>
+              </tr>
+              <tr>
+                <td className="meta-label">Inspection date</td>
+                <td className="meta-value">{printInspectionDate}</td>
+              </tr>
+              <tr>
+                <td className="meta-label">Presented by</td>
+                <td className="meta-value">{printPresentedBy}</td>
+              </tr>
+              {inspection.type ? (
+                <tr>
+                  <td className="meta-label">Inspection type</td>
+                  <td className="meta-value">
+                    {inspection.type.charAt(0).toUpperCase() +
+                      inspection.type.slice(1).replace(/_/g, " ")}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
+        <div
+          className="print-cover-bottom-bar"
+          style={{ backgroundColor: reportBrandPrimary }}
+        />
       </div>
 
       {/* Header Actions - Hidden in print */}

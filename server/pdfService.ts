@@ -20,11 +20,15 @@ import {
 import { formatFloorArea, fromMillimetres } from "@shared/propertyRooms";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 import {
-  coverSubjectImageCss,
+  whiteCoverCss,
+  buildWhiteCoverHtml,
+  sectionHeadingBannerCss,
   renderCoverSubjectImageHtml,
   resolvePropertyOrBlockCoverDataUrl,
   applyBrandThemeToHtml,
   themeFromOrgBranding,
+  renderHtmlToBrandedPdf,
+  type CoverMetaRow,
 } from "./reportPdfShared";
 
 // Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
@@ -401,8 +405,8 @@ export async function generateInspectionPDF(
         console.log('[PDF] Logo conversion failed, using Inspect360 default cover logo');
       }
     } else {
-      processedBranding.logoUrl = getDefaultCoverLogoDataUrl("on-dark");
-      console.log('[PDF] No org logo — using Inspect360 LogoWhite for cover');
+      processedBranding.logoUrl = getDefaultCoverLogoDataUrl("on-light");
+      console.log('[PDF] No org logo — using Inspect360 logo for white cover');
     }
     
     // Convert legacy trademark to base64
@@ -435,10 +439,10 @@ export async function generateInspectionPDF(
     console.log('[PDF] Branding image processing complete');
   } else {
     processedBranding = {
-      logoUrl: getDefaultCoverLogoDataUrl("on-dark"),
+      logoUrl: getDefaultCoverLogoDataUrl("on-light"),
       brandingName: "Inspect360",
     };
-    console.log('[PDF] No branding provided — using Inspect360 LogoWhite for cover');
+    console.log('[PDF] No branding provided — using Inspect360 logo for white cover');
   }
 
   // Property/block cover photo (omit when missing or unloadable)
@@ -530,23 +534,39 @@ export async function generateInspectionPDF(
     }
 
     const page = await browser.newPage();
-    await page.setContent(html, {
-      waitUntil: "networkidle0",
-    });
 
-    const pdf = await page.pdf({
-      format: "A4",
+    const reportTheme = themeFromOrgBranding(processedBranding || null);
+    const locationName =
+      inspection.property?.name ||
+      inspection.block?.name ||
+      processedBranding?.brandingName ||
+      "Inspect360";
+    const rawAddr =
+      inspection.property?.address ||
+      inspection.block?.address ||
+      "";
+    const footerAddress =
+      typeof rawAddr === "string"
+        ? rawAddr.trim()
+        : rawAddr && typeof rawAddr === "object"
+          ? [rawAddr.street, rawAddr.city, rawAddr.state, rawAddr.postalCode, rawAddr.country]
+              .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+              .join(", ")
+          : "";
+    const logoForHeader =
+      typeof processedBranding?.logoUrl === "string" && processedBranding.logoUrl.startsWith("data:")
+        ? processedBranding.logoUrl
+        : null;
+
+    // Cover rendered without chrome; body pages get header/footer
+    return await renderHtmlToBrandedPdf(page, html, {
       landscape: false,
-      printBackground: true,
-      margin: {
-        top: "15mm",
-        right: "12mm",
-        bottom: "15mm",
-        left: "12mm",
-      },
+      format: "A4",
+      theme: reportTheme,
+      address: footerAddress || locationName,
+      propertyName: locationName,
+      logoDataUrl: logoForHeader,
     });
-
-    return Buffer.from(pdf);
   } finally {
     if (browser) {
       await browser.close();
@@ -752,7 +772,7 @@ function buildFloorPlanSectionHTML(
   return `
     <!-- Floor Plan & Dimensions -->
     <div class="report-section" style="margin-bottom: 32px; page-break-inside: avoid;">
-      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+      <h2 class="report-section-title">
         Floor Plan &amp; Dimensions
       </h2>
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px;">
@@ -841,19 +861,6 @@ function generateInspectionHTML(
     : sanitizeUrl(logoUrl, baseUrl);
   const logoHtml = hasLogo && logoSrc
     ? `<img src="${logoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
-    : '';
-
-  const presentedByHtml = companyName
-    ? `<div class="cover-presented-by">Presented by: ${escapeHtml(companyName)}</div>`
-    : '';
-  
-  const contactParts: string[] = [];
-  if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-  if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-  if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-  
-  const contactInfoHtml = contactParts.length > 0
-    ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
     : '';
 
   // Trademark HTML for second page - supports multiple trademarks in a row
@@ -1268,7 +1275,12 @@ function generateInspectionHTML(
 
   // Generate sections HTML - Table format matching UI
   let sectionsHTML = "";
+  const inspectionSectionTitles: string[] = [];
   sections.forEach((section, sectionIndex) => {
+    if (isMetaSection(section)) {
+      return;
+    }
+
     // First pass: determine if section has condition/cleanliness columns
     let sectionHasCondition = false;
     let sectionHasCleanliness = false;
@@ -1286,6 +1298,9 @@ function generateInspectionHTML(
       if (instances.length === 0) {
         // No instances found, skip this section
         return;
+      }
+      if (section.title?.trim()) {
+        inspectionSectionTitles.push(section.title.trim());
       }
 
       // Render each instance separately with photos inline
@@ -1370,7 +1385,7 @@ function generateInspectionHTML(
       // Build section HTML with all instances (each with inline photos)
       sectionsHTML += `
         <div class="report-section report-section-room" style="margin-bottom: 32px;">
-          <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+          <h2 class="report-section-title">
             ${escapeHtml(section.title)}
           </h2>
           ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${escapeHtml(section.description)}</p>` : ""}
@@ -1379,6 +1394,9 @@ function generateInspectionHTML(
       `;
     } else {
       // Non-repeatable section - use existing logic
+      if (section.title?.trim()) {
+        inspectionSectionTitles.push(section.title.trim());
+      }
       let tableRowsHTML = '';
       let photosGalleryHTML = '';
       let fieldCounter = 0;
@@ -1421,7 +1439,7 @@ function generateInspectionHTML(
       // Build section HTML with table format - always include all sections
       sectionsHTML += `
         <div class="report-section report-section-room" style="margin-bottom: 32px;">
-          <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+          <h2 class="report-section-title">
             ${escapeHtml(section.title)}
           </h2>
           ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${escapeHtml(section.description)}</p>` : ""}
@@ -1453,38 +1471,33 @@ function generateInspectionHTML(
   // Trade associations section removed - not shown in report
   const tradeAssociationsPageHTML = '';
 
-  const propertyNameLong = propertyName.length > 36;
-  const coverPageHTML = config.showCover ? `
-    <!-- Cover Page -->
-    <div class="cover-page">
-      <div class="cover-content">
-        ${logoHtml ? `<div class="cover-logo-container">${logoHtml}</div>` : ''}
-        <div class="cover-title">${escapeHtml(coverTitle)}</div>
-        ${coverSubtitle ? `<div class="cover-subtitle">${escapeHtml(coverSubtitle)}</div>` : ''}
-        <div class="cover-details cover-details-above">
-          <div class="cover-detail-item">
-            <span>${escapeHtml(inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "))}</span>
-          </div>
-        </div>
-        <div class="cover-property${propertyNameLong ? " cover-property-long" : ""}">${escapeHtml(propertyName)}</div>
-        ${coverSubjectImageHtml}
-        ${propertyAddress ? `<div class="cover-address">${escapeHtml(propertyAddress)}</div>` : ''}
-        ${presentedByHtml}
-        <div class="cover-details">
-          <div class="cover-detail-item">
-            <span>${escapeHtml(formattedDate)}</span>
-          </div>
-        </div>
-      </div>
-      ${contactInfoHtml}
-    </div>
-  ` : '';
+  const coverMetaRows: CoverMetaRow[] = [
+    { label: assigneeRoleLabel, value: inspectorName },
+    { label: "Inspection date", value: formattedDate },
+  ];
+  if (companyName) {
+    coverMetaRows.push({ label: "Presented by", value: companyName });
+  }
+  coverMetaRows.push({
+    label: "Inspection type",
+    value: inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "),
+  });
+  const coverPageHTML = config.showCover
+    ? buildWhiteCoverHtml({
+        logoHtml: logoHtml || `<div class="cover-company-name">${escapeHtml(companyName)}</div>`,
+        title: coverTitle,
+        subtitle: coverSubtitle || null,
+        subjectImageHtml: coverSubjectImageHtml,
+        address: propertyAddress || propertyName,
+        metaRows: coverMetaRows,
+      })
+    : "";
 
   // Build glossary HTML conditionally
   const glossaryHTML = config.showGlossary ? `
     <!-- Glossary of Terms - Landscape optimized 2-column layout -->
     <div class="report-section keep-together" style="margin-bottom: 32px;">
-      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+      <h2 class="report-section-title">
         Glossary of Terms
       </h2>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
@@ -1627,7 +1640,7 @@ function generateInspectionHTML(
   const maintenanceLogHTML = config.showMaintenanceLog && maintenanceRequests && maintenanceRequests.length > 0 ? `
     <!-- Outstanding Maintenance Requests -->
     <div class="report-section" style="margin-bottom: 32px;">
-      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+      <h2 class="report-section-title">
         Outstanding Maintenance Requests
       </h2>
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
@@ -1679,7 +1692,7 @@ function generateInspectionHTML(
   const termsConditionsHTML = config.showTermsConditions && config.termsConditionsText ? `
     <!-- Terms and Conditions -->
     <div class="report-section" style="margin-bottom: 32px;">
-      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+      <h2 class="report-section-title">
         Terms and Conditions
       </h2>
       <div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
@@ -1693,7 +1706,7 @@ function generateInspectionHTML(
     <!-- Closing Section -->
     <div class="report-section" style="margin-bottom: 32px;">
       ${config.closingSectionTitle ? `
-        <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;">
+        <h2 class="report-section-title">
           ${escapeHtml(config.closingSectionTitle)}
         </h2>
       ` : ''}
@@ -1708,7 +1721,7 @@ function generateInspectionHTML(
       ? `
     <!-- Trade Marks -->
     <div class="report-section keep-together" style="margin-bottom: 32px;">
-      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+      <h2 class="report-section-title">
         Trade Marks
       </h2>
       <div style="display: flex; justify-content: center; padding: 16px 0;">
@@ -1721,41 +1734,54 @@ function generateInspectionHTML(
   const floorPlanSectionHTML = buildFloorPlanSectionHTML(config, floorPlanData);
   const inspectionBodyHTML = config.showInspection ? sectionsHTML : "";
 
-  const contentsEntries = config.sectionOrder
-    .filter((id) => id !== "cover" && id !== "contents")
-    .filter((id) => {
-      switch (id) {
-        case "floorPlan":
-          return Boolean(floorPlanSectionHTML);
-        case "tradeMarks":
-          return Boolean(tradeMarksSectionHTML);
-        case "glossary":
-          return Boolean(glossaryHTML);
-        case "maintenanceLog":
-          return Boolean(maintenanceLogHTML);
-        case "inspection":
-          return Boolean(inspectionBodyHTML);
-        case "inventory":
-          return false;
-        case "termsConditions":
-          return Boolean(termsConditionsHTML);
-        case "closing":
-          return Boolean(closingSectionHTML);
-        default:
-          return false;
-      }
-    })
-    .map((id) => REPORT_SECTION_META[id].label);
+  const contentsEntries: string[] = [];
+  for (const id of config.sectionOrder) {
+    if (id === "cover" || id === "contents") continue;
+    switch (id) {
+      case "floorPlan":
+        if (floorPlanSectionHTML) contentsEntries.push(REPORT_SECTION_META.floorPlan.label);
+        break;
+      case "tradeMarks":
+        if (tradeMarksSectionHTML) contentsEntries.push(REPORT_SECTION_META.tradeMarks.label);
+        break;
+      case "glossary":
+        if (glossaryHTML) contentsEntries.push(REPORT_SECTION_META.glossary.label);
+        break;
+      case "maintenanceLog":
+        if (maintenanceLogHTML) contentsEntries.push(REPORT_SECTION_META.maintenanceLog.label);
+        break;
+      case "inspection":
+        // Expand to every room/space section in the inspection (not a single "Inspection" line)
+        if (inspectionSectionTitles.length > 0) {
+          contentsEntries.push(...inspectionSectionTitles);
+        } else if (inspectionBodyHTML) {
+          contentsEntries.push(REPORT_SECTION_META.inspection.label);
+        }
+        break;
+      case "termsConditions":
+        if (termsConditionsHTML) contentsEntries.push(REPORT_SECTION_META.termsConditions.label);
+        break;
+      case "closing":
+        if (closingSectionHTML) {
+          contentsEntries.push(
+            config.closingSectionTitle?.trim() || REPORT_SECTION_META.closing.label,
+          );
+        }
+        break;
+      default:
+        break;
+    }
+  }
 
   const contentsPageHTML =
     config.showContentsPage && contentsEntries.length > 0
       ? `
     <!-- Contents Page -->
-    <div class="report-section keep-together" style="margin-bottom: 32px;">
-      <h2 class="report-section-title" style="font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px;">
+    <div class="report-section keep-together" style="margin-bottom: 32px; background: transparent;">
+      <h2 class="report-section-title">
         Contents
       </h2>
-      <ol style="margin: 0; padding-left: 24px; color: #333; font-size: 14px; line-height: 1.9;">
+      <ol style="margin: 0; padding-left: 24px; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
         ${contentsEntries.map((label) => `<li>${escapeHtml(label)}</li>`).join("")}
       </ol>
     </div>
@@ -1797,182 +1823,20 @@ function generateInspectionHTML(
       box-sizing: border-box;
     }
     
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.6;
       color: #333;
-      background: white;
+      background: #ffffff !important;
     }
 
     .container {
       max-width: 100%;
       padding: 0;
+      background: transparent;
     }
 
-    /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-
-    .cover-page::after {
-      content: '';
-      position: absolute;
-      bottom: -30%;
-      left: -10%;
-      width: 40%;
-      height: 150%;
-      background: rgba(255, 255, 255, 0.02);
-      transform: rotate(-10deg);
-    }
-
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px 24px 64px;
-      width: 100%;
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-
-    .cover-logo-container {
-      margin-bottom: 20px;
-    }
-
-    .cover-logo-img {
-      max-height: 88px;
-      max-width: 260px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-
-    .cover-property {
-      font-size: 36px;
-      font-weight: 700;
-      margin-top: 10px;
-      margin-bottom: 6px;
-      letter-spacing: 0.5px;
-      max-width: 90%;
-      line-height: 1.2;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .cover-property.cover-property-long {
-      white-space: normal;
-      font-size: 28px;
-      text-overflow: unset;
-      overflow: visible;
-    }
-
-    ${coverSubjectImageCss()}
-
-    /* Inspection cover: slightly smaller property photo */
-    .cover-subject-image-wrap {
-      width: 130mm;
-      max-width: 78%;
-      margin: 14px auto 16px;
-      flex-shrink: 0;
-    }
-    .cover-subject-image {
-      width: 100%;
-      height: 72mm;
-      max-height: 72mm;
-      object-fit: cover;
-    }
-
-    .cover-address {
-      font-size: 15px;
-      font-weight: 400;
-      margin-top: 2px;
-      margin-bottom: 10px;
-      opacity: 0.9;
-      letter-spacing: 0.2px;
-      max-width: 85%;
-      line-height: 1.35;
-      text-align: center;
-    }
-
-    .cover-presented-by {
-      font-size: 16px;
-      font-weight: 400;
-      margin-top: 2px;
-      margin-bottom: 18px;
-      opacity: 0.9;
-      letter-spacing: 0.3px;
-    }
-
-    .cover-title {
-      font-size: 30px;
-      font-weight: 600;
-      margin-top: 4px;
-      margin-bottom: 6px;
-      letter-spacing: 0.5px;
-      opacity: 0.95;
-    }
-
-    .cover-subtitle {
-      font-size: 18px;
-      font-weight: 400;
-      margin-bottom: 4px;
-      opacity: 0.9;
-    }
-
-    .cover-details {
-      display: flex;
-      gap: 32px;
-      font-size: 16px;
-      opacity: 0.9;
-      margin-top: 8px;
-    }
-
-    .cover-details-above {
-      margin-top: 0;
-      margin-bottom: 4px;
-    }
-
-    .cover-detail-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .cover-contact {
-      position: absolute;
-      bottom: 28px;
-      left: 24px;
-      right: 24px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 2;
-      text-align: center;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
 
     .cover-trademark {
       position: absolute;
@@ -1998,30 +1862,30 @@ function generateInspectionHTML(
       width: auto;
       height: auto;
       object-fit: contain;
-      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.2));
     }
 
-    /* Header for content pages */
+    /* In-document summary header (not repeating page chrome — logo lives in Puppeteer header) */
     .header {
-      background: white;
-      padding: 24px 0;
-      border-bottom: 3px solid #00D5CC;
-      margin-bottom: 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      background: transparent;
+      padding: 4px 0 14px;
+      border-bottom: 2px solid ${themeFromOrgBranding(branding || null).primary};
+      margin: 0 0 20px 0;
+      display: block;
+      max-width: calc(100% - 96px);
     }
 
     .header-title {
-      font-size: 28px;
+      font-size: 22px;
       font-weight: 800;
-      color: #00D5CC;
+      color: ${themeFromOrgBranding(branding || null).primary};
+      line-height: 1.2;
     }
 
     .header-subtitle {
-      font-size: 20px;
-      color: #3B7A8C;
+      font-size: 15px;
+      color: ${themeFromOrgBranding(branding || null).secondary};
       font-weight: 600;
+      margin-top: 4px;
     }
 
     /* Info grid - Landscape optimized for 3 columns */
@@ -2035,9 +1899,10 @@ function generateInspectionHTML(
     }
 
     .info-item {
-      background: #f9fafb;
+      background: #ffffff;
       padding: 14px 16px;
       border-radius: 8px;
+      border: 1px solid #e5e7eb;
       border-left: 4px solid #00D5CC;
     }
 
@@ -2065,10 +1930,13 @@ function generateInspectionHTML(
        Do NOT set page-break-inside:avoid on whole sections — tall rooms/photos
        force Chromium to leave nearly blank pages. Keep titles with content and
        avoid breaks only inside small units (rows, photo cards).
-       Each room/space section starts on its own page. */
+       Major sections (Contents, Glossary, Floor Plan, Inspection rooms, etc.)
+       each start on a new page after the summary block. */
     .section,
     .report-section {
       margin-bottom: 28px;
+      break-before: page;
+      page-break-before: always;
     }
 
     .report-section-room {
@@ -2081,21 +1949,12 @@ function generateInspectionHTML(
       page-break-before: always;
     }
 
-    .section-title,
-    .report-section-title,
     .keep-with-next {
       break-after: avoid;
       page-break-after: avoid;
     }
 
-    .section-title {
-      font-size: 18px;
-      font-weight: 700;
-      color: #00D5CC;
-      margin-bottom: 14px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #00D5CC;
-    }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
 
     .photo-card,
     .keep-together {
@@ -2154,13 +2013,8 @@ function generateInspectionHTML(
     <!-- Main Content -->
     <div style="padding: 0;">
       <div class="header">
-        <div>
-          <div class="header-title">Inspection Report</div>
-          <div class="header-subtitle">${escapeHtml(propertyName)}</div>
-        </div>
-        <div style="text-align: right; color: #666; font-size: 13px;">
-          <div>${escapeHtml(formattedDate)}</div>
-        </div>
+        <div class="header-title">Inspection Report</div>
+        <div class="header-subtitle">${escapeHtml(propertyName)}</div>
       </div>
 
       <!-- Location Information - 3 column grid for landscape -->

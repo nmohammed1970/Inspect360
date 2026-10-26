@@ -25,7 +25,16 @@ import {
   getInspectionModel,
 } from "./aiModels";
 import { runSpeechToText, SttError } from "./stt";
-import { applyBrandThemeToHtml, themeFromOrgBranding } from "./reportPdfShared";
+import {
+  applyBrandThemeToHtml,
+  themeFromOrgBranding,
+  whiteCoverCss,
+  buildWhiteCoverHtml,
+  sectionHeadingBannerCss,
+  logoToDataUrl,
+  renderHtmlToBrandedPdf,
+  type PdfChromeOptions,
+} from "./reportPdfShared";
 
 /**
  * Detect file MIME type from file buffer using magic bytes
@@ -12362,21 +12371,27 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
 
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const cmpFooterName = property?.name || property?.unitNumber || branding?.brandingName || "Inspect360";
+        const rawCmpAddr = property?.address || "";
+        const cmpFooterAddress =
+          typeof rawCmpAddr === "string"
+            ? rawCmpAddr.trim()
+            : rawCmpAddr && typeof rawCmpAddr === "object"
+              ? [rawCmpAddr.street, rawCmpAddr.city, rawCmpAddr.state, rawCmpAddr.postalCode, rawCmpAddr.country]
+                  .filter((part: unknown): part is string => typeof part === "string" && part.trim().length > 0)
+                  .join(", ")
+              : "";
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+            address: cmpFooterAddress || cmpFooterName,
+            propertyName: cmpFooterName,
+            baseUrl,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.setHeader("Content-Disposition", `attachment; filename="comparison-report-${id}.pdf"`);
@@ -12822,22 +12837,12 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
     // Branding — org logo, or Inspect360 LogoWhite on teal covers
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     // Filter text
     const filterText = filterPropertyId
@@ -12853,141 +12858,38 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-page::after {
-      content: '';
-      position: absolute;
-      bottom: -30%;
-      left: -10%;
-      width: 40%;
-      height: 150%;
-      background: rgba(255, 255, 255, 0.02);
-      transform: rotate(-10deg);
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 28px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-      letter-spacing: 1px;
-    }
-    .cover-divider {
-      width: 120px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 32px 0;
-      border-radius: 2px;
-    }
-    .cover-title {
-      font-size: 42px;
-      font-weight: 700;
-      margin-bottom: 12px;
-      letter-spacing: 0.5px;
-    }
-    .cover-subtitle {
-      font-size: 22px;
-      font-weight: 400;
-      margin-bottom: 20px;
-      opacity: 0.9;
-    }
-    .cover-contact {
-      position: absolute;
-      bottom: 40px;
-      font-size: 14px;
-      opacity: 0.8;
-      z-index: 1;
-    }
-    .cover-date {
-      font-size: 16px;
-      opacity: 0.9;
-      margin-top: 16px;
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
+    .page, .content, .report-section, .info-grid, .stats-grid {
+      background: transparent !important;
     }
     .page {
-      padding: 40px;
+      padding: 8px 0 16px;
+      background: transparent;
       page-break-after: auto;
       break-after: auto;
     }
     .page + .page {
-      margin-top: 8px;
-      padding-top: 32px;
-      border-top: 1px solid #e5e7eb;
+      page-break-before: always;
+      break-before: page;
+      margin-top: 0;
+      padding-top: 8px;
+      border-top: none;
     }
-    .section-title {
-      font-size: 26px;
-      font-weight: 800;
-      margin-bottom: 28px;
-      color: #00D5CC;
-      border-bottom: 4px solid #00D5CC;
-      padding-bottom: 12px;
-      padding-left: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      position: relative;
-      break-after: avoid;
-      page-break-after: avoid;
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .page .section-title {
+      break-before: avoid;
+      page-break-before: avoid;
     }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
-    .section-title::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      bottom: -4px;
-      width: 60px;
-      height: 4px;
-      background: #3B7A8C;
-      border-radius: 2px;
-    }
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -13219,21 +13121,16 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   </style>
 </head>
 <body>
-  <!-- Cover Page -->
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-      </div>
-      ${companyNameHtml}
-      <div class="cover-divider"></div>
-      <h1 class="cover-title">Portfolio Operations Report</h1>
-      <p class="cover-subtitle">${escapeHtml(filterText)}</p>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-    </div>
-    ${contactInfoHtml}
-    </div>
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Portfolio Operations Report",
+    subtitle: filterText,
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+      { label: "Scope", value: filterText },
+    ],
+  })}
 
   <!-- Summary Statistics -->
   <div class="page">
@@ -13669,21 +13566,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
       try {
         browser = await launchPuppeteerBrowser();
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: false,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: false,
+          }),
+        );
 
         res.contentType("application/pdf");
         const filterText = filterPropertyId
@@ -13836,13 +13725,25 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
           const browser = await launchPuppeteerBrowser();
           try {
             const page = await browser.newPage();
-            await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), { waitUntil: "networkidle0" });
-            const pdf = await page.pdf({
-              format: "A4",
-              landscape: true,
-              printBackground: true,
-              margin: { top: "15mm", right: "12mm", bottom: "15mm", left: "12mm" },
-            });
+            const emailCmpName = property?.name || property?.unitNumber || branding?.brandingName || "Inspect360";
+            const rawEmailAddr = property?.address || "";
+            const emailCmpAddress =
+              typeof rawEmailAddr === "string"
+                ? rawEmailAddr.trim()
+                : rawEmailAddr && typeof rawEmailAddr === "object"
+                  ? [rawEmailAddr.street, rawEmailAddr.city, rawEmailAddr.state, rawEmailAddr.postalCode, rawEmailAddr.country]
+                      .filter((part: unknown): part is string => typeof part === "string" && part.trim().length > 0)
+                      .join(", ")
+                  : "";
+            const pdf = await renderHtmlToBrandedPdf(
+              page,
+              themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+              await buildOrgPdfChrome(branding, {
+                landscape: true,
+                address: emailCmpAddress || emailCmpName,
+                propertyName: emailCmpName,
+              }),
+            );
             pdfAttachment = {
               filename: `comparison-report-${id}.pdf`,
               content: Buffer.from(pdf)
@@ -13974,17 +13875,13 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
 
     // Branding for cover page — org logo, or Inspect360 LogoWhite on teal covers
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : '';
-    const presentedByHtml = companyName
-      ? `<div class="cover-presented-by">Presented by: ${escapeHtml(companyName)}</div>`
-      : '';
     const propertyName = property?.name || property?.unitNumber || "Property";
-    const propertyNameLong = String(propertyName).length > 36;
     const rawPropertyAddress = property?.address || "";
     const propertyAddress =
       typeof rawPropertyAddress === "string"
@@ -13995,13 +13892,6 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
               .join(", ")
           : "";
     const coverDate = format(new Date(report.createdAt), "PPP");
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     // Status badge color
     const statusColors: Record<string, { bg: string; color: string }> = {
@@ -14205,149 +14095,19 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px 24px 64px;
-      width: 100%;
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-    .cover-logo-container {
-      margin-bottom: 20px;
-    }
-    .cover-logo-img {
-      max-height: 88px;
-      max-width: 260px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-subject-image-wrap {
-      margin: 14px auto 16px;
-      width: 130mm;
-      max-width: 78%;
-      position: relative;
-      z-index: 1;
-      flex-shrink: 0;
-    }
-    .cover-subject-image {
-      width: 100%;
-      height: 72mm;
-      max-height: 72mm;
-      object-fit: cover;
-      border-radius: 10px;
-      border: 2px solid rgba(255, 255, 255, 0.35);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-      display: block;
-    }
-    .cover-title {
-      font-size: 30px;
-      font-weight: 600;
-      margin-top: 4px;
-      margin-bottom: 6px;
-      letter-spacing: 0.5px;
-      opacity: 0.95;
-    }
-    .cover-details {
-      display: flex;
-      gap: 32px;
-      font-size: 16px;
-      opacity: 0.9;
-      margin-top: 8px;
-    }
-    .cover-details-above {
-      margin-top: 0;
-      margin-bottom: 4px;
-    }
-    .cover-detail-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .cover-property {
-      font-size: 36px;
-      font-weight: 700;
-      margin-top: 10px;
-      margin-bottom: 6px;
-      letter-spacing: 0.5px;
-      max-width: 90%;
-      line-height: 1.2;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .cover-property.cover-property-long {
-      white-space: normal;
-      font-size: 28px;
-      text-overflow: unset;
-      overflow: visible;
-    }
-    .cover-address {
-      font-size: 15px;
-      font-weight: 400;
-      margin-top: 2px;
-      margin-bottom: 10px;
-      opacity: 0.9;
-      letter-spacing: 0.2px;
-      max-width: 85%;
-      line-height: 1.35;
-      text-align: center;
-    }
-    .cover-presented-by {
-      font-size: 16px;
-      font-weight: 400;
-      margin-top: 2px;
-      margin-bottom: 18px;
-      opacity: 0.9;
-      letter-spacing: 0.3px;
-    }
-    .cover-contact {
-      position: absolute;
-      bottom: 28px;
-      left: 24px;
-      right: 24px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 2;
-      text-align: center;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -14362,7 +14122,8 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; border-bottom: 2px solid #00D5CC; padding-bottom: 8px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
     .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px; }
@@ -14373,27 +14134,18 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      ${logoHtml ? `<div class="cover-logo-container">${logoHtml}</div>` : ''}
-      <div class="cover-title">Comparison Report</div>
-      <div class="cover-details cover-details-above">
-        <div class="cover-detail-item">
-          <span>Check-In vs Check-Out</span>
-        </div>
-      </div>
-      <div class="cover-property${propertyNameLong ? " cover-property-long" : ""}">${escapeHtml(propertyName)}</div>
-      ${propertyCoverImageHtml}
-      ${propertyAddress ? `<div class="cover-address">${escapeHtml(propertyAddress)}</div>` : ''}
-      ${presentedByHtml}
-      <div class="cover-details">
-        <div class="cover-detail-item">
-          <span>${escapeHtml(coverDate)}</span>
-        </div>
-      </div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml: logoHtml || `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`,
+    title: "Comparison Report",
+    subtitle: "Check-In vs Check-Out",
+    subjectImageHtml: propertyCoverImageHtml,
+    address: propertyAddress || propertyName,
+    metaRows: [
+      { label: "Property", value: propertyName },
+      { label: "Presented by", value: companyName },
+      { label: "Generated", value: coverDate },
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -20101,109 +19853,188 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  // Convert M4A to MP3 using ffmpeg with stdin/stdout pipe (avoids temp files - fixes Windows/iOS M4A issues)
-  async function convertM4aToMp3ViaPipe(inputBuffer: Buffer): Promise<Buffer> {
+  /** Run ffmpeg with temp files (pipes can EPIPE/EOF and crash the process on Windows). */
+  async function convertAudioWithFfmpeg(
+    inputBuffer: Buffer,
+    inputExt: string,
+    outputExt: "mp3" | "wav",
+    outputArgs: string[],
+  ): Promise<Buffer> {
     const ffmpegPath = (await import("ffmpeg-static"))?.default;
     if (!ffmpegPath) throw new Error("ffmpeg not available");
-    return new Promise((resolve, reject) => {
-      const args = [
-        "-f", "mov", "-i", "pipe:0",
-        "-vn", "-acodec", "libmp3lame", "-ab", "128k",
-        "-f", "mp3", "pipe:1"
-      ];
-      const proc = spawn(ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"] });
-      const chunks: Buffer[] = [];
-      proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-      proc.stderr.on("data", () => {});
-      proc.on("error", (err) => reject(err));
-      proc.on("close", (code, signal) => {
-        if (code !== 0) return reject(new Error(`ffmpeg exited ${code}`));
-        resolve(Buffer.concat(chunks));
-      });
-      proc.stdin.write(inputBuffer);
-      proc.stdin.end();
-    });
-  }
-
-  // Convert M4A to WAV using ffmpeg with stdin/stdout pipe (avoids temp files)
-  async function convertM4aToWavViaPipe(inputBuffer: Buffer): Promise<Buffer> {
-    const ffmpegPath = (await import("ffmpeg-static"))?.default;
-    if (!ffmpegPath) throw new Error("ffmpeg not available");
-    return new Promise((resolve, reject) => {
-      const args = [
-        "-f", "mov", "-i", "pipe:0",
-        "-vn", "-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000",
-        "-f", "wav", "pipe:1"
-      ];
-      const proc = spawn(ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"] });
-      const chunks: Buffer[] = [];
-      proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-      proc.stderr.on("data", () => {});
-      proc.on("error", (err) => reject(err));
-      proc.on("close", (code) => {
-        if (code !== 0) return reject(new Error(`ffmpeg exited ${code}`));
-        resolve(Buffer.concat(chunks));
-      });
-      proc.stdin.write(inputBuffer);
-      proc.stdin.end();
-    });
-  }
-
-  // Legacy file-based conversion (kept for multipart transcribe endpoint)
-  async function convertToMp3(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
-    const ffmpegPath = (await import("ffmpeg-static"))?.default;
-    if (!ffmpegPath) throw new Error("ffmpeg not available");
-    const ffmpegMod = await import("fluent-ffmpeg");
-    const ffmpeg = (ffmpegMod as any).default ?? ffmpegMod;
-    (ffmpeg as any).setFfmpegPath(ffmpegPath);
-    const inputPath = path.join(os.tmpdir(), `whisper-in-${randomUUID()}.${inputExt}`);
-    const outputPath = path.join(os.tmpdir(), `whisper-out-${randomUUID()}.mp3`);
-    await fs.writeFile(inputPath, inputBuffer, { flag: 'w' });
+    const safeIn = (inputExt || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+    const inputPath = path.join(os.tmpdir(), `stt-conv-in-${randomUUID()}.${safeIn}`);
+    const outputPath = path.join(os.tmpdir(), `stt-conv-out-${randomUUID()}.${outputExt}`);
+    await fs.writeFile(inputPath, inputBuffer);
     try {
       await new Promise<void>((resolve, reject) => {
-        ffmpeg(inputPath)
-          .inputOptions(['-f', 'mov', '-err_detect', 'ignore_err'])
-          .noVideo()
-          .audioCodec('libmp3lame')
-          .audioBitrate(128)
-          .format('mp3')
-          .save(outputPath)
-          .on('end', () => resolve())
-          .on('error', (err: Error) => reject(err));
+        const args = [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-err_detect",
+          "ignore_err",
+          "-i",
+          inputPath,
+          ...outputArgs,
+          "-y",
+          outputPath,
+        ];
+        const proc = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
+        const errChunks: Buffer[] = [];
+        proc.stderr.on("data", (c: Buffer) => errChunks.push(c));
+        proc.on("error", reject);
+        proc.on("close", (code) => {
+          if (code !== 0) {
+            const detail = Buffer.concat(errChunks).toString("utf8").slice(0, 400);
+            return reject(new Error(`ffmpeg exited ${code}${detail ? `: ${detail}` : ""}`));
+          }
+          resolve();
+        });
       });
-      const mp3Buffer = await fs.readFile(outputPath);
-      return mp3Buffer;
+      return await fs.readFile(outputPath);
     } finally {
       await fs.unlink(inputPath).catch(() => {});
       await fs.unlink(outputPath).catch(() => {});
     }
   }
 
+  async function convertM4aToMp3ViaPipe(inputBuffer: Buffer): Promise<Buffer> {
+    const { repairIosM4aBuffer } = await import("./stt/repairIosM4a");
+    const { buffer } = repairIosM4aBuffer(inputBuffer);
+    return convertAudioWithFfmpeg(buffer, "m4a", "mp3", [
+      "-vn",
+      "-acodec",
+      "libmp3lame",
+      "-ab",
+      "128k",
+      "-f",
+      "mp3",
+    ]);
+  }
+
+  async function convertM4aToWavViaPipe(inputBuffer: Buffer): Promise<Buffer> {
+    const { repairIosM4aBuffer } = await import("./stt/repairIosM4a");
+    const { buffer } = repairIosM4aBuffer(inputBuffer);
+    return convertAudioWithFfmpeg(buffer, "m4a", "wav", [
+      "-vn",
+      "-acodec",
+      "pcm_s16le",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-f",
+      "wav",
+    ]);
+  }
+
+  /** Sniff container from magic bytes (iOS often labels CAF/AAC oddly; clients mis-label blobs). */
+  function sniffAudioKind(buf: Buffer): {
+    ext: string;
+    mime: string;
+    looksLikeAudio: boolean;
+  } {
+    if (!buf || buf.length < 12) {
+      return { ext: "bin", mime: "application/octet-stream", looksLikeAudio: false };
+    }
+    // ISO BMFF: ....ftyp (m4a/mp4/mov)
+    if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
+      const brand = buf.slice(8, 12).toString("ascii");
+      const isM4a =
+        brand.startsWith("M4A") ||
+        brand === "mp42" ||
+        brand === "isom" ||
+        brand === "mp41" ||
+        brand === "M4B " ||
+        brand === "M4P ";
+      return {
+        ext: isM4a || brand === "qt  " ? "m4a" : "mp4",
+        mime: "audio/mp4",
+        looksLikeAudio: true,
+      };
+    }
+    // EBML / WebM
+    if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+      return { ext: "webm", mime: "audio/webm", looksLikeAudio: true };
+    }
+    // Ogg
+    if (buf.slice(0, 4).toString("ascii") === "OggS") {
+      return { ext: "ogg", mime: "audio/ogg", looksLikeAudio: true };
+    }
+    // WAV / RIFF
+    if (buf.slice(0, 4).toString("ascii") === "RIFF" && buf.slice(8, 12).toString("ascii") === "WAVE") {
+      return { ext: "wav", mime: "audio/wav", looksLikeAudio: true };
+    }
+    // ID3 / MP3
+    if (buf.slice(0, 3).toString("ascii") === "ID3" || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) {
+      return { ext: "mp3", mime: "audio/mpeg", looksLikeAudio: true };
+    }
+    // CAF (Core Audio Format — some iOS paths)
+    if (buf.slice(0, 4).toString("ascii") === "caff") {
+      return { ext: "caf", mime: "audio/x-caf", looksLikeAudio: true };
+    }
+    return { ext: "bin", mime: "application/octet-stream", looksLikeAudio: false };
+  }
+
+  async function convertToMp3(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
+    return convertAudioWithFfmpeg(inputBuffer, inputExt || "bin", "mp3", [
+      "-vn",
+      "-acodec",
+      "libmp3lame",
+      "-ab",
+      "128k",
+      "-f",
+      "mp3",
+    ]);
+  }
+
   async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
-    const ffmpegPath = (await import("ffmpeg-static"))?.default;
-    if (!ffmpegPath) throw new Error("ffmpeg not available");
-    const ffmpegMod = await import("fluent-ffmpeg");
-    const ffmpeg = (ffmpegMod as any).default ?? ffmpegMod;
-    (ffmpeg as any).setFfmpegPath(ffmpegPath);
-    const inputPath = path.join(os.tmpdir(), `whisper-wav-in-${randomUUID()}.${inputExt}`);
-    const outputPath = path.join(os.tmpdir(), `whisper-wav-out-${randomUUID()}.wav`);
-    await fs.writeFile(inputPath, inputBuffer, { flag: 'w' });
+    return convertAudioWithFfmpeg(inputBuffer, inputExt || "bin", "wav", [
+      "-vn",
+      "-acodec",
+      "pcm_s16le",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-f",
+      "wav",
+    ]);
+  }
+
+  /** Convert iOS/any audio to WAV with auto-detect, then optional forced m4a/aac/caf retries. */
+  async function convertAnyAudioToWav16k(inputBuffer: Buffer, hintExt?: string): Promise<Buffer> {
+    const { repairIosM4aBuffer } = await import("./stt/repairIosM4a");
+    const repaired = repairIosM4aBuffer(inputBuffer);
+    if (repaired.repaired) {
+      console.log("[STT] Neutralized iOS M4A chnl box(es) before ffmpeg convert");
+    }
+    const work = repaired.buffer;
+    const sniffed = sniffAudioKind(work);
+    const attempts = [
+      sniffed.looksLikeAudio ? sniffed.ext : null,
+      hintExt,
+      "m4a",
+      "mp4",
+      "caf",
+      "aac",
+      "bin",
+    ].filter((e, i, arr): e is string => !!e && arr.indexOf(e) === i);
+
+    let lastErr: Error | null = null;
+    for (const ext of attempts) {
+      try {
+        return await convertToWav(work, ext);
+      } catch (e: any) {
+        lastErr = e instanceof Error ? e : new Error(String(e));
+      }
+    }
     try {
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg(inputPath)
-          .inputOptions(['-f', 'mov', '-err_detect', 'ignore_err'])
-          .noVideo()
-          .audioCodec('pcm_s16le')
-          .format('wav')
-          .outputOptions(['-ac', '1', '-ar', '16000'])
-          .save(outputPath)
-          .on('end', () => resolve())
-          .on('error', (err: Error) => reject(err));
-      });
-      return await fs.readFile(outputPath);
-    } finally {
-      await fs.unlink(inputPath).catch(() => {});
-      await fs.unlink(outputPath).catch(() => {});
+      const { convertBufferToWav16kMono } = await import("./stt/ffmpegWav");
+      return await convertBufferToWav16kMono(work);
+    } catch (e: any) {
+      throw lastErr || e;
     }
   }
 
@@ -20219,10 +20050,23 @@ ${optionalNotes || "No details provided."}`;
       let sanitized = audioBase64.replace(/\s/g, '');
       sanitized = sanitized.replace(/-/g, '+').replace(/_/g, '/');
       sanitized = sanitized.replace(/[^A-Za-z0-9+/=]/g, '');
-      const buffer = Buffer.from(sanitized, 'base64');
-      const fileName = (reqFileName && typeof reqFileName === 'string' && reqFileName.toLowerCase().endsWith('.m4a'))
-        ? reqFileName
-        : 'recording.m4a';
+      let buffer = Buffer.from(sanitized, 'base64');
+      // iOS 17+/18 M4A: neutralize unsupported `chnl` atoms so ffmpeg/Whisper can read them.
+      const { repairIosM4aBuffer } = await import("./stt/repairIosM4a");
+      const repaired = repairIosM4aBuffer(buffer);
+      if (repaired.repaired) {
+        console.log("[Transcribe-base64] Repaired iOS M4A (neutralized chnl box)");
+        buffer = repaired.buffer;
+      }
+      const sniffed = sniffAudioKind(buffer);
+      const reqExt = typeof reqFileName === "string"
+        ? reqFileName.toLowerCase().split(".").pop() || ""
+        : "";
+      const fileName = sniffed.looksLikeAudio
+        ? `recording.${sniffed.ext}`
+        : (reqExt === "m4a" || reqExt === "mp4" || reqExt === "caf"
+            ? `recording.${reqExt}`
+            : "recording.m4a");
       const size = buffer.length;
       if (size > 25 * 1024 * 1024) {
         return res.status(400).json({ error: "Audio file too large. Maximum size is 25MB" });
@@ -20230,50 +20074,59 @@ ${optionalNotes || "No details provided."}`;
       if (size < 1000) {
         return res.status(400).json({ error: "Audio file too small or corrupted. Try recording again." });
       }
-      // M4A/MP4 files start with ... ftyp around offset 4; if missing, client may have sent wrong data (e.g. 401 HTML)
-      const looksLikeM4A = size >= 12 && buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70;
-      if (fileName.toLowerCase().endsWith('.m4a') && !looksLikeM4A) {
-        console.warn('[Transcribe-base64] Decoded buffer does not look like M4A (missing ftyp). Check client sends auth for audio URL.');
+      if (!sniffed.looksLikeAudio) {
+        console.warn('[Transcribe-base64] Buffer does not look like audio (magic mismatch). Client may have sent HTML/error bytes.');
       }
-      console.log('[Transcribe-base64] Received:', { size, fileName, looksLikeM4A });
+      console.log('[Transcribe-base64] Received:', {
+        size,
+        fileName,
+        sniffed: sniffed.ext,
+        looksLikeAudio: sniffed.looksLikeAudio,
+        iosChnlRepaired: repaired.repaired,
+      });
       const sttLanguage = typeof reqLanguage === "string" ? reqLanguage : undefined;
-      const isM4A = fileName.toLowerCase().endsWith('.m4a') || fileName.toLowerCase().endsWith('.mp4');
+      const isAppleContainer =
+        fileName.endsWith(".m4a") ||
+        fileName.endsWith(".mp4") ||
+        fileName.endsWith(".caf") ||
+        sniffed.ext === "m4a" ||
+        sniffed.ext === "mp4" ||
+        sniffed.ext === "caf";
       let audioBuffer = buffer;
-      let ext = 'm4a';
-      let mime = 'audio/mp4';
+      let ext = sniffed.looksLikeAudio ? sniffed.ext : (fileName.split(".").pop() || "m4a");
+      let mime = sniffed.looksLikeAudio ? sniffed.mime : "audio/mp4";
 
-      if (isM4A) {
-        // Strategy for iOS M4A: try STT with raw M4A first; then pipe-based ffmpeg (no temp file)
+      if (isAppleContainer) {
+        // Prefer convert→WAV for local whisper.cpp; OpenAI often accepts repaired M4A raw.
+        // Try raw first (fast path), then WAV (compatible with all providers).
         try {
-          console.log('[Transcribe-base64] Trying raw M4A with configured STT provider first (no ffmpeg)');
+          console.log('[Transcribe-base64] Trying raw Apple audio with configured STT provider first');
           const rawResult = await runSpeechToText({
             buffer,
-            fileName: "audio.m4a",
-            mimeType: "audio/mp4",
+            fileName: sniffed.ext === "caf" ? "audio.caf" : "audio.m4a",
+            mimeType: sniffed.ext === "caf" ? "audio/x-caf" : "audio/mp4",
             language: sttLanguage,
           });
           if (rawResult.text?.trim()) {
             return res.json({ text: rawResult.text.trim() });
           }
         } catch (rawErr: any) {
-          console.warn('[Transcribe-base64] Raw M4A STT failed:', rawErr?.message);
+          console.warn('[Transcribe-base64] Raw Apple audio STT failed:', rawErr?.message);
         }
 
-        // 2) Convert via ffmpeg stdin pipe (no temp file - avoids Windows "Invalid data" file write issues)
         try {
-          console.log('[Transcribe-base64] Converting M4A to MP3 via pipe (stdin/stdout)');
-          audioBuffer = Buffer.from(await convertM4aToMp3ViaPipe(buffer));
-          ext = 'mp3';
-          mime = 'audio/mpeg';
-        } catch (pipeMp3Err: any) {
-          console.warn('[Transcribe-base64] Pipe MP3 failed, trying pipe WAV:', pipeMp3Err?.message);
+          console.log('[Transcribe-base64] Converting Apple audio to WAV (auto-detect + retries)');
+          audioBuffer = Buffer.from(await convertAnyAudioToWav16k(buffer, sniffed.ext || "m4a"));
+          ext = "wav";
+          mime = "audio/wav";
+        } catch (convErr: any) {
+          console.warn('[Transcribe-base64] WAV convert failed, trying MP3:', convErr?.message);
           try {
-            console.log('[Transcribe-base64] Converting M4A to WAV via pipe');
-            audioBuffer = Buffer.from(await convertM4aToWavViaPipe(buffer));
-            ext = 'wav';
-            mime = 'audio/wav';
-          } catch (pipeWavErr: any) {
-            console.warn('[Transcribe-base64] Pipe WAV failed:', pipeWavErr?.message);
+            audioBuffer = Buffer.from(await convertM4aToMp3ViaPipe(buffer));
+            ext = "mp3";
+            mime = "audio/mpeg";
+          } catch (mp3Err: any) {
+            console.warn('[Transcribe-base64] MP3 convert failed:', mp3Err?.message);
             return res.status(400).json({
               error: "The audio file could not be processed. Try recording again or use a shorter clip.",
             });
@@ -20405,16 +20258,29 @@ ${optionalNotes || "No details provided."}`;
         }
       }
       
-      const normalized = mimeTypeMap[detectedMimeType] || 
-        mimeTypeMap[req.file.mimetype] || 
+      let normalized = mimeTypeMap[detectedMimeType] ||
+        mimeTypeMap[req.file.mimetype] ||
         { mimeType: 'audio/mp4', extension: 'm4a' };
 
       let fileName = req.file.originalname || `audio.${normalized.extension}`;
       const currentExt = fileName.toLowerCase().split('.').pop() || '';
-      
+
       if (currentExt !== normalized.extension.toLowerCase()) {
         const baseName = fileName.replace(/\.[^/.]+$/, '');
         fileName = `${baseName}.${normalized.extension}`;
+      }
+
+      const { repairIosM4aBuffer } = await import("./stt/repairIosM4a");
+      const repairedUpload = repairIosM4aBuffer(req.file.buffer);
+      const audioBytes = repairedUpload.buffer;
+      if (repairedUpload.repaired) {
+        console.log("[Transcribe] Repaired iOS M4A (neutralized chnl box)");
+      }
+
+      const sniffed = sniffAudioKind(audioBytes);
+      if (sniffed.looksLikeAudio) {
+        fileName = `audio.${sniffed.ext}`;
+        normalized = { mimeType: sniffed.mime, extension: sniffed.ext };
       }
 
       console.log('[Transcribe] Normalized audio file:', {
@@ -20423,9 +20289,21 @@ ${optionalNotes || "No details provided."}`;
         originalName: req.file.originalname,
         normalizedName: fileName,
         extension: normalized.extension,
+        sniffed: sniffed.ext,
+        looksLikeAudio: sniffed.looksLikeAudio,
+        iosChnlRepaired: repairedUpload.repaired,
         size: req.file.size,
-        bufferLength: req.file.buffer?.length || 0,
+        bufferLength: audioBytes.length,
       });
+
+      if (!sniffed.looksLikeAudio && audioBytes.length >= 100) {
+        const head = audioBytes.slice(0, 64).toString("utf8");
+        if (head.includes("<!DOCTYPE") || head.includes("<html") || head.includes("{")) {
+          return res.status(400).json({
+            error: "Could not load the recording bytes (got a non-audio response). Try again while signed in.",
+          });
+        }
+      }
 
       const sttLanguage =
         typeof req.body?.language === "string" ? req.body.language : undefined;
@@ -20433,7 +20311,7 @@ ${optionalNotes || "No details provided."}`;
       let result;
       try {
         result = await runSpeechToText({
-          buffer: req.file.buffer,
+          buffer: audioBytes,
           fileName,
           mimeType: normalized.mimeType,
           language: sttLanguage,
@@ -20443,15 +20321,33 @@ ${optionalNotes || "No details provided."}`;
         const isInvalidFormat =
           msg.includes("invalid file format") ||
           msg.includes("unrecognized file format") ||
+          msg.includes("invalid data") ||
+          msg.includes("could not be decoded") ||
+          msg.includes("format is not supported") ||
+          msg.includes("ffmpeg") ||
+          msg.includes("chnl") ||
           (firstError instanceof SttError && firstError.code === "invalid_audio");
         if (!isInvalidFormat) throw firstError;
 
-        console.log("[Transcribe] Format rejected, converting to MP3 then retrying STT");
-        const mp3Buffer = await convertToMp3(req.file.buffer, normalized.extension);
+        console.log("[Transcribe] Format rejected; converting then retrying STT", {
+          extension: normalized.extension,
+          firstError: firstError?.message,
+        });
+        let converted: Buffer;
+        let convertedName = "audio.wav";
+        let convertedMime = "audio/wav";
+        try {
+          converted = await convertAnyAudioToWav16k(audioBytes, normalized.extension);
+        } catch (wavErr: any) {
+          console.warn("[Transcribe] WAV convert failed, trying MP3:", wavErr?.message);
+          converted = await convertToMp3(audioBytes, normalized.extension || sniffed.ext || "bin");
+          convertedName = "audio.mp3";
+          convertedMime = "audio/mpeg";
+        }
         result = await runSpeechToText({
-          buffer: mp3Buffer,
-          fileName: "audio.mp3",
-          mimeType: "audio/mpeg",
+          buffer: converted,
+          fileName: convertedName,
+          mimeType: convertedMime,
           language: sttLanguage,
         });
       }
@@ -20495,14 +20391,19 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const msg = error?.message || "Failed to transcribe audio";
-      const isFormatError = msg.toLowerCase().includes('invalid file format') ||
-        msg.toLowerCase().includes('unrecognized file format');
+      const errLower = msg.toLowerCase();
+      const isFormatError =
+        errLower.includes("invalid file format") ||
+        errLower.includes("unrecognized file format") ||
+        errLower.includes("invalid data") ||
+        errLower.includes("ffmpeg") ||
+        errLower.includes("could not be decoded");
       const userMessage = isFormatError
-        ? "Invalid audio format. Please ensure the recording is in a supported format (M4A, MP3, WAV). Try recording again."
+        ? "The audio file could not be processed. Try recording again or use a shorter clip."
         : msg;
 
-      res.status(500).json({ 
-        error: userMessage 
+      res.status(isFormatError ? 400 : 500).json({
+        error: userMessage,
       });
     }
   });
@@ -20662,9 +20563,16 @@ ${optionalNotes || "No details provided."}`;
       if (!fileBase64 || typeof fileBase64 !== 'string') {
         return res.status(400).json({ error: "Missing fileBase64 in request body" });
       }
-      const buffer = Buffer.from(fileBase64, 'base64');
+      // Same sanitization as transcribe-base64 — iOS/RN can send whitespace or URL-safe base64.
+      let sanitized = String(fileBase64).replace(/\s/g, "");
+      sanitized = sanitized.replace(/-/g, "+").replace(/_/g, "/");
+      sanitized = sanitized.replace(/[^A-Za-z0-9+/=]/g, "");
+      const buffer = Buffer.from(sanitized, "base64");
       if (buffer.length > 25 * 1024 * 1024) {
         return res.status(400).json({ error: "Audio file too large. Maximum 25MB" });
+      }
+      if (buffer.length < 100) {
+        return res.status(400).json({ error: "Audio file too small or corrupted" });
       }
       const objectId = (req.query.objectId as string) || randomUUID();
       const objectStorageService = new ObjectStorageService();
@@ -32948,6 +32856,29 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     return applyBrandThemeToHtml(html, themeFromOrgBranding(branding || null));
   }
 
+
+  async function buildOrgPdfChrome(
+    branding: ReportBrandingInfo | null | undefined,
+    opts: {
+      landscape?: boolean;
+      address?: string | null;
+      propertyName?: string | null;
+      baseUrl?: string;
+    } = {},
+  ): Promise<PdfChromeOptions> {
+    const theme = themeFromOrgBranding(branding || null);
+    const orgName = branding?.brandingName || "Inspect360";
+    const logoDataUrl = await logoToDataUrl(branding?.logoUrl, opts.baseUrl, "on-light");
+    return {
+      landscape: !!opts.landscape,
+      theme,
+      address: opts.address || orgName,
+      propertyName: opts.propertyName || orgName,
+      logoDataUrl,
+    };
+  }
+
+
   // Sanitize URL for use in HTML attributes (allow http(s) + safe image data URLs for default logos)
   function sanitizeReportUrl(url: string): string {
     if (typeof url !== 'string' || !url.trim()) return '';
@@ -33017,22 +32948,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     const tableRows = inspections.map((inspection) => {
       const property = properties.find(p => p.id === inspection.propertyId);
@@ -33061,83 +32982,19 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 24px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-    }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-date { font-size: 16px; opacity: 0.9; margin-top: 16px; }
-    .cover-filters { margin-top: 16px; font-size: 14px; opacity: 0.85; }
-    .cover-contact {
-      position: absolute;
-      bottom: 32px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 1;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -33154,25 +33011,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
-      <div class="cover-title">Inspections Report</div>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-      ${filterSummary.length > 0 ? `<div class="cover-filters">Filters: ${escapeHtml(filterSummary.join(" | "))}</div>` : ""}
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Inspections Report",
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+      ...(filterSummary.length > 0 ? [{ label: "Filters", value: filterSummary.join(" | ") }] : []),
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -33249,22 +33103,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     // Calculate block statistics
     const blocksWithStats = blocks.map(block => {
@@ -33338,82 +33182,19 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 24px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-    }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-date { font-size: 16px; opacity: 0.9; margin-top: 16px; }
-    .cover-contact {
-      position: absolute;
-      bottom: 32px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 1;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -33430,24 +33211,21 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #3B7A8C; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #3B7A8C; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
-      <div class="cover-title">Blocks Report</div>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Blocks Report",
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -33546,21 +33324,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.send(Buffer.from(pdf));
@@ -33655,21 +33425,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.send(Buffer.from(pdf));
@@ -33708,22 +33470,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     const propertiesWithStats = properties.map(property => {
       const propertyInspections = inspections.filter(i => i.propertyId === property.id);
@@ -33787,82 +33539,19 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 24px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-    }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-date { font-size: 16px; opacity: 0.9; margin-top: 16px; }
-    .cover-contact {
-      position: absolute;
-      bottom: 32px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 1;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -33880,25 +33569,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
-      <div class="cover-title">Properties Report</div>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Properties Report",
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -34036,21 +33722,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.send(Buffer.from(pdf));
@@ -34079,22 +33757,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     const enrichedTenants = tenantAssignments.map(tenant => {
       const property = properties.find(p => p.id === tenant.propertyId);
@@ -34143,82 +33811,19 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 24px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-    }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-date { font-size: 16px; opacity: 0.9; margin-top: 16px; }
-    .cover-contact {
-      position: absolute;
-      bottom: 32px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 1;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -34236,25 +33841,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
-      <div class="cover-title">Tenants Report</div>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Tenants Report",
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -34388,21 +33990,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.send(Buffer.from(pdf));
@@ -34431,22 +34025,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     const enrichedInventory = assetInventory.map(asset => {
       const property = properties.find(p => p.id === asset.propertyId);
@@ -34499,82 +34083,19 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 24px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-    }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-date { font-size: 16px; opacity: 0.9; margin-top: 16px; }
-    .cover-contact {
-      position: absolute;
-      bottom: 32px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 1;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -34592,25 +34113,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
-      <div class="cover-title">Inventory Report</div>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Inventory Report",
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -34734,21 +34252,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.send(Buffer.from(pdf));
@@ -34777,22 +34287,12 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
 
     // Branding for cover page
     const companyName = branding?.brandingName || "Inspect360";
-    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-dark");
+    const coverLogoSrc = resolveCoverLogoSrc(branding?.logoUrl, "on-light");
     const safeLogoSrc = coverLogoSrc ? sanitizeReportUrl(coverLogoSrc) : "";
     const hasLogo = !!safeLogoSrc;
     const logoHtml = hasLogo
       ? `<img src="${safeLogoSrc}" alt="${escapeHtml(companyName)}" class="cover-logo-img" />`
       : `<div class="cover-logo-text">${escapeHtml(companyName)}</div>`;
-    const companyNameHtml = hasLogo
-      ? `<div class="cover-company-name">${escapeHtml(companyName)}</div>`
-      : '';
-    const contactParts: string[] = [];
-    if (branding?.brandingEmail) contactParts.push(escapeHtml(branding.brandingEmail));
-    if (branding?.brandingPhone) contactParts.push(escapeHtml(branding.brandingPhone));
-    if (branding?.brandingWebsite) contactParts.push(escapeHtml(branding.brandingWebsite));
-    const contactInfoHtml = contactParts.length > 0
-      ? `<div class="cover-contact">${contactParts.join(' &nbsp;|&nbsp; ')}</div>`
-      : '';
 
     const enrichedDocuments = complianceDocuments.map(doc => {
       const property = properties.find(p => p.id === doc.propertyId);
@@ -34862,82 +34362,19 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    html, body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       color: #333;
-      background: white;
+      background: #ffffff !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     /* Cover Page - Landscape optimized */
-    .cover-page {
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%);
-      color: white;
-      page-break-after: always;
-      position: relative;
-      overflow: hidden;
-    }
-    .cover-page::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 60%;
-      height: 200%;
-      background: rgba(255, 255, 255, 0.03);
-      transform: rotate(15deg);
-    }
-    .cover-content {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .cover-logo-container { margin-bottom: 32px; }
-    .cover-logo-img {
-      max-height: 100px;
-      max-width: 280px;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
-    }
-    .cover-logo-text {
-      font-size: 56px;
-      font-weight: 800;
-      letter-spacing: -2px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .cover-company-name {
-      font-size: 24px;
-      font-weight: 600;
-      margin-top: 12px;
-      opacity: 0.95;
-    }
-    .cover-divider {
-      width: 100px;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.5);
-      margin: 28px 0;
-      border-radius: 2px;
-    }
-    .cover-title { font-size: 38px; font-weight: 700; margin-bottom: 12px; }
-    .cover-date { font-size: 16px; opacity: 0.9; margin-top: 16px; }
-    .cover-contact {
-      position: absolute;
-      bottom: 32px;
-      font-size: 13px;
-      opacity: 0.8;
-      z-index: 1;
-    }
+    ${whiteCoverCss(themeFromOrgBranding(branding || null))}
     /* Content area - Landscape optimized */
-    .content { padding: 28px 36px; }
+    .content { padding: 8px 0 16px; background: transparent !important; }
+    .content .page-header { page-break-after: avoid; }
     .page-header {
       display: flex;
       justify-content: space-between;
@@ -34955,25 +34392,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     .stat-card { background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #00D5CC; }
     .stat-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
     .stat-value { font-size: 28px; font-weight: 700; color: #00D5CC; }
-    .section-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-top: 32px; margin-bottom: 14px; break-after: avoid; page-break-after: avoid; }
+    ${sectionHeadingBannerCss(themeFromOrgBranding(branding || null).primary)}
+    .section-title { page-break-before: always; break-before: page; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; page-break-inside: avoid; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${logoHtml}
-        ${companyNameHtml}
-      </div>
-      <div class="cover-divider"></div>
-      <div class="cover-title">Compliance Report</div>
-      <div class="cover-date">Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Compliance Report",
+    metaRows: [
+      { label: "Organization", value: companyName },
+      { label: "Report Date", value: format(new Date(), "MMMM d, yyyy 'at' h:mm a") },
+    ],
+  })}
 
   <div class="content">
     <div class="page-header">
@@ -35108,21 +34542,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         res.send(Buffer.from(pdf));
@@ -35371,21 +34797,13 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
         browser = await launchPuppeteerBrowser();
 
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "networkidle0",
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "15mm",
-            right: "12mm",
-            bottom: "15mm",
-            left: "12mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+          }),
+        );
 
         res.contentType("application/pdf");
         const filterText = blockId ? `-block-${blocks.find((b: any) => b.id === blockId)?.name || 'filtered'}` :
@@ -36265,22 +35683,16 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       try {
         browser = await launchPuppeteerBrowser();
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        });
-
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "12mm",
-            right: "10mm",
-            bottom: "12mm",
-            left: "10mm",
-          },
-        });
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+            address: branding?.brandingName || organization?.name || "Inspect360",
+            propertyName: branding?.brandingName || organization?.name || "Inspect360",
+            baseUrl,
+          }),
+        );
 
         const pdfBuffer = Buffer.from(pdf);
         console.log(`[Portfolio PDF] Generated ${pdfBuffer.length} bytes`);
@@ -36432,22 +35844,22 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
       try {
         browser = await launchPuppeteerBrowser();
         const page = await browser.newPage();
-        await page.setContent(themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined), {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        });
 
-        const pdf = await page.pdf({
-          format: "A4",
-          landscape: true,
-          printBackground: true,
-          margin: {
-            top: "12mm",
-            right: "10mm",
-            bottom: "12mm",
-            left: "10mm",
-          },
-        });
+        const histName = property?.name || branding?.brandingName || "Inspect360";
+        const histAddress =
+          typeof property?.address === "string"
+            ? property.address.trim()
+            : histName;
+        const pdf = await renderHtmlToBrandedPdf(
+          page,
+          themeReportHtml(html, typeof branding !== "undefined" ? branding : undefined),
+          await buildOrgPdfChrome(typeof branding !== "undefined" ? branding : undefined, {
+            landscape: true,
+            address: histAddress || histName,
+            propertyName: histName,
+            baseUrl,
+          }),
+        );
 
         const pdfBuffer = Buffer.from(pdf);
         const dateStamp = new Date().toISOString().split("T")[0];

@@ -14,6 +14,7 @@ import {
   renderTable,
   statusBadge,
   buildCoverChrome,
+  buildWhiteCoverHtml,
 } from "./reportPdfShared";
 
 export type PortfolioReportBranding = LandscapeReportBranding;
@@ -74,10 +75,11 @@ export async function generatePortfolioReportHTML(params: {
     return new Date(doc.expiryDate).getTime() < Date.now();
   }).length;
 
-  const { displayName, companyNameHtml, logoHtml, contactInfoHtml } = await buildCoverChrome({
+  const { displayName, logoHtml } = await buildCoverChrome({
     organizationName,
     branding,
     baseUrl,
+    logoVariant: "on-light",
   });
 
   // ---- Blocks & Properties (same columns as Excel) ----
@@ -426,19 +428,15 @@ export async function generatePortfolioReportHTML(params: {
   <style>${sharedCss(branding)}</style>
 </head>
 <body>
-  <div class="cover-page">
-    <div class="cover-content">
-      <div class="cover-logo-container">
-        ${companyNameHtml}
-        ${logoHtml}
-      </div>
-      <div class="cover-title">Comprehensive Report</div>
-      <div class="cover-subtitle">Portfolio Data Export</div>
-      <div class="cover-meta"><strong>Organization:</strong> ${escapeHtml(displayName)}</div>
-      <div class="cover-meta"><strong>Report Date:</strong> ${escapeHtml(reportDate)}</div>
-    </div>
-    ${contactInfoHtml}
-  </div>
+  ${buildWhiteCoverHtml({
+    logoHtml,
+    title: "Comprehensive Report",
+    subtitle: "Portfolio Data Export",
+    metaRows: [
+      { label: "Organization", value: displayName },
+      { label: "Report Date", value: reportDate },
+    ],
+  })}
 
   <div class="page">
     <h2 class="section-title">Summary</h2>

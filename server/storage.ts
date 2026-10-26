@@ -3656,9 +3656,17 @@ export class DatabaseStorage implements IStorage {
   async updateInspectionEntry(id: string, updates: Partial<InsertInspectionEntry>): Promise<InspectionEntry> {
     // Sync photos from valueJson to photos column for consistency
     const syncedUpdates = this.syncPhotosFromValueJson(updates);
+    // Clients often echo full entries (ISO strings for createdAt/updatedAt). Drizzle timestamps
+    // require Date objects — strip immutable fields and never trust client timestamps.
+    const {
+      id: _ignoreId,
+      createdAt: _ignoreCreatedAt,
+      updatedAt: _ignoreUpdatedAt,
+      ...safeUpdates
+    } = syncedUpdates as Record<string, unknown>;
     const [updated] = await db
       .update(inspectionEntries)
-      .set({ ...syncedUpdates, updatedAt: new Date() })
+      .set({ ...safeUpdates, updatedAt: new Date() } as Partial<InsertInspectionEntry> & { updatedAt: Date })
       .where(eq(inspectionEntries.id, id))
       .returning();
     return updated;

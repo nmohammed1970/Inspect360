@@ -197,8 +197,15 @@ export const inspectionsService = {
       valueJson = sanitized;
     }
 
+    const {
+      id: _id,
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      ...rest
+    } = updates as Partial<InspectionEntry> & Record<string, unknown>;
+
     return apiRequestJson<InspectionEntry>('PATCH', `/api/inspection-entries/${entryId}`, {
-      ...updates,
+      ...rest,
       ...(photos !== undefined && { photos }),
       ...(valueJson !== undefined && { valueJson }),
     });

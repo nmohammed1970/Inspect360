@@ -249,17 +249,34 @@ export function ReportVoiceRecordingWidget({
                                         setTranscribingUrl(url);
                                         try {
                                             const fetchUrl = url.startsWith("http") ? url : `${window.location.origin}${url.startsWith("/") ? url : "/" + url}`;
-                                            const response = await fetch(fetchUrl);
-                                            const audioBlob = await response.blob();
-                                            const formData = new FormData();
-                                            formData.append("audio", audioBlob, "recording.webm");
-
-                                            const resp = await fetch("/api/audio/transcribe", {
+                                            const response = await fetch(fetchUrl, { credentials: "include" });
+                                            if (!response.ok) throw new Error("Could not load the recording.");
+                                            const arrayBuf = await response.arrayBuffer();
+                                            const bytes = new Uint8Array(arrayBuf);
+                                            const isFtyp =
+                                              bytes.length >= 12 &&
+                                              bytes[4] === 0x66 &&
+                                              bytes[5] === 0x74 &&
+                                              bytes[6] === 0x79 &&
+                                              bytes[7] === 0x70;
+                                            let binary = "";
+                                            const chunk = 0x8000;
+                                            for (let i = 0; i < bytes.length; i += chunk) {
+                                              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+                                            }
+                                            const resp = await fetch("/api/audio/transcribe-base64", {
                                                 method: "POST",
-                                                body: formData,
                                                 credentials: "include",
+                                                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                                                body: JSON.stringify({
+                                                  audioBase64: btoa(binary),
+                                                  fileName: isFtyp ? "recording.m4a" : "recording.m4a",
+                                                }),
                                             });
-                                            if (!resp.ok) throw new Error("Transcription failed");
+                                            if (!resp.ok) {
+                                              const err = await resp.json().catch(() => ({}));
+                                              throw new Error(err.error || err.message || "Transcription failed");
+                                            }
                                             const result = await resp.json();
                                             if (result.text) {
                                                 await onTranscription(url, result.text);

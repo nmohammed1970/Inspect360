@@ -25,12 +25,10 @@ import {
   getLocalImageUri,
   isLocalPath,
 } from './storage';
-import { buildUploadDirectUrl } from './galleryOfflineHelpers';
 import { ConflictResolver } from './conflictResolver';
-import { getAPI_URL } from '../api';
+import { uploadLocalFile } from '../objectUpload';
 import { inspectionGalleryService } from '../inspectionGallery';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Platform } from 'react-native';
 
 export interface SyncProgress {
   total: number;
@@ -481,12 +479,14 @@ export class SyncService {
               }
             });
 
-            // Filter out local paths before sending to server (server can't handle file:// paths)
-            // But we'll update the local entry to keep both server URLs and local paths for retry
+            // Never PATCH photos: [] while local images still need upload — that wipes web-visible photos.
             const entryToSend: InspectionEntry = {
               ...entry,
-              photos: photosToSend, // Only send server URLs to server
+              photos: photosToSend,
             };
+            if (photosToKeep.length > 0 && photosToSend.length === 0) {
+              delete (entryToSend as Partial<InspectionEntry>).photos;
+            }
 
             if (entryRecord.entryId) {
               // Update existing entry
@@ -755,7 +755,8 @@ export class SyncService {
   }
 
   /**
-   * Upload a single image. Pass stable objectId (local_images.id) for idempotent retries.
+   * Upload a single image via the shared Expo uploader (same as gallery / field capture).
+   * Pass stable objectId (local_images.id) for idempotent retries.
    */
   private async uploadImage(localPath: string, objectId?: string): Promise<string | null> {
     try {
@@ -765,65 +766,19 @@ export class SyncService {
         throw new Error('Image file not found');
       }
 
-      const extension = localPath.split('.').pop() || 'jpg';
-      const mimeType = `image/${extension === 'jpg' || extension === 'jpeg' ? 'jpeg' : extension}`;
+      const extension = localPath.split('.').pop()?.toLowerCase() || 'jpg';
+      const mimeType =
+        extension === 'png'
+          ? 'image/png'
+          : extension === 'webp'
+            ? 'image/webp'
+            : 'image/jpeg';
 
-      const formData = new FormData();
-      const fileUri = localPath.startsWith('file://') ? localPath : `file://${localPath}`;
-
-      formData.append('file', {
-        uri: fileUri,
-        type: mimeType,
-        name: `photo_${objectId || Date.now()}.${extension}`,
-      } as any);
-
-      const apiUrl = getAPI_URL();
-      if (!apiUrl || !apiUrl.startsWith('http')) {
-        throw new Error(`Invalid API URL: ${apiUrl}`);
-      }
-
-      const uploadUrl = objectId
-        ? buildUploadDirectUrl(apiUrl, objectId)
-        : `${apiUrl.replace(/\/$/, '')}/api/objects/upload-direct`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-      try {
-        const response = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-          },
-          body: formData,
-          credentials: 'include',
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          let errorMessage = `Upload failed: ${response.status} ${response.statusText}`;
-          try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.message || errorData.error || errorMessage;
-          } catch {
-            errorMessage = errorText || errorMessage;
-          }
-          throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
-        const serverUrl = data.url || data.uploadURL || data.path || data.objectUrl || `/objects/${data.objectId}`;
-        return serverUrl;
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        if (fetchError.name === 'AbortError') {
-          throw new Error('Upload timeout: The server took too long to respond.');
-        }
-        throw fetchError;
-      }
+      return await uploadLocalFile(localPath, {
+        mimeType,
+        fileName: `photo_${objectId || Date.now()}.${extension}`,
+        objectId,
+      });
     } catch (error: any) {
       console.error('[SyncService] Error uploading image:', error);
       throw error;

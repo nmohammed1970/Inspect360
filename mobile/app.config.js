@@ -3,7 +3,7 @@ export default {
   expo: {
     name: "Inspect360",
     slug: "inspect360-mobile",
-    version: "1.0.7", // Increment this for each new App Store release (must be > last approved)
+    version: "1.0.8", // Increment this for each new App Store release (must be > last approved)
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "automatic", // Supports automatic dark mode based on system settings
@@ -17,9 +17,9 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.inspect360.mobile",
-      buildNumber: "36", // iOS CFBundleVersion; must be > last uploaded (35)
+      buildNumber: "37", // iOS CFBundleVersion; must be > last uploaded (36)
       requiresFullScreen: false,
-      // Minimum iOS version supported (Expo SDK 57 requires >= 16.4)
+      // Minimum iOS version supported (Expo SDK 58 requires >= 16.4)
       deploymentTarget: "16.4",
       infoPlist: {
         NSCameraUsageDescription: "This app needs access to your camera to capture inspection photos.",
@@ -45,7 +45,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.inspect360.mobile",
-      versionCode: 36, // Android versionCode; used when appVersionSource is "local" in eas.json
+      versionCode: 37, // Android versionCode; used when appVersionSource is "local" in eas.json
       permissions: [
         "CAMERA",
         "RECORD_AUDIO",
@@ -119,6 +119,8 @@ export default {
       "expo-sharing",
       "expo-sqlite",
       "expo-asset",
+      "expo-font",
+      "expo-status-bar",
       // Network security plugin for SSL certificate handling
       "./plugins/with-network-security.js"
     ]
