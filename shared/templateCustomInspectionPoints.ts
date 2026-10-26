@@ -5,6 +5,8 @@
  * ("How many {Door}?" → N field blocks).
  */
 
+import type { BooleanOptionColors, FieldOption } from "./fieldOptionColors";
+
 export type TemplateFieldLike = {
   id?: string;
   key?: string;
@@ -12,7 +14,9 @@ export type TemplateFieldLike = {
   type?: string;
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: FieldOption[];
+  /** Palette ids for Yes/No (`boolean`) fields. */
+  booleanColors?: BooleanOptionColors;
   validation?: unknown;
   depends_on?: string;
   includeCondition?: boolean;

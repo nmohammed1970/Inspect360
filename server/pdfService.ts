@@ -20,6 +20,13 @@ import {
 import { formatFloorArea, fromMillimetres } from "@shared/propertyRooms";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 import {
+  optionPillStyle,
+  resolveBooleanOptionColor,
+  resolveOptionColor,
+  type BooleanOptionColors,
+  type FieldOption,
+} from "@shared/fieldOptionColors";
+import {
   whiteCoverCss,
   buildWhiteCoverHtml,
   sectionHeadingBannerCss,
@@ -231,7 +238,8 @@ interface TemplateField {
   description?: string;
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: FieldOption[];
+  booleanColors?: BooleanOptionColors;
   validation?: Record<string, any>;
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
@@ -593,16 +601,26 @@ function renderFieldValue(value: any, field: TemplateField): string {
     if (field.type === "boolean" || field.type === "checkbox" || field.type === "toggle") {
       const isYes = value === true || value === "true" || value === "Yes";
       const isNo = value === false || value === "false" || value === "No";
-      const box = (checked: boolean) =>
-        checked
-          ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1.5px solid #00D5CC;border-radius:3px;background:#00D5CC;color:#fff;font-size:10px;line-height:1;vertical-align:middle;">✓</span>`
-          : `<span style="display:inline-block;width:14px;height:14px;border:1.5px solid #94a3b8;border-radius:3px;background:#fff;vertical-align:middle;"></span>`;
-      return `
-        <span style="display:inline-flex;align-items:center;gap:18px;font-size:13px;color:#334155;">
-          <span style="display:inline-flex;align-items:center;gap:6px;">${box(isYes)} Yes</span>
-          <span style="display:inline-flex;align-items:center;gap:6px;">${box(isNo)} No</span>
-        </span>
-      `;
+      if (isYes || isNo) {
+        const hex = resolveBooleanOptionColor(field, isYes);
+        const style = optionPillStyle(hex);
+        const bg = style?.backgroundColor || "rgba(148,163,184,0.14)";
+        const border = style?.borderColor || "rgba(148,163,184,0.4)";
+        const color = style?.color || "#334155";
+        const label = isYes ? "Yes" : "No";
+        return `<span style="display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid ${border};background:${bg};color:${color};font-size:12px;font-weight:500;line-height:1.4;">${escapeHtml(label)}</span>`;
+      }
+      return '<span style="color: #999;">Not answered</span>';
+    }
+
+    if (field.type === "select" || field.type === "radio") {
+      const label = String(value);
+      const hex = resolveOptionColor(field.options, label);
+      const style = optionPillStyle(hex);
+      const bg = style?.backgroundColor || "rgba(148,163,184,0.14)";
+      const border = style?.borderColor || "rgba(148,163,184,0.4)";
+      const color = style?.color || "#334155";
+      return `<span style="display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid ${border};background:${bg};color:${color};font-size:12px;font-weight:500;line-height:1.4;">${escapeHtml(label)}</span>`;
     }
 
     if (field.type === "date" && typeof value === "string") {
@@ -1021,9 +1039,23 @@ function generateInspectionHTML(
     const isSignature = !!signaturePayload ||
                        (typeof description === 'string' && description.startsWith('data:image'));
     
+    const formatOptionPillHTML = (label: string, colorHex?: string): string => {
+      const style = optionPillStyle(colorHex);
+      const bg = style?.backgroundColor || "rgba(148,163,184,0.14)";
+      const border = style?.borderColor || "rgba(148,163,184,0.4)";
+      const color = style?.color || "#334155";
+      return `<span style="display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid ${border};background:${bg};color:${color};font-size:12px;font-weight:500;line-height:1.4;vertical-align:middle;">${escapeHtml(label)}</span>`;
+    };
+
     const formatBooleanCheckboxesHTML = (value: unknown): string => {
       const isYes = value === true || value === "true" || value === "Yes";
       const isNo = value === false || value === "false" || value === "No";
+      if (isYes || isNo) {
+        return formatOptionPillHTML(
+          isYes ? "Yes" : "No",
+          resolveBooleanOptionColor(field, isYes),
+        );
+      }
       const box = (checked: boolean) =>
         checked
           ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1.5px solid #00D5CC;border-radius:3px;background:#00D5CC;color:#fff;font-size:10px;line-height:1;vertical-align:middle;">✓</span>`
@@ -1039,6 +1071,16 @@ function generateInspectionHTML(
     let descriptionHTML = '-';
     if (field.type === "boolean" || field.type === "toggle") {
       descriptionHTML = formatBooleanCheckboxesHTML(description);
+    } else if (field.type === "select" || field.type === "radio") {
+      if (description !== null && description !== undefined && description !== "") {
+        const label = String(description);
+        descriptionHTML = formatOptionPillHTML(
+          label,
+          resolveOptionColor(field.options, label),
+        );
+      } else {
+        descriptionHTML = '-';
+      }
     } else if (field.type === "photo" || field.type === "photo_array") {
       descriptionHTML = photoCount > 0
         ? `<span style="color:#64748b;">See photos</span>`

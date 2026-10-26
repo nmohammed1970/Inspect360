@@ -11,11 +11,13 @@ import { ErrorBoundary } from './src/components/ui/ErrorBoundary';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import GlobalSyncModal from './src/components/ui/GlobalSyncModal';
 import { SystemBarsThemeSync } from './src/hooks/useSystemBarsTheme';
+import { useEasUpdates } from './src/hooks/useEasUpdates';
 
 // Paint root window white ASAP so edge-to-edge status bar isn't black before theme mounts.
 void SystemUI.setBackgroundColorAsync('#ffffff').catch(() => {});
 
 function AppContent() {
+  useEasUpdates();
   return (
     <SystemBarsThemeSync>
       <AppNavigator />

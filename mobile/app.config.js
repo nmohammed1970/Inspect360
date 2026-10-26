@@ -1,4 +1,6 @@
 // Use app.config.js instead of app.json to support dynamic configuration
+const EAS_PROJECT_ID = "e8d871f6-af78-4846-a1c0-7a55edc54312";
+
 export default {
   expo: {
     name: "Inspect360",
@@ -9,6 +11,16 @@ export default {
     userInterfaceStyle: "automatic", // Supports automatic dark mode based on system settings
     newArchEnabled: true,
     scheme: "inspect360",
+    // EAS Update: OTAs target the same native appVersion (e.g. 1.0.8). Bumping version
+    // requires a new store build; JS-only fixes can use `eas update --channel …`.
+    runtimeVersion: {
+      policy: "appVersion",
+    },
+    updates: {
+      url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+      fallbackToCacheTimeout: 0,
+      checkAutomatically: "ON_LOAD",
+    },
     splash: {
       image: "./assets/splash-icon.png",
       resizeMode: "contain",
@@ -77,10 +89,11 @@ export default {
       // Fallback to production URL for standalone builds if not set
       apiUrl: process.env.EXPO_PUBLIC_API_URL || 'https://portal.inspect360.ai',
       eas: {
-        projectId: "e8d871f6-af78-4846-a1c0-7a55edc54312"
+        projectId: EAS_PROJECT_ID,
       }
     },
     plugins: [
+      "expo-updates",
       [
         "expo-build-properties",
         {

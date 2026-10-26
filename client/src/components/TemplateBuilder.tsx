@@ -27,6 +27,15 @@ import {
   TemplateCipValidationError,
 } from "@shared/templateCustomInspectionPoints";
 import {
+  normalizeFieldOptions,
+  resolvePaletteHex,
+  serializeFieldOption,
+  type BooleanOptionColors,
+  type FieldOption,
+} from "@shared/fieldOptionColors";
+import { OptionColorSwatchPicker } from "@/components/OptionColorSwatchPicker";
+import { OptionValueBadge } from "@/components/OptionValueBadge";
+import {
   defaultGeneralInformationSection,
   isGeneralInformationSection,
 } from "@shared/defaultGeneralInformationSection";
@@ -122,7 +131,8 @@ interface TemplateField {
   type: string;
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: FieldOption[];
+  booleanColors?: BooleanOptionColors;
   validation?: any;
   depends_on?: string;
   includeCondition?: boolean;
@@ -783,27 +793,45 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
             ))}
           </div>
         );
-      case "select":
+      case "select": {
+        const opts = normalizeFieldOptions(field.options);
         return (
           <Select disabled>
             <SelectTrigger className="bg-muted/50 w-full max-w-[300px]">
-              <SelectValue placeholder={field.options?.[0] || "Select option..."} />
+              <SelectValue placeholder={opts[0]?.label || "Select option..."} />
             </SelectTrigger>
           </Select>
         );
-      case "multiselect":
+      }
+      case "multiselect": {
+        const opts = normalizeFieldOptions(field.options);
         return (
           <div className="flex flex-wrap gap-1">
-            {field.options?.slice(0, 3).map((opt, i) => (
-              <Badge key={i} variant="outline" className="text-muted-foreground">{opt}</Badge>
+            {opts.slice(0, 3).map((opt, i) => (
+              <OptionValueBadge
+                key={i}
+                label={opt.label}
+                colorHex={resolvePaletteHex(opt.color)}
+                className="text-muted-foreground"
+              />
             )) || <span className="text-muted-foreground text-sm">No options defined</span>}
+            {opts.length === 0 && (
+              <span className="text-muted-foreground text-sm">No options defined</span>
+            )}
           </div>
         );
+      }
       case "boolean":
         return (
           <div className="flex gap-2">
-            <Badge variant="outline">Yes</Badge>
-            <Badge variant="outline">No</Badge>
+            <OptionValueBadge
+              label="Yes"
+              colorHex={resolvePaletteHex(field.booleanColors?.yes)}
+            />
+            <OptionValueBadge
+              label="No"
+              colorHex={resolvePaletteHex(field.booleanColors?.no)}
+            />
           </div>
         );
       case "date":
@@ -895,7 +923,28 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl h-[min(90vh,calc(100dvh-2rem))] p-0 gap-0 flex flex-col overflow-hidden">
+      <DialogContent
+        className="max-w-6xl h-[min(90vh,calc(100dvh-2rem))] p-0 gap-0 flex flex-col overflow-hidden"
+        onInteractOutside={(e) => {
+          const target = e.target as HTMLElement | null;
+          // Keep Google Places + portaled color/date popovers usable above this dialog
+          if (
+            target?.closest(".pac-container") ||
+            target?.closest("[data-radix-popper-content-wrapper]")
+          ) {
+            e.preventDefault();
+          }
+        }}
+        onPointerDownOutside={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (
+            target?.closest(".pac-container") ||
+            target?.closest("[data-radix-popper-content-wrapper]")
+          ) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b shrink-0">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pr-8 sm:pr-0">
             <DialogTitle className="text-xl sm:text-2xl break-words min-w-0">
@@ -1661,24 +1710,45 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                           <p className="text-xs text-muted-foreground">No options yet. Click "Add Option" to create dropdown choices.</p>
                                         ) : (
                                           <div className="space-y-2">
-                                            {field.options.map((option, optionIndex) => (
+                                            {normalizeFieldOptions(field.options).map((option, optionIndex) => (
                                               <div key={optionIndex} className="flex items-center gap-2">
                                                 <Input
-                                                  value={option}
+                                                  value={option.value}
                                                   onChange={(e) => {
-                                                    const newOptions = [...(field.options || [])];
-                                                    newOptions[optionIndex] = e.target.value;
-                                                    updateField(section.id, field.key, { options: newOptions });
+                                                    const normalized = normalizeFieldOptions(field.options);
+                                                    const next = normalized.map((o, i) =>
+                                                      i === optionIndex
+                                                        ? serializeFieldOption(e.target.value, o.color)
+                                                        : serializeFieldOption(o.value, o.color),
+                                                    );
+                                                    updateField(section.id, field.key, { options: next });
                                                   }}
                                                   placeholder={`Option ${optionIndex + 1}`}
                                                   className="flex-1"
                                                   data-testid={`input-option-${sectionIndex}-${fieldIndex}-${optionIndex}`}
                                                 />
+                                                {field.type === "select" && (
+                                                  <OptionColorSwatchPicker
+                                                    value={option.color}
+                                                    aria-label={`Color for option ${optionIndex + 1}`}
+                                                    onChange={(colorId) => {
+                                                      const normalized = normalizeFieldOptions(field.options);
+                                                      const next = normalized.map((o, i) =>
+                                                        i === optionIndex
+                                                          ? serializeFieldOption(o.value, colorId)
+                                                          : serializeFieldOption(o.value, o.color),
+                                                      );
+                                                      updateField(section.id, field.key, { options: next });
+                                                    }}
+                                                  />
+                                                )}
                                                 <Button
                                                   variant="ghost"
                                                   size="icon"
                                                   onClick={() => {
-                                                    const newOptions = (field.options || []).filter((_, i) => i !== optionIndex);
+                                                    const newOptions = normalizeFieldOptions(field.options)
+                                                      .filter((_, i) => i !== optionIndex)
+                                                      .map((o) => serializeFieldOption(o.value, o.color));
                                                     updateField(section.id, field.key, { options: newOptions });
                                                   }}
                                                   data-testid={`button-delete-option-${sectionIndex}-${fieldIndex}-${optionIndex}`}
@@ -1689,6 +1759,39 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                             ))}
                                           </div>
                                         )}
+                                      </div>
+                                    )}
+
+                                    {field.type === "boolean" && (
+                                      <div className="ml-0 sm:ml-8 p-3 bg-background border rounded-lg space-y-2 min-w-0">
+                                        <label className="text-sm font-medium">Yes / No colors</label>
+                                        <p className="text-xs text-muted-foreground">
+                                          Optional colors shown when this answer appears in capture and reports.
+                                        </p>
+                                        {(["yes", "no"] as const).map((key) => (
+                                          <div key={key} className="flex items-center gap-2">
+                                            <span className="w-12 text-sm text-muted-foreground capitalize">{key}</span>
+                                            <OptionValueBadge
+                                              label={key === "yes" ? "Yes" : "No"}
+                                              colorHex={resolvePaletteHex(field.booleanColors?.[key])}
+                                              className="flex-1 justify-center"
+                                            />
+                                            <OptionColorSwatchPicker
+                                              value={field.booleanColors?.[key]}
+                                              aria-label={`${key} color`}
+                                              onChange={(colorId) => {
+                                                const next: BooleanOptionColors = {
+                                                  ...(field.booleanColors || {}),
+                                                  [key]: colorId,
+                                                };
+                                                if (!colorId) delete next[key];
+                                                updateField(section.id, field.key, {
+                                                  booleanColors: Object.keys(next).length ? next : undefined,
+                                                });
+                                              }}
+                                            />
+                                          </div>
+                                        ))}
                                       </div>
                                     )}
                                   </div>
@@ -1996,28 +2099,45 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                                 </p>
                                               ) : (
                                                 <div className="space-y-2">
-                                                  {field.options.map((option, optionIndex) => (
+                                                  {normalizeFieldOptions(field.options).map((option, optionIndex) => (
                                                     <div key={optionIndex} className="flex items-center gap-2">
                                                       <Input
-                                                        value={option}
+                                                        value={option.value}
                                                         onChange={(e) => {
-                                                          const newOptions = [...(field.options || [])];
-                                                          newOptions[optionIndex] = e.target.value;
-                                                          updateCipField(cip.id, field.key, {
-                                                            options: newOptions,
-                                                          });
+                                                          const normalized = normalizeFieldOptions(field.options);
+                                                          const next = normalized.map((o, i) =>
+                                                            i === optionIndex
+                                                              ? serializeFieldOption(e.target.value, o.color)
+                                                              : serializeFieldOption(o.value, o.color),
+                                                          );
+                                                          updateCipField(cip.id, field.key, { options: next });
                                                         }}
                                                         placeholder={`Option ${optionIndex + 1}`}
                                                         className="flex-1"
                                                         data-testid={`input-cip-option-${cipIndex}-${fieldIndex}-${optionIndex}`}
                                                       />
+                                                      {field.type === "select" && (
+                                                        <OptionColorSwatchPicker
+                                                          value={option.color}
+                                                          aria-label={`Color for option ${optionIndex + 1}`}
+                                                          onChange={(colorId) => {
+                                                            const normalized = normalizeFieldOptions(field.options);
+                                                            const next = normalized.map((o, i) =>
+                                                              i === optionIndex
+                                                                ? serializeFieldOption(o.value, colorId)
+                                                                : serializeFieldOption(o.value, o.color),
+                                                            );
+                                                            updateCipField(cip.id, field.key, { options: next });
+                                                          }}
+                                                        />
+                                                      )}
                                                       <Button
                                                         variant="ghost"
                                                         size="icon"
                                                         onClick={() => {
-                                                          const newOptions = (field.options || []).filter(
-                                                            (_, i) => i !== optionIndex,
-                                                          );
+                                                          const newOptions = normalizeFieldOptions(field.options)
+                                                            .filter((_, i) => i !== optionIndex)
+                                                            .map((o) => serializeFieldOption(o.value, o.color));
                                                           updateCipField(cip.id, field.key, {
                                                             options: newOptions,
                                                           });
@@ -2030,6 +2150,36 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                                   ))}
                                                 </div>
                                               )}
+                                            </div>
+                                          )}
+
+                                          {field.type === "boolean" && (
+                                            <div className="ml-0 sm:ml-8 p-3 bg-background border rounded-lg space-y-2 min-w-0">
+                                              <label className="text-sm font-medium">Yes / No colors</label>
+                                              {(["yes", "no"] as const).map((key) => (
+                                                <div key={key} className="flex items-center gap-2">
+                                                  <span className="w-12 text-sm text-muted-foreground capitalize">{key}</span>
+                                                  <OptionValueBadge
+                                                    label={key === "yes" ? "Yes" : "No"}
+                                                    colorHex={resolvePaletteHex(field.booleanColors?.[key])}
+                                                    className="flex-1 justify-center"
+                                                  />
+                                                  <OptionColorSwatchPicker
+                                                    value={field.booleanColors?.[key]}
+                                                    aria-label={`${key} color`}
+                                                    onChange={(colorId) => {
+                                                      const next: BooleanOptionColors = {
+                                                        ...(field.booleanColors || {}),
+                                                        [key]: colorId,
+                                                      };
+                                                      if (!colorId) delete next[key];
+                                                      updateCipField(cip.id, field.key, {
+                                                        booleanColors: Object.keys(next).length ? next : undefined,
+                                                      });
+                                                    }}
+                                                  />
+                                                </div>
+                                              ))}
                                             </div>
                                           )}
                                         </div>

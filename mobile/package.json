@@ -6,7 +6,9 @@
     "start": "npx expo start --clear",
     "android": "npx expo start --android --clear",
     "ios": "npx expo start --ios --clear",
-    "web": "npx expo start --web --clear"
+    "web": "npx expo start --web --clear",
+    "update:preview": "eas update --channel preview",
+    "update:production": "eas update --channel production"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -39,6 +41,7 @@
     "expo-sqlite": "~58.0.14",
     "expo-status-bar": "~58.0.4",
     "expo-system-ui": "~58.0.6",
+    "expo-updates": "~58.0.18",
     "lucide-react-native": "^0.562.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

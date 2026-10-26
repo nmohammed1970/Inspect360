@@ -41,6 +41,14 @@ import { uploadLocalFile } from '../../services/objectUpload';
 import { triggerSync } from '../../services/offline/backgroundSync';
 // No offline functionality - app requires server connection
 import { formatDisplayHeading } from '../../../../shared/propertyRooms';
+import {
+  normalizeFieldOptions,
+  optionPillStyle,
+  resolveBooleanOptionColor,
+  resolveOptionColor,
+  type BooleanOptionColors,
+  type FieldOption,
+} from '../../../../shared/fieldOptionColors';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
 import { RemoteImage } from '../ui/RemoteImage';
 import { format } from 'date-fns';
@@ -67,7 +75,8 @@ interface TemplateField {
   type: string;
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: FieldOption[];
+  booleanColors?: BooleanOptionColors;
   validation?: Record<string, any>;
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
@@ -1102,7 +1111,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         );
 
       case 'select':
-      case 'dropdown':
+      case 'dropdown': {
+        const selectOpts = normalizeFieldOptions(safeField.options);
         return (
           <View style={styles.selectContainer}>
             <Text style={[styles.label, { color: themeColors.text.primary }]}>
@@ -1110,30 +1120,41 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
             </Text>
             <View style={styles.optionsWrap}>
-              {safeField.options?.map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  style={[
-                    styles.optionButton,
-                    localValue === option && styles.optionButtonSelected,
-                    disabled && styles.optionButtonDisabled,
-                  ]}
-                  onPress={() => handleValueChange(option)}
-                  disabled={disabled}
-                >
-                  <Text
+              {selectOpts.map((option) => {
+                const selected = localValue === option.value;
+                const hex = resolveOptionColor(safeField.options, option.value);
+                const pill = selected ? optionPillStyle(hex) : null;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
                     style={[
-                      styles.optionText,
-                      localValue === option && styles.optionTextSelected,
+                      styles.optionButton,
+                      selected && styles.optionButtonSelected,
+                      pill && {
+                        backgroundColor: pill.backgroundColor,
+                        borderColor: pill.borderColor,
+                      },
+                      disabled && styles.optionButtonDisabled,
                     ]}
+                    onPress={() => handleValueChange(option.value)}
+                    disabled={disabled}
                   >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.optionText,
+                        selected && styles.optionTextSelected,
+                        pill && { color: pill.color, fontWeight: '500' as const },
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         );
+      }
 
       case 'checkbox': {
         const boolValue = !!localValue;
@@ -1154,27 +1175,55 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       case 'boolean': {
         const isYes = localValue === true || localValue === 'true';
         const isNo = localValue === false || localValue === 'false';
+        const yesPill = isYes ? optionPillStyle(resolveBooleanOptionColor(safeField, true)) : null;
+        const noPill = isNo ? optionPillStyle(resolveBooleanOptionColor(safeField, false)) : null;
         return (
           <View style={[styles.booleanRow, disabled && styles.checkboxContainerDisabled]}>
             <TouchableOpacity
-              style={[styles.checkboxContainer, { marginBottom: 0 }]}
+              style={[
+                styles.optionButton,
+                isYes && styles.optionButtonSelected,
+                yesPill && {
+                  backgroundColor: yesPill.backgroundColor,
+                  borderColor: yesPill.borderColor,
+                },
+                { marginBottom: 0 },
+              ]}
               onPress={() => handleValueChange(isYes ? null : true)}
               disabled={disabled}
             >
-              <View style={[styles.checkbox, isYes && styles.checkboxChecked]}>
-                {isYes && <Text style={[styles.checkmark, { color: themeColors.primary.foreground || '#ffffff' }]}>✓</Text>}
-              </View>
-              <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>Yes</Text>
+              <Text
+                style={[
+                  styles.optionText,
+                  isYes && styles.optionTextSelected,
+                  yesPill && { color: yesPill.color, fontWeight: '500' as const },
+                ]}
+              >
+                Yes
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.checkboxContainer, { marginBottom: 0 }]}
+              style={[
+                styles.optionButton,
+                isNo && styles.optionButtonSelected,
+                noPill && {
+                  backgroundColor: noPill.backgroundColor,
+                  borderColor: noPill.borderColor,
+                },
+                { marginBottom: 0 },
+              ]}
               onPress={() => handleValueChange(isNo ? null : false)}
               disabled={disabled}
             >
-              <View style={[styles.checkbox, isNo && styles.checkboxChecked]}>
-                {isNo && <Text style={[styles.checkmark, { color: themeColors.primary.foreground || '#ffffff' }]}>✓</Text>}
-              </View>
-              <Text style={[styles.checkboxLabel, { color: themeColors.text.primary }]}>No</Text>
+              <Text
+                style={[
+                  styles.optionText,
+                  isNo && styles.optionTextSelected,
+                  noPill && { color: noPill.color, fontWeight: '500' as const },
+                ]}
+              >
+                No
+              </Text>
             </TouchableOpacity>
           </View>
         );
