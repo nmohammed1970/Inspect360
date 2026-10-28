@@ -689,73 +689,13 @@ function isGeneralOrSignoffSection(section: TemplateSectionLike): boolean {
   );
 }
 
-function pickRoomFieldTemplateSection(
-  sections: TemplateSectionLike[],
-): TemplateSectionLike | null {
-  const map = matchTemplateSectionsToRoomTypes(sections);
-  return (
-    map.bathrooms ||
-    map.kitchens ||
-    map.livingRooms ||
-    map.bedrooms ||
-    sections.find((s) => (s.fields?.length ?? 0) > 0 && !isGeneralOrSignoffSection(s)) ||
-    null
-  );
-}
-
-function createAutoRoomSection(
-  categoryName: string,
-  categorySlug: string,
-  _fieldTemplate: TemplateSectionLike | null,
-): TemplateSectionLike {
-  const title = categoryName.trim() || "Other";
-  const slug = (categorySlug || slugifyCategoryName(title)).slice(0, 60) || "other";
-  const id = `section_${slug}`.replace(/[^a-z0-9_]+/g, "_").slice(0, 80);
-  // Auto/other categories (Garden, Porch, Hallway, …) get one generic point —
-  // do not clone Bedroom "Walls" etc. from the room field template.
-  const fields: NonNullable<TemplateSectionLike["fields"]> = [
-    {
-      id: `field_${slug}_overall_condition`,
-      key: `field_${slug}_overall_condition`,
-      label: "Overall Condition",
-      type: "photo_array",
-    },
-  ];
-  return {
-    id,
-    title: formatDisplayHeading(title),
-    repeatable: true,
-    fields,
-    // Marks sections injected from property room categories (idempotent re-apply)
-    propertyRoomAuto: true,
-  } as TemplateSectionLike;
-}
-
-/** Insert auto room sections after Bathrooms and before Sign-Off. */
-function insertSectionAfterBathrooms(
-  sections: TemplateSectionLike[],
-  section: TemplateSectionLike,
-): void {
-  if (sections.some((s) => s.id === section.id)) return;
-  const bathIdx = sections.findIndex((s) => matchSectionToRoomType(s) === "bathrooms");
-  const signIdx = sections.findIndex((s) => {
-    const hay = `${s.title || ""} ${s.id || ""}`.toLowerCase();
-    return hay.includes("sign");
-  });
-  let insertAt = signIdx >= 0 ? signIdx : sections.length;
-  if (bathIdx >= 0 && insertAt <= bathIdx) {
-    insertAt = bathIdx + 1;
-  }
-  sections.splice(insertAt, 0, section);
-}
-
 /**
  * Seed inspection instances from property rooms.
  * Uses stable room id in sectionRef path: `{sectionId}/{roomId}`.
  *
- * Known types (bedroom/master bedroom, bathroom, kitchen, living) map onto template
- * sections. Other categories (Garden, Garage, …) get new repeatable sections inserted
- * after Bathrooms, cloning kitchen/bathroom-style fields.
+ * Rooms map onto **existing template sections only** (bedroom/bathroom/kitchen/living
+ * or a matching section title/id). Categories present on the floor plan but missing
+ * from the template (e.g. Garden) are skipped — no auto-created sections.
  */
 export function applyPropertyRoomsToTemplateSnapshot(
   structure: TemplateStructureLike | null | undefined,
@@ -781,6 +721,7 @@ export function applyPropertyRoomsToTemplateSnapshot(
   base.structure.sections = sections;
 
   // Drop sections from a prior auto-apply so re-runs stay idempotent
+  // (legacy inspections may still have propertyRoomAuto sections)
   for (let i = sections.length - 1; i >= 0; i--) {
     if ((sections[i] as { propertyRoomAuto?: boolean }).propertyRoomAuto) {
       sections.splice(i, 1);
@@ -794,8 +735,6 @@ export function applyPropertyRoomsToTemplateSnapshot(
 
   const roomInstancePaths: Array<{ roomId: string; sectionRef: string; title: string }> = [];
   const roomsBySection = new Map<string, PropertyRoomSnapshotItem[]>();
-  const autoSectionByKey = new Map<string, TemplateSectionLike>();
-  const fieldTemplate = pickRoomFieldTemplateSection(sections);
 
   // Refresh section map after stripping auto sections
   const sectionMap = matchTemplateSectionsToRoomTypes(sections);
@@ -821,32 +760,9 @@ export function applyPropertyRoomsToTemplateSnapshot(
       }
     }
 
-    if (!section) {
-      const resolved = resolveSystemCategoryForLabel(room.name, room.categoryName);
-      const key =
-        (
-          (resolved.slug !== "other" ? resolved.slug : null) ||
-          room.categorySlug ||
-          slugifyCategoryName(room.categoryName || "other")
-        ).toLowerCase() || "other";
-      section = autoSectionByKey.get(key);
-      if (!section) {
-        const existing = sections.find((s) => s.id === `section_${key.replace(/[^a-z0-9_]+/g, "_")}`);
-        if (existing && !isGeneralOrSignoffSection(existing)) {
-          section = existing;
-        } else {
-          section = createAutoRoomSection(
-            resolved.slug !== "other" ? resolved.name : room.categoryName || "Other",
-            key,
-            fieldTemplate,
-          );
-          insertSectionAfterBathrooms(sections, section);
-        }
-        autoSectionByKey.set(key, section);
-      }
-    }
-
+    // No matching template section → skip (do not invent Garden/Garage/etc. sections)
     if (!section) continue;
+
     section.repeatable = true;
     const list = roomsBySection.get(section.id) || [];
     list.push(room);

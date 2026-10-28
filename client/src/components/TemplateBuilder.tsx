@@ -137,6 +137,10 @@ interface TemplateField {
   depends_on?: string;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  /** Landlord PDF only. Default false = internal report only. */
+  visibleToLandlord?: boolean;
+  /** Optional multi-photo evidence on non-image fields. Default false. */
+  allowMultiplePhotos?: boolean;
 }
 
 interface TemplateSection {
@@ -1626,7 +1630,16 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                         <div className="flex flex-wrap items-center gap-2">
                                           <Select
                                             value={field.type}
-                                            onValueChange={(type) => updateField(section.id, field.key, { type })}
+                                            onValueChange={(type) =>
+                                              updateField(section.id, field.key, {
+                                                type,
+                                                ...(type === "photo" ||
+                                                type === "photo_array" ||
+                                                type === "video"
+                                                  ? { allowMultiplePhotos: undefined }
+                                                  : {}),
+                                              })
+                                            }
                                           >
                                             <SelectTrigger className="w-full sm:w-40 min-h-11" data-testid={`select-field-type-${sectionIndex}-${fieldIndex}`}>
                                               <SelectValue />
@@ -1683,6 +1696,38 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                           />
                                           <span className="text-xs text-muted-foreground">Include Cleanliness</span>
                                         </div>
+                                        <div className="flex items-center gap-2 min-h-11">
+                                          <Switch
+                                            checked={field.visibleToLandlord === true}
+                                            onCheckedChange={(checked) =>
+                                              updateField(section.id, field.key, {
+                                                visibleToLandlord: checked || undefined,
+                                              })
+                                            }
+                                            data-testid={`switch-field-landlord-${sectionIndex}-${fieldIndex}`}
+                                          />
+                                          <span className="text-xs text-muted-foreground">
+                                            Visible to Landlord
+                                          </span>
+                                        </div>
+                                        {field.type !== "photo" &&
+                                          field.type !== "photo_array" &&
+                                          field.type !== "video" && (
+                                          <div className="flex items-center gap-2 min-h-11">
+                                            <Switch
+                                              checked={field.allowMultiplePhotos === true}
+                                              onCheckedChange={(checked) =>
+                                                updateField(section.id, field.key, {
+                                                  allowMultiplePhotos: checked || undefined,
+                                                })
+                                              }
+                                              data-testid={`switch-field-allow-photos-${sectionIndex}-${fieldIndex}`}
+                                            />
+                                            <span className="text-xs text-muted-foreground">
+                                              Allow Multiple Photos
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                     
@@ -2000,7 +2045,14 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                                 <Select
                                                   value={field.type}
                                                   onValueChange={(type) =>
-                                                    updateCipField(cip.id, field.key, { type })
+                                                    updateCipField(cip.id, field.key, {
+                                                      type,
+                                                      ...(type === "photo" ||
+                                                      type === "photo_array" ||
+                                                      type === "video"
+                                                        ? { allowMultiplePhotos: undefined }
+                                                        : {}),
+                                                    })
                                                   }
                                                 >
                                                   <SelectTrigger
@@ -2068,6 +2120,38 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                                                   Include Cleanliness
                                                 </span>
                                               </div>
+                                              <div className="flex items-center gap-2 min-h-11">
+                                                <Switch
+                                                  checked={field.visibleToLandlord === true}
+                                                  onCheckedChange={(checked) =>
+                                                    updateCipField(cip.id, field.key, {
+                                                      visibleToLandlord: checked || undefined,
+                                                    })
+                                                  }
+                                                  data-testid={`switch-cip-field-landlord-${cipIndex}-${fieldIndex}`}
+                                                />
+                                                <span className="text-xs text-muted-foreground">
+                                                  Visible to Landlord
+                                                </span>
+                                              </div>
+                                              {field.type !== "photo" &&
+                                                field.type !== "photo_array" &&
+                                                field.type !== "video" && (
+                                                <div className="flex items-center gap-2 min-h-11">
+                                                  <Switch
+                                                    checked={field.allowMultiplePhotos === true}
+                                                    onCheckedChange={(checked) =>
+                                                      updateCipField(cip.id, field.key, {
+                                                        allowMultiplePhotos: checked || undefined,
+                                                      })
+                                                    }
+                                                    data-testid={`switch-cip-field-allow-photos-${cipIndex}-${fieldIndex}`}
+                                                  />
+                                                  <span className="text-xs text-muted-foreground">
+                                                    Allow Multiple Photos
+                                                  </span>
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
 

@@ -5,17 +5,16 @@ export default {
   expo: {
     name: "Inspect360",
     slug: "inspect360-mobile",
-    version: "1.0.8", // Increment this for each new App Store release (must be > last approved)
+    version: "1.0.9", // Increment this for each new App Store release (must be > last approved)
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "automatic", // Supports automatic dark mode based on system settings
     newArchEnabled: true,
     scheme: "inspect360",
-    // EAS Update: OTAs target the same native appVersion (e.g. 1.0.8). Bumping version
-    // requires a new store build; JS-only fixes can use `eas update --channel …`.
-    runtimeVersion: {
-      policy: "appVersion",
-    },
+    // Bare workflow (native android/) requires a concrete runtimeVersion string — policies
+    // like appVersion are not supported. Keep this in sync with expo.version when shipping
+    // a new store binary; JS-only OTAs use `eas update --channel …` against this value.
+    runtimeVersion: "1.0.9",
     updates: {
       url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
       fallbackToCacheTimeout: 0,
@@ -29,7 +28,7 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.inspect360.mobile",
-      buildNumber: "37", // iOS CFBundleVersion; must be > last uploaded (36)
+      buildNumber: "38", // iOS CFBundleVersion; must be > last uploaded (37)
       requiresFullScreen: false,
       // Minimum iOS version supported (Expo SDK 58 requires >= 16.4)
       deploymentTarget: "16.4",
@@ -57,7 +56,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.inspect360.mobile",
-      versionCode: 37, // Android versionCode; used when appVersionSource is "local" in eas.json
+      versionCode: 38, // Android versionCode; used when appVersionSource is "local" in eas.json
       permissions: [
         "CAMERA",
         "RECORD_AUDIO",

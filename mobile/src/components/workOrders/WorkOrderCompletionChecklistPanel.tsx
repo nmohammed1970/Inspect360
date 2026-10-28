@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   TextInput,
   ActivityIndicator,
   Alert,
@@ -19,7 +18,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { colors, spacing } from '../../theme';
 import { maintenanceService } from '../../services/maintenance';
 import { uploadLocalFile } from '../../services/objectUpload';
-import { getAPI_URL } from '../../services/api';
+import { RemoteImage } from '../ui/RemoteImage';
 import {
   computeCompletionChecklistProgress,
   isChecklistItemComplete,
@@ -32,13 +31,6 @@ type Props = {
   workOrderId: string;
   readOnly?: boolean;
 };
-
-function resolvePhotoUrl(url: string): string {
-  if (!url) return url;
-  if (url.startsWith('http') || url.startsWith('file:')) return url;
-  const base = getAPI_URL().replace(/\/$/, '');
-  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`;
-}
 
 export function WorkOrderCompletionChecklistPanel({ workOrderId, readOnly = false }: Props) {
   const theme = useTheme();
@@ -268,7 +260,7 @@ export function WorkOrderCompletionChecklistPanel({ workOrderId, readOnly = fals
                 <View style={styles.photoRow}>
                   {photos.map((url) => (
                     <View key={url} style={styles.photoWrap}>
-                      <Image source={{ uri: resolvePhotoUrl(url) }} style={styles.photo} />
+                      <RemoteImage uri={url} style={styles.photo} resizeMode="cover" />
                       {!readOnly && (
                         <TouchableOpacity
                           style={styles.photoRemove}

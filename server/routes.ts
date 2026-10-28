@@ -8422,6 +8422,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...e,
         note: e.note ?? undefined
       }));
+      const audienceRaw = String(req.query.audience || "full").toLowerCase();
+      const audience = audienceRaw === "landlord" ? "landlord" as const : "full" as const;
       const pdfBuffer = await generateInspectionPDF(
         fullInspection as any,
         entriesForPDF as any,
@@ -8429,7 +8431,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         branding,
         maintenanceRequests,
         reportConfig,
-        { includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies") },
+        {
+          includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies"),
+          audience,
+        },
         floorPlanData,
       );
 
@@ -8440,6 +8445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locationName,
         date: inspection.completedDate || inspection.scheduledDate,
         inspectorName,
+        variant: audience === "landlord" ? "Landlord" : null,
       });
 
       res.setHeader("Content-Type", "application/pdf");

@@ -24,6 +24,8 @@ export function buildInspectionPdfFilename(options: {
   locationName?: string | null;
   date?: Date | string | null;
   inspectorName?: string | null;
+  /** e.g. "Landlord" → …_Landlord.pdf */
+  variant?: string | null;
 }): string {
   const location = sanitizeFilenamePart(options.locationName || "inspection");
   const parts = [location];
@@ -36,6 +38,11 @@ export function buildInspectionPdfFilename(options: {
   const inspector = options.inspectorName?.trim();
   if (inspector && !/^unknown\b/i.test(inspector)) {
     parts.push(sanitizeFilenamePart(inspector));
+  }
+
+  const variant = options.variant?.trim();
+  if (variant) {
+    parts.push(sanitizeFilenamePart(variant));
   }
 
   return `${parts.join("_")}.pdf`;

@@ -22,6 +22,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { PreviewableImage } from "@/components/ImagePreview";
 
 export type WorkOrderCompletionChecklistPayload = {
   snapshot: CompletionChecklistSnapshot | null;
@@ -259,13 +260,13 @@ export function WorkOrderCompletionChecklistPanel({
                   <div className="flex flex-wrap gap-2">
                     {(response?.photoUrls || []).map((url) => (
                       <div key={url} className="relative group">
-                        <a href={url} target="_blank" rel="noreferrer">
-                          <img
-                            src={url}
-                            alt=""
-                            className="h-16 w-16 object-cover rounded border"
-                          />
-                        </a>
+                        <PreviewableImage
+                          src={url}
+                          alt="Checklist evidence"
+                          title="Checklist evidence"
+                          className="h-16 w-16 object-cover rounded border"
+                          showHint={false}
+                        />
                         {!readOnly && (
                           <button
                             type="button"

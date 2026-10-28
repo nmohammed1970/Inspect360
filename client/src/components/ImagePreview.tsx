@@ -1,8 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Expand, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, Expand, ImageOff, ZoomIn, ZoomOut } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  IMAGE_LOAD_ERROR_MESSAGE,
+  IMAGE_POOR_NETWORK_MESSAGE,
+  IMAGE_SLOW_LOAD_MS,
+  isImageAlreadyComplete,
+} from "@shared/imageLoadingUx";
 
 export type PreviewImage = {
   src: string;
@@ -25,6 +31,62 @@ export function useImagePreview() {
   return context;
 }
 
+/** Shared overlay for slow-load / spinner messaging (thumbnail + lightbox). */
+export function ImageLoadOverlay({
+  showSlowMessage,
+  compact = false,
+  className,
+}: {
+  showSlowMessage: boolean;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-muted/80 px-3 text-center",
+        className,
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        className={cn(
+          "animate-spin rounded-full border-2 border-primary border-t-transparent",
+          compact ? "h-5 w-5" : "h-8 w-8",
+        )}
+        aria-hidden
+      />
+      {showSlowMessage ? (
+        <p
+          className={cn(
+            "max-w-[18rem] text-muted-foreground",
+            compact ? "text-[10px] leading-snug" : "text-xs sm:text-sm leading-snug",
+          )}
+        >
+          {IMAGE_POOR_NETWORK_MESSAGE}
+        </p>
+      ) : (
+        <span className="sr-only">Loading image</span>
+      )}
+    </div>
+  );
+}
+
+function useSlowLoadFlag(active: boolean) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setSlow(false);
+      return;
+    }
+    setSlow(false);
+    const t = window.setTimeout(() => setSlow(true), IMAGE_SLOW_LOAD_MS);
+    return () => window.clearTimeout(t);
+  }, [active]);
+  return slow;
+}
+
 export function ImagePreviewProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState<PreviewImage[]>([]);
@@ -32,8 +94,11 @@ export function ImagePreviewProvider({ children }: { children: React.ReactNode }
   const [zoom, setZoom] = useState(1);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   const current = gallery[index];
+  const showSlow = useSlowLoadFlag(loading && !failed && open);
 
   const openPreview = useCallback((image: PreviewImage, images?: PreviewImage[], startIndex = 0) => {
     if (!image.src) return;
@@ -44,6 +109,7 @@ export function ImagePreviewProvider({ children }: { children: React.ReactNode }
     setZoom(1);
     setLoading(true);
     setFailed(false);
+    setRetryKey((k) => k + 1);
     setOpen(true);
   }, []);
 
@@ -56,6 +122,7 @@ export function ImagePreviewProvider({ children }: { children: React.ReactNode }
     setZoom(1);
     setLoading(true);
     setFailed(false);
+    setRetryKey((k) => k + 1);
   }, [gallery.length]);
 
   const indexRef = useRef(index);
@@ -72,6 +139,15 @@ export function ImagePreviewProvider({ children }: { children: React.ReactNode }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, step]);
+
+  // Cached images may complete before onLoad fires
+  useEffect(() => {
+    if (!open || !current?.src || failed) return;
+    const el = imgRef.current;
+    if (isImageAlreadyComplete(el)) {
+      setLoading(false);
+    }
+  }, [open, current?.src, retryKey, failed]);
 
   return (
     <ImagePreviewContext.Provider value={{ openPreview }}>
@@ -103,19 +179,37 @@ export function ImagePreviewProvider({ children }: { children: React.ReactNode }
               </Button>
             ) : null}
             <div className="h-full w-full overflow-auto p-4">
-              <div className="flex min-h-full items-center justify-center">
+              <div className="relative flex min-h-full items-center justify-center">
                 {loading && !failed ? (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-label="Loading image" />
-                  </div>
+                  <ImageLoadOverlay showSlowMessage={showSlow} />
                 ) : null}
                 {failed ? (
-                  <p className="text-sm text-muted-foreground">Unable to load image.</p>
+                  <div className="flex flex-col items-center gap-3 px-4 text-center">
+                    <ImageOff className="h-8 w-8 text-muted-foreground" aria-hidden />
+                    <p className="text-sm text-muted-foreground">{IMAGE_LOAD_ERROR_MESSAGE}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setFailed(false);
+                        setLoading(true);
+                        setRetryKey((k) => k + 1);
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  </div>
                 ) : current ? (
                   <img
+                    key={`${current.src}-${retryKey}`}
+                    ref={imgRef}
                     src={current.src}
                     alt={current.alt || current.title || "Preview"}
-                    className="max-h-[70vh] w-auto max-w-full object-contain"
+                    className={cn(
+                      "max-h-[70vh] w-auto max-w-full object-contain transition-opacity",
+                      loading ? "opacity-0" : "opacity-100",
+                    )}
                     style={zoom > 1 ? { maxHeight: "none", maxWidth: "none", width: `${zoom * 100}%` } : undefined}
                     onLoad={() => setLoading(false)}
                     onError={() => { setLoading(false); setFailed(true); }}
@@ -164,6 +258,8 @@ type PreviewableImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
   index?: number;
   showHint?: boolean;
   fallback?: React.ReactNode;
+  /** When false, render as a non-clickable image (still gets loading UX). Default true when preview context exists. */
+  enablePreview?: boolean;
 };
 
 export function PreviewableImage({
@@ -176,20 +272,113 @@ export function PreviewableImage({
   showHint = true,
   fallback,
   className,
+  loading: loadingAttr,
+  enablePreview = true,
   ...props
 }: PreviewableImageProps) {
-  const { openPreview } = useImagePreview();
+  const previewCtx = useContext(ImagePreviewContext);
   const [broken, setBroken] = useState(false);
-  if (!src || broken) {
+  const [imgLoading, setImgLoading] = useState(true);
+  const [retryKey, setRetryKey] = useState(0);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const srcRef = useRef(src);
+
+  useEffect(() => {
+    if (src !== srcRef.current) {
+      srcRef.current = src;
+      setBroken(false);
+      setImgLoading(true);
+      setRetryKey((k) => k + 1);
+    }
+  }, [src]);
+
+  const showSlow = useSlowLoadFlag(!!src && imgLoading && !broken);
+
+  useEffect(() => {
+    if (!src || broken) return;
+    const el = imgRef.current;
+    if (isImageAlreadyComplete(el)) {
+      setImgLoading(false);
+    }
+  }, [src, retryKey, broken]);
+
+  const handleRetry = (event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    setBroken(false);
+    setImgLoading(true);
+    setRetryKey((k) => k + 1);
+  };
+
+  if (!src) {
     if (fallback) return <>{fallback}</>;
     return (
       <div className={cn("flex items-center justify-center bg-muted text-xs text-muted-foreground", className)}>
-        Unable to load image.
+        {IMAGE_LOAD_ERROR_MESSAGE}
       </div>
     );
   }
+
+  if (broken) {
+    if (fallback) return <>{fallback}</>;
+    return (
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center gap-2 bg-muted px-2 py-3 text-center text-xs text-muted-foreground",
+          className,
+        )}
+        role="img"
+        aria-label={IMAGE_LOAD_ERROR_MESSAGE}
+      >
+        <ImageOff className="h-5 w-5 shrink-0 opacity-70" aria-hidden />
+        <span>{IMAGE_LOAD_ERROR_MESSAGE}</span>
+        <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={handleRetry}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   const label = title || alt || "View image";
   const fills = typeof className === "string" && /\bw-full\b/.test(className);
+  const canPreview = enablePreview && !!previewCtx;
+
+  const imageEl = (
+    <>
+      <img
+        key={`${src}-${retryKey}`}
+        ref={imgRef}
+        {...props}
+        src={src}
+        alt={alt || label}
+        loading={loadingAttr ?? "lazy"}
+        className={cn(className, imgLoading && "opacity-0")}
+        onLoad={(e) => {
+          setImgLoading(false);
+          props.onLoad?.(e);
+        }}
+        onError={(e) => {
+          setImgLoading(false);
+          setBroken(true);
+          props.onError?.(e);
+        }}
+      />
+      {imgLoading ? <ImageLoadOverlay showSlowMessage={showSlow} compact /> : null}
+      {canPreview && showHint ? (
+        <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-background/80 p-1 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          <Expand className="h-3.5 w-3.5" />
+        </span>
+      ) : null}
+    </>
+  );
+
+  if (!canPreview) {
+    return (
+      <div className={cn("relative", fills ? "block w-full" : "inline-block max-w-full")}>
+        {imageEl}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -200,21 +389,10 @@ export function PreviewableImage({
       aria-label={`View image: ${label}`}
       onClick={(event) => {
         event.stopPropagation();
-        openPreview({ src, alt, title, caption }, gallery, index);
+        previewCtx!.openPreview({ src, alt, title, caption }, gallery, index);
       }}
     >
-      <img
-        {...props}
-        src={src}
-        alt={alt || label}
-        className={className}
-        onError={() => setBroken(true)}
-      />
-      {showHint ? (
-        <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-background/80 p-1 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-          <Expand className="h-3.5 w-3.5" />
-        </span>
-      ) : null}
+      {imageEl}
     </button>
   );
 }

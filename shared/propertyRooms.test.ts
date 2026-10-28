@@ -285,25 +285,21 @@ const seeded = applyPropertyRoomsToTemplateSnapshot(
     },
   ],
 );
-assert.equal(seeded.roomInstancePaths.length, 3);
+// Garden is on the floor plan but not in the template → skipped (no auto section)
+assert.equal(seeded.roomInstancePaths.length, 2);
 assert.equal(seeded.roomInstancePaths[0]!.sectionRef, "section_bedrooms/room-1");
-assert.equal(seeded.roomInstancePaths[2]!.sectionRef, "section_garden/room-3");
-const gardenSection = seeded.structure.sections!.find((s) => s.id === "section_garden");
-assert.ok(gardenSection);
-assert.equal(gardenSection!.title, "Garden");
-assert.equal(gardenSection!.repeatable, true);
+assert.equal(seeded.roomInstancePaths[1]!.sectionRef, "section_kitchen/room-2");
+assert.equal(
+  seeded.structure.sections!.find((s) => s.id === "section_garden"),
+  undefined,
+);
 assert.ok(
-  (gardenSection!.fields || []).some((f) => f.label === "Overall Condition"),
+  !seeded.roomInstancePaths.some((p) => p.sectionRef.includes("garden")),
 );
 assert.equal(formatDisplayHeading("bathroom"), "Bathroom");
 assert.equal(formatDisplayHeading("overall condition"), "Overall Condition");
 assert.equal(formatDisplayHeading("walls and paint"), "Walls and Paint");
 assert.equal(numberedRoomInstanceTitle("bathroom 1", "bathroom", 0), "Bathroom 1");
-const gardenIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_garden");
-const bathIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_bathrooms");
-const signIdx = seeded.structure.sections!.findIndex((s) => s.id === "section_signoff");
-assert.ok(gardenIdx > bathIdx);
-assert.ok(gardenIdx < signIdx);
 const general = seeded.structure.sections!.find((s) => s.id === "section_general");
 assert.equal(general?.repeatable, false);
 assert.ok(
@@ -312,9 +308,7 @@ assert.ok(
   ),
 );
 assert.ok(
-  seeded.seedEntries.some(
-    (e) => e.fieldKey === "__repeatable_count_section_garden" && e.valueJson === 1,
-  ),
+  !seeded.seedEntries.some((e) => e.fieldKey === "__repeatable_count_section_garden"),
 );
 
 assert.equal(singularizeSectionTitle("Bedrooms"), "Bedroom");
@@ -487,9 +481,14 @@ assert.equal(
   multiSeeded.roomInstancePaths.filter((p) => p.sectionRef.startsWith("section_kitchen/")).length,
   2,
 );
+// Gardens skipped — not in template
 assert.equal(
   multiSeeded.roomInstancePaths.filter((p) => p.sectionRef.startsWith("section_garden/")).length,
-  2,
+  0,
+);
+assert.equal(
+  multiSeeded.structure.sections!.find((s) => /garden/i.test(s.id) || /garden/i.test(s.title || "")),
+  undefined,
 );
 assert.ok(
   multiSeeded.seedEntries.some(
@@ -502,10 +501,53 @@ assert.ok(
   ),
 );
 assert.ok(
-  multiSeeded.seedEntries.some(
+  !multiSeeded.seedEntries.some((e) => e.fieldKey === "__repeatable_count_section_garden"),
+);
+
+// When Garden IS in the template, map floor-plan gardens onto it (same as bathrooms)
+const withGardenSection = applyPropertyRoomsToTemplateSnapshot(
+  {
+    sections: [
+      {
+        id: "section_bathrooms",
+        title: "Bathrooms",
+        repeatable: true,
+        fields: [{ id: "f4", type: "text", label: "Notes" }],
+      },
+      {
+        id: "section_garden",
+        title: "Garden",
+        repeatable: true,
+        fields: [{ id: "g", type: "photo_array", label: "Garden Condition" }],
+      },
+    ],
+  },
+  [
+    { id: "b1", name: "Bathroom 1", categoryId: "c", categoryName: "Bathroom", categorySlug: "bathroom" },
+    { id: "b2", name: "Bathroom 2", categoryId: "c", categoryName: "Bathroom", categorySlug: "bathroom" },
+    { id: "g1", name: "Front Garden", categoryId: "c", categoryName: "Garden", categorySlug: "garden" },
+    { id: "g2", name: "Rear Garden", categoryId: "c", categoryName: "Garden", categorySlug: "garden" },
+  ],
+);
+assert.equal(
+  withGardenSection.roomInstancePaths.filter((p) => p.sectionRef.startsWith("section_bathrooms/")).length,
+  2,
+);
+assert.equal(
+  withGardenSection.roomInstancePaths.filter((p) => p.sectionRef.startsWith("section_garden/")).length,
+  2,
+);
+assert.ok(
+  withGardenSection.seedEntries.some(
+    (e) => e.fieldKey === "__repeatable_count_section_bathrooms" && e.valueJson === 2,
+  ),
+);
+assert.ok(
+  withGardenSection.seedEntries.some(
     (e) => e.fieldKey === "__repeatable_count_section_garden" && e.valueJson === 2,
   ),
 );
+assert.equal(withGardenSection.structure.sections!.filter((s) => s.id === "section_garden").length, 1);
 
 // "Living Room" must NOT match Bedrooms via substring "room" ⊂ "bedrooms"
 const bedroomKitchenOnly = [
@@ -550,13 +592,16 @@ const livingMappedWrong = applyPropertyRoomsToTemplateSnapshot(
     },
   ],
 );
+// Living Room has no matching template section → skipped (not auto-created, not under Bedrooms)
 const livePath = livingMappedWrong.roomInstancePaths.find((p) => p.roomId === "r-live");
-assert.ok(livePath);
-assert.ok(!livePath!.sectionRef.startsWith("section_bedrooms/"));
+assert.equal(livePath, undefined);
 assert.ok(
-  livingMappedWrong.structure.sections!.some(
+  !livingMappedWrong.structure.sections!.some(
     (s) => /living/i.test(s.id) || /living/i.test(s.title || ""),
   ),
+);
+assert.ok(
+  livingMappedWrong.roomInstancePaths.some((p) => p.roomId === "r-bed"),
 );
 
 // Mis-mapped Living Room under Bedrooms must trigger repair + be hidden from gallery

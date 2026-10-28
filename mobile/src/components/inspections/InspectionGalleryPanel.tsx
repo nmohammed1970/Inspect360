@@ -46,6 +46,8 @@ import {
 } from '../../services/offline/galleryOfflineHelpers';
 import { getLocalGalleryDestinations } from '../../services/offline/galleryDestinations';
 import { triggerSync } from '../../services/offline/backgroundSync';
+import { MultiPhotoCameraModal } from '../camera/MultiPhotoCameraModal';
+import { galleryCameraSessionMax } from '../camera/multiPhotoSession';
 
 type FilterKey = 'all' | 'unassigned' | 'assigned';
 
@@ -71,6 +73,7 @@ export function InspectionGalleryPanel({
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [showMultiCamera, setShowMultiCamera] = useState(false);
   const [localTick, setLocalTick] = useState(0);
 
   const bumpLocal = useCallback(() => setLocalTick((t) => t + 1), []);
@@ -277,20 +280,9 @@ export function InspectionGalleryPanel({
     await uploadUris(result.assets.map((a) => a.uri));
   };
 
-  const handleTakePhoto = async () => {
+  const handleTakePhoto = () => {
     if (!canEdit) return;
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission Required', 'Camera access is required.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.6,
-      exif: false,
-    });
-    if (result.canceled || !result.assets?.length) return;
-    await uploadUris(result.assets.map((a) => a.uri));
+    setShowMultiCamera(true);
   };
 
   const handleAssign = async (dest: PhotoDestination) => {
@@ -694,6 +686,17 @@ export function InspectionGalleryPanel({
           </View>
         </View>
       </Modal>
+
+      <MultiPhotoCameraModal
+        visible={showMultiCamera}
+        maxPhotos={galleryCameraSessionMax()}
+        title="Gallery photos"
+        onCancel={() => setShowMultiCamera(false)}
+        onConfirm={(uris) => {
+          setShowMultiCamera(false);
+          void uploadUris(uris);
+        }}
+      />
     </View>
   );
 }
