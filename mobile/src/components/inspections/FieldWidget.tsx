@@ -23,7 +23,11 @@ import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Tr
 import { requestRecordingPermissionsAsync, RecordingPresets, AudioQuality, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { storeImageLocally, isLocalPath } from '../../services/offline/storage';
+import {
+  storeImageLocally,
+  isLocalPath,
+  updateImageWithServerUrl,
+} from '../../services/offline/storage';
 import SignatureCanvas from 'react-native-signature-canvas';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import Badge from '../ui/Badge';
@@ -52,7 +56,7 @@ import {
 } from '../../../../shared/fieldOptionColors';
 import { fieldAllowsMultiplePhotos } from '../../../../shared/fieldAttachedPhotos';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
-import { RemoteImage } from '../ui/RemoteImage';
+import { RemoteImage, primeRemoteImageCache } from '../ui/RemoteImage';
 import { format } from 'date-fns';
 import {
   createSignatureValue,
@@ -349,10 +353,14 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const [analyzingField, setAnalyzingField] = useState(false);
   const [analyzingPhoto, setAnalyzingPhoto] = useState<string | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState<Record<string, boolean>>({});
+  const [photoUploadProgress, setPhotoUploadProgress] = useState<string | null>(null);
   const [aiAnalyses, setAiAnalyses] = useState<Record<string, any>>({});
   const autoSaveTriggeredRef = useRef(false);
   const audioUrlsRef = useRef<string[]>(initialAudioUrls);
   const signatureRef = useRef<any>(null);
+  /** Block props→state photo sync while a multi-photo batch is in flight (avoids wiping optimistic locals). */
+  const photoBatchActiveRef = useRef(false);
+  const localPhotosRef = useRef<string[]>(photos || []);
 
   // Fetch check-in reference for photo / attached-photo fields during Check-Out
   const { data: checkInReference } = useQuery({
@@ -444,16 +452,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   }, [note]);
 
   useEffect(() => {
-    // Only update if the prop has changed and is different from local state
-    // CRITICAL FIX: Don't filter out photos - keep all photos from props
-    // Photos should only be removed when user explicitly deletes them
-    // The verification was too aggressive and was removing valid photos
-    if (photos && JSON.stringify(localPhotos) !== JSON.stringify(photos)) {
-      // Use photos as-is - don't filter based on database existence
-      // Photos might be:
-      // - Server URLs (not in local DB but valid)
-      // - Local paths (not yet in DB but valid)
-      // - In DB but verification might fail due to timing
+    localPhotosRef.current = localPhotos;
+  }, [localPhotos]);
+
+  useEffect(() => {
+    // Don't clobber optimistic local paths while a batch upload is running.
+    if (photoBatchActiveRef.current) return;
+    if (photos && JSON.stringify(localPhotosRef.current) !== JSON.stringify(photos)) {
       setLocalPhotos(photos);
     }
   }, [photos]);
@@ -767,61 +772,25 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  const applyLocalPhotoFallback = async (sourceUri: string): Promise<string> => {
-    const localPath = await storeImageLocally(sourceUri, inspectionId, entryId);
+  const persistPhotoList = (nextPhotos: string[]) => {
+    localPhotosRef.current = nextPhotos;
+    setLocalPhotos(nextPhotos);
     const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-    onChange(composedValue, localNote, [...localPhotos, localPath]);
-    // Same as gallery: kick background sync so field photos reach the server.
-    triggerSync().catch(() => {});
-    return localPath;
+    onChange(composedValue, localNote, nextPhotos);
   };
 
-  // Upload photo to server (same path as gallery / profile — Expo File upload, not RN FormData uri hack)
-  const uploadPhoto = async (uri: string): Promise<string> => {
-    if (!inspectionId) {
-      throw new Error('Missing inspection ID');
-    }
-
-    if (!isOnline) {
-      try {
-        return await applyLocalPhotoFallback(uri);
-      } catch (error: any) {
-        console.error('[FieldWidget] Error storing photo locally:', error);
-        Alert.alert('Error', 'Failed to save photo locally. Please try again.');
-        throw error;
-      }
-    }
-
-    try {
-      const serverUrl = await uploadLocalFile(uri, {
-        mimeType: 'image/jpeg',
-        fileName: `photo_${Date.now()}.jpg`,
-      });
-
-      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-      onChange(composedValue, localNote, [...localPhotos, serverUrl]);
-      void syncPhotosToGallery([serverUrl]);
-      return serverUrl;
-    } catch (error: any) {
-      console.error('[FieldWidget] Upload failed, storing locally for retry:', error?.message || error);
-      try {
-        return await applyLocalPhotoFallback(uri);
-      } catch (storeError: any) {
-        console.error('[FieldWidget] Local fallback also failed:', storeError);
-        throw new Error(
-          error?.message
-            ? `${error.message}. Could not save the photo locally either.`
-            : 'Failed to upload photo. Please try again.',
-        );
-      }
-    }
-  };
-
-  /** Batch-process camera or library URIs through existing upload / offline fallback. */
+  /**
+   * Save every capture locally first (instant thumbnails), then upload one-by-one when online.
+   * Never call onChange per parallel upload — that raced and dropped photos.
+   */
   const processPhotoUris = async (uris: string[]) => {
     if (!uris.length) return;
+    if (!inspectionId) {
+      Alert.alert('Error', 'Missing inspection ID');
+      return;
+    }
 
-    const slots = remainingFieldPhotoSlots(localPhotos.length);
+    const slots = remainingFieldPhotoSlots(localPhotosRef.current.length);
     const capped = slots > 0 ? uris.slice(0, slots) : [];
     if (!capped.length) {
       Alert.alert(
@@ -837,56 +806,86 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       );
     }
 
-    const newPhotos: string[] = [];
-    let hasUploadError = false;
-    const BATCH_SIZE = 10;
+    photoBatchActiveRef.current = true;
+    const savedLocals: string[] = [];
+    let saveFailures = 0;
 
-    for (let i = 0; i < capped.length; i += BATCH_SIZE) {
-      const batch = capped.slice(i, i + BATCH_SIZE);
-      const batchPromises = batch.map(async (uri) => {
-        setUploadingPhotos((prev) => ({ ...prev, [uri]: true }));
+    try {
+      for (let i = 0; i < capped.length; i++) {
+        setPhotoUploadProgress(`Saving ${i + 1}/${capped.length}…`);
         try {
-          return await uploadPhoto(uri);
+          const localPath = await storeImageLocally(capped[i], inspectionId, entryId);
+          savedLocals.push(localPath);
+          const next = [...localPhotosRef.current];
+          if (!next.includes(localPath)) next.push(localPath);
+          persistPhotoList(next);
+          setUploadingPhotos((prev) => ({ ...prev, [localPath]: true }));
+        } catch (e) {
+          saveFailures += 1;
+          console.error('[FieldWidget] Failed to save photo locally:', e);
+        }
+      }
+
+      if (!savedLocals.length) {
+        Alert.alert('Save Failed', 'Could not save any photos. Please try again.');
+        return;
+      }
+
+      if (!isOnline) {
+        setUploadingPhotos({});
+        setPhotoUploadProgress(null);
+        triggerSync().catch(() => {});
+        if (saveFailures > 0) {
+          Alert.alert(
+            'Partial Save',
+            `Saved ${savedLocals.length} of ${capped.length} photos offline. They will upload when you are back online.`,
+          );
+        }
+        return;
+      }
+
+      let uploadFailures = 0;
+      for (let i = 0; i < savedLocals.length; i++) {
+        const localPath = savedLocals[i];
+        setPhotoUploadProgress(`Uploading ${i + 1}/${savedLocals.length}…`);
+        try {
+          const serverUrl = await uploadLocalFile(localPath, {
+            mimeType: 'image/jpeg',
+            fileName: `photo_${Date.now()}_${i}.jpg`,
+          });
+          try {
+            await updateImageWithServerUrl(localPath, serverUrl);
+          } catch (metaErr) {
+            console.warn('[FieldWidget] updateImageWithServerUrl failed:', metaErr);
+          }
+          primeRemoteImageCache(serverUrl, localPath);
+          const next = localPhotosRef.current.map((p) => (p === localPath ? serverUrl : p));
+          persistPhotoList(next);
+          void syncPhotosToGallery([serverUrl]);
         } catch (uploadError: any) {
-          hasUploadError = true;
-          console.error('Error uploading photo:', uploadError);
-          return null;
+          uploadFailures += 1;
+          console.error('[FieldWidget] Upload failed, keeping local for sync:', uploadError);
+          triggerSync().catch(() => {});
         } finally {
           setUploadingPhotos((prev) => {
             const next = { ...prev };
-            delete next[uri];
+            delete next[localPath];
             return next;
           });
         }
-      });
-
-      const batchResults = await Promise.all(batchPromises);
-      newPhotos.push(...(batchResults.filter((url) => url !== null) as string[]));
-    }
-
-    const allPhotos = [...localPhotos];
-    for (const photoUrl of newPhotos) {
-      if (photoUrl && !allPhotos.includes(photoUrl)) {
-        allPhotos.push(photoUrl);
       }
-    }
 
-    if (allPhotos.length > localPhotos.length) {
-      setLocalPhotos(allPhotos);
-      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-      onChange(composedValue, localNote, allPhotos);
-    }
-
-    if (hasUploadError && newPhotos.length < capped.length && newPhotos.length > 0) {
-      Alert.alert(
-        'Partial Success',
-        `Successfully processed ${newPhotos.length} of ${capped.length} photos. ${capped.length - newPhotos.length} photos failed to upload.`,
-      );
-    } else if (hasUploadError && newPhotos.length === 0) {
-      Alert.alert(
-        'Upload Failed',
-        'All photos failed to upload. Please check your internet connection and try again.',
-      );
+      if (uploadFailures > 0 || saveFailures > 0) {
+        const kept = savedLocals.length;
+        Alert.alert(
+          'Some photos need sync',
+          `${kept} photo${kept === 1 ? '' : 's'} saved. ${uploadFailures} will retry when the connection is stable.`,
+        );
+      }
+    } finally {
+      setUploadingPhotos({});
+      setPhotoUploadProgress(null);
+      photoBatchActiveRef.current = false;
     }
   };
 
@@ -1438,6 +1437,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               style={[styles.photoButton, { backgroundColor: themeColors.primary.DEFAULT }]}
               onPress={() => setShowPhotoPicker(true)}
               activeOpacity={0.8}
+              disabled={!!photoUploadProgress}
             >
               <CameraIcon size={18} color={themeColors.primary.foreground || '#ffffff'} />
               <Text style={[styles.photoButtonText, { color: themeColors.primary.foreground || '#ffffff' }]}>Add Photo</Text>
@@ -1445,10 +1445,29 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           )}
         </View>
 
+        {!!photoUploadProgress && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing[2],
+              paddingHorizontal: padSm,
+              paddingVertical: spacing[2],
+              backgroundColor: themeColors.primary.DEFAULT + '14',
+            }}
+          >
+            <ActivityIndicator size="small" color={themeColors.primary.DEFAULT} />
+            <Text style={{ color: themeColors.text.primary, fontSize: 13, flex: 1 }}>
+              {photoUploadProgress}
+            </Text>
+          </View>
+        )}
+
         {localPhotos.length > 0 && (
           <View style={styles.photosGrid}>
             {localPhotos.map((photo, index) => {
               if (!photo || photo.trim() === '') return null;
+              const isUploading = !!uploadingPhotos[photo];
               return (
                 <View key={`photo-${index}-${photo}`} style={[styles.photoItem, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
                   <TouchableOpacity
@@ -1472,11 +1491,24 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                       ] as ImageStyle}
                       resizeMode="cover"
                     />
+                    {isUploading ? (
+                      <View
+                        style={{
+                          ...StyleSheet.absoluteFillObject,
+                          backgroundColor: 'rgba(0,0,0,0.35)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <ActivityIndicator color="#fff" />
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                   <View style={[styles.photoActions, { backgroundColor: themeColors.card.DEFAULT + 'E6' }]}>
                     <TouchableOpacity
                       style={styles.removePhotoButton}
                       onPress={() => handleRemovePhoto(photo)}
+                      disabled={isUploading}
                     >
                       <X size={12} color="#fff" />
                     </TouchableOpacity>
@@ -2157,6 +2189,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               style={styles.photoViewer as ImageStyle}
               resizeMode="contain"
               compactMessage={false}
+            />
           )}
         </View>
       </Modal>

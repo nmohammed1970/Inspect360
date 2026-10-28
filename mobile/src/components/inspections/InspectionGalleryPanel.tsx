@@ -160,15 +160,25 @@ export function InspectionGalleryPanel({
       const stored: Array<{ localPath: string; id: string }> = [];
       for (let i = 0; i < uris.length; i++) {
         setUploadProgress(`Saving ${i + 1}/${uris.length}…`);
-        const result = await storeGalleryImageLocally(uris[i], inspectionId, {
-          fileName: `gallery_${Date.now()}_${i}.jpg`,
-          mimeType: 'image/jpeg',
-          captureLatitude: gps?.latitude ?? null,
-          captureLongitude: gps?.longitude ?? null,
-        });
-        stored.push(result);
+        try {
+          const result = await storeGalleryImageLocally(uris[i], inspectionId, {
+            fileName: `gallery_${Date.now()}_${i}.jpg`,
+            mimeType: 'image/jpeg',
+            captureLatitude: gps?.latitude ?? null,
+            captureLongitude: gps?.longitude ?? null,
+          });
+          stored.push(result);
+          // Show each tile as soon as it is on disk — do not wait for the full batch.
+          await invalidate();
+        } catch (e: any) {
+          console.warn('[Gallery] Local save failed for one photo:', e?.message);
+        }
       }
-      await invalidate();
+
+      if (!stored.length) {
+        Alert.alert('Save Failed', 'Could not save any photos locally');
+        return;
+      }
 
       if (isOnline && stored.length) {
         setUploadProgress(`Uploading 0/${stored.length}…`);
@@ -203,6 +213,8 @@ export function InspectionGalleryPanel({
               serverUrl: objectUrl,
               syncStatus: 'pending',
             });
+            const { primeRemoteImageCache } = await import('../ui/RemoteImage');
+            primeRemoteImageCache(objectUrl, row.localPath);
           } catch (e: any) {
             console.warn('[Gallery] Immediate upload failed, will sync later:', e?.message);
           }

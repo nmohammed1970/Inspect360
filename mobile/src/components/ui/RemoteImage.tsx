@@ -17,11 +17,20 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import {
   IMAGE_LOAD_ERROR_MESSAGE,
   IMAGE_OFFLINE_MESSAGE,
-  IMAGE_POOR_NETWORK_MESSAGE,
-  IMAGE_SLOW_LOAD_MS,
 } from '../../../../shared/imageLoadingUx';
 
 const uriCache = new Map<string, string>();
+
+/** Seed the display cache so a just-uploaded server URL shows the local file instantly. */
+export function primeRemoteImageCache(serverUrl: string, localFileUri: string): void {
+  const resolved = resolveMediaUrl(serverUrl);
+  if (!resolved || !localFileUri) return;
+  const local =
+    localFileUri.startsWith('/') && !localFileUri.startsWith('file://')
+      ? `file://${localFileUri}`
+      : localFileUri;
+  uriCache.set(resolved, local);
+}
 
 function bytesToBase64(bytes: Uint8Array): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -59,7 +68,7 @@ function isLocalMediaUri(next: string): boolean {
 /**
  * Loads server object images via authenticated `/api/objects/content/...`,
  * caches to disk, and previews with a local file:// URI (reliable on device).
- * Shows a poor-network message after IMAGE_SLOW_LOAD_MS; Retry on failure.
+ * Loading tiles show a spinner only (no per-tile network warning text). Retry on failure.
  */
 export function RemoteImage({
   uri,
@@ -69,7 +78,7 @@ export function RemoteImage({
 }: Omit<ImageProps, 'source'> & {
   uri: string | null | undefined;
   style?: StyleProp<ImageStyle>;
-  /** Smaller copy for gallery tiles */
+  /** Smaller copy for error/offline messages on tiles */
   compactMessage?: boolean;
 }) {
   const isOnline = useOnlineStatus();
@@ -80,18 +89,8 @@ export function RemoteImage({
   const [loading, setLoading] = useState(!displayUri);
   const [failed, setFailed] = useState(false);
   const [offline, setOffline] = useState(false);
-  const [slow, setSlow] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
   const gen = useRef(0);
-
-  useEffect(() => {
-    if (!loading || failed || offline || displayUri) {
-      setSlow(false);
-      return;
-    }
-    const t = setTimeout(() => setSlow(true), IMAGE_SLOW_LOAD_MS);
-    return () => clearTimeout(t);
-  }, [loading, failed, offline, displayUri, retryTick]);
 
   const load = useCallback(async () => {
     const next = resolveMediaUrl(uri);
@@ -131,7 +130,6 @@ export function RemoteImage({
     setLoading(true);
     setFailed(false);
     setOffline(false);
-    setSlow(false);
 
     try {
       const fileName = cacheKeyForUrl(next);
@@ -215,20 +213,7 @@ export function RemoteImage({
       {showPlaceholder && (
         <View style={styles.placeholder} pointerEvents={failed || offline ? 'auto' : 'none'}>
           {loading && !failed && !offline ? (
-            <>
-              <ActivityIndicator color={colors.primary?.DEFAULT || '#0d9488'} />
-              {slow ? (
-                <Text
-                  style={[
-                    styles.message,
-                    compactMessage && styles.messageCompact,
-                  ]}
-                  accessibilityLiveRegion="polite"
-                >
-                  {IMAGE_POOR_NETWORK_MESSAGE}
-                </Text>
-              ) : null}
-            </>
+            <ActivityIndicator color={colors.primary?.DEFAULT || '#0d9488'} />
           ) : null}
           {offline ? (
             <>
