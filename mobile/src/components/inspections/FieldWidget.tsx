@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Camera } from 'expo-camera';
 import Input from '../ui/Input';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
@@ -24,7 +23,7 @@ import { Star, Camera as CameraIcon, Image as ImageIcon, X, Sparkles, Wrench, Tr
 import { requestRecordingPermissionsAsync, RecordingPresets, AudioQuality, createAudioPlayer, AudioModule, setAudioModeAsync } from 'expo-audio';
 import { inspectionsService } from '../../services/inspections';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
-import { storeImageLocally, getImageSource, isLocalPath } from '../../services/offline/storage';
+import { storeImageLocally, isLocalPath } from '../../services/offline/storage';
 import SignatureCanvas from 'react-native-signature-canvas';
 import { colors, spacing, typography, borderRadius, shadows } from '../../theme';
 import Badge from '../ui/Badge';
@@ -39,7 +38,9 @@ import {
 import { addToSyncQueue } from '../../services/offline/database';
 import { uploadLocalFile } from '../../services/objectUpload';
 import { triggerSync } from '../../services/offline/backgroundSync';
-// No offline functionality - app requires server connection
+import { MultiPhotoCameraModal } from '../camera/MultiPhotoCameraModal';
+import { remainingFieldPhotoSlots } from '../camera/multiPhotoSession';
+import { GALLERY_FIELD_PHOTO_MAX } from '../../../../shared/inspectionGallery';
 import { formatDisplayHeading } from '../../../../shared/propertyRooms';
 import {
   normalizeFieldOptions,
@@ -49,6 +50,7 @@ import {
   type BooleanOptionColors,
   type FieldOption,
 } from '../../../../shared/fieldOptionColors';
+import { fieldAllowsMultiplePhotos } from '../../../../shared/fieldAttachedPhotos';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
 import { RemoteImage } from '../ui/RemoteImage';
 import { format } from 'date-fns';
@@ -81,6 +83,8 @@ interface TemplateField {
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  /** Optional multi-photo evidence on non-image fields. */
+  allowMultiplePhotos?: boolean;
 }
 
 interface FieldWidgetProps {
@@ -272,8 +276,17 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     } else {
       normalized.includeCleanliness = !!raw.includeCleanliness;
     }
+    if (typeof raw.allowMultiplePhotos === 'string') {
+      normalized.allowMultiplePhotos = raw.allowMultiplePhotos.toLowerCase() === 'true';
+    } else {
+      normalized.allowMultiplePhotos = raw.allowMultiplePhotos === true;
+    }
     return normalized;
   }, [field]);
+
+  const allowsAttachedPhotos = fieldAllowsMultiplePhotos(safeField);
+  const isNativePhotoField = safeField.type === 'photo' || safeField.type === 'photo_array';
+  const showsPhotoExtras = isNativePhotoField || allowsAttachedPhotos;
 
   // Parse value and ensure boolean fields are actual booleans
   const parseValue = (val: any) => {
@@ -303,6 +316,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   );
   const [localMarkedForReview, setLocalMarkedForReview] = useState(!!markedForReview);
   const [showPhotoPicker, setShowPhotoPicker] = useState(false);
+  const [showMultiCamera, setShowMultiCamera] = useState(false);
   const [showGalleryPicker, setShowGalleryPicker] = useState(false);
   const [galleryPickSelected, setGalleryPickSelected] = useState<Set<string>>(new Set());
   const [galleryBusy, setGalleryBusy] = useState(false);
@@ -340,11 +354,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const audioUrlsRef = useRef<string[]>(initialAudioUrls);
   const signatureRef = useRef<any>(null);
 
-  // Fetch check-in reference for check-out inspections
+  // Fetch check-in reference for photo / attached-photo fields during Check-Out
   const { data: checkInReference } = useQuery({
     queryKey: [`/api/inspections/${inspectionId}/check-in-reference`],
     queryFn: async () => {
-      if (!inspectionId || !isCheckOut || (safeField.type !== 'photo' && safeField.type !== 'photo_array')) {
+      if (!inspectionId || !isCheckOut || !showsPhotoExtras) {
         return null;
       }
       try {
@@ -353,7 +367,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         return null;
       }
     },
-    enabled: !!inspectionId && isCheckOut && (safeField.type === 'photo' || safeField.type === 'photo_array'),
+    enabled: !!inspectionId && !!isCheckOut && showsPhotoExtras,
     retry: false,
   });
 
@@ -686,16 +700,6 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  // Request camera permissions
-  const requestCameraPermission = async () => {
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Camera permission is required to take photos');
-      return false;
-    }
-    return true;
-  };
-
   // Request media library permissions
   const requestMediaLibraryPermission = async () => {
     try {
@@ -813,68 +817,95 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  const handleTakePhoto = async () => {
+  /** Batch-process camera or library URIs through existing upload / offline fallback. */
+  const processPhotoUris = async (uris: string[]) => {
+    if (!uris.length) return;
+
+    const slots = remainingFieldPhotoSlots(localPhotos.length);
+    const capped = slots > 0 ? uris.slice(0, slots) : [];
+    if (!capped.length) {
+      Alert.alert(
+        'Photo limit',
+        `This field can have at most ${GALLERY_FIELD_PHOTO_MAX} photos.`,
+      );
+      return;
+    }
+    if (capped.length < uris.length) {
+      Alert.alert(
+        'Photo limit',
+        `Only ${capped.length} more photo${capped.length === 1 ? '' : 's'} can be added (max ${GALLERY_FIELD_PHOTO_MAX}). Extra captures were skipped.`,
+      );
+    }
+
+    const newPhotos: string[] = [];
+    let hasUploadError = false;
+    const BATCH_SIZE = 10;
+
+    for (let i = 0; i < capped.length; i += BATCH_SIZE) {
+      const batch = capped.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map(async (uri) => {
+        setUploadingPhotos((prev) => ({ ...prev, [uri]: true }));
+        try {
+          return await uploadPhoto(uri);
+        } catch (uploadError: any) {
+          hasUploadError = true;
+          console.error('Error uploading photo:', uploadError);
+          return null;
+        } finally {
+          setUploadingPhotos((prev) => {
+            const next = { ...prev };
+            delete next[uri];
+            return next;
+          });
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      newPhotos.push(...(batchResults.filter((url) => url !== null) as string[]));
+    }
+
+    const allPhotos = [...localPhotos];
+    for (const photoUrl of newPhotos) {
+      if (photoUrl && !allPhotos.includes(photoUrl)) {
+        allPhotos.push(photoUrl);
+      }
+    }
+
+    if (allPhotos.length > localPhotos.length) {
+      setLocalPhotos(allPhotos);
+      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
+      onChange(composedValue, localNote, allPhotos);
+    }
+
+    if (hasUploadError && newPhotos.length < capped.length && newPhotos.length > 0) {
+      Alert.alert(
+        'Partial Success',
+        `Successfully processed ${newPhotos.length} of ${capped.length} photos. ${capped.length - newPhotos.length} photos failed to upload.`,
+      );
+    } else if (hasUploadError && newPhotos.length === 0) {
+      Alert.alert(
+        'Upload Failed',
+        'All photos failed to upload. Please check your internet connection and try again.',
+      );
+    }
+  };
+
+  const handleTakePhoto = () => {
     if (disabled) {
       Alert.alert('Inspection Completed', 'You cannot add photos to a completed inspection.');
       return;
     }
-
-    try {
-      const hasPermission = await requestCameraPermission();
-      if (!hasPermission) {
-        setShowPhotoPicker(false);
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
-        exif: false, // Disable EXIF to reduce file size
-      });
-
-      if (result.canceled) {
-        setShowPhotoPicker(false);
-        return;
-      }
-
-      if (!result.assets || result.assets.length === 0) {
-        Alert.alert('No Photo', 'No photo was captured');
-        setShowPhotoPicker(false);
-        return;
-      }
-
-      const uri = result.assets[0].uri;
-      setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
-
-      try {
-        // Upload the photo to server
-        const uploadedUrl = await uploadPhoto(uri);
-        
-        // Update UI with server URL
-        const newPhotos = [...localPhotos, uploadedUrl];
-        setLocalPhotos(newPhotos);
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-        onChange(composedValue, localNote, newPhotos);
-      } catch (uploadError: any) {
-        console.error('Error uploading photo:', uploadError);
-        Alert.alert('Upload Failed', uploadError.message || 'Failed to upload photo. Please try again.');
-      } finally {
-        setUploadingPhotos(prev => {
-          const newState = { ...prev };
-          delete newState[uri];
-          return newState;
-        });
-      }
-    } catch (error: any) {
-      console.error('Error taking photo:', error);
-      const errorMessage = error?.message || error?.toString() || 'Unknown error occurred';
+    const slots = remainingFieldPhotoSlots(localPhotos.length);
+    if (slots <= 0) {
       Alert.alert(
-        'Failed to Take Photo',
-        `An error occurred while taking photo: ${errorMessage}. Please try again.`
+        'Photo limit',
+        `This field can have at most ${GALLERY_FIELD_PHOTO_MAX} photos.`,
       );
-    } finally {
       setShowPhotoPicker(false);
+      return;
     }
+    setShowPhotoPicker(false);
+    setShowMultiCamera(true);
   };
 
   const handlePickPhoto = async () => {
@@ -892,10 +923,10 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        quality: 0.6, // Reduced from 0.8 for faster uploads (still good quality)
+        quality: 0.6,
         allowsMultipleSelection: true,
-        selectionLimit: 0, // 0 means no limit
-        exif: false, // Disable EXIF to reduce file size
+        selectionLimit: 0,
+        exif: false,
       });
 
       if (result.canceled) {
@@ -909,73 +940,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         return;
       }
 
-      const uris = result.assets.map(asset => asset.uri);
-      const newPhotos: string[] = [];
-      let hasUploadError = false;
-
-      // CRITICAL FIX: Process photos in batches to handle 500+ photos efficiently
-      // Update UI immediately as photos are added to show progress
-      const BATCH_SIZE = 10; // Process 10 photos at a time
-      
-      for (let i = 0; i < uris.length; i += BATCH_SIZE) {
-        const batch = uris.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map(async (uri) => {
-          setUploadingPhotos(prev => ({ ...prev, [uri]: true }));
-          try {
-            const uploadedUrl = await uploadPhoto(uri);
-            // Update UI immediately with this photo
-            const currentPhotos = [...localPhotos, ...newPhotos, uploadedUrl];
-            setLocalPhotos(currentPhotos);
-            return uploadedUrl;
-          } catch (uploadError: any) {
-            hasUploadError = true;
-            console.error('Error uploading photo:', uploadError);
-            return null;
-          } finally {
-            setUploadingPhotos(prev => {
-              const newState = { ...prev };
-              delete newState[uri];
-              return newState;
-            });
-          }
-        });
-        
-        const batchResults = await Promise.all(batchPromises);
-        newPhotos.push(...batchResults.filter(url => url !== null) as string[]);
-      }
-
-      // CRITICAL FIX: Update UI with all successfully processed photos
-      // Remove duplicates and ensure all photos are displayed
-      const allPhotos = [...localPhotos];
-      for (const photoUrl of newPhotos) {
-        if (photoUrl && !allPhotos.includes(photoUrl)) {
-          allPhotos.push(photoUrl);
-        }
-      }
-      
-      if (allPhotos.length > localPhotos.length) {
-        setLocalPhotos(allPhotos);
-        const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-        onChange(composedValue, localNote, allPhotos);
-      }
-
-      if (hasUploadError && newPhotos.length < uris.length) {
-        Alert.alert(
-          'Partial Success',
-          `Successfully processed ${newPhotos.length} of ${uris.length} photos. ${uris.length - newPhotos.length} photos failed to upload.`
-        );
-      } else if (hasUploadError && newPhotos.length === 0) {
-        Alert.alert(
-          'Upload Failed',
-          'All photos failed to upload. Please check your internet connection and try again.'
-        );
-      }
+      await processPhotoUris(result.assets.map((asset) => asset.uri));
     } catch (error: any) {
       console.error('Error picking photo:', error);
       const errorMessage = error?.message || error?.toString() || 'Unknown error occurred';
       Alert.alert(
         'Failed to Pick Photo',
-        `An error occurred while selecting photos: ${errorMessage}. Please try again.`
+        `An error occurred while selecting photos: ${errorMessage}. Please try again.`,
       );
     } finally {
       setShowPhotoPicker(false);
@@ -1427,47 +1398,42 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     }
   };
 
-  const renderPhotoField = () => {
-    return (
-      <View style={styles.photoFieldContainer}>
-        {/* Check-In Reference Photos for Check-Out */}
-        {!!isCheckOut && checkInPhotos.length > 0 && (
-          <Card style={styles.checkInReferenceCard}>
-            <View style={styles.checkInReferenceHeader}>
-              <Eye size={16} color={themeColors.primary.DEFAULT} />
-              <Text style={[styles.checkInReferenceTitle, { color: themeColors.text.primary }]}>Check-In Reference Photos</Text>
-            </View>
-            <Text style={[styles.checkInReferenceText, { color: themeColors.text.secondary }]}>
-              Match these angles when taking your Check-Out photos for accurate comparison
-            </Text>
-            <View style={styles.photosGrid}>
-              {checkInPhotos.map((photoUrl: string, index: number) => (
-                <Image
-                  key={index}
-                  source={{
-                    uri: photoUrl.startsWith('http')
-                      ? photoUrl
-                      : photoUrl.startsWith('/')
-                        ? `${getAPI_URL()}${photoUrl}`
-                        : `${getAPI_URL()}/objects/${photoUrl}`
-                  }}
-                  style={[
-                    styles.checkInPhoto,
-                    { width: ms(80), height: ms(80) },
-                  ] as ImageStyle}
-                />
-              ))}
-            </View>
-          </Card>
-        )}
+  const renderPhotoGrid = (headerLabel: string, showRequiredMark: boolean) => (
+    <View style={styles.photoFieldContainer}>
+      {!!isCheckOut && checkInPhotos.length > 0 && (
+        <Card style={styles.checkInReferenceCard}>
+          <View style={styles.checkInReferenceHeader}>
+            <Eye size={16} color={themeColors.primary.DEFAULT} />
+            <Text style={[styles.checkInReferenceTitle, { color: themeColors.text.primary }]}>Check-In Reference Photos</Text>
+          </View>
+          <Text style={[styles.checkInReferenceText, { color: themeColors.text.secondary }]}>
+            Match these angles when taking your Check-Out photos for accurate comparison
+          </Text>
+          <View style={styles.photosGrid}>
+            {checkInPhotos.map((photoUrl: string, index: number) => (
+              <RemoteImage
+                key={index}
+                uri={photoUrl}
+                style={[
+                  styles.checkInPhoto,
+                  { width: ms(80), height: ms(80) },
+                ] as ImageStyle}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+        </Card>
+      )}
 
-        {/* Current Photos */}
-        <View style={[styles.photoSection, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
-          <View style={[styles.photoHeader, { borderBottomColor: themeColors.border.DEFAULT, flexDirection: actionStack, alignItems: actionStack === 'column' ? 'stretch' : 'center', gap: padSm }]}>
-            <Text style={[styles.photoLabel, { color: themeColors.text.primary, flex: actionStack === 'row' ? 1 : undefined }]}>
-              {safeField.label}
-              {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
-            </Text>
+      <View style={[styles.photoSection, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
+        <View style={[styles.photoHeader, { borderBottomColor: themeColors.border.DEFAULT, flexDirection: actionStack, alignItems: actionStack === 'column' ? 'stretch' : 'center', gap: padSm }]}>
+          <Text style={[styles.photoLabel, { color: themeColors.text.primary, flex: actionStack === 'row' ? 1 : undefined }]}>
+            {headerLabel}
+            {!!showRequiredMark && !!safeField.required && (
+              <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>
+            )}
+          </Text>
+          {!disabled && (
             <TouchableOpacity
               style={[styles.photoButton, { backgroundColor: themeColors.primary.DEFAULT }]}
               onPress={() => setShowPhotoPicker(true)}
@@ -1476,119 +1442,57 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               <CameraIcon size={18} color={themeColors.primary.foreground || '#ffffff'} />
               <Text style={[styles.photoButtonText, { color: themeColors.primary.foreground || '#ffffff' }]}>Add Photo</Text>
             </TouchableOpacity>
-          </View>
-
-          {localPhotos.length > 0 && (
-            <View style={styles.photosGrid}>
-              {localPhotos.map((photo, index) => {
-                // Resolve photo URL: handle both server URLs and local paths
-                let photoUrl: string;
-                let imageSource: { uri: string };
-                
-                if (!photo || photo.trim() === '') {
-                  // Skip empty photos
-                  return null;
-                }
-                
-                if (isLocalPath(photo)) {
-                  // Local offline path - use getImageSource helper
-                  imageSource = getImageSource(photo);
-                  photoUrl = imageSource.uri;
-                } else if (photo.startsWith('http://') || photo.startsWith('https://')) {
-                  // Full server URL - use as-is
-                  photoUrl = photo;
-                  imageSource = { uri: photoUrl };
-                } else if (photo.startsWith('/')) {
-                  // Relative server path - prepend API URL
-                  const apiUrl = getAPI_URL();
-                  // Normalize: remove leading slash from photo if apiUrl already ends with one, or ensure single slash
-                  const normalizedPath = photo.startsWith('/') ? photo : `/${photo}`;
-                  photoUrl = `${apiUrl.replace(/\/$/, '')}${normalizedPath}`;
-                  imageSource = { uri: photoUrl };
-                } else {
-                  // Assume it's a server object path or object ID
-                  const apiUrl = getAPI_URL();
-                  // Handle both /objects/objectId and just objectId
-                  if (photo.includes('/objects/')) {
-                    // Already has /objects/ in it
-                    if (photo.startsWith('http')) {
-                      photoUrl = photo;
-                  } else {
-                      // Remove leading slash if present, then add to apiUrl
-                      const normalizedPath = photo.startsWith('/') ? photo : `/${photo}`;
-                      photoUrl = `${apiUrl.replace(/\/$/, '')}${normalizedPath}`;
-                    }
-                  } else {
-                    // Just object ID (UUID) - construct full path
-                    photoUrl = `${apiUrl.replace(/\/$/, '')}/objects/${photo}`;
-                  }
-                  imageSource = { uri: photoUrl };
-                }
-
-                // Log for debugging web portal images
-                if (__DEV__ && !isLocalPath(photo)) {
-                  console.log('[FieldWidget] Image URL constructed:', {
-                    original: photo,
-                    constructed: photoUrl,
-                    apiUrl: getAPI_URL(),
-                  });
-                }
-
-                return (
-                  <View key={`photo-${index}-${photo}`} style={[styles.photoItem, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setSelectedPhoto(photoUrl);
-                        setShowPhotoViewer(true);
-                      }}
-                      activeOpacity={0.8}
-                      style={{ flex: 1 }}
-                    >
-                      <Image 
-                        source={imageSource} 
-                        style={[
-                          styles.photoThumbnail,
-                          {
-                            width: photoThumbSize,
-                            height: photoThumbSize,
-                            borderColor: themeColors.border.DEFAULT,
-                            backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT,
-                          },
-                        ] as ImageStyle}
-                        resizeMode="cover"
-                        onError={(error) => {
-                          const errorMsg = error?.nativeEvent?.error || 'Unknown error';
-                          console.error('[FieldWidget] Image load error:', {
-                            error: errorMsg,
-                            photoUrl,
-                            originalPhoto: photo,
-                            imageSource,
-                            isLocal: isLocalPath(photo),
-                          });
-                        }}
-                        onLoad={() => {
-                          console.log('[FieldWidget] Image loaded successfully:', photoUrl);
-                        }}
-                      />
-                    </TouchableOpacity>
-                    <View style={[styles.photoActions, { backgroundColor: themeColors.card.DEFAULT + 'E6' }]}>
-                      <TouchableOpacity
-                        style={styles.removePhotoButton}
-                        onPress={() => handleRemovePhoto(photo)}
-                      >
-                        <X size={12} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
           )}
-
         </View>
+
+        {localPhotos.length > 0 && (
+          <View style={styles.photosGrid}>
+            {localPhotos.map((photo, index) => {
+              if (!photo || photo.trim() === '') return null;
+              return (
+                <View key={`photo-${index}-${photo}`} style={[styles.photoItem, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSelectedPhoto(photo);
+                      setShowPhotoViewer(true);
+                    }}
+                    activeOpacity={0.8}
+                    style={{ flex: 1 }}
+                  >
+                    <RemoteImage
+                      uri={photo}
+                      style={[
+                        styles.photoThumbnail,
+                        {
+                          width: photoThumbSize,
+                          height: photoThumbSize,
+                          borderColor: themeColors.border.DEFAULT,
+                          backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT,
+                        },
+                      ] as ImageStyle}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                  <View style={[styles.photoActions, { backgroundColor: themeColors.card.DEFAULT + 'E6' }]}>
+                    <TouchableOpacity
+                      style={styles.removePhotoButton}
+                      onPress={() => handleRemovePhoto(photo)}
+                    >
+                      <X size={12} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
-    );
-  };
+    </View>
+  );
+
+  const renderPhotoField = () => renderPhotoGrid(safeField.label, true);
+
+  const renderAttachedPhotosSection = () => renderPhotoGrid('Photos (optional)', false);
 
   return (
     <Card
@@ -1623,7 +1527,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           {formatDisplayHeading(safeField.label)}
           {!!safeField.required && <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>}
         </Text>
-        {!!isCheckOut && (safeField.type === 'photo' || safeField.type === 'photo_array') && (
+        {!!isCheckOut && showsPhotoExtras && (
           <TouchableOpacity
             style={styles.markForReviewButton}
             onPress={() => handleMarkedForReviewChange(!localMarkedForReview)}
@@ -1638,6 +1542,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
       <View style={{ padding: padMd, gap: spacing[3] }}>
       {renderFieldInput()}
+
+      {allowsAttachedPhotos && renderAttachedPhotosSection()}
 
       {/* Condition Dropdown */}
       {!!safeField.includeCondition && (
@@ -1694,8 +1600,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         </View>
       )}
 
-      {/* AI Analysis Button - for photo fields */}
-      {inspectionId && (safeField.type === 'photo' || safeField.type === 'photo_array') && localPhotos.length > 0 && (
+      {/* AI Analysis Button - for photo fields and attached-photo evidence */}
+      {inspectionId && showsPhotoExtras && localPhotos.length > 0 && (
         <Card style={styles.aiButtonCard}>
           <TouchableOpacity
             style={[
@@ -1726,7 +1632,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       )}
 
       {/* ── Voice Recording ─ premium card ──────────────────────────────── */}
-      {(safeField.type === 'photo' || safeField.type === 'photo_array') && (
+      {showsPhotoExtras && (
         <View style={[voiceCardStyles.card, { borderColor: themeColors.border.DEFAULT, backgroundColor: themeColors.card.DEFAULT }]}>
 
           {/* ── Header ── */}
@@ -1985,8 +1891,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         </View>
       )}
 
-      {/* Notes - only shown for photo fields */}
-      {(safeField.type === 'photo' || safeField.type === 'photo_array') && (
+      {/* Notes - photo fields and attached-photo evidence */}
+      {showsPhotoExtras && (
       <View style={styles.notesContainer}>
         <Text style={[styles.notesLabel, { color: themeColors.text.secondary }]}>Notes (optional)</Text>
         <Input
@@ -2007,7 +1913,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       </View>
       )}
 
-      {(safeField.type === 'photo' || safeField.type === 'photo_array') && onLogMaintenance && (
+      {showsPhotoExtras && onLogMaintenance && (
         <TouchableOpacity
           style={[styles.maintenanceButton, { marginTop: spacing[2] }]}
           onPress={() => {
@@ -2137,6 +2043,17 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         </View>
       </Modal>
 
+      <MultiPhotoCameraModal
+        visible={showMultiCamera}
+        maxPhotos={remainingFieldPhotoSlots(localPhotos.length)}
+        title={`Photos — ${safeField.label}`}
+        onCancel={() => setShowMultiCamera(false)}
+        onConfirm={(uris) => {
+          setShowMultiCamera(false);
+          void processPhotoUris(uris);
+        }}
+      />
+
       {/* Gallery pick modal */}
       <Modal
         visible={!!showGalleryPicker}
@@ -2235,17 +2152,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <X size={24} color="#fff" />
           </TouchableOpacity>
           {selectedPhoto && (
-            <Image 
-              source={isLocalPath(selectedPhoto) ? getImageSource(selectedPhoto) : { uri: selectedPhoto }} 
+            <RemoteImage
+              uri={selectedPhoto}
               style={styles.photoViewer as ImageStyle}
-              resizeMode="contain" 
-              onError={(error) => {
-                console.error('[FieldWidget] Photo viewer image load error:', error.nativeEvent.error, 'for URL:', selectedPhoto);
-              }}
-              onLoad={() => {
-                console.log('[FieldWidget] Photo viewer image loaded successfully:', selectedPhoto);
-              }}
-            />
+              resizeMode="contain"
+              compactMessage={false}
           )}
         </View>
       </Modal>

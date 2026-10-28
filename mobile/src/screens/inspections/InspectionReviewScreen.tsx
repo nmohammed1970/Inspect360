@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Image,
   Alert,
   Linking,
   Modal,
@@ -45,7 +44,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../theme'
 import { useTheme } from '../../contexts/ThemeContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useResponsive } from '../../hooks/useResponsive';
-import { getImageSource, isLocalPath } from '../../services/offline/storage';
+import { RemoteImage } from '../../components/ui/RemoteImage';
 import { ASSIGNED_INVENTORY_CLERK_LABEL } from '../../constants/roleLabels';
 
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionReview'>;
@@ -543,16 +542,8 @@ export default function InspectionReviewScreen() {
                     <View style={styles.itemContent}>
                       {item.photoUrl && (
                         <View style={styles.itemPhotoContainer}>
-                          <Image
-                            source={{
-                              uri: isLocalPath(item.photoUrl)
-                                ? getImageSource(item.photoUrl).uri
-                                : item.photoUrl.startsWith('/objects/')
-                                  ? `${getAPI_URL()}${item.photoUrl}`
-                                  : item.photoUrl.startsWith('http')
-                                    ? item.photoUrl
-                                    : `${getAPI_URL()}/objects/${item.photoUrl}`
-                            }}
+                          <RemoteImage
+                            uri={item.photoUrl}
                             style={styles.itemPhoto}
                             resizeMode="cover"
                           />

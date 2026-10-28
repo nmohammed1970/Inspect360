@@ -54,7 +54,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useResponsive } from '../../hooks/useResponsive';
-import { getImageSource, isLocalPath } from '../../services/offline/storage';
+import { RemoteImage } from '../../components/ui/RemoteImage';
 
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
 // Use a smaller preset on iOS only (mono, 22kHz, 64kbps, MIN quality) so upload/transcribe succeed.
@@ -441,14 +441,21 @@ const InspectionReportScreen = () => {
     };
 
 
-    const handlePrint = async () => {
+    const handlePrint = async (audience: 'full' | 'landlord' = 'full') => {
         if (!inspection) return;
 
+        const isLandlord = audience === 'landlord';
         setIsGeneratingPDF(true);
         try {
-            Alert.alert('Generating PDF', 'Please wait while we create your inspection report...');
+            Alert.alert(
+                isLandlord ? 'Generating Landlord PDF' : 'Generating PDF',
+                isLandlord
+                    ? 'Creating landlord report (only points marked Visible to Landlord)...'
+                    : 'Please wait while we create your inspection report...',
+            );
 
-            const response = await fetch(`${getAPI_URL()}/api/inspections/${inspectionId}/pdf`, {
+            const qs = isLandlord ? '?audience=landlord' : '';
+            const response = await fetch(`${getAPI_URL()}/api/inspections/${inspectionId}/pdf${qs}`, {
                 method: 'GET',
                 credentials: 'include',
                 headers: {
@@ -494,6 +501,7 @@ const InspectionReportScreen = () => {
                 locationName: inspection.property?.name || inspection.block?.name || 'inspection',
                 date: inspection.completedDate || inspection.scheduledDate,
                 inspectorName: assigneeName,
+                variant: isLandlord ? 'Landlord' : null,
             });
             const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
@@ -506,7 +514,7 @@ const InspectionReportScreen = () => {
             if (await Sharing.isAvailableAsync()) {
                 await Sharing.shareAsync(fileUri, {
                     mimeType: 'application/pdf',
-                    dialogTitle: 'Save Inspection PDF',
+                    dialogTitle: isLandlord ? 'Save Landlord PDF' : 'Save Inspection PDF',
                 });
                 // PDF sharing dialog will handle user notification
             } else {
@@ -928,29 +936,17 @@ const InspectionReportScreen = () => {
                         ]}
                     >
                         <View style={styles.photosGrid}>
-                            {entry.photos?.map((photo: string, photoIdx: number) => {
-                                let photoUrl: string;
-                                if (isLocalPath(photo)) {
-                                    const imageSource = getImageSource(photo);
-                                    photoUrl = imageSource.uri;
-                                } else if (photo.startsWith('http')) {
-                                    photoUrl = photo;
-                                } else if (photo.startsWith('/')) {
-                                    photoUrl = `${getAPI_URL()}${photo}`;
-                                } else {
-                                    photoUrl = `${getAPI_URL()}/objects/${photo}`;
-                                }
-                                return (
-                                    <Image
-                                        key={photoIdx}
-                                        source={{ uri: photoUrl }}
-                                        style={[
-                                            styles.photoThumbnail,
-                                            { width: photoThumbSize, height: photoThumbSize },
-                                        ] as ImageStyle}
-                                    />
-                                );
-                            })}
+                            {entry.photos?.map((photo: string, photoIdx: number) => (
+                                <RemoteImage
+                                    key={photoIdx}
+                                    uri={photo}
+                                    style={[
+                                        styles.photoThumbnail,
+                                        { width: photoThumbSize, height: photoThumbSize },
+                                    ] as ImageStyle}
+                                    resizeMode="cover"
+                                />
+                            ))}
                         </View>
                     </View>
                 )}
@@ -1169,7 +1165,18 @@ const InspectionReportScreen = () => {
                 <Text style={[styles.headerTitle, { color: themeColors.text.primary }]}>Inspection Report</Text>
                 <View style={styles.headerActions}>
                     <TouchableOpacity
-                        onPress={handlePrint}
+                        onPress={() => {
+                            if (isGeneratingPDF) return;
+                            Alert.alert(
+                                'Download report',
+                                'Choose which PDF to generate.',
+                                [
+                                    { text: 'Full PDF Report', onPress: () => { void handlePrint('full'); } },
+                                    { text: 'Landlord Report', onPress: () => { void handlePrint('landlord'); } },
+                                    { text: 'Cancel', style: 'cancel' },
+                                ],
+                            );
+                        }}
                         style={[styles.iconButton, isGeneratingPDF && styles.iconButtonDisabled]}
                         disabled={isGeneratingPDF}
                     >

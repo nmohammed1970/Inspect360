@@ -41,6 +41,8 @@ import {
   type FieldOption,
 } from "@shared/fieldOptionColors";
 import { OptionValueBadge } from "@/components/OptionValueBadge";
+import { fieldAllowsMultiplePhotos } from "@shared/fieldAttachedPhotos";
+import { GALLERY_FIELD_PHOTO_MAX } from "@shared/inspectionGallery";
 
 interface TemplateField {
   id: string;
@@ -55,6 +57,8 @@ interface TemplateField {
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  /** Optional multi-photo evidence on non-image fields. */
+  allowMultiplePhotos?: boolean;
   custom?: boolean;
 }
 
@@ -104,6 +108,9 @@ export function FieldWidget({
 }: FieldWidgetProps) {
   const isOnline = useOnlineStatus();
   const locale = useLocale();
+  const allowsAttachedPhotos = fieldAllowsMultiplePhotos(field);
+  const isNativePhotoField = field.type === "photo" || field.type === "photo_array";
+  const showsPhotoExtras = isNativePhotoField || allowsAttachedPhotos;
   // Parse value - if field includes condition/cleanliness, value might be an object
   const parseValue = (val: any) => {
     if (val && typeof val === 'object' && (field.includeCondition || field.includeCleanliness)) {
@@ -191,17 +198,17 @@ export function FieldWidget({
   const { toast } = useToast();
   const { user } = useAuth();
 
-  // Fetch Check-In reference for photo fields during Check-Out inspections
+  // Fetch Check-In reference for photo / attached-photo fields during Check-Out
   const { data: checkInReference } = useQuery({
     queryKey: inspectionId ? ["/api/inspections", inspectionId, "check-in-reference"] : ["no-check-in"],
     queryFn: async () => {
-      if (!inspectionId || !isCheckOut || (field.type !== "photo" && field.type !== "photo_array")) {
+      if (!inspectionId || !isCheckOut || !showsPhotoExtras) {
         return null;
       }
       const response = await apiRequest("GET", `/api/inspections/${inspectionId}/check-in-reference`);
       return response.json();
     },
-    enabled: !!inspectionId && isCheckOut && (field.type === "photo" || field.type === "photo_array"),
+    enabled: !!inspectionId && !!isCheckOut && showsPhotoExtras,
   });
 
   // Find matching check-in entry for this field
@@ -1463,6 +1470,163 @@ export function FieldWidget({
     }
   };
 
+  /** Multi-photo evidence UI for non-image fields with allowMultiplePhotos. */
+  const renderAttachedPhotosSection = () => (
+    <div className="space-y-3 pt-2" data-testid={`attached-photos-${field.id}`}>
+      <Label className="text-sm font-bold text-muted-foreground">Photos (optional)</Label>
+      {isCheckOut && checkInPhotos.length > 0 && (
+        <Alert className="border-primary/50 bg-primary/5">
+          <Eye className="h-4 w-4 text-primary" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-medium text-sm">Check-In Reference Photos</p>
+              <p className="text-xs text-muted-foreground">
+                Match these angles when taking your Check-Out photos for accurate comparison
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                {checkInPhotos.map((photoUrl: string, index: number) => (
+                  <div key={index} className="relative group">
+                    <PreviewableImage
+                      src={photoUrl}
+                      alt={`Check-In Reference ${index + 1}`}
+                      title={`${field.label} - Check-in reference`}
+                      caption={`Reference ${index + 1}`}
+                      gallery={checkInPhotos.map((src: string, photoIndex: number) => ({
+                        src,
+                        alt: `Check-In Reference ${photoIndex + 1}`,
+                        title: `${field.label} - Check-in reference`,
+                        caption: `Reference ${photoIndex + 1}`,
+                      }))}
+                      index={index}
+                      className="w-full h-32 object-cover rounded-md border-2 border-primary/30"
+                      data-testid={`img-check-in-reference-attached-${index}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {localPhotos.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {localPhotos.map((photoUrl, index) => (
+            <Card key={index} className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="relative bg-muted group">
+                  <PreviewableImage
+                    src={photoUrl}
+                    alt={`${field.label} ${index + 1}`}
+                    title={field.label}
+                    caption={`Photo ${index + 1}`}
+                    showHint={false}
+                    gallery={localPhotos.map((src, photoIndex) => ({
+                      src,
+                      alt: `${field.label} ${photoIndex + 1}`,
+                      title: field.label,
+                      caption: `Photo ${photoIndex + 1}`,
+                    }))}
+                    index={index}
+                    className="w-full h-auto max-h-64 object-contain cursor-pointer"
+                    data-testid={`img-attached-photo-${index}`}
+                  />
+                  <Button
+                    size="icon"
+                    variant="destructive"
+                    className="absolute top-2 right-2 z-10 min-h-11 min-w-11"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handlePhotoRemove(photoUrl);
+                    }}
+                    data-testid={`button-remove-attached-photo-${index}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {!disabled && localPhotos.length < GALLERY_FIELD_PHOTO_MAX && (
+        <ModernFilePickerInline
+          onFilesSelected={handlePhotoFilesSelected}
+          maxFiles={Math.max(1, GALLERY_FIELD_PHOTO_MAX - localPhotos.length)}
+          maxFileSize={50 * 1024 * 1024}
+          accept="image/*"
+          multiple={true}
+          isUploading={isUploadingPhoto}
+          uploadProgress={photoUploadProgress}
+          height={300}
+          onChooseFromGallery={
+            inspectionId && sectionRef ? () => setShowGalleryPick(true) : undefined
+          }
+          galleryDisabled={galleryBusy}
+        />
+      )}
+
+      {inspectionId && sectionRef && (
+        <GalleryPickDialog
+          open={showGalleryPick}
+          onOpenChange={setShowGalleryPick}
+          inspectionId={inspectionId}
+          alreadyUrls={localPhotos}
+          maxSelectable={GALLERY_FIELD_PHOTO_MAX}
+          destinationLabel={
+            sectionName ? `${sectionName} → ${field.label}` : field.label
+          }
+          busy={galleryBusy}
+          onConfirm={async (picked) => {
+            setGalleryBusy(true);
+            try {
+              const urls = picked.map((p) => p.objectUrl);
+              await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/assign`, {
+                imageIds: picked.map((p) => p.id),
+                sectionRef,
+                fieldKey: field.id,
+              });
+              setLocalPhotos((prev) => {
+                const merged = [...prev];
+                for (const u of urls) {
+                  if (!merged.includes(u)) merged.push(u);
+                }
+                setTimeout(() => {
+                  const composedValue = composeValue(
+                    localValue,
+                    localCondition,
+                    localCleanliness,
+                    audioUrls,
+                  );
+                  onChange(composedValue, localNote || undefined, merged);
+                  queryClient.invalidateQueries({
+                    queryKey: [`/api/inspections/${inspectionId}/entries`],
+                  });
+                  queryClient.invalidateQueries({
+                    queryKey: ["/api/inspections", inspectionId, "gallery"],
+                  });
+                }, 0);
+                return merged;
+              });
+              setShowGalleryPick(false);
+              toast({ title: "Photos added from gallery" });
+            } catch (e: any) {
+              toast({
+                title: "Unable to add from gallery",
+                description: e?.message,
+                variant: "destructive",
+              });
+            } finally {
+              setGalleryBusy(false);
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+
   const renderField = () => {
     switch (field.type) {
       case "short_text":
@@ -2128,6 +2292,8 @@ export function FieldWidget({
       <div className="space-y-3 p-4 sm:p-5">
       {renderField()}
 
+      {allowsAttachedPhotos && renderAttachedPhotosSection()}
+
       {/* AI Analyzing Indicator */}
       {analyzingCondition && (field.includeCondition || field.includeCleanliness) && (
         <Alert className="border-primary/50 bg-primary/5">
@@ -2218,8 +2384,8 @@ export function FieldWidget({
         </div>
       )}
 
-      {/* Voice Recording - only shown for photo fields, BEFORE notes (multiple recordings) */}
-      {(field.type === "photo" || field.type === "photo_array") && (
+      {/* Voice Recording - photo fields and attached-photo evidence */}
+      {showsPhotoExtras && (
         <div className="pt-2 space-y-2">
           <Label className="text-sm font-bold text-muted-foreground">
             Voice Recording
@@ -2534,8 +2700,8 @@ export function FieldWidget({
         </div>
       )}
 
-      {/* Optional notes - only shown for photo fields */}
-      {(field.type === "photo" || field.type === "photo_array") && (
+      {/* Optional notes - photo fields and attached-photo evidence */}
+      {showsPhotoExtras && (
         <div className="pt-2">
           <Label htmlFor={`note-${field.id}`} className="text-sm font-bold text-muted-foreground">
             Notes (optional)
@@ -2584,7 +2750,7 @@ export function FieldWidget({
         </div>
       )}
 
-      {inspectionId && onLogMaintenance && (field.type === "photo" || field.type === "photo_array") && (
+      {inspectionId && onLogMaintenance && showsPhotoExtras && (
         <div className="pt-2">
           <Button
             type="button"

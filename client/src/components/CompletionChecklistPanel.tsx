@@ -22,6 +22,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { PreviewableImage } from "@/components/ImagePreview";
 
 export type InspectionCompletionChecklistPayload = {
   snapshot: CompletionChecklistSnapshot | null;

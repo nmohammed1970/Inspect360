@@ -90,6 +90,7 @@ interface TemplateField {
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  allowMultiplePhotos?: boolean;
 }
 
 interface TemplateSection {
@@ -185,6 +186,7 @@ export default function InspectionReport() {
   const [comparisonProgress, setComparisonProgress] = useState(0);
   const [comparisonStatusMessage, setComparisonStatusMessage] = useState("Initializing...");
   const [expandedPhotos, setExpandedPhotos] = useState<Record<string, boolean>>({});
+  const [pdfGeneratingAudience, setPdfGeneratingAudience] = useState<"full" | "landlord" | null>(null);
 
   const togglePhotoExpansion = (key: string) => {
     setExpandedPhotos(prev => ({ ...prev, [key]: !prev[key] }));
@@ -739,16 +741,21 @@ export default function InspectionReport() {
     });
   };
 
-  const handlePrint = async () => {
-    if (!inspection) return;
+  const handlePrint = async (audience: "full" | "landlord" = "full") => {
+    if (!inspection || pdfGeneratingAudience) return;
 
+    const isLandlord = audience === "landlord";
+    setPdfGeneratingAudience(audience);
     try {
       toast({
-        title: "Generating PDF",
-        description: "Please wait while we create your inspection report...",
+        title: isLandlord ? "Generating Landlord PDF" : "Generating PDF",
+        description: isLandlord
+          ? "Creating landlord report (only points marked Visible to Landlord)..."
+          : "Please wait while we create your inspection report...",
       });
 
-      const response = await fetch(`/api/inspections/${inspection.id}/pdf`, {
+      const qs = isLandlord ? "?audience=landlord" : "";
+      const response = await fetch(`/api/inspections/${inspection.id}/pdf${qs}`, {
         method: "GET",
         credentials: "include",
       });
@@ -770,6 +777,7 @@ export default function InspectionReport() {
         locationName,
         date: reportDate,
         inspectorName: assigneeName,
+        variant: isLandlord ? "Landlord" : null,
       });
       document.body.appendChild(a);
       a.click();
@@ -778,7 +786,9 @@ export default function InspectionReport() {
 
       toast({
         title: "PDF Generated",
-        description: "Your inspection report has been downloaded.",
+        description: isLandlord
+          ? "Your landlord report has been downloaded."
+          : "Your inspection report has been downloaded.",
       });
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -787,6 +797,8 @@ export default function InspectionReport() {
         description: "Failed to generate PDF report. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setPdfGeneratingAudience(null);
     }
   };
 
@@ -1588,11 +1600,30 @@ export default function InspectionReport() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handlePrint}
+              onClick={() => handlePrint("full")}
+              disabled={!!pdfGeneratingAudience}
               data-testid="button-print-report"
             >
-              <FileText className="w-4 h-4 mr-2" />
-              View PDF Report
+              {pdfGeneratingAudience === "full" ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <FileText className="w-4 h-4 mr-2" />
+              )}
+              {pdfGeneratingAudience === "full" ? "Generating..." : "View Report"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePrint("landlord")}
+              disabled={!!pdfGeneratingAudience}
+              data-testid="button-print-landlord-report"
+            >
+              {pdfGeneratingAudience === "landlord" ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <FileText className="w-4 h-4 mr-2" />
+              )}
+              {pdfGeneratingAudience === "landlord" ? "Generating..." : "View Landlord Report"}
             </Button>
           </div>
         </div>

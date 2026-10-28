@@ -2250,9 +2250,9 @@ export default function InspectionCaptureScreen() {
                 {currentSection.repeatable && !roomsLockedFromProperty && (
                   <Card style={[styles.fieldContainer, { backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing[2] }}>
-                      <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
+                    <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
                         {`How many ${currentSection.title.toLowerCase()}?`}
-                      </Text>
+                    </Text>
                     </View>
                     <View style={{ flexDirection: actionStack === 'column' ? 'column' : 'row', alignItems: actionStack === 'column' ? 'stretch' : 'center', flexWrap: 'wrap', gap: spacing[3], marginTop: spacing[2] }}>
                       <TouchableOpacity
@@ -2474,17 +2474,17 @@ export default function InspectionCaptureScreen() {
                                       if (rootNavigator) {
                                         rootNavigator.dispatch(
                                           CommonActions.navigate('Main', {
-                                            screen: 'Maintenance',
-                                            params: {
-                                              screen: 'CreateMaintenance',
+                                              screen: 'Maintenance',
                                               params: {
-                                                inspectionId,
-                                                propertyId: effectiveInspection?.propertyId,
-                                                blockId: effectiveInspection?.blockId,
-                                                fieldLabel,
+                                                screen: 'CreateMaintenance',
+                                                params: {
+                                                  inspectionId,
+                                                  propertyId: effectiveInspection?.propertyId,
+                                                  blockId: effectiveInspection?.blockId,
+                                                  fieldLabel,
                                                 photos: fieldPhotos,
                                                 entryId: entry?.id || properEntryId,
-                                                sectionTitle: instanceName,
+                                                  sectionTitle: instanceName,
                                               },
                                             },
                                           })
@@ -2543,17 +2543,17 @@ export default function InspectionCaptureScreen() {
                     try {
                       const getTenantNames = () => {
                         if (!Array.isArray(tenants) || tenants.length === 0) return '';
-                        const tenantNames = tenants
-                          .map((t: any) => {
-                            return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName ||
-                                   (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` :
+                                    const tenantNames = tenants
+                                      .map((t: any) => {
+                                        return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
+                                               (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
                                    t.firstName || t.lastName || '');
-                          })
-                          .filter(Boolean);
+                                      })
+                                      .filter(Boolean);
                         if (tenantNames.length > 0) return tenantNames.join(', ');
-                        const hasAnyTenant = tenants.some((t: any) =>
-                          t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                        );
+                                    const hasAnyTenant = tenants.some((t: any) => 
+                                      t.tenantName || t.name || t.tenant || t.firstName || t.lastName
+                                    );
                         return hasAnyTenant ? 'Tenant assigned' : '';
                       };
 
@@ -2565,47 +2565,47 @@ export default function InspectionCaptureScreen() {
                       ) => {
                         try {
                           const fieldPhotos = (photos?.length ? photos : pointEntry?.photos || []).filter(Boolean);
-                          const rootNavigator = navigation.getParent()?.getParent();
-                          if (rootNavigator) {
-                            rootNavigator.dispatch(
+                                const rootNavigator = navigation.getParent()?.getParent();
+                                if (rootNavigator) {
+                                  rootNavigator.dispatch(
                               CommonActions.navigate('Main', {
-                                screen: 'Maintenance',
-                                params: {
-                                  screen: 'CreateMaintenance',
-                                  params: {
-                                    inspectionId,
-                                    propertyId: effectiveInspection?.propertyId,
-                                    blockId: effectiveInspection?.blockId,
-                                    fieldLabel,
+                                        screen: 'Maintenance',
+                                        params: {
+                                          screen: 'CreateMaintenance',
+                                          params: {
+                                            inspectionId,
+                                            propertyId: effectiveInspection?.propertyId,
+                                            blockId: effectiveInspection?.blockId,
+                                            fieldLabel,
                                     photos: fieldPhotos,
                                     entryId: pointEntry?.id || pointEntryId,
-                                    sectionTitle: currentSection?.title,
-                                  },
-                                },
-                              })
-                            );
-                          } else {
-                            const tabNavigator = navigation.getParent();
-                            if (tabNavigator) {
-                              (tabNavigator as any).navigate('Maintenance', {
-                                screen: 'CreateMaintenance',
-                                params: {
-                                  inspectionId,
-                                  propertyId: effectiveInspection?.propertyId,
-                                  blockId: effectiveInspection?.blockId,
-                                  fieldLabel,
-                                  photos,
+                                            sectionTitle: currentSection?.title,
+                                        },
+                                      },
+                                    })
+                                  );
+                                } else {
+                                  const tabNavigator = navigation.getParent();
+                                  if (tabNavigator) {
+                                    (tabNavigator as any).navigate('Maintenance', {
+                                      screen: 'CreateMaintenance',
+                                      params: {
+                                        inspectionId,
+                                        propertyId: effectiveInspection?.propertyId,
+                                        blockId: effectiveInspection?.blockId,
+                                        fieldLabel,
+                                        photos,
                                   entryId: pointEntry?.id || pointEntryId,
-                                  sectionTitle: currentSection?.title,
-                                },
-                              });
-                            } else {
-                              console.error('[InspectionCapture] Could not find navigator');
-                            }
-                          }
-                        } catch (error) {
-                          console.error('[InspectionCapture] Navigation error:', error);
-                        }
+                                        sectionTitle: currentSection?.title,
+                                      },
+                                    });
+                                  } else {
+                                    console.error('[InspectionCapture] Could not find navigator');
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('[InspectionCapture] Navigation error:', error);
+                              }
                       };
 
                       const entryKey = `${currentSection.id}-${field.id || field.key}`;

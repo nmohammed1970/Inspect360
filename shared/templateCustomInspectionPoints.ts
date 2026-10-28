@@ -21,6 +21,8 @@ export type TemplateFieldLike = {
   depends_on?: string;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  /** When true, field appears on landlord PDF. Default false (internal only). */
+  visibleToLandlord?: boolean;
   [key: string]: unknown;
 };
 

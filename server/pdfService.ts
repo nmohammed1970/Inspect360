@@ -26,6 +26,7 @@ import {
   type BooleanOptionColors,
   type FieldOption,
 } from "@shared/fieldOptionColors";
+import { isFieldVisibleToLandlord } from "@shared/fieldLandlordVisibility";
 import {
   whiteCoverCss,
   buildWhiteCoverHtml,
@@ -244,6 +245,7 @@ interface TemplateField {
   dependsOn?: Record<string, any>;
   includeCondition?: boolean;
   includeCleanliness?: boolean;
+  visibleToLandlord?: boolean;
 }
 
 interface TemplateSection {
@@ -379,6 +381,11 @@ export type FloorPlanReportData = {
 export type InspectionPdfOptions = {
   /** When false, omit tenant signature fields (tenancies module off). Default true. */
   includeTenantSurfaces?: boolean;
+  /**
+   * full = all inspection points (internal).
+   * landlord = same general report sections, only fields with visibleToLandlord === true.
+   */
+  audience?: "full" | "landlord";
 };
 
 export async function generateInspectionPDF(
@@ -814,6 +821,20 @@ function generateInspectionHTML(
   floorPlanData?: FloorPlanReportData | null,
 ): string {
   const includeTenantSurfaces = options?.includeTenantSurfaces !== false;
+  const landlordOnly = options?.audience === "landlord";
+  const shouldIncludeField = (field: TemplateField): boolean => {
+    if (
+      !includeTenantSurfaces &&
+      field.type === "signature" &&
+      isTenantSignatureField(field)
+    ) {
+      return false;
+    }
+    if (landlordOnly && !isFieldVisibleToLandlord(field)) {
+      return false;
+    }
+    return true;
+  };
   // Default all report sections to true if not specified
   const config = {
     showCover: reportConfig?.showCover ?? true,
@@ -1291,11 +1312,7 @@ function generateInspectionHTML(
           label: exp.label,
           type: (baseField?.type as string) || "short_text",
         };
-        if (
-          !includeTenantSurfaces &&
-          fieldForRow.type === "signature" &&
-          isTenantSignatureField(fieldForRow)
-        ) {
+        if (!shouldIncludeField(fieldForRow)) {
           continue;
         }
         counter++;
@@ -1324,13 +1341,23 @@ function generateInspectionHTML(
     }
 
     // First pass: determine if section has condition/cleanliness columns
+    // (respect landlord filter so headers match visible rows)
     let sectionHasCondition = false;
     let sectionHasCleanliness = false;
     
     section.fields.forEach((field) => {
+      if (!shouldIncludeField(field)) return;
       if (field.includeCondition) sectionHasCondition = true;
       if (field.includeCleanliness) sectionHasCleanliness = true;
     });
+    // CIP base fields may also contribute columns
+    for (const cip of getCipsForSection(templateStructure as any, section as any)) {
+      for (const f of cip.fields || []) {
+        if (!shouldIncludeField(f as TemplateField)) continue;
+        if (f.includeCondition) sectionHasCondition = true;
+        if (f.includeCleanliness) sectionHasCleanliness = true;
+      }
+    }
 
     // Check if this is a repeatable section
     if (section.repeatable) {
@@ -1367,11 +1394,7 @@ function generateInspectionHTML(
 
         // Render fields for this instance
         section.fields.forEach((field) => {
-          if (
-            !includeTenantSurfaces &&
-            field.type === "signature" &&
-            isTenantSignatureField(field)
-          ) {
+          if (!shouldIncludeField(field)) {
             return;
           }
           fieldCounter++;
@@ -1444,11 +1467,7 @@ function generateInspectionHTML(
       let fieldCounter = 0;
 
       section.fields.forEach((field) => {
-        if (
-          !includeTenantSurfaces &&
-          field.type === "signature" &&
-          isTenantSignatureField(field)
-        ) {
+        if (!shouldIncludeField(field)) {
           return;
         }
         fieldCounter++;
