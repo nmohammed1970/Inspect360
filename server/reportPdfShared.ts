@@ -629,6 +629,26 @@ export function extractTocPagesByLabels(
   return out;
 }
 
+/** Cap TOC text extraction so photo-heavy PDFs cannot hang report generation. */
+const TOC_PARSE_TIMEOUT_MS = 12_000;
+const TOC_MAX_PDF_BYTES = 12 * 1024 * 1024; // skip parse above ~12MB
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function getPdfPageTexts(
   pdfBuffer: Buffer,
 ): Promise<Array<{ num: number; text: string }>> {
@@ -639,7 +659,7 @@ async function getPdfPageTexts(
   try {
     const { PDFParse } = await import("pdf-parse");
     parser = new PDFParse({ data: pdfBuffer });
-    const result = await parser.getText();
+    const result = await withTimeout(parser.getText(), TOC_PARSE_TIMEOUT_MS, "TOC pdf-parse");
     if (result.pages && result.pages.length > 0) return result.pages;
     // Some builds only populate the concatenated text — split on form feeds if present
     const full = result.text || "";
@@ -666,6 +686,12 @@ export async function resolveTocPagesFromPdf(
   entries: TocContentsEntry[],
 ): Promise<Record<string, number>> {
   try {
+    if (pdfBuffer.length > TOC_MAX_PDF_BYTES) {
+      console.warn(
+        `[PDF] Skipping TOC page parse — draft PDF is ${(pdfBuffer.length / (1024 * 1024)).toFixed(1)}MB (limit ${TOC_MAX_PDF_BYTES / (1024 * 1024)}MB)`,
+      );
+      return {};
+    }
     const pages = await getPdfPageTexts(pdfBuffer);
     const byMarker = extractTocMarkerPagesFromPageTexts(pages);
     const missing = entries.filter((e) => byMarker[e.key] == null);
@@ -734,43 +760,51 @@ export async function renderHtmlToBrandedPdf(
 
   const fillTocSlotsFromBodyPdf = async (bodyPdf: Buffer, coverPageOffset: number) => {
     if (!fillToc || !page.evaluate) return false;
+    try {
+      const entries = (await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("[data-toc-page]")).map((el) => {
+          const key = el.getAttribute("data-toc-page") || "";
+          const li = el.closest("li");
+          // Avoid :scope (not always available); take direct child spans only.
+          const spans = li
+            ? Array.from(li.children).filter((node) => node.tagName === "SPAN")
+            : [];
+          // [index, label, leader, pageSlot]
+          const label = ((spans[1] as HTMLElement | undefined)?.textContent || "").trim();
+          return { key, label };
+        });
+      })) as TocContentsEntry[];
 
-    const entries = (await page.evaluate(() => {
-      return Array.from(document.querySelectorAll("[data-toc-page]")).map((el) => {
-        const key = el.getAttribute("data-toc-page") || "";
-        const li = el.closest("li");
-        const spans = li ? Array.from(li.querySelectorAll(":scope > span")) : [];
-        // [index, label, leader, pageSlot]
-        const label = (spans[1]?.textContent || "").trim();
-        return { key, label };
-      });
-    })) as TocContentsEntry[];
-
-    const bodyPages = await resolveTocPagesFromPdf(bodyPdf, entries);
-    const keys = Object.keys(bodyPages);
-    if (keys.length === 0) {
-      console.warn(
-        "[PDF] No TOC page numbers resolved from draft body PDF; leaving Contents pages as —",
-        { entryCount: entries.length },
+      const bodyPages = await resolveTocPagesFromPdf(bodyPdf, entries);
+      const keys = Object.keys(bodyPages);
+      if (keys.length === 0) {
+        console.warn(
+          "[PDF] No TOC page numbers resolved from draft body PDF; leaving Contents pages as —",
+          { entryCount: entries.length, draftBytes: bodyPdf.length },
+        );
+        return false;
+      }
+      const finalMap: Record<string, number> = {};
+      for (const key of keys) {
+        finalMap[key] = bodyPages[key] + coverPageOffset;
+      }
+      await page.evaluate((pageMap: Record<string, number>) => {
+        for (const [key, num] of Object.entries(pageMap)) {
+          const nodes = document.querySelectorAll(`[data-toc-page="${key}"]`);
+          nodes.forEach((el) => {
+            el.textContent = String(num);
+          });
+        }
+      }, finalMap);
+      console.log(
+        `[PDF] Filled ${keys.length}/${entries.length} Contents page number(s) (cover offset ${coverPageOffset})`,
       );
+      return true;
+    } catch (err) {
+      // Never fail the whole PDF over Contents page numbers.
+      console.warn("[PDF] TOC fill skipped due to error; returning draft body PDF:", err);
       return false;
     }
-    const finalMap: Record<string, number> = {};
-    for (const key of keys) {
-      finalMap[key] = bodyPages[key] + coverPageOffset;
-    }
-    await page.evaluate((pageMap: Record<string, number>) => {
-      for (const [key, num] of Object.entries(pageMap)) {
-        const nodes = document.querySelectorAll(`[data-toc-page="${key}"]`);
-        nodes.forEach((el) => {
-          el.textContent = String(num);
-        });
-      }
-    }, finalMap);
-    console.log(
-      `[PDF] Filled ${keys.length}/${entries.length} Contents page number(s) (cover offset ${coverPageOffset})`,
-    );
-    return true;
   };
 
   if (!hasCover) {

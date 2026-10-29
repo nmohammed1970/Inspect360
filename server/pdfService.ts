@@ -40,7 +40,6 @@ import {
   themeFromOrgBranding,
   renderHtmlToBrandedPdf,
   tocAnchorHtml,
-  tocPageSlotHtml,
   sanitizeTocKey,
   type CoverMetaRow,
 } from "./reportPdfShared";
@@ -618,20 +617,15 @@ export async function generateInspectionPDF(
         : null;
 
     // Cover rendered without chrome; body pages get header/footer.
-    // Contents page numbers: draft body PDF → measure markers → fill DOM → reprint body only.
-    return await renderHtmlToBrandedPdf(
-      page,
-      html,
-      {
-        landscape: false,
-        format: "A4",
-        theme: reportTheme,
-        address: footerAddress || locationName,
-        propertyName: locationName,
-        logoDataUrl: logoForHeader,
-      },
-      { fillTocPageNumbers: true },
-    );
+    // Contents page numbers disabled for now (second-pass parse/reprint was slowing/hanging large reports).
+    return await renderHtmlToBrandedPdf(page, html, {
+      landscape: false,
+      format: "A4",
+      theme: reportTheme,
+      address: footerAddress || locationName,
+      propertyName: locationName,
+      logoDataUrl: logoForHeader,
+    });
   } finally {
     if (browser) {
       await browser.close();
@@ -1901,18 +1895,8 @@ function generateInspectionHTML(
       <h2 class="report-section-title">
         Contents
       </h2>
-      <ol style="margin: 0; padding-left: 0; list-style: none; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
-        ${contentsEntries
-          .map(
-            (entry, index) => `
-          <li style="display:flex;align-items:baseline;gap:8px;margin:0 0 4px;">
-            <span style="flex:0 0 auto;min-width:1.6em;font-variant-numeric:tabular-nums;">${index + 1}.</span>
-            <span style="flex:0 1 auto;max-width:70%;">${pdfText(entry.label)}</span>
-            <span style="flex:1 1 auto;border-bottom:1px dotted #cbd5e1;margin:0 6px 0.35em;min-width:20px;"></span>
-            ${tocPageSlotHtml(entry.key)}
-          </li>`,
-          )
-          .join("")}
+      <ol style="margin: 0; padding-left: 24px; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
+        ${contentsEntries.map((entry) => `<li>${pdfText(entry.label)}</li>`).join("")}
       </ol>
     </div>
   `
