@@ -1,6 +1,3 @@
-import puppeteerCore from "puppeteer-core";
-import puppeteer from "puppeteer";
-import chromium from "@sparticuz/chromium";
 import { format } from "date-fns";
 import { parseSignatureValue, isTenantSignatureField, formatSignerDisplayName } from "@shared/signature";
 import {
@@ -40,17 +37,12 @@ import {
   themeFromOrgBranding,
   renderHtmlToBrandedPdf,
   tocAnchorHtml,
+  tocPageSlotHtml,
   sanitizeTocKey,
   type CoverMetaRow,
 } from "./reportPdfShared";
-
-// Detect if running in Replit, serverless, or Docker (Contabo) — use @sparticuz/chromium
-const isReplit = process.env.REPL_ID || process.env.REPLIT;
-const isServerless = process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL || process.env.NETLIFY;
-const isDocker =
-  process.env.RUNNING_IN_DOCKER === "true" ||
-  process.env.USE_SPARTICUZ_CHROMIUM === "true";
-const useChromium = !!(isReplit || isServerless || isDocker);
+import { withPdfPage } from "./pdfBrowserPool";
+import { embedInspectionEntryPhotos } from "./inspectionPdfPhotos";
 
 // Convert image URL to base64 data URL for embedding in PDF
 async function imageUrlToBase64(url: string, baseUrl?: string): Promise<string | null> {
@@ -544,9 +536,12 @@ export async function generateInspectionPDF(
     }
   }
 
+  // Fetch/embed field photos in parallel once so Chromium does not download them during print.
+  const entriesWithEmbeddedPhotos = await embedInspectionEntryPhotos(entries as any[], baseUrl, 8);
+
   const html = generateInspectionHTML(
     inspection,
-    entries,
+    entriesWithEmbeddedPhotos as any,
     baseUrl,
     processedBranding,
     maintenanceRequests,
@@ -556,81 +551,46 @@ export async function generateInspectionPDF(
     processedFloorPlan,
   );
 
-  let browser;
-  try {
-    // Use puppeteer-core with @sparticuz/chromium for serverless environments
-    // Use regular puppeteer (with bundled Chromium) for local development
-    if (useChromium) {
-      const executablePath = await chromium.executablePath();
-      browser = await puppeteerCore.launch({
-        args: [
-          ...chromium.args,
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
-        ],
-        executablePath,
-        headless: true,
-      });
-    } else {
-      // Local development - use puppeteer with bundled Chromium
-      browser = await puppeteer.launch({
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--disable-gpu'
-        ],
-        headless: true,
-      });
-    }
+  const reportTheme = themeFromOrgBranding(processedBranding || null);
+  const locationName =
+    inspection.property?.name ||
+    inspection.block?.name ||
+    processedBranding?.brandingName ||
+    "Inspect360";
+  const rawAddr =
+    inspection.property?.address ||
+    inspection.block?.address ||
+    "";
+  const footerAddress =
+    typeof rawAddr === "string"
+      ? rawAddr.trim()
+      : rawAddr && typeof rawAddr === "object"
+        ? [rawAddr.street, rawAddr.city, rawAddr.state, rawAddr.postalCode, rawAddr.country]
+            .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+            .join(", ")
+        : "";
+  const logoForHeader =
+    typeof processedBranding?.logoUrl === "string" && processedBranding.logoUrl.startsWith("data:")
+      ? processedBranding.logoUrl
+      : null;
 
-    const page = await browser.newPage();
-
-    const reportTheme = themeFromOrgBranding(processedBranding || null);
-    const locationName =
-      inspection.property?.name ||
-      inspection.block?.name ||
-      processedBranding?.brandingName ||
-      "Inspect360";
-    const rawAddr =
-      inspection.property?.address ||
-      inspection.block?.address ||
-      "";
-    const footerAddress =
-      typeof rawAddr === "string"
-        ? rawAddr.trim()
-        : rawAddr && typeof rawAddr === "object"
-          ? [rawAddr.street, rawAddr.city, rawAddr.state, rawAddr.postalCode, rawAddr.country]
-              .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-              .join(", ")
-          : "";
-    const logoForHeader =
-      typeof processedBranding?.logoUrl === "string" && processedBranding.logoUrl.startsWith("data:")
-        ? processedBranding.logoUrl
-        : null;
-
-    // Cover rendered without chrome; body pages get header/footer.
-    // Contents page numbers disabled for now (second-pass parse/reprint was slowing/hanging large reports).
-    return await renderHtmlToBrandedPdf(page, html, {
-      landscape: false,
-      format: "A4",
-      theme: reportTheme,
-      address: footerAddress || locationName,
-      propertyName: locationName,
-      logoDataUrl: logoForHeader,
-    });
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
+  // Reuse warm Chromium; cover+body share one HTML load (images settled once).
+  // Contents page numbers: draft body PDF → measure markers → fill DOM → reprint body only.
+  return await withPdfPage(async (page) =>
+    renderHtmlToBrandedPdf(
+      page,
+      html,
+      {
+        landscape: false,
+        format: "A4",
+        theme: reportTheme,
+        address: footerAddress || locationName,
+        propertyName: locationName,
+        logoDataUrl: logoForHeader,
+      },
+      { fillTocPageNumbers: true },
+    ),
+  );
 }
 
 function renderFieldValue(value: any, field: TemplateField): string {
@@ -841,8 +801,9 @@ function buildFloorPlanSectionHTML(
   return `
     <!-- Floor Plan & Dimensions -->
     <div class="report-section" style="position:relative; margin-bottom: 32px; page-break-inside: avoid;">
+      ${tocAnchorHtml("floorPlan")}
       <h2 class="report-section-title">
-        ${tocAnchorHtml("floorPlan")}Floor Plan &amp; Dimensions
+        Floor Plan &amp; Dimensions
       </h2>
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px;">
         ${imageBlock}
@@ -1489,8 +1450,9 @@ function generateInspectionHTML(
       // Build section HTML with all instances (each with inline photos)
       sectionsHTML += `
         <div class="report-section report-section-room" style="position:relative; margin-bottom: 32px;">
+          ${tocAnchorHtml(tocKey)}
           <h2 class="report-section-title">
-            ${tocAnchorHtml(tocKey)}${pdfText(section.title)}
+            ${pdfText(section.title)}
           </h2>
           ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${pdfText(section.description)}</p>` : ""}
           ${sectionHTML}
@@ -1539,8 +1501,9 @@ function generateInspectionHTML(
       // Build section HTML with table format - always include all sections
       sectionsHTML += `
         <div class="report-section report-section-room" style="position:relative; margin-bottom: 32px;">
+          ${tocAnchorHtml(tocKey)}
           <h2 class="report-section-title">
-            ${tocAnchorHtml(tocKey)}${pdfText(section.title)}
+            ${pdfText(section.title)}
           </h2>
           ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${pdfText(section.description)}</p>` : ""}
           
@@ -1597,8 +1560,9 @@ function generateInspectionHTML(
   const glossaryHTML = config.showGlossary ? `
     <!-- Glossary of Terms - Landscape optimized 2-column layout -->
     <div class="report-section keep-together" style="position:relative; margin-bottom: 32px;">
+      ${tocAnchorHtml("glossary")}
       <h2 class="report-section-title">
-        ${tocAnchorHtml("glossary")}Glossary of Terms
+        Glossary of Terms
       </h2>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
         <!-- Condition Ratings -->
@@ -1740,8 +1704,9 @@ function generateInspectionHTML(
   const maintenanceLogHTML = config.showMaintenanceLog && maintenanceRequests && maintenanceRequests.length > 0 ? `
     <!-- Outstanding Maintenance Requests -->
     <div class="report-section" style="position:relative; margin-bottom: 32px;">
+      ${tocAnchorHtml("maintenanceLog")}
       <h2 class="report-section-title">
-        ${tocAnchorHtml("maintenanceLog")}Outstanding Maintenance Requests
+        Outstanding Maintenance Requests
       </h2>
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
         <thead>
@@ -1792,8 +1757,9 @@ function generateInspectionHTML(
   const termsConditionsHTML = config.showTermsConditions && config.termsConditionsText ? `
     <!-- Terms and Conditions -->
     <div class="report-section" style="position:relative; margin-bottom: 32px;">
+      ${tocAnchorHtml("termsConditions")}
       <h2 class="report-section-title">
-        ${tocAnchorHtml("termsConditions")}Terms and Conditions
+        Terms and Conditions
       </h2>
       <div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
         <div style="color: #333; font-size: 14px; line-height: 1.7;">${sanitizeRichText(config.termsConditionsText)}</div>
@@ -1805,11 +1771,12 @@ function generateInspectionHTML(
   const closingSectionHTML = config.showClosingSection && config.closingSectionText ? `
     <!-- Closing Section -->
     <div class="report-section" style="position:relative; margin-bottom: 32px;">
+      ${tocAnchorHtml("closing")}
       ${config.closingSectionTitle ? `
         <h2 class="report-section-title">
-          ${tocAnchorHtml("closing")}${escapeHtml(config.closingSectionTitle)}
+          ${escapeHtml(config.closingSectionTitle)}
         </h2>
-      ` : `${tocAnchorHtml("closing")}`}
+      ` : ""}
       <div style="background: #f0fdfa; padding: 20px; border-radius: 8px; border: 1px solid #00D5CC; border-left: 4px solid #00D5CC;">
         <div style="color: #333; font-size: 14px; line-height: 1.7;">${sanitizeRichText(config.closingSectionText)}</div>
       </div>
@@ -1821,8 +1788,9 @@ function generateInspectionHTML(
       ? `
     <!-- Trade Marks -->
     <div class="report-section keep-together" style="position:relative; margin-bottom: 32px;">
+      ${tocAnchorHtml("tradeMarks")}
       <h2 class="report-section-title">
-        ${tocAnchorHtml("tradeMarks")}Trade Marks
+        Trade Marks
       </h2>
       <div style="display: flex; justify-content: center; padding: 16px 0;">
         ${trademarkHtml}
@@ -1895,8 +1863,18 @@ function generateInspectionHTML(
       <h2 class="report-section-title">
         Contents
       </h2>
-      <ol style="margin: 0; padding-left: 24px; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
-        ${contentsEntries.map((entry) => `<li>${pdfText(entry.label)}</li>`).join("")}
+      <ol style="margin: 0; padding-left: 0; list-style: none; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
+        ${contentsEntries
+          .map(
+            (entry, index) => `
+          <li style="display:flex;align-items:baseline;gap:8px;margin:0 0 4px;">
+            <span style="flex:0 0 auto;min-width:1.6em;font-variant-numeric:tabular-nums;">${index + 1}.</span>
+            <span style="flex:0 1 auto;max-width:70%;">${pdfText(entry.label)}</span>
+            <span style="flex:1 1 auto;border-bottom:1px dotted #cbd5e1;margin:0 6px 0.35em;min-width:20px;"></span>
+            ${tocPageSlotHtml(entry.key)}
+          </li>`,
+          )
+          .join("")}
       </ol>
     </div>
   `

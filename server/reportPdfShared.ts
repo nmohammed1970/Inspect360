@@ -4,7 +4,7 @@
  */
 
 import fs from "fs/promises";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { ObjectStorageService } from "./objectStorage";
 import { formatCurrency } from "@shared/countryUtils";
 import { resolveReportLogoUrl, REPORT_LOGO_ON_DARK, REPORT_LOGO_ON_LIGHT } from "./reportLogo";
@@ -444,13 +444,51 @@ export function buildPdfFooterTemplate(params: {
   const primary = theme.primary;
   const left = escapeHtml((params.address || "").trim());
   const right = escapeHtml((params.propertyName || "").trim());
+  // Center stays empty here — absolute page numbers are stamped after cover+body merge
+  // so they match Contents (cover counts as page 1).
   return `
 <div style="width:100%;font-size:8px;padding:8px 12mm 6px;box-sizing:border-box;color:${primary};font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
   <div style="border-top:1px solid ${primary};padding-top:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
     <span style="flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${left}</span>
+    <span style="flex:0 0 3em;text-align:center;"></span>
     <span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${right}</span>
   </div>
 </div>`;
+}
+
+/** Stamp 1-based page numbers at bottom-center so Contents and footers share one sequence. */
+export async function stampCenteredPageNumbers(
+  pdfBuffer: Buffer,
+  theme?: ReportTheme | null,
+): Promise<Buffer> {
+  const doc = await PDFDocument.load(pdfBuffer);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const resolved = theme || resolveReportTheme(null);
+  const hex = (resolved.primary || "#0d7377").replace("#", "");
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  const color = rgb(
+    Number.isFinite(r) ? r : 0.05,
+    Number.isFinite(g) ? g : 0.45,
+    Number.isFinite(b) ? b : 0.47,
+  );
+  const fontSize = 8;
+  const pages = doc.getPages();
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const { width } = page.getSize();
+    const text = String(i + 1);
+    const textWidth = font.widthOfTextAtSize(text, fontSize);
+    page.drawText(text, {
+      x: (width - textWidth) / 2,
+      y: 20,
+      size: fontSize,
+      font,
+      color,
+    });
+  }
+  return Buffer.from(await doc.save());
 }
 
 export type PdfChromeOptions = {
@@ -504,16 +542,16 @@ export async function mergePdfBuffers(parts: Array<Buffer | Uint8Array>): Promis
 }
 
 /** Hide everything after the white cover (siblings of .cover-page). */
-const PDF_COVER_ONLY_STYLE = `<style id="pdf-cover-only-pass">
+export const PDF_COVER_ONLY_CSS = `
   .cover-page ~ *,
   .container > .cover-page ~ * { display: none !important; }
-</style>`;
+`;
 
 /**
  * Hide the white cover so body pages start at page 1 of this pass.
  * Also force @page margins that clear repeating header/footer (cover CSS sets margin: 0).
  */
-const PDF_BODY_ONLY_STYLE = `<style id="pdf-body-only-pass">
+export const PDF_BODY_ONLY_CSS = `
   .cover-page { display: none !important; }
   @page {
     margin: ${PDF_CHROME_MARGIN.top} ${PDF_CHROME_MARGIN.right} ${PDF_CHROME_MARGIN.bottom} ${PDF_CHROME_MARGIN.left} !important;
@@ -523,13 +561,27 @@ const PDF_BODY_ONLY_STYLE = `<style id="pdf-body-only-pass">
     margin: ${PDF_CHROME_MARGIN.top} ${PDF_CHROME_MARGIN.right} ${PDF_CHROME_MARGIN.bottom} ${PDF_CHROME_MARGIN.left} !important;
     background: #ffffff;
   }
-</style>`;
+`;
 
-function injectPdfPassStyle(html: string, styleTag: string): string {
-  if (html.includes("</head>")) {
-    return html.replace("</head>", `${styleTag}</head>`);
-  }
-  return `${styleTag}${html}`;
+/** Swap cover/body pass CSS on an already-loaded document (avoids reloading images). */
+export async function applyPdfPassStyleOnPage(
+  page: { evaluate: (fn: (...args: any[]) => any, ...args: any[]) => Promise<unknown> },
+  pass: "cover" | "body",
+): Promise<void> {
+  const css = pass === "cover" ? PDF_COVER_ONLY_CSS : PDF_BODY_ONLY_CSS;
+  const id = pass === "cover" ? "pdf-cover-only-pass" : "pdf-body-only-pass";
+  await page.evaluate(
+    (styleId: string, styleCss: string) => {
+      document.getElementById("pdf-cover-only-pass")?.remove();
+      document.getElementById("pdf-body-only-pass")?.remove();
+      const style = document.createElement("style");
+      style.id = styleId;
+      style.textContent = styleCss;
+      document.head.appendChild(style);
+    },
+    id,
+    css,
+  );
 }
 
 type PuppeteerPageLike = {
@@ -542,10 +594,13 @@ type PuppeteerPageLike = {
 };
 
 /** Stable TOC key → first page where that section starts (1-based in the PDF being scanned). */
-export const TOC_MARKER_PREFIX = "<<I360TOC:";
-export const TOC_MARKER_SUFFIX = ">>";
-/** Allow Chromium/pdf.js to insert spaces between characters when extracting. */
-const TOC_MARKER_RE = /<\s*<\s*I\s*3\s*6\s*0\s*T\s*O\s*C\s*:\s*([A-Za-z0-9_-]+)\s*>\s*>/gi;
+export const TOC_MARKER_PREFIX = "I360TOC.";
+export const TOC_MARKER_SUFFIX = ".X";
+/**
+ * Allow Chromium/pdf.js to insert spaces between characters when extracting.
+ * No angle brackets — those painted as a visible "<>" on coloured banners.
+ */
+const TOC_MARKER_RE = /I\s*3\s*6\s*0\s*T\s*O\s*C\s*\.\s*([A-Za-z0-9_-]+)\s*\.\s*X/gi;
 
 export function sanitizeTocKey(key: string): string {
   return String(key || "")
@@ -556,12 +611,13 @@ export function sanitizeTocKey(key: string): string {
 }
 
 /**
- * Marker placed inside section titles (white on primary banner = invisible).
- * Normal font size so Chromium keeps it in the PDF text layer.
+ * Machine-readable section marker for Contents page numbers.
+ * Placed outside the coloured title banner. White-on-white (no opacity/clip) so
+ * Chromium keeps it in the PDF text layer without showing on the page.
  */
 export function tocAnchorHtml(key: string): string {
   const safe = sanitizeTocKey(key);
-  return `<span class="toc-anchor" data-toc-anchor="${safe}" aria-hidden="true" style="font-size:8px;line-height:1;color:#ffffff;font-weight:400;letter-spacing:0;margin-right:4px;">${TOC_MARKER_PREFIX}${safe}${TOC_MARKER_SUFFIX}</span>`;
+  return `<span class="toc-anchor" data-toc-anchor="${safe}" aria-hidden="true" style="position:absolute;left:0;top:0;font-size:6px;line-height:6px;color:#ffffff;font-weight:400;letter-spacing:0;pointer-events:none;white-space:nowrap;z-index:0;">${TOC_MARKER_PREFIX}${safe}${TOC_MARKER_SUFFIX}</span>`;
 }
 
 /** Right-side Contents page slot filled after draft PDF measurement. */
@@ -589,9 +645,35 @@ export function extractTocMarkerPagesFromPageTexts(
   return out;
 }
 
+/** Extra heading phrases when Contents label ≠ on-page section title. */
+const TOC_LABEL_ALIASES: Record<string, string[]> = {
+  floorPlan: ["Floor Plan & Dimensions", "Floor Plan and Dimensions"],
+  maintenanceLog: ["Outstanding Maintenance Requests", "Maintenance Log"],
+  tradeMarks: ["Trade Marks", "Trademarks"],
+  termsConditions: ["Terms and Conditions"],
+  glossary: ["Glossary of Terms"],
+};
+
+function tocSearchNeedles(entry: TocContentsEntry): string[] {
+  const out: string[] = [];
+  const push = (s: string) => {
+    const t = s.trim().toLowerCase();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  push(entry.label || "");
+  for (const alias of TOC_LABEL_ALIASES[entry.key] || []) push(alias);
+  // Prefer longer needles first so "Kitchen" does not beat "Kitchen Overview".
+  return out.sort((a, b) => b.length - a.length);
+}
+
+function isInspectionTocKey(key: string): boolean {
+  return /^insp[-_]/i.test(key || "");
+}
+
 /**
  * Fallback when markers are stripped: find each Contents label after the Contents page
  * (so the TOC list itself is not matched as the section start).
+ * Skips pages that list many TOC room names (Floor Plan room tables false-match "Kitchen" etc.).
  */
 export function extractTocPagesByLabels(
   pages: Array<{ num: number; text: string }>,
@@ -614,24 +696,44 @@ export function extractTocPagesByLabels(
     }
   }
 
+  const roomLabels = entries
+    .filter((e) => isInspectionTocKey(e.key) && e.label)
+    .map((e) => e.label.trim().toLowerCase())
+    .filter(Boolean);
+
   const out: Record<string, number> = {};
-  for (const { key, label } of entries) {
-    const needle = (label || "").trim().toLowerCase();
-    if (!needle || !key) continue;
+  for (const entry of entries) {
+    if (!entry.key) continue;
+    const needles = tocSearchNeedles(entry);
+    if (!needles.length) continue;
+    let best: { num: number; score: number } | null = null;
     for (const page of normalized) {
       if (page.num <= contentsPage) continue;
-      if (page.text.toLowerCase().includes(needle)) {
-        out[key] = page.num;
-        break;
+      const lower = page.text.toLowerCase();
+      // Floor Plan / overview pages mention many rooms — never treat those as room starts.
+      if (isInspectionTocKey(entry.key)) {
+        if (/\bfloor\s*plan\b/i.test(lower)) continue;
+        if (roomLabels.length >= 2) {
+          const roomHits = roomLabels.filter((l) => lower.includes(l)).length;
+          if (roomHits >= 2) continue;
+        }
+      }
+      for (const needle of needles) {
+        if (!lower.includes(needle)) continue;
+        const score = needle.length;
+        if (!best || score > best.score || (score === best.score && page.num < best.num)) {
+          best = { num: page.num, score };
+        }
+        break; // needles are longest-first
       }
     }
+    if (best) out[entry.key] = best.num;
   }
   return out;
 }
 
-/** Cap TOC text extraction so photo-heavy PDFs cannot hang report generation. */
-const TOC_PARSE_TIMEOUT_MS = 12_000;
-const TOC_MAX_PDF_BYTES = 12 * 1024 * 1024; // skip parse above ~12MB
+/** Soft cap so a stuck pdf-parse cannot hang report generation forever. */
+const TOC_PARSE_TIMEOUT_MS = 60_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -686,20 +788,57 @@ export async function resolveTocPagesFromPdf(
   entries: TocContentsEntry[],
 ): Promise<Record<string, number>> {
   try {
-    if (pdfBuffer.length > TOC_MAX_PDF_BYTES) {
-      console.warn(
-        `[PDF] Skipping TOC page parse — draft PDF is ${(pdfBuffer.length / (1024 * 1024)).toFixed(1)}MB (limit ${TOC_MAX_PDF_BYTES / (1024 * 1024)}MB)`,
-      );
-      return {};
-    }
     const pages = await getPdfPageTexts(pdfBuffer);
     const byMarker = extractTocMarkerPagesFromPageTexts(pages);
     const missing = entries.filter((e) => byMarker[e.key] == null);
     if (missing.length === 0) return byMarker;
-    const byLabel = extractTocPagesByLabels(pages, missing.length === entries.length ? entries : missing);
+    // Room sections must come from markers only — short labels ("Kitchen") hit Floor Plan tables.
+    const labelCandidates = missing.filter((e) => !isInspectionTocKey(e.key));
+    if (labelCandidates.length === 0) return byMarker;
+    const byLabel = extractTocPagesByLabels(pages, labelCandidates);
     return { ...byLabel, ...byMarker };
   } catch (err) {
     console.warn("[PDF] TOC page resolve failed:", err);
+    return {};
+  }
+}
+
+/**
+ * Approximate body page numbers from print layout when PDF text markers are missing.
+ * Models keep-together sections against the A4 content box (chrome margins applied).
+ */
+export async function estimateTocPagesFromDomLayout(
+  page: { evaluate: (fn: (...args: any[]) => any, ...args: any[]) => Promise<unknown> },
+): Promise<Record<string, number>> {
+  try {
+    return (await page.evaluate(() => {
+      const mmToPx = (mm: number) => (mm / 25.4) * 96;
+      const contentHeight = mmToPx(297) - mmToPx(26) - mmToPx(22);
+      const map: Record<string, number> = {};
+      let y = 0;
+      let pageNum = 1;
+      const sections = Array.from(document.querySelectorAll(".report-section"));
+      for (const section of sections) {
+        const el = section as HTMLElement;
+        const height = Math.max(el.getBoundingClientRect().height, el.offsetHeight, 1);
+        const keepTogether = el.classList.contains("keep-together");
+        if (y > 0 && (keepTogether || height < contentHeight) && y + height > contentHeight) {
+          pageNum += 1;
+          y = 0;
+        }
+        const anchor = el.querySelector("[data-toc-anchor]");
+        const key = anchor?.getAttribute("data-toc-anchor");
+        if (key && map[key] == null) map[key] = pageNum;
+        y += height;
+        while (y >= contentHeight) {
+          y -= contentHeight;
+          pageNum += 1;
+        }
+      }
+      return map;
+    })) as Record<string, number>;
+  } catch (err) {
+    console.warn("[PDF] DOM TOC page estimate failed:", err);
     return {};
   }
 }
@@ -708,6 +847,7 @@ export type BrandedPdfRenderOptions = {
   /**
    * Measure section markers from a draft body PDF, fill Contents page numbers in the
    * live DOM, then print the body once more (cover is not regenerated).
+   * Defaults to true whenever the HTML has Contents page slots.
    */
   fillTocPageNumbers?: boolean;
 };
@@ -723,7 +863,9 @@ export async function renderHtmlToBrandedPdf(
   renderOpts: BrandedPdfRenderOptions = {},
 ): Promise<Buffer> {
   const hasCover = /class=["']cover-page["']/.test(html);
-  const fillToc = !!renderOpts.fillTocPageNumbers && /data-toc-page=/.test(html);
+  const hasTocSlots = /data-toc-page=/.test(html);
+  // Always fill Contents page numbers when slots exist unless explicitly disabled.
+  const fillToc = renderOpts.fillTocPageNumbers !== false && hasTocSlots;
 
   const settleImages = async () => {
     if (!page.evaluate) return;
@@ -775,7 +917,17 @@ export async function renderHtmlToBrandedPdf(
         });
       })) as TocContentsEntry[];
 
-      const bodyPages = await resolveTocPagesFromPdf(bodyPdf, entries);
+      let bodyPages = await resolveTocPagesFromPdf(bodyPdf, entries);
+      const missingAfterPdf = entries.filter((e) => bodyPages[e.key] == null);
+      if (missingAfterPdf.length > 0) {
+        const fromDom = await estimateTocPagesFromDomLayout(page);
+        for (const entry of missingAfterPdf) {
+          if (fromDom[entry.key] != null) bodyPages[entry.key] = fromDom[entry.key];
+        }
+        console.log(
+          `[PDF] TOC markers filled ${entries.length - missingAfterPdf.length}/${entries.length}; DOM estimate used for ${missingAfterPdf.filter((e) => bodyPages[e.key] != null).length} more`,
+        );
+      }
       const keys = Object.keys(bodyPages);
       if (keys.length === 0) {
         console.warn(
@@ -817,11 +969,13 @@ export async function renderHtmlToBrandedPdf(
     if (await fillTocSlotsFromBodyPdf(pdf, 0)) {
       pdf = Buffer.from(await page.pdf(pdfOpts));
     }
-    return pdf;
+    return stampCenteredPageNumbers(pdf, chromeOpts.theme);
   }
 
-  // Pass 1: cover only, no repeating chrome
-  await loadHtml(injectPdfPassStyle(html, PDF_COVER_ONLY_STYLE));
+  // Load full document once (images settle once). Toggle cover/body via injected CSS.
+  await loadHtml(html);
+
+  await applyPdfPassStyleOnPage(page, "cover");
   const coverPdf = Buffer.from(
     await page.pdf(
       pdfPageOptionsWithChrome({
@@ -832,21 +986,21 @@ export async function renderHtmlToBrandedPdf(
   );
   const coverPageCount = (await PDFDocument.load(coverPdf)).getPageCount();
 
-  // Pass 2: body pages with header/footer
-  await loadHtml(injectPdfPassStyle(html, PDF_BODY_ONLY_STYLE));
+  await applyPdfPassStyleOnPage(page, "body");
   const bodyPdfOpts = pdfPageOptionsWithChrome({
     ...chromeOpts,
     displayHeaderFooter: true,
   });
   let bodyPdf = Buffer.from(await page.pdf(bodyPdfOpts));
 
-  // Efficient TOC fill: patch live DOM, reprint body only (cover reused)
+  // Optional TOC fill: patch live DOM, reprint body only (cover reused)
   if (await fillTocSlotsFromBodyPdf(bodyPdf, coverPageCount)) {
     bodyPdf = Buffer.from(await page.pdf(bodyPdfOpts));
   }
 
-  return mergePdfBuffers([coverPdf, bodyPdf]);
-}
+  const merged = await mergePdfBuffers([coverPdf, bodyPdf]);
+  // Absolute page index (cover = 1) — same sequence as Contents slots.
+  return stampCenteredPageNumbers(merged, chromeOpts.theme);
 
 export async function logoToDataUrl(
   logoUrl?: string | null,

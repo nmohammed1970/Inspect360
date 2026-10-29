@@ -50,6 +50,7 @@ import {
   numberedRoomInstanceTitle,
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
+  roomTypeFromRoomLike,
 } from "@shared/propertyRooms";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
@@ -1298,12 +1299,18 @@ export default function InspectionCapture() {
     if (!field) return;
 
     // For repeatable sections, prefer stable property-room sectionRef when available
+    // (same room-type filter as gallery destinations / instance renderer).
+    const sectionRoomTypeForWrite = matchSectionToRoomType(currentSection as any);
+    let roomsForWrite = propertyRoomInstances.filter((r) =>
+      r.sectionRef.startsWith(`${currentSection.id}/`),
+    );
+    if (sectionRoomTypeForWrite) {
+      roomsForWrite = roomsForWrite.filter(
+        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomTypeForWrite,
+      );
+    }
     const roomInst =
-      instanceIndex !== undefined
-        ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))[
-            instanceIndex
-          ]
-        : undefined;
+      instanceIndex !== undefined ? roomsForWrite[instanceIndex] : undefined;
     const sectionRef =
       instanceIndex !== undefined
         ? roomInst?.sectionRef ||
@@ -1396,12 +1403,17 @@ export default function InspectionCapture() {
 
   // Handle mark for review change
   const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean, instanceIndex?: number) => {
+    const sectionRoomTypeForWrite = matchSectionToRoomType(currentSection as any);
+    let roomsForWrite = propertyRoomInstances.filter((r) =>
+      r.sectionRef.startsWith(`${currentSection.id}/`),
+    );
+    if (sectionRoomTypeForWrite) {
+      roomsForWrite = roomsForWrite.filter(
+        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomTypeForWrite,
+      );
+    }
     const roomInst =
-      instanceIndex !== undefined
-        ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))[
-            instanceIndex
-          ]
-        : undefined;
+      instanceIndex !== undefined ? roomsForWrite[instanceIndex] : undefined;
     const sectionRef =
       instanceIndex !== undefined
         ? roomInst?.sectionRef ||
@@ -2742,9 +2754,17 @@ export default function InspectionCapture() {
             {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
               // Render instances for repeatable sections (property rooms use stable ids)
               (() => {
-                const sectionRoomInsts = propertyRoomInstances.filter((r) =>
+                // Match gallery listPhotoDestinations: same section + room-type filter
+                // so Capture sectionRef stays in sync with assign validation.
+                const sectionRoomType = matchSectionToRoomType(currentSection as any);
+                let sectionRoomInsts = propertyRoomInstances.filter((r) =>
                   r.sectionRef.startsWith(`${currentSection.id}/`),
                 );
+                if (sectionRoomType) {
+                  sectionRoomInsts = sectionRoomInsts.filter((room) => {
+                    return roomTypeFromRoomLike({ name: room.title }) === sectionRoomType;
+                  });
+                }
                 // Floor-plan instances are the source of truth when present (avoids UUID-digit ghosts).
                 // Otherwise fall back to saved __repeatable_count_*.
                 const count =

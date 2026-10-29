@@ -143,11 +143,42 @@ assert.ok(
     section_bedrooms: 2,
   }),
 );
+// Synthetic "Title N" from Capture maps to the Nth property-room destination
+const mappedBedroom = assertDestinationValid(
+  withRooms,
+  "section_bedrooms/Bedrooms 1",
+  "field_floor",
+  { section_bedrooms: 2 },
+);
+assert.ok(mappedBedroom);
+assert.equal(mappedBedroom!.sectionRef, "section_bedrooms/room-abc");
 assert.equal(
-  assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 1", "field_floor", {
+  assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 9", "field_floor", {
     section_bedrooms: 2,
-  }),
-  null,
+  })?.sectionRef,
+  undefined,
+);
+
+// Kitchen Overview-style synthetic path (no property rooms) must assign
+const kitchenOverview = {
+  sections: [
+    {
+      id: "section_kitchen_overview",
+      title: "Kitchen Overview",
+      repeatable: true,
+      fields: [
+        { id: "field_general_photos", label: "General condition photos", type: "photo_array" },
+      ],
+    },
+  ],
+};
+assert.ok(
+  assertDestinationValid(
+    kitchenOverview,
+    "section_kitchen_overview/Kitchen Overview 1",
+    "field_general_photos",
+    {},
+  ),
 );
 
 // Count caps property-room destinations to what capture UI shows

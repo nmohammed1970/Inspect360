@@ -54,6 +54,7 @@ import {
   numberedRoomInstanceTitle,
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
+  roomTypeFromRoomLike,
 } from '../../../../shared/propertyRooms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
@@ -1120,12 +1121,22 @@ export default function InspectionCaptureScreen() {
     }
 
     // For repeatable sections, prefer stable property-room sectionRef when available
+    // (same room-type filter as gallery destinations).
     const currentSection = sections.find(s => s.id === sectionRef);
+    const sectionRoomTypeForWrite = currentSection
+      ? matchSectionToRoomType(currentSection as any)
+      : null;
+    let roomsForWrite = currentSection
+      ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))
+      : [];
+    if (sectionRoomTypeForWrite) {
+      roomsForWrite = roomsForWrite.filter(
+        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomTypeForWrite,
+      );
+    }
     const roomInst =
       instanceIndex !== undefined && currentSection
-        ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))[
-            instanceIndex
-          ]
+        ? roomsForWrite[instanceIndex]
         : undefined;
     const finalSectionRef =
       options?.explicitSectionRef ??
@@ -2317,9 +2328,16 @@ export default function InspectionCaptureScreen() {
                 {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
                   // Prefer stable property-room sectionRefs (same as portal) so gallery assignments match
                   (() => {
-                    const sectionRoomInsts = propertyRoomInstances.filter((r) =>
+                    // Match gallery listPhotoDestinations room-type filter (portal parity).
+                    const sectionRoomType = matchSectionToRoomType(currentSection as any);
+                    let sectionRoomInsts = propertyRoomInstances.filter((r) =>
                       r.sectionRef.startsWith(`${currentSection.id}/`),
                     );
+                    if (sectionRoomType) {
+                      sectionRoomInsts = sectionRoomInsts.filter(
+                        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomType,
+                      );
+                    }
                     // Floor-plan instances are the source of truth when present (avoids UUID-digit ghosts).
                     const count =
                       sectionRoomInsts.length > 0

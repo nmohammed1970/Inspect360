@@ -360,7 +360,25 @@ export function assertDestinationValid(
   if (!section?.repeatable) return null;
 
   const sectionTitle = (section.title || section.id).trim() || section.id;
-  if (new RegExp(`^${escapeRegExp(sectionTitle)}\\s+\\d+$`).test(instancePart)) {
+  const titleNumMatch = instancePart.match(
+    new RegExp(`^${escapeRegExp(sectionTitle)}\\s+(\\d+)$`, "i"),
+  );
+
+  // Capture often sends synthetic "{Title} N" while destinations use property-room
+  // UUID paths. Map Title N → Nth listed destination for this field (keeps assign
+  // in sync with floor-plan room instances). Out-of-range stays rejected.
+  if (titleNumMatch) {
+    const instanceIndex = Math.floor(Number(titleNumMatch[1]));
+    if (!Number.isFinite(instanceIndex) || instanceIndex < 1 || instanceIndex > 50) {
+      return null;
+    }
+
+    const listed = listPhotoDestinations(structure, repeatableCounts, countsForList).filter(
+      (d) => d.sectionId === sectionId && d.fieldKey === fieldKey,
+    );
+    const exact = listed.find((d) => d.sectionRef === ref);
+    if (exact) return exact;
+    if (listed[instanceIndex - 1]) return listed[instanceIndex - 1]!;
     return null;
   }
 
