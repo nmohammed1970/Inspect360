@@ -829,6 +829,8 @@ export const inspectionTemplates = pgTable("inspection_templates", {
   categoryId: varchar("category_id"), // Optional link to template_categories
   aiMaxWords: integer("ai_max_words").default(150), // Max word count for AI analysis output
   aiInstruction: text("ai_instruction"), // Custom AI instruction/prompt for this template
+  /** When true, InspectAI includes a Recommended Actions section. Default off. */
+  aiIncludeRecommendedActions: boolean("ai_include_recommended_actions").default(false),
   reportConfig: jsonb("report_config").$type<{
     showCover: boolean;
     showContentsPage: boolean;

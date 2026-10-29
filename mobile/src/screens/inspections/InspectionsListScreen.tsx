@@ -80,6 +80,8 @@ interface Inspection {
     lastName?: string;
   };
   templateSnapshotJson?: any;
+  templateId?: string | null;
+  templateName?: string | null;
   tenantApprovalStatus?: string | null;
   tenantApprovalDeadline?: string | null;
   tenantComments?: string | null;
@@ -140,25 +142,6 @@ const getStatusBadge = (status: string, themeColors?: any) => {
       </Badge>
     );
   }
-};
-
-const getTypeBadge = (type: string) => {
-  const labels: Record<string, string> = {
-    check_in: 'Check In',
-    check_out: 'Check Out',
-    routine: 'Routine',
-    maintenance: 'Maintenance',
-    esg_sustainability_inspection: 'ESG Sustainability Inspection',
-    fire_hazard_assessment: 'Fire Hazard Assessment',
-    maintenance_inspection: 'Maintenance Inspection',
-    damage: 'Damage',
-    emergency: 'Emergency',
-    safety_compliance: 'Safety & Compliance',
-    compliance_regulatory: 'Compliance / Regulatory',
-    pre_purchase: 'Pre-Purchase',
-    specialized: 'Specialized',
-  };
-  return <Badge variant="outline" size="sm">{labels[type] || type}</Badge>;
 };
 
 const getTenantApprovalBadge = (inspection: Inspection) => {
@@ -848,11 +831,14 @@ export default function InspectionsListScreen() {
                       )}
                     </View>
 
-                    {/* Type */}
-                    <View style={styles.infoRow}>
-                      <Text style={[styles.infoLabel, { color: themeColors.text.secondary }]}>Type:</Text>
-                      {getTypeBadge(inspection.type)}
-                    </View>
+                    {/* Template name */}
+                    {!!inspection.templateName && (
+                      <View style={styles.infoRow}>
+                        <Text style={[styles.infoText, { color: themeColors.text.primary, flex: 1 }]}>
+                          {inspection.templateName}
+                        </Text>
+                      </View>
+                    )}
 
                     {/* Date */}
                     {inspection.scheduledDate && (

@@ -2344,7 +2344,13 @@ export default function InspectionReport() {
                                       {field.label} Photos
                                     </h4>
                                     {entry?.note && (
-                                      <InspectionNoteSectionsView note={entry.note} />
+                                      <InspectionNoteSectionsView
+                                        note={entry.note}
+                                        showRecommendedActions={
+                                          (inspection as any)?.templateSnapshotJson
+                                            ?.aiIncludeRecommendedActions === true
+                                        }
+                                      />
                                     )}
                                   </div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

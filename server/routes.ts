@@ -391,7 +391,16 @@ function detectImageMimeType(buffer: Buffer): string {
 import { setupAuth, isAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
 import { isCompanyModuleEnabled, normalizeCompanyModuleFlags, reportModuleSurfaces } from "@shared/companyModules";
 import { validateNewPassword } from "@shared/passwordPolicy";
-import { INSPECTION_NOTE_STRUCTURE_PROMPT, formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
+import {
+  INSPECTION_NOTE_STRUCTURE_PROMPT,
+  UK_ENGLISH_REPORTING_PROMPT,
+  buildInspectionNoteStructurePrompt,
+  formatInspectionNote,
+  parseInspectionNote,
+  resolveAiIncludeRecommendedActions,
+  stripRecommendedActionsFromNote,
+  withTemplateAiMeta,
+} from "@shared/inspectionNoteSections";
 import { resolveFieldLabelFromTemplateStructure } from "@shared/templateCustomInspectionPoints";
 import {
   buildCheckOutSnapshotFromCheckIn,
@@ -865,17 +874,23 @@ async function processInspectionAIAnalysis(
   // Get template settings for AI configuration
   let aiMaxWords: number = 150;
   let aiInstruction: string = "";
+  let aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(
+    inspection.templateSnapshotJson as any,
+  );
 
   if (inspection.templateId) {
     const template = await storage.getInspectionTemplate(inspection.templateId);
     if (template) {
       aiMaxWords = template.aiMaxWords ?? organization.defaultAiMaxWords ?? 150;
       aiInstruction = template.aiInstruction || organization.defaultAiInstruction || "";
+      // Live template wins for new analyses (snapshot used when template missing)
+      aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(template);
     }
   } else {
     aiMaxWords = organization.defaultAiMaxWords ?? 150;
     aiInstruction = organization.defaultAiInstruction || "";
   }
+  const noteStructurePrompt = buildInspectionNoteStructurePrompt(aiIncludeRecommendedActions);
 
   let processedCount = 0;
 
@@ -944,9 +959,9 @@ IMPORTANT FORMATTING RULES:
 - Write in plain text only - do NOT use asterisks (*), hash symbols (#), bullet points, or numbered lists
 - Do NOT use any markdown formatting
 - Do NOT use emojis
-${INSPECTION_NOTE_STRUCTURE_PROMPT}`;
+${noteStructurePrompt}`;
       } else {
-        promptText = `You are a property inspector analyzing photos for a specific inspection point.
+        promptText = `You are a UK property inspector analysing photos for a specific inspection point.
 
 INSPECTION CONTEXT:
 - Category: "${category}"
@@ -954,16 +969,16 @@ INSPECTION CONTEXT:
 
 CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspectionPointTitle}" in the "${category}". The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
 
-Provide a focused assessment for "${inspectionPointTitle}" covering overall condition, any damage/defects/wear, cleanliness, and recommendations only if action is needed.
+Provide a focused assessment for "${inspectionPointTitle}" covering overall condition, any damage/defects/wear, and cleanliness${aiIncludeRecommendedActions ? ", and recommendations only if action is needed" : ""}.
 
 IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
 - Write in plain text only - do NOT use asterisks (*), hash symbols (#), bullet points, or numbered lists
 - Do NOT use any markdown formatting
 - Do NOT use emojis
-${INSPECTION_NOTE_STRUCTURE_PROMPT}
+${noteStructurePrompt}
 
-Be thorough but concise, specific, and objective about "${inspectionPointTitle}" in the "${category}". This will be used in a professional property inspection report.`;
+Be thorough but concise, specific, and objective about "${inspectionPointTitle}" in the "${category}". This will be used in a professional UK property inspection report.`;
       }
 
       // Build content array
@@ -1019,6 +1034,10 @@ Be thorough but concise, specific, and objective about "${inspectionPointTitle}"
         .replace(/([\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2580-\u27BF]|\uD83E[\uDD10-\uDDFF])/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+
+      if (!aiIncludeRecommendedActions) {
+        analysis = stripRecommendedActionsFromNote(analysis);
+      }
 
       // Update entry note - append if existing notes
       const existingNote = entry.note || "";
@@ -6748,7 +6767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "Cannot use property-scoped template for block inspection" });
         }
 
-        templateSnapshotJson = template.structureJson;
+        templateSnapshotJson = withTemplateAiMeta(template.structureJson, template);
         templateVersion = template.version;
       }
 
@@ -7034,7 +7053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             notes: `Scheduled via bulk calendar scheduling`,
             templateId,
             templateVersion: template.version,
-            templateSnapshotJson: template.structureJson as any,
+            templateSnapshotJson: withTemplateAiMeta(template.structureJson, template) as any,
             completionChecklistId: bulkChecklistId,
             completionChecklistSnapshotJson: bulkChecklistSnap as any,
           } as any);
@@ -7104,7 +7123,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (checkInTemplate) {
           templateId = checkInTemplate.id;
           templateVersion = checkInTemplate.version;
-          templateSnapshotJson = checkInTemplate.structureJson;
+          templateSnapshotJson = withTemplateAiMeta(checkInTemplate.structureJson, checkInTemplate);
         }
       } else if (type === 'check_out') {
         const checkOutTemplate = orgTemplates.find(t =>
@@ -7113,7 +7132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (checkOutTemplate) {
           templateId = checkOutTemplate.id;
           templateVersion = checkOutTemplate.version;
-          templateSnapshotJson = checkOutTemplate.structureJson;
+          templateSnapshotJson = withTemplateAiMeta(checkOutTemplate.structureJson, checkOutTemplate);
         }
       }
 
@@ -7247,10 +7266,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         inspections = await storage.getInspectionsByInspector(userId);
       }
 
+      const templates = await storage.getInspectionTemplatesByOrganization(
+        user.organizationId,
+      );
+      const templateNameById = new Map(
+        templates.map((t: { id: string; name: string }) => [t.id, t.name]),
+      );
+      const withTemplateNames = inspections.map((inspection: any) => ({
+        ...inspection,
+        templateName:
+          (inspection.templateId &&
+            templateNameById.get(inspection.templateId)) ||
+          null,
+      }));
+
       // Auto-approve expired check-in inspections
       // (Disabled: tenant review now stays pending until the tenant signs)
 
-      res.json(inspections);
+      res.json(withTemplateNames);
     } catch (error) {
       console.error("Error fetching inspections:", error);
       res.status(500).json({ message: "Failed to fetch inspections" });
@@ -8354,11 +8387,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("Could not fetch maintenance requests for PDF:", e);
       }
 
-      // Fetch template's report configuration if templateId exists
+      // Fetch template name + report configuration if templateId exists
       let reportConfig: any = undefined;
+      let templateName: string | null = null;
       if (inspection.templateId) {
         try {
           const template = await storage.getInspectionTemplate(inspection.templateId);
+          if (template?.name) {
+            templateName = template.name;
+          }
           if (template?.reportConfig) {
             reportConfig = template.reportConfig;
           }
@@ -8425,7 +8462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const audienceRaw = String(req.query.audience || "full").toLowerCase();
       const audience = audienceRaw === "landlord" ? "landlord" as const : "full" as const;
       const pdfBuffer = await generateInspectionPDF(
-        fullInspection as any,
+        { ...fullInspection, templateName } as any,
         entriesForPDF as any,
         baseUrl,
         branding,
@@ -8641,11 +8678,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const owner = owners.find(u => u.role === 'owner');
 
             if (owner && owner.email) {
+              let templateName = inspection.type || "Inspection";
+              if (inspection.templateId) {
+                const template = await storage.getInspectionTemplate(inspection.templateId);
+                if (template?.name) templateName = template.name;
+              }
               await sendInspectionCompleteEmail(
                 owner.email,
                 `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || owner.email,
                 {
-                  type: inspection.type,
+                  templateName,
                   propertyName,
                   blockName,
                   inspectorName,
@@ -8819,11 +8861,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const owner = owners.find(u => u.role === 'owner');
 
             if (owner && owner.email) {
+              let templateName = inspection.type || "Inspection";
+              if (inspection.templateId) {
+                const template = await storage.getInspectionTemplate(inspection.templateId);
+                if (template?.name) templateName = template.name;
+              }
               await sendInspectionCompleteEmail(
                 owner.email,
                 `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || owner.email,
                 {
-                  type: inspection.type,
+                  templateName,
                   propertyName,
                   blockName,
                   inspectorName,
@@ -8977,11 +9024,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const owner = owners.find(u => u.role === 'owner');
 
             if (owner && owner.email) {
+              let templateName = inspection.type || "Inspection";
+              if (inspection.templateId) {
+                const template = await storage.getInspectionTemplate(inspection.templateId);
+                if (template?.name) templateName = template.name;
+              }
               await sendInspectionCompleteEmail(
                 owner.email, // Email address
                 `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || owner.email,
                 {
-                  type: inspection.type,
+                  templateName,
                   propertyName,
                   blockName,
                   inspectorName,
@@ -9619,6 +9671,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Template settings > Organization defaults > System defaults
       let aiMaxWords: number;
       let aiInstruction: string;
+      let aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(
+        inspection.templateSnapshotJson as any,
+      );
 
       // Get organization for default settings
       const organization = await storage.getOrganization(user.organizationId);
@@ -9632,6 +9687,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (template) {
           templateAiMaxWords = template.aiMaxWords;
           templateAiInstruction = template.aiInstruction || null;
+          aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(template);
         }
       }
 
@@ -9641,6 +9697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // aiInstruction: template > organization > empty (use default prompt)
       aiInstruction = templateAiInstruction ?? organization?.defaultAiInstruction ?? "";
+      const noteStructurePrompt = buildInspectionNoteStructurePrompt(aiIncludeRecommendedActions);
 
       // Build the prompt with explicit Category and Inspection Point context
       // sectionName = Category (e.g., "Kitchen", "Bathroom", "Living Room")
@@ -9669,10 +9726,10 @@ IMPORTANT RULES:
 - Keep your response under ${aiMaxWords} words
 - Be concise and direct - no unnecessary explanations
 - Write in plain text only - no markdown, asterisks, bullets, or emojis
-${INSPECTION_NOTE_STRUCTURE_PROMPT}`;
+${noteStructurePrompt}`;
       } else {
         // Default prompt - highly focused on the specific inspection point
-        promptText = `You are a property inspector analyzing photos for a specific inspection point.
+        promptText = `You are a UK property inspector analysing photos for a specific inspection point.
 
 INSPECTION CONTEXT:
 - Category: "${category}"
@@ -9687,16 +9744,16 @@ CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspe
 Provide a focused assessment for "${inspectionPointTitle}" covering:
 1. Condition of "${inspectionPointTitle}" only
 2. Any damage, defects, or wear specific to this item
-3. Cleanliness issues (if applicable)
-4. Brief recommendation (only if action needed for "${inspectionPointTitle}")
+3. Cleanliness issues (if applicable)${aiIncludeRecommendedActions ? `
+4. Brief recommendation (only if action needed for "${inspectionPointTitle}")` : ""}
 
 FORMATTING RULES:
 - Maximum ${aiMaxWords} words
 - Be direct and concise - avoid filler language
 - Plain text only - no markdown, asterisks, bullets, numbered lists, or emojis
-${INSPECTION_NOTE_STRUCTURE_PROMPT}
+${noteStructurePrompt}
 
-Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing else in the photo matters for this inspection point.`;
+Remember: Only analyse "${inspectionPointTitle}" in the "${category}" - nothing else in the photo matters for this inspection point.`;
       }
 
       // Build content array with text and all images
@@ -9876,6 +9933,10 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
         .replace(/([\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2580-\u27BF]|\uD83E[\uDD10-\uDDFF])/g, '') // Remove emojis using Unicode property escapes
         .replace(/\n{3,}/g, '\n\n') // Collapse multiple newlines
         .trim();
+
+      if (!aiIncludeRecommendedActions) {
+        analysis = stripRecommendedActionsFromNote(analysis);
+      }
 
       // Credits are deducted only when the inspection is completed
 
@@ -10089,7 +10150,9 @@ Remember: Only analyze "${inspectionPointTitle}" in the "${category}" - nothing 
             content: normalizeApiContent([
               {
                 type: "text",
-                text: `You are a property asset inventory assistant. Analyze this photo of a property asset${nameHint ? ` (user named it: "${nameHint}")` : ""}.
+                text: `You are a UK property asset inventory assistant. Analyse this photo of a property asset${nameHint ? ` (user named it: "${nameHint}")` : ""}.
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 Choose the best matching values from these EXACT lists only.
 
@@ -10116,7 +10179,7 @@ Respond with ONLY valid JSON:
   "condition": "<one condition value>",
   "cleanliness": "<one cleanliness value>",
   "confidence": "high" | "medium" | "low",
-  "notes": "Brief explanation"
+  "notes": "Brief explanation in British English"
 }`,
               },
               { type: "image_url", image_url: imageUrl },
@@ -10201,7 +10264,9 @@ Respond with ONLY valid JSON:
             content: normalizeApiContent([
               {
                 type: "text",
-                text: `You are a property inspection assistant. Analyze this photo of "${fieldLabel || 'an item'}" in the "${sectionName || 'property'}" area.
+                text: `You are a UK property inspection assistant. Analyse this photo of "${fieldLabel || 'an item'}" in the "${sectionName || 'property'}" area.
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 Based on the visible condition and cleanliness of the item/area in this photo, provide your assessment.
 
@@ -10210,7 +10275,7 @@ You MUST respond with ONLY a valid JSON object in this exact format, with no add
   "condition": "Excellent" | "Good" | "Fair" | "Poor",
   "cleanliness": "Excellent" | "Good" | "Fair" | "Poor" | "Very Poor",
   "confidence": "high" | "medium" | "low",
-  "notes": "Brief explanation of your assessment"
+  "notes": "Brief explanation of your assessment in British English"
 }
 
 Condition guidelines:
@@ -10223,8 +10288,8 @@ Cleanliness guidelines:
 - Excellent: Spotless, no visible dirt, dust, or stains
 - Good: Very clean with minimal dust or marks
 - Fair: Some dust, minor marks, or light soiling visible
-- Poor: Noticeable soiling, stains, or buildup needing cleaning
-- Very Poor: Heavy soiling, significant stains, or buildup requiring deep cleaning`
+- Poor: Noticeable soiling, stains, or build-up needing cleaning
+- Very Poor: Heavy soiling, significant stains, or build-up requiring deep cleaning`
               },
               {
                 type: "image_url",
@@ -10582,14 +10647,16 @@ Cleanliness guidelines:
                 const checkInNote = checkInEntry?.note || "";
                 const checkOutNote = checkOutEntry.note || "";
 
-                let prompt = `You are a professional BTR property inspector. Compare check-in vs check-out photos and provide a DETAILED analysis.
+                let prompt = `You are a professional UK BTR property inspector. Compare check-in vs check-out photos and provide a DETAILED analysis.
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 CRITICAL: Your SUMMARY must be EXACTLY 100 words (count them). This is mandatory for legal documentation.
 
 ANALYSIS REQUIREMENTS:
 - Compare baseline (check-in) condition to current (check-out) condition
-- Identify ALL damage: scratches, stains, dents, tears, discoloration, wear patterns
-- Note specific locations: "top left corner", "center panel", "near door handle"
+- Identify ALL damage: scratches, stains, dents, tears, discolouration, wear patterns
+- Note specific locations: "top left corner", "centre panel", "near door handle"
 - Distinguish fair wear (gradual fading, minor scuffs) from tenant damage (burns, holes, excessive staining)
 - Consider age and expected condition for this property type
 - Consider both visual evidence from photos AND written notes from inspectors`;
@@ -11045,7 +11112,9 @@ LIABILITY: [tenant/landlord/shared]`;
                   aiComparison = { summary: "No valid images or notes available for comparison" };
                 } else {
                   // Define prompt before using it
-                  let prompt = `You are a professional BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+                  let prompt = `You are a professional UK BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 CRITICAL: The "differences" field must contain EXACTLY 100 words. Count them. This is mandatory for legal documentation.
 
@@ -11054,8 +11123,8 @@ ANALYSIS REQUIREMENTS:
 
                   if (hasValidImages) {
                     prompt += `
-- Analyze the provided photos to identify ALL damage: scratches, stains, dents, tears, discoloration, wear
-- Note specific locations: "top left corner", "center panel", "near handle"`;
+- Analyse the provided photos to identify ALL damage: scratches, stains, dents, tears, discolouration, wear
+- Note specific locations: "top left corner", "centre panel", "near handle"`;
                   }
 
                   prompt += `
@@ -11165,7 +11234,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                     if (!aiComparison.notes_comparison && checkInNote && checkOutNote) {
                       console.log(`[ComparisonReport] Notes comparison not found in AI response, generating separately...`);
                       try {
-                        const notesComparisonPrompt = `You are a professional BTR property inspector. Compare the following check-in and check-out notes in detail.
+                        const notesComparisonPrompt = `You are a professional UK BTR property inspector. Compare the following check-in and check-out notes in detail.
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 CHECK-IN NOTES (baseline condition):
 ${checkInNote}
@@ -11173,7 +11244,7 @@ ${checkInNote}
 CHECK-OUT NOTES (current condition):
 ${checkOutNote}
 
-Analyze and compare these notes. Identify:
+Analyse and compare these notes. Identify:
 1) Items that were in good condition at check-in but are now broken, damaged, or missing at check-out
 2) New damage, issues, or problems that appeared at check-out that were NOT mentioned at check-in
 3) Any items that were damaged at check-in but are now repaired or improved
@@ -11241,7 +11312,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
                 // If we have notes, try to do a text-based comparison
                 if (checkInNote || checkOutNote) {
                   try {
-                    let prompt = `You are a professional BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+                    let prompt = `You are a professional UK BTR property inspector. Location: ${checkOutEntry.sectionRef} - ${checkOutEntry.fieldKey}
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 Compare the check-in and check-out notes to identify any changes, damage, or issues.
 
@@ -11651,7 +11724,9 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
           let comparisonGenerated = false;
           try {
-            const notesComparisonPrompt = `You are a professional BTR property inspector. Your task is to compare check-in and check-out inspection notes and identify ALL changes, damage, and condition differences.
+            const notesComparisonPrompt = `You are a professional UK BTR property inspector. Your task is to compare check-in and check-out inspection notes and identify ALL changes, damage, and condition differences.
+
+${UK_ENGLISH_REPORTING_PROMPT}
 
 CHECK-IN NOTES (baseline condition at move-in):
 ${aiComparison.checkInNote}
@@ -14733,7 +14808,7 @@ ${optionalNotes || "No details provided."}`;
             {
               role: "system",
               content:
-                "You are a property maintenance inspector assistant. When a photo is attached, visually inspect it first and explain the issue from visual evidence. Never invent a diagnosis from a short title alone when a photo is present. Ordinary property photos (kitchens, bathrooms, leaks, water damage, appliances, renovations) are always appropriate to analyze — never refuse them.",
+                `You are a UK property maintenance inspector assistant. ${UK_ENGLISH_REPORTING_PROMPT} When a photo is attached, visually inspect it first and explain the issue from visual evidence. Never invent a diagnosis from a short title alone when a photo is present. Ordinary property photos (kitchens, bathrooms, leaks, water damage, appliances, renovations) are always appropriate to analyse — never refuse them.`,
             },
             {
               role: "user",
@@ -31781,12 +31856,12 @@ You can help the tenant with:
               messages: [
                 {
                   role: "system",
-                  content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
+                  content: `You are a helpful UK maintenance assistant. ${UK_ENGLISH_REPORTING_PROMPT} Analyse the issue and provide simple suggestions on how to fix it.`
                 },
                 {
                   role: "user",
                   content: [
-                    { type: "text", text: message || "Please analyze this maintenance issue" },
+                    { type: "text", text: message || "Please analyse this maintenance issue" },
                     { type: "image_url", image_url: { url: imageUrlForAI } },
                   ],
                 },
@@ -31837,7 +31912,7 @@ You can help the tenant with:
             messages: [
               {
                 role: "system",
-                content: "You are a helpful maintenance assistant. Analyze the issue and provide simple suggestions on how to fix it."
+                content: `You are a helpful UK maintenance assistant. ${UK_ENGLISH_REPORTING_PROMPT} Analyse the issue and provide simple suggestions on how to fix it.`
               },
               { role: "user", content: message },
             ],

@@ -53,7 +53,6 @@ import { cardGrid, pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import {
   formatInspectionStatus,
-  formatInspectionType,
   inspectionStatusBadgeVariant,
 } from "@shared/inspectionLabels";
 
@@ -186,7 +185,33 @@ export default function Inspections() {
 
   const { data: inspections = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inspections/my"],
+    staleTime: 0,
   });
+
+  // Resolve template names for list cards (covers cached responses / missing API field)
+  const { data: allTemplates = [] } = useQuery<any[]>({
+    queryKey: ["/api/inspection-templates", { active: "all" }],
+    queryFn: async () => {
+      const response = await fetch("/api/inspection-templates?active=all", {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to fetch templates");
+      return response.json();
+    },
+  });
+
+  const templateNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of allTemplates) {
+      if (t?.id && t?.name) map.set(t.id, t.name);
+    }
+    return map;
+  }, [allTemplates]);
+
+  const resolveTemplateName = (inspection: any): string | null =>
+    inspection?.templateName ||
+    (inspection?.templateId ? templateNameById.get(inspection.templateId) || null : null) ||
+    null;
 
   const { data: properties = [] } = useQuery<any[]>({
     queryKey: ["/api/properties"],
@@ -551,10 +576,6 @@ export default function Inspections() {
     <Badge variant={inspectionStatusBadgeVariant(status)}>
       {formatInspectionStatus(status)}
     </Badge>
-  );
-
-  const getTypeBadge = (type: string) => (
-    <Badge variant="outline">{formatInspectionType(type)}</Badge>
   );
 
   if (isLoading) {
@@ -1299,10 +1320,14 @@ export default function Inspections() {
               </CardHeader>
               <CardContent className="space-y-4 flex-1 flex flex-col">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Type:</span>
-                    {getTypeBadge(inspection.type)}
-                  </div>
+                  {(() => {
+                    const name = resolveTemplateName(inspection);
+                    return name ? (
+                      <div className="text-sm font-medium text-foreground truncate">
+                        {name}
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="flex items-center gap-2 text-sm">
                     <Calendar className="w-4 h-4 text-muted-foreground" />
                     <span>

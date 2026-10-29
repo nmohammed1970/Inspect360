@@ -150,7 +150,8 @@ export async function sendInspectionCompleteEmail(
   recipientEmail: string,
   recipientName: string,
   inspectionDetails: {
-    type: string;
+    /** Inspection template display name (preferred over legacy type). */
+    templateName: string;
     propertyName?: string;
     blockName?: string;
     inspectorName: string;
@@ -161,7 +162,7 @@ export async function sendInspectionCompleteEmail(
   try {
     const { client, fromEmail } = await getUncachableResendClient();
     
-    const subject = `Inspection Complete: ${inspectionDetails.type}`;
+    const subject = `Inspection Complete: ${inspectionDetails.templateName}`;
     const location = inspectionDetails.propertyName || inspectionDetails.blockName || 'Unknown Location';
     
     const html = `
@@ -199,8 +200,8 @@ export async function sendInspectionCompleteEmail(
         <h2 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: #1a1a1a;">Inspection Details</h2>
         
         <div style="margin-bottom: 12px;">
-          <span style="font-weight: 600; color: #555;">Type:</span>
-          <span style="color: #333; margin-left: 8px;">${inspectionDetails.type}</span>
+          <span style="font-weight: 600; color: #555;">Template:</span>
+          <span style="color: #333; margin-left: 8px;">${inspectionDetails.templateName}</span>
         </div>
         
         <div style="margin-bottom: 12px;">
