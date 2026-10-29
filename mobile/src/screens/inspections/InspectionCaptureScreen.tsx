@@ -54,8 +54,8 @@ import {
   numberedRoomInstanceTitle,
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
-  roomTypeFromRoomLike,
 } from '../../../../shared/propertyRooms';
+import { listRepeatableInstances } from '../../../../shared/inspectionGallery';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
 import { isGeneralInformationSection } from '../../../../shared/defaultGeneralInformationSection';
@@ -1120,28 +1120,20 @@ export default function InspectionCaptureScreen() {
       return;
     }
 
-    // For repeatable sections, prefer stable property-room sectionRef when available
-    // (same room-type filter as gallery destinations).
+    // Same instance refs as gallery destinations.
     const currentSection = sections.find(s => s.id === sectionRef);
-    const sectionRoomTypeForWrite = currentSection
-      ? matchSectionToRoomType(currentSection as any)
-      : null;
-    let roomsForWrite = currentSection
-      ? propertyRoomInstances.filter((r) => r.sectionRef.startsWith(`${currentSection.id}/`))
-      : [];
-    if (sectionRoomTypeForWrite) {
-      roomsForWrite = roomsForWrite.filter(
-        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomTypeForWrite,
-      );
-    }
-    const roomInst =
+    const writeInst =
       instanceIndex !== undefined && currentSection
-        ? roomsForWrite[instanceIndex]
+        ? listRepeatableInstances(
+            effectiveInspection?.templateSnapshotJson as any,
+            currentSection.id,
+            repeatableCounts,
+          )[instanceIndex]
         : undefined;
     const finalSectionRef =
       options?.explicitSectionRef ??
       (instanceIndex !== undefined && currentSection
-        ? roomInst?.sectionRef ||
+        ? writeInst?.sectionRef ||
           `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
         : sectionRef);
 
@@ -2328,39 +2320,38 @@ export default function InspectionCaptureScreen() {
                 {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
                   // Prefer stable property-room sectionRefs (same as portal) so gallery assignments match
                   (() => {
-                    // Match gallery listPhotoDestinations room-type filter (portal parity).
-                    const sectionRoomType = matchSectionToRoomType(currentSection as any);
-                    let sectionRoomInsts = propertyRoomInstances.filter((r) =>
-                      r.sectionRef.startsWith(`${currentSection.id}/`),
+                    const repeatableInstances = listRepeatableInstances(
+                      effectiveInspection?.templateSnapshotJson as any,
+                      currentSection.id,
+                      repeatableCounts,
                     );
-                    if (sectionRoomType) {
-                      sectionRoomInsts = sectionRoomInsts.filter(
-                        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomType,
-                      );
-                    }
-                    // Floor-plan instances are the source of truth when present (avoids UUID-digit ghosts).
-                    const count =
-                      sectionRoomInsts.length > 0
-                        ? sectionRoomInsts.length
-                        : (repeatableCounts[currentSection.id] ?? 1);
-                    const instanceCount = Math.max(1, count);
+                    const instanceCount = Math.max(
+                      1,
+                      repeatableInstances.length || (repeatableCounts[currentSection.id] ?? 1),
+                    );
                     return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
-                    const roomInst = sectionRoomInsts[instanceIndex];
+                    const inst = repeatableInstances[instanceIndex];
+                    const roomInst = propertyRoomInstances.find(
+                      (r) => r.sectionRef === inst?.sectionRef,
+                    );
                     const snapRoom = propertyRoomsSnapshot?.rooms?.find(
                       (r) => r.id === roomInst?.roomId,
                     );
-                    const instanceName = numberedRoomInstanceTitle(
-                      roomInst?.title,
-                      currentSection.title,
-                      instanceIndex,
-                    );
+                    const instanceName =
+                      inst?.sectionLabel ||
+                      numberedRoomInstanceTitle(
+                        roomInst?.title,
+                        currentSection.title,
+                        instanceIndex,
+                      );
                     const dimLabel =
                       snapRoom?.widthMm && snapRoom?.lengthMm
                         ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
                         : '';
                     const sectionRef =
-                      roomInst?.sectionRef ||
+                      inst?.sectionRef ||
                       `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                    const aliasRefs = inst?.aliasRefs || [];
                     const canDeleteInstance =
                       effectiveInspection?.status !== 'completed' && !isDeleted;
                     const roomShellKey = `room:${sectionRef}`;
@@ -2422,9 +2413,19 @@ export default function InspectionCaptureScreen() {
                           }
 
                           try {
-                            const key = `${sectionRef}-${field.id || field.key}`;
-                            const entry = entries[key];
-                            
+                            const fieldId = field.id || field.key || '';
+                            const entryCandidates = [
+                              sectionRef,
+                              ...aliasRefs,
+                              `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`,
+                              roomInst?.sectionRef,
+                            ].filter(Boolean) as string[];
+                            const entry =
+                              entryCandidates
+                                .map((ref) => entries[`${ref}-${fieldId}`])
+                                .find((e) => e && Array.isArray(e.photos) && e.photos.length > 0) ||
+                              entryCandidates.map((ref) => entries[`${ref}-${fieldId}`]).find(Boolean);
+                            const key = `${sectionRef}-${fieldId}`;
                             const properEntryId = entry?.id || key;
 
                             return (

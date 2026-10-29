@@ -50,8 +50,8 @@ import {
   numberedRoomInstanceTitle,
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
-  roomTypeFromRoomLike,
 } from "@shared/propertyRooms";
+import { listRepeatableInstances } from "@shared/inspectionGallery";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
 import {
@@ -1298,22 +1298,18 @@ export default function InspectionCapture() {
     const field = currentSection.fields.find(f => f.id === fieldKey);
     if (!field) return;
 
-    // For repeatable sections, prefer stable property-room sectionRef when available
-    // (same room-type filter as gallery destinations / instance renderer).
-    const sectionRoomTypeForWrite = matchSectionToRoomType(currentSection as any);
-    let roomsForWrite = propertyRoomInstances.filter((r) =>
-      r.sectionRef.startsWith(`${currentSection.id}/`),
-    );
-    if (sectionRoomTypeForWrite) {
-      roomsForWrite = roomsForWrite.filter(
-        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomTypeForWrite,
-      );
-    }
-    const roomInst =
-      instanceIndex !== undefined ? roomsForWrite[instanceIndex] : undefined;
+    // Same instance refs as gallery destinations / renderer.
+    const writeInst =
+      instanceIndex !== undefined
+        ? listRepeatableInstances(
+            inspection?.templateSnapshotJson as any,
+            currentSection.id,
+            repeatableCounts,
+          )[instanceIndex]
+        : undefined;
     const sectionRef =
       instanceIndex !== undefined
-        ? roomInst?.sectionRef ||
+        ? writeInst?.sectionRef ||
           `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
         : currentSection.id;
     
@@ -1403,20 +1399,17 @@ export default function InspectionCapture() {
 
   // Handle mark for review change
   const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean, instanceIndex?: number) => {
-    const sectionRoomTypeForWrite = matchSectionToRoomType(currentSection as any);
-    let roomsForWrite = propertyRoomInstances.filter((r) =>
-      r.sectionRef.startsWith(`${currentSection.id}/`),
-    );
-    if (sectionRoomTypeForWrite) {
-      roomsForWrite = roomsForWrite.filter(
-        (room) => roomTypeFromRoomLike({ name: room.title }) === sectionRoomTypeForWrite,
-      );
-    }
-    const roomInst =
-      instanceIndex !== undefined ? roomsForWrite[instanceIndex] : undefined;
+    const writeInst =
+      instanceIndex !== undefined
+        ? listRepeatableInstances(
+            inspection?.templateSnapshotJson as any,
+            currentSection.id,
+            repeatableCounts,
+          )[instanceIndex]
+        : undefined;
     const sectionRef =
       instanceIndex !== undefined
-        ? roomInst?.sectionRef ||
+        ? writeInst?.sectionRef ||
           `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
         : currentSection.id;
     const entryKey = `${sectionRef}-${fieldKey}`;
@@ -2752,43 +2745,38 @@ export default function InspectionCapture() {
 
             {/* Render fields - for repeatable sections, render for each instance */}
             {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
-              // Render instances for repeatable sections (property rooms use stable ids)
+              // Render instances for repeatable sections (same refs as gallery destinations)
               (() => {
-                // Match gallery listPhotoDestinations: same section + room-type filter
-                // so Capture sectionRef stays in sync with assign validation.
-                const sectionRoomType = matchSectionToRoomType(currentSection as any);
-                let sectionRoomInsts = propertyRoomInstances.filter((r) =>
-                  r.sectionRef.startsWith(`${currentSection.id}/`),
+                const snapshot = inspection?.templateSnapshotJson as any;
+                const repeatableInstances = listRepeatableInstances(
+                  snapshot,
+                  currentSection.id,
+                  repeatableCounts,
                 );
-                if (sectionRoomType) {
-                  sectionRoomInsts = sectionRoomInsts.filter((room) => {
-                    return roomTypeFromRoomLike({ name: room.title }) === sectionRoomType;
-                  });
-                }
-                // Floor-plan instances are the source of truth when present (avoids UUID-digit ghosts).
-                // Otherwise fall back to saved __repeatable_count_*.
-                const count =
-                  sectionRoomInsts.length > 0
-                    ? sectionRoomInsts.length
-                    : (repeatableCounts[currentSection.id] ?? 1);
-                const instanceCount = Math.max(1, count);
+                const instanceCount = Math.max(1, repeatableInstances.length || (repeatableCounts[currentSection.id] ?? 1));
                 return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
-                const roomInst = sectionRoomInsts[instanceIndex];
+                const inst = repeatableInstances[instanceIndex];
+                const roomInst = propertyRoomInstances.find(
+                  (r) => r.sectionRef === inst?.sectionRef,
+                );
                 const snapRoom = propertyRoomsSnapshot?.rooms?.find(
                   (r) => r.id === roomInst?.roomId,
                 );
-                const instanceName = numberedRoomInstanceTitle(
-                  roomInst?.title,
-                  currentSection.title,
-                  instanceIndex,
-                );
+                const instanceName =
+                  inst?.sectionLabel ||
+                  numberedRoomInstanceTitle(
+                    roomInst?.title,
+                    currentSection.title,
+                    instanceIndex,
+                  );
                 const dimLabel =
                   snapRoom?.widthMm && snapRoom?.lengthMm
                     ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
                     : "";
                 const sectionRef =
-                  roomInst?.sectionRef ||
+                  inst?.sectionRef ||
                   `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
+                const aliasRefs = inst?.aliasRefs || [];
                 const canDeleteInstance = inspection?.status !== "completed";
                 const roomShellKey = `room:${sectionRef}`;
                 const roomShellOpen = isInspectionPointOpen(roomShellKey, instanceIndex === 0);
@@ -2855,11 +2843,25 @@ export default function InspectionCapture() {
                       ) {
                         return null;
                       }
-                      const sectionRef =
+                      const fieldSectionRef =
+                        inst?.sectionRef ||
                         roomInst?.sectionRef ||
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
-                      const entryKey = `${sectionRef}-${field.id}`;
-                      const entry = entries[entryKey];
+                      const entryCandidates = [
+                        fieldSectionRef,
+                        ...aliasRefs,
+                        `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`,
+                        roomInst?.sectionRef,
+                      ].filter(Boolean) as string[];
+                      // Prefer the entry that already has photos (handles UUID ↔ synthetic mismatch).
+                      let entry =
+                        entryCandidates
+                          .map((ref) => entries[`${ref}-${field.id}`] || entries[`${ref}-${(field as any).key}`])
+                          .find((e) => e && Array.isArray(e.photos) && e.photos.length > 0) ||
+                        entryCandidates
+                          .map((ref) => entries[`${ref}-${field.id}`] || entries[`${ref}-${(field as any).key}`])
+                          .find(Boolean);
+                      const sectionRef = fieldSectionRef;
 
                       const getAddress = () => {
                         if (property) {

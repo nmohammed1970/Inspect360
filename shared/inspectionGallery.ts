@@ -10,6 +10,7 @@ import {
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from "./templateCustomInspectionPoints";
+import { fieldAllowsMultiplePhotos } from "./fieldAttachedPhotos";
 import { numberedRoomInstanceTitle, roomTypeFromRoomLike } from "./propertyRooms";
 import { matchSectionToRoomType } from "./propertyLayout";
 
@@ -34,6 +35,7 @@ export type GalleryTemplateField = {
   key?: string;
   label?: string;
   type?: string;
+  allowMultiplePhotos?: boolean | null;
 };
 
 export type GalleryTemplateSection = {
@@ -67,6 +69,18 @@ export type PhotoDestination = {
 
 export function isPhotoFieldType(type: string | undefined | null): type is "photo" | "photo_array" {
   return type === "photo" || type === "photo_array";
+}
+
+/** Native photo fields or non-media fields with Allow Multiple Photos enabled. */
+export function isAssignablePhotoField(field: GalleryTemplateField | null | undefined): boolean {
+  if (!field) return false;
+  if (isPhotoFieldType(field.type)) return true;
+  return fieldAllowsMultiplePhotos(field);
+}
+
+function destinationFieldType(field: GalleryTemplateField): "photo" | "photo_array" {
+  if (field.type === "photo") return "photo";
+  return "photo_array";
 }
 
 export function isAllowedGalleryMime(mime: string | null | undefined): boolean {
@@ -112,14 +126,14 @@ function pushPhotoDestination(
   },
 ) {
   const fk = fieldKeyOf(opts.field);
-  if (!fk || !isPhotoFieldType(opts.field.type)) return;
+  if (!fk || !isAssignablePhotoField(opts.field)) return;
   destinations.push({
     sectionId: opts.sectionId,
     sectionRef: opts.sectionRef,
     sectionLabel: opts.sectionLabel,
     fieldKey: fk,
     fieldLabel: (opts.field.label || fk).trim() || fk,
-    fieldType: opts.field.type,
+    fieldType: destinationFieldType(opts.field),
   });
 }
 
@@ -180,6 +194,85 @@ function resolveRepeatableInstanceCount(
   return 1;
 }
 
+export type RepeatableInstanceRef = {
+  index: number;
+  sectionRef: string;
+  sectionLabel: string;
+  /** Other refs that may have been used for the same instance (synthetic Title N ↔ room id). */
+  aliasRefs: string[];
+};
+
+function propertyRoomsForSection(
+  structure: GalleryTemplateStructure | null | undefined,
+  section: GalleryTemplateSection,
+): Array<{ sectionRef: string; title: string }> {
+  const sectionIds = new Set(
+    (Array.isArray(structure?.sections) ? structure!.sections! : [])
+      .map((s) => s.id)
+      .filter(Boolean),
+  );
+  const roomInstances = Array.isArray(structure?.propertyRoomInstances)
+    ? structure!.propertyRoomInstances!
+    : [];
+  let propertyRooms: Array<{ sectionRef: string; title: string }> = [];
+  for (const room of roomInstances) {
+    const ref = String(room?.sectionRef || "").trim();
+    if (!ref.includes("/")) continue;
+    const sectionId = ref.split("/")[0]!;
+    if (!sectionIds.has(sectionId) || sectionId !== section.id) continue;
+    propertyRooms.push({
+      sectionRef: ref,
+      title: (room.title || ref.split("/")[1] || sectionId).trim(),
+    });
+  }
+  const sectionRoomType = matchSectionToRoomType(section as any);
+  if (sectionRoomType) {
+    propertyRooms = propertyRooms.filter((room) => {
+      return roomTypeFromRoomLike({ name: room.title }) === sectionRoomType;
+    });
+  }
+  return propertyRooms;
+}
+
+/**
+ * Repeatable instance refs shared by Capture UI and gallery destinations so
+ * sectionRef keys stay identical (photos show on the field after assign).
+ */
+export function listRepeatableInstances(
+  structure: GalleryTemplateStructure | null | undefined,
+  sectionId: string,
+  repeatableCounts: Record<string, number> = {},
+): RepeatableInstanceRef[] {
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const section = sections.find((s) => s.id === sectionId);
+  if (!section?.repeatable) return [];
+
+  const title = (section.title || section.id).trim() || section.id;
+  const propertyRooms = propertyRoomsForSection(structure, section);
+  const instanceCount = resolveRepeatableInstanceCount(
+    section.id,
+    repeatableCounts,
+    propertyRooms.length,
+  );
+
+  const out: RepeatableInstanceRef[] = [];
+  for (let i = 0; i < instanceCount; i++) {
+    const room = propertyRooms[i];
+    const synthetic = `${section.id}/${title} ${i + 1}`;
+    const sectionRef = room?.sectionRef || synthetic;
+    const aliasRefs: string[] = [];
+    if (sectionRef !== synthetic) aliasRefs.push(synthetic);
+    if (room?.sectionRef && room.sectionRef !== sectionRef) aliasRefs.push(room.sectionRef);
+    out.push({
+      index: i,
+      sectionRef,
+      sectionLabel: numberedRoomInstanceTitle(room?.title, title, i),
+      aliasRefs,
+    });
+  }
+  return out;
+}
+
 /**
  * Build assignable photo destinations from a frozen template snapshot and
  * current repeatable instance counts (sectionId → count).
@@ -192,68 +285,24 @@ export function listPhotoDestinations(
   cipCounts?: CipCountMap,
 ): PhotoDestination[] {
   const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
-  const sectionIds = new Set(sections.map((s) => s.id).filter(Boolean));
   const destinations: PhotoDestination[] = [];
-
-  const roomsBySection = new Map<
-    string,
-    Array<{ sectionRef: string; title: string }>
-  >();
-  const roomInstances = Array.isArray(structure?.propertyRoomInstances)
-    ? structure!.propertyRoomInstances!
-    : [];
-  for (const room of roomInstances) {
-    const ref = String(room?.sectionRef || "").trim();
-    if (!ref.includes("/")) continue;
-    const sectionId = ref.split("/")[0]!;
-    // Ignore orphan room paths whose section is not in this inspection template
-    if (!sectionIds.has(sectionId)) continue;
-    const list = roomsBySection.get(sectionId) || [];
-    list.push({
-      sectionRef: ref,
-      title: (room.title || ref.split("/")[1] || sectionId).trim(),
-    });
-    roomsBySection.set(sectionId, list);
-  }
 
   for (const section of sections) {
     if (!section?.id) continue;
-    // Only fields defined on this template section (no invented points)
+    // Native photo fields + non-media fields with Allow Multiple Photos
     const photoFields = (section.fields || []).filter(
-      (f) => isPhotoFieldType(f.type) && !!(f.id || f.key),
+      (f) => isAssignablePhotoField(f) && !!(f.id || f.key),
     );
     const title = (section.title || section.id).trim() || section.id;
 
     if (section.repeatable) {
-      const sectionRoomType = matchSectionToRoomType(section as any);
-      // Drop mis-mapped rooms (e.g. Living Room under Bedrooms from "room" token match)
-      let propertyRooms = roomsBySection.get(section.id) || [];
-      if (sectionRoomType) {
-        propertyRooms = propertyRooms.filter((room) => {
-          const roomType = roomTypeFromRoomLike({ name: room.title });
-          return roomType === sectionRoomType;
-        });
-      }
-      const instanceCount = resolveRepeatableInstanceCount(
-        section.id,
-        repeatableCounts,
-        propertyRooms.length,
-      );
-
-      for (let i = 0; i < instanceCount; i++) {
-        const room = propertyRooms[i];
-        const sectionRef =
-          room?.sectionRef || `${section.id}/${title} ${i + 1}`;
-        const sectionLabel = numberedRoomInstanceTitle(
-          room?.title,
-          title,
-          i,
-        );
+      const instances = listRepeatableInstances(structure, section.id, repeatableCounts);
+      for (const inst of instances) {
         for (const field of photoFields) {
           pushPhotoDestination(destinations, {
             sectionId: section.id,
-            sectionRef,
-            sectionLabel,
+            sectionRef: inst.sectionRef,
+            sectionLabel: inst.sectionLabel,
             field,
           });
         }
@@ -262,8 +311,8 @@ export function listPhotoDestinations(
             destinations,
             structure,
             section.id,
-            sectionRef,
-            sectionLabel,
+            inst.sectionRef,
+            inst.sectionLabel,
             cipCounts,
           );
         }
@@ -331,7 +380,7 @@ export function assertDestinationValid(
       const cips = getCipsForSection(structure, section);
       const cip = cips.find((c) => c.id === cipParsed.cipId);
       const baseField = (cip?.fields || []).find((f) => fieldKeyOf(f) === cipParsed.fieldId);
-      if (cip && baseField && isPhotoFieldType(baseField.type)) {
+      if (cip && baseField && isAssignablePhotoField(baseField)) {
         const slash = ref.indexOf("/");
         const sectionLabel =
           slash > 0
@@ -344,7 +393,7 @@ export function assertDestinationValid(
           fieldKey,
           fieldLabel:
             `${cipInstanceLabel(cip.label, cipParsed.instanceIndex)} — ${baseField.label || cipParsed.fieldId}`.trim(),
-          fieldType: baseField.type,
+          fieldType: destinationFieldType(baseField),
         };
       }
     }
@@ -364,34 +413,58 @@ export function assertDestinationValid(
     new RegExp(`^${escapeRegExp(sectionTitle)}\\s+(\\d+)$`, "i"),
   );
 
+  const field = (section.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
+  if (!field || !isAssignablePhotoField(field)) return null;
+
   // Capture often sends synthetic "{Title} N" while destinations use property-room
-  // UUID paths. Map Title N → Nth listed destination for this field (keeps assign
-  // in sync with floor-plan room instances). Out-of-range stays rejected.
+  // UUID paths. Accept the client sectionRef when it names a valid instance so
+  // entry keys match the Capture UI (photos actually appear on the field).
   if (titleNumMatch) {
     const instanceIndex = Math.floor(Number(titleNumMatch[1]));
     if (!Number.isFinite(instanceIndex) || instanceIndex < 1 || instanceIndex > 50) {
       return null;
     }
 
-    const listed = listPhotoDestinations(structure, repeatableCounts, countsForList).filter(
-      (d) => d.sectionId === sectionId && d.fieldKey === fieldKey,
-    );
-    const exact = listed.find((d) => d.sectionRef === ref);
-    if (exact) return exact;
-    if (listed[instanceIndex - 1]) return listed[instanceIndex - 1]!;
-    return null;
+    const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+    const inst = instances[instanceIndex - 1];
+    if (!inst) return null;
+
+    return {
+      sectionId,
+      sectionRef: ref,
+      sectionLabel: inst.sectionLabel,
+      fieldKey,
+      fieldLabel: (field.label || fieldKey).trim() || fieldKey,
+      fieldType: destinationFieldType(field),
+    };
   }
 
-  const field = (section.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
-  if (!field || !isPhotoFieldType(field.type)) return null;
+  // UUID / custom room path — accept when it matches a known instance or any
+  // in-range property-room style ref for this repeatable section.
+  const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+  const matchedInst = instances.find(
+    (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
+  );
+  if (!matchedInst && instances.length > 0) {
+    // Unknown room path: still allow if field is assignable (legacy room ids).
+    return {
+      sectionId,
+      sectionRef: ref,
+      sectionLabel: instancePart,
+      fieldKey,
+      fieldLabel: (field.label || fieldKey).trim() || fieldKey,
+      fieldType: destinationFieldType(field),
+    };
+  }
+  if (!matchedInst && instances.length === 0) return null;
 
   return {
     sectionId,
     sectionRef: ref,
-    sectionLabel: instancePart,
+    sectionLabel: matchedInst?.sectionLabel || instancePart,
     fieldKey,
     fieldLabel: (field.label || fieldKey).trim() || fieldKey,
-    fieldType: field.type,
+    fieldType: destinationFieldType(field),
   };
 }
 
