@@ -1001,6 +1001,7 @@ export async function renderHtmlToBrandedPdf(
   const merged = await mergePdfBuffers([coverPdf, bodyPdf]);
   // Absolute page index (cover = 1) — same sequence as Contents slots.
   return stampCenteredPageNumbers(merged, chromeOpts.theme);
+}
 
 export async function logoToDataUrl(
   logoUrl?: string | null,
