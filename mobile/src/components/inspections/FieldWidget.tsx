@@ -733,7 +733,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
     const payload = {
       images: serverUrls.map((objectUrl) => ({ objectUrl })),
-      assign: { sectionRef, fieldKey: field.id },
+      assign: { sectionRef, fieldKey: field.id || (field as { key?: string }).key || '' },
     };
 
     if (!isOnline) {

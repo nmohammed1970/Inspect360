@@ -456,6 +456,11 @@ import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
 import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
+import {
+  buildInspectionPdfCacheKey,
+  getInspectionPdfCache,
+  setInspectionPdfCache,
+} from "./inspectionPdfCache";
 import { resolveCoverLogoSrc } from "./reportLogo";
 import { buildInspectionPdfFilename } from "@shared/inspectionPdfFilename";
 import {
@@ -8461,19 +8466,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       const audienceRaw = String(req.query.audience || "full").toLowerCase();
       const audience = audienceRaw === "landlord" ? "landlord" as const : "full" as const;
-      const pdfBuffer = await generateInspectionPDF(
-        { ...fullInspection, templateName } as any,
-        entriesForPDF as any,
-        baseUrl,
-        branding,
-        maintenanceRequests,
+
+      const cacheKey = buildInspectionPdfCacheKey({
+        inspectionId: inspection.id,
+        audience,
+        inspectionUpdatedAt: inspection.updatedAt,
+        completedDate: inspection.completedDate,
+        templateId: inspection.templateId,
         reportConfig,
-        {
-          includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies"),
-          audience,
-        },
-        floorPlanData,
-      );
+        brandingUpdatedHint: [
+          organization?.logoUrl || "",
+          organization?.updatedAt ? String(organization.updatedAt) : "",
+          String(organizationTrademarks.length),
+        ].join("|"),
+        entries: entries.map((e) => ({
+          id: e.id,
+          updatedAt: e.updatedAt,
+          note: e.note,
+          photos: e.photos,
+          valueJson: e.valueJson,
+          markedForReview: e.markedForReview,
+        })),
+      });
+
+      let pdfBuffer = getInspectionPdfCache(cacheKey);
+      if (pdfBuffer) {
+        console.log(`[PDF] Cache hit for inspection ${id} (${audience})`);
+        res.setHeader("X-PDF-Cache", "HIT");
+      } else {
+        console.log(`[PDF] Cache miss for inspection ${id} (${audience}); generating...`);
+        pdfBuffer = await generateInspectionPDF(
+          { ...fullInspection, templateName } as any,
+          entriesForPDF as any,
+          baseUrl,
+          branding,
+          maintenanceRequests,
+          reportConfig,
+          {
+            includeTenantSurfaces: isCompanyModuleEnabled(organization, "tenancies"),
+            audience,
+          },
+          floorPlanData,
+        );
+        setInspectionPdfCache(cacheKey, pdfBuffer);
+        res.setHeader("X-PDF-Cache", "MISS");
+      }
 
       // Set headers for PDF download: Location_Date_InspectorName.pdf
       const locationName = property?.name || block?.name || "inspection";

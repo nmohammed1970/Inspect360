@@ -1589,7 +1589,7 @@ export function FieldWidget({
               await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/assign`, {
                 imageIds: picked.map((p) => p.id),
                 sectionRef,
-                fieldKey: field.id,
+                fieldKey: field.id || (field as { key?: string }).key || "",
               });
               setLocalPhotos((prev) => {
                 const merged = [...prev];
@@ -1995,7 +1995,7 @@ export function FieldWidget({
                     await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/assign`, {
                       imageIds: picked.map((p) => p.id),
                       sectionRef,
-                      fieldKey: field.id,
+                      fieldKey: field.id || (field as { key?: string }).key || "",
                     });
                     setLocalPhotos((prev) => {
                       const merged = [...prev];
