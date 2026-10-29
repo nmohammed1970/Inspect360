@@ -143,7 +143,8 @@ assert.ok(
     section_bedrooms: 2,
   }),
 );
-// Synthetic "Title N" from Capture maps to the Nth property-room destination
+// Synthetic "Title N" from Capture is accepted and keeps that sectionRef so
+// photos land on the same entry key Capture reads.
 const mappedBedroom = assertDestinationValid(
   withRooms,
   "section_bedrooms/Bedrooms 1",
@@ -151,12 +152,39 @@ const mappedBedroom = assertDestinationValid(
   { section_bedrooms: 2 },
 );
 assert.ok(mappedBedroom);
-assert.equal(mappedBedroom!.sectionRef, "section_bedrooms/room-abc");
+assert.equal(mappedBedroom!.sectionRef, "section_bedrooms/Bedrooms 1");
 assert.equal(
   assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 9", "field_floor", {
     section_bedrooms: 2,
-  })?.sectionRef,
-  undefined,
+  }),
+  null,
+);
+
+// Attached multi-photo fields (non photo_array) are valid gallery destinations
+const withAttached = {
+  sections: [
+    {
+      id: "section_kitchen_overview",
+      title: "Kitchen Overview",
+      repeatable: true,
+      fields: [
+        {
+          id: "field_sink",
+          label: "Sink & Taps",
+          type: "dropdown",
+          allowMultiplePhotos: true,
+        },
+      ],
+    },
+  ],
+};
+assert.ok(
+  assertDestinationValid(
+    withAttached,
+    "section_kitchen_overview/Kitchen Overview 1",
+    "field_sink",
+    {},
+  ),
 );
 
 // Kitchen Overview-style synthetic path (no property rooms) must assign

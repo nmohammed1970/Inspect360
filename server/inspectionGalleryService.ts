@@ -635,6 +635,24 @@ async function assignImagesInternal(
   }
 
   for (const image of images) {
+    // One photo → one inspection point: clear any prior assignments first.
+    const prior = await db
+      .select()
+      .from(inspectionGalleryAssignments)
+      .where(eq(inspectionGalleryAssignments.galleryImageId, image.id));
+    for (const a of prior) {
+      if (a.sectionRef === dest.sectionRef && a.fieldKey === dest.fieldKey) continue;
+      await db
+        .delete(inspectionGalleryAssignments)
+        .where(eq(inspectionGalleryAssignments.id, a.id));
+      await removePhotoFromEntry(
+        inspection.id,
+        a.sectionRef,
+        a.fieldKey,
+        image.objectUrl,
+      );
+    }
+
     await db
       .insert(inspectionGalleryAssignments)
       .values({
