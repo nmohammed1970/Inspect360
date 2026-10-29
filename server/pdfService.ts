@@ -11,7 +11,10 @@ import {
   parseCipExpandedFieldKey,
   resolveCipInstanceCount,
 } from "@shared/templateCustomInspectionPoints";
-import { parseInspectionNote } from "@shared/inspectionNoteSections";
+import {
+  parseInspectionNote,
+  resolveAiIncludeRecommendedActions,
+} from "@shared/inspectionNoteSections";
 import {
   normalizeReportSectionOrder,
   REPORT_SECTION_META,
@@ -36,6 +39,9 @@ import {
   applyBrandThemeToHtml,
   themeFromOrgBranding,
   renderHtmlToBrandedPdf,
+  tocAnchorHtml,
+  tocPageSlotHtml,
+  sanitizeTocKey,
   type CoverMetaRow,
 } from "./reportPdfShared";
 
@@ -104,6 +110,42 @@ function escapeHtml(unsafe: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+/**
+ * Remove emoji / dingbat / symbol glyphs that Chromium PDF often renders as
+ * empty “missing character” boxes (looks messy next to section titles).
+ */
+function stripPdfSymbols(text: string): string {
+  if (typeof text !== "string" || !text) return "";
+  return text
+    // Emoticons, symbols, transport, flags, supplemental, dingbats, etc.
+    .replace(
+      /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]/gu,
+      "",
+    )
+    // Private Use Area (often used by icon fonts)
+    .replace(/[\uE000-\uF8FF]/g, "")
+    // Leftover spaces / separators after stripping
+    .replace(/^[\s|·•\-–—:_]+|[\s|·•\-–—:_]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** Escape text for PDF after stripping decorative symbols. */
+function pdfText(unsafe: string): string {
+  return escapeHtml(stripPdfSymbols(unsafe));
+}
+
+/** Small camera mark for photo gallery headings (renders reliably in PDF). */
+const PDF_CAMERA_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;display:inline-block;vertical-align:-2px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`;
+
+/** Gallery heading: avoid "...photos Photos" when the field label already ends with photo(s). */
+function pdfPhotoGalleryHeading(fieldLabel: string): string {
+  const cleaned = stripPdfSymbols(fieldLabel || "").trim();
+  if (!cleaned) return "Photos";
+  if (/\bphotos?\s*$/i.test(cleaned)) return escapeHtml(cleaned);
+  return `${escapeHtml(cleaned)} Photos`;
 }
 
 // Sanitize URL for use in HTML attributes (whitelist-based approach)
@@ -260,6 +302,8 @@ interface Inspection {
   id: string;
   organizationId: string;
   templateId?: string;
+  /** Display name of the inspection template (preferred on cover / summary). */
+  templateName?: string | null;
   templateSnapshotJson?: { sections: TemplateSection[] };
   propertyId?: string;
   blockId?: string;
@@ -573,15 +617,21 @@ export async function generateInspectionPDF(
         ? processedBranding.logoUrl
         : null;
 
-    // Cover rendered without chrome; body pages get header/footer
-    return await renderHtmlToBrandedPdf(page, html, {
-      landscape: false,
-      format: "A4",
-      theme: reportTheme,
-      address: footerAddress || locationName,
-      propertyName: locationName,
-      logoDataUrl: logoForHeader,
-    });
+    // Cover rendered without chrome; body pages get header/footer.
+    // Contents page numbers: draft body PDF → measure markers → fill DOM → reprint body only.
+    return await renderHtmlToBrandedPdf(
+      page,
+      html,
+      {
+        landscape: false,
+        format: "A4",
+        theme: reportTheme,
+        address: footerAddress || locationName,
+        propertyName: locationName,
+        logoDataUrl: logoForHeader,
+      },
+      { fillTocPageNumbers: true },
+    );
   } finally {
     if (browser) {
       await browser.close();
@@ -796,9 +846,9 @@ function buildFloorPlanSectionHTML(
 
   return `
     <!-- Floor Plan & Dimensions -->
-    <div class="report-section" style="margin-bottom: 32px; page-break-inside: avoid;">
+    <div class="report-section" style="position:relative; margin-bottom: 32px; page-break-inside: avoid;">
       <h2 class="report-section-title">
-        Floor Plan &amp; Dimensions
+        ${tocAnchorHtml("floorPlan")}Floor Plan &amp; Dimensions
       </h2>
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px;">
         ${imageBlock}
@@ -857,6 +907,9 @@ function generateInspectionHTML(
   };
   const templateStructure = inspection.templateSnapshotJson as { sections: TemplateSection[] } | null;
   const sections = templateStructure?.sections || [];
+  const showRecommendedActions = resolveAiIncludeRecommendedActions(
+    inspection.templateSnapshotJson as any,
+  );
 
   // Prefer block details for block inspections (property may be unset)
   const isBlockInspection = Boolean(inspection.blockId) && !inspection.propertyId;
@@ -890,6 +943,11 @@ function generateInspectionHTML(
     formatSignerDisplayName(inspection.inspector) || `Unknown ${assigneeRoleLabel}`;
   const inspectionDate = inspection.completedDate || inspection.scheduledDate || inspection.startedAt;
   const formattedDate = inspectionDate ? format(new Date(inspectionDate), "PPP") : "Not specified";
+  const inspectionTypeLabel =
+    (typeof inspection.templateName === "string" && inspection.templateName.trim()) ||
+    (inspection.type
+      ? inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " ")
+      : "Inspection");
   
   const companyName = branding?.brandingName || "Inspect360";
   const hasLogo = !!branding?.logoUrl;
@@ -1176,24 +1234,24 @@ function generateInspectionHTML(
 
     let rowHTML = `
       <tr>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500; vertical-align: top; width: 22%;">
-          ${escapeHtml(field.label)}
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500; vertical-align: top; width: 42%; white-space: nowrap;">
+          ${pdfText(field.label)}
         </td>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;${isSignature ? " width: 78%;" : ""}" ${isSignature ? `colspan="${1 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1}"` : ""}>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;${isSignature ? " width: 58%;" : ""}" ${isSignature ? `colspan="${1 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1}"` : ""}>
           ${descriptionHTML}
         </td>
         ${!isSignature && sectionHasCondition ? `
-          <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+          <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center; width: 12%;">
             ${field.includeCondition && condition ? formatRating(condition, conditionScore) : '<span style="color: #999;">-</span>'}
           </td>
         ` : ''}
         ${!isSignature && sectionHasCleanliness ? `
-          <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+          <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center; width: 12%;">
             ${field.includeCleanliness && cleanliness ? formatRating(cleanliness, cleanlinessScore) : '<span style="color: #999;">-</span>'}
           </td>
         ` : ''}
         ${!isSignature ? `
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: center; width: 12%;">
           ${photoCount > 0 ? `<span style="color: #00D5CC; font-weight: 500;">${photoCount} photo${photoCount > 1 ? 's' : ''}</span>` : '<span style="color: #999;">-</span>'}
         </td>
         ` : ''}
@@ -1209,7 +1267,7 @@ function generateInspectionHTML(
             <div style="font-weight: 700; color: #111827; font-size: 13px; margin-bottom: 4px;">Description</div>
             <div style="color: #374151; font-size: 13px; line-height: 1.5;">${formatText(sections.description)}</div>
           </div>`
-        : !sections.maintenanceIssues && !sections.recommendedActions
+        : !sections.maintenanceIssues && !(showRecommendedActions && sections.recommendedActions)
           ? `<div style="color: #78350f; font-size: 13px;">${formatText(note)}</div>`
           : "";
       const maintenanceBlock = sections.maintenanceIssues
@@ -1218,12 +1276,13 @@ function generateInspectionHTML(
             <div style="color: #7f1d1d; font-size: 13px; line-height: 1.5;">${formatText(sections.maintenanceIssues)}</div>
           </div>`
         : "";
-      const recommendedBlock = sections.recommendedActions
-        ? `<div style="margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid #99f6e4; background: #f0fdfa;">
+      const recommendedBlock =
+        showRecommendedActions && sections.recommendedActions
+          ? `<div style="margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid #99f6e4; background: #f0fdfa;">
             <div style="font-weight: 700; color: #0f766e; font-size: 13px; margin-bottom: 4px;">Recommended Actions</div>
             <div style="color: #115e59; font-size: 13px; line-height: 1.5;">${formatText(sections.recommendedActions)}</div>
           </div>`
-        : "";
+          : "";
       rowHTML += `
         <tr>
           <td colspan="${colspan}" style="padding: 10px 16px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
@@ -1241,8 +1300,8 @@ function generateInspectionHTML(
       photoHTML = `
         <div style="margin-top: 20px;">
           <div class="keep-with-next" style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding-left: 4px;">
-            <span style="font-size: 16px;">&#128247;</span>
-            <span style="font-weight: 600; color: #333; font-size: 15px;">${escapeHtml(field.label)} Photos</span>
+            ${PDF_CAMERA_ICON_SVG}
+            <span style="font-weight: 600; color: #333; font-size: 15px;">${pdfPhotoGalleryHeading(field.label)}</span>
           </div>
           <div style="display: flex; flex-wrap: wrap; gap: 20px;">
             ${photos.map((photo, photoIndex) => `
@@ -1334,30 +1393,16 @@ function generateInspectionHTML(
 
   // Generate sections HTML - Table format matching UI
   let sectionsHTML = "";
-  const inspectionSectionTitles: string[] = [];
+  const inspectionTocEntries: Array<{ key: string; label: string }> = [];
   sections.forEach((section, sectionIndex) => {
     if (isMetaSection(section)) {
       return;
     }
+    const tocKey = sanitizeTocKey(`insp-${section.id || sectionIndex}`);
 
-    // First pass: determine if section has condition/cleanliness columns
-    // (respect landlord filter so headers match visible rows)
-    let sectionHasCondition = false;
-    let sectionHasCleanliness = false;
-    
-    section.fields.forEach((field) => {
-      if (!shouldIncludeField(field)) return;
-      if (field.includeCondition) sectionHasCondition = true;
-      if (field.includeCleanliness) sectionHasCleanliness = true;
-    });
-    // CIP base fields may also contribute columns
-    for (const cip of getCipsForSection(templateStructure as any, section as any)) {
-      for (const f of cip.fields || []) {
-        if (!shouldIncludeField(f as TemplateField)) continue;
-        if (f.includeCondition) sectionHasCondition = true;
-        if (f.includeCleanliness) sectionHasCleanliness = true;
-      }
-    }
+    // Inspection PDF tables intentionally omit Condition / Cleanliness columns
+    const sectionHasCondition = false;
+    const sectionHasCleanliness = false;
 
     // Check if this is a repeatable section
     if (section.repeatable) {
@@ -1369,7 +1414,7 @@ function generateInspectionHTML(
         return;
       }
       if (section.title?.trim()) {
-        inspectionSectionTitles.push(section.title.trim());
+        inspectionTocEntries.push({ key: tocKey, label: stripPdfSymbols(section.title) });
       }
 
       // Render each instance separately with photos inline
@@ -1431,11 +1476,11 @@ function generateInspectionHTML(
             <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
               <thead>
                 <tr style="background: #f9fafb;">
-                  <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Room/Space</th>
+                  <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 42%; white-space: nowrap;">Room/Space</th>
                   <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Description</th>
-                  ${sectionHasCondition ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Condition</th>' : ''}
-                  ${sectionHasCleanliness ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Cleanliness</th>' : ''}
-                  <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Photos</th>
+                  ${sectionHasCondition ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 12%;">Condition</th>' : ''}
+                  ${sectionHasCleanliness ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 12%;">Cleanliness</th>' : ''}
+                  <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 12%;">Photos</th>
                 </tr>
               </thead>
               <tbody>
@@ -1449,18 +1494,18 @@ function generateInspectionHTML(
 
       // Build section HTML with all instances (each with inline photos)
       sectionsHTML += `
-        <div class="report-section report-section-room" style="margin-bottom: 32px;">
+        <div class="report-section report-section-room" style="position:relative; margin-bottom: 32px;">
           <h2 class="report-section-title">
-            ${escapeHtml(section.title)}
+            ${tocAnchorHtml(tocKey)}${pdfText(section.title)}
           </h2>
-          ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${escapeHtml(section.description)}</p>` : ""}
+          ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${pdfText(section.description)}</p>` : ""}
           ${sectionHTML}
         </div>
       `;
     } else {
       // Non-repeatable section - use existing logic
       if (section.title?.trim()) {
-        inspectionSectionTitles.push(section.title.trim());
+        inspectionTocEntries.push({ key: tocKey, label: stripPdfSymbols(section.title) });
       }
       let tableRowsHTML = '';
       let photosGalleryHTML = '';
@@ -1499,20 +1544,20 @@ function generateInspectionHTML(
 
       // Build section HTML with table format - always include all sections
       sectionsHTML += `
-        <div class="report-section report-section-room" style="margin-bottom: 32px;">
+        <div class="report-section report-section-room" style="position:relative; margin-bottom: 32px;">
           <h2 class="report-section-title">
-            ${escapeHtml(section.title)}
+            ${tocAnchorHtml(tocKey)}${pdfText(section.title)}
           </h2>
-          ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${escapeHtml(section.description)}</p>` : ""}
+          ${section.description ? `<p style="color: #666; margin-bottom: 12px; font-size: 14px;">${pdfText(section.description)}</p>` : ""}
           
           <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
             <thead>
               <tr style="background: #f9fafb;">
-                <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Room/Space</th>
+                <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 42%; white-space: nowrap;">Room/Space</th>
                 <th style="padding: 12px 16px; text-align: left; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Description</th>
-                ${sectionHasCondition ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Condition</th>' : ''}
-                ${sectionHasCleanliness ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Cleanliness</th>' : ''}
-                <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb;">Photos</th>
+                ${sectionHasCondition ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 12%;">Condition</th>' : ''}
+                ${sectionHasCleanliness ? '<th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 12%;">Cleanliness</th>' : ''}
+                <th style="padding: 12px 16px; text-align: center; font-weight: 500; color: #666; font-size: 13px; border-bottom: 1px solid #e5e7eb; width: 12%;">Photos</th>
               </tr>
             </thead>
             <tbody>
@@ -1540,8 +1585,8 @@ function generateInspectionHTML(
     coverMetaRows.push({ label: "Presented by", value: companyName });
   }
   coverMetaRows.push({
-    label: "Inspection type",
-    value: inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "),
+    label: "Inspection Type",
+    value: inspectionTypeLabel,
   });
   const coverPageHTML = config.showCover
     ? buildWhiteCoverHtml({
@@ -1557,9 +1602,9 @@ function generateInspectionHTML(
   // Build glossary HTML conditionally
   const glossaryHTML = config.showGlossary ? `
     <!-- Glossary of Terms - Landscape optimized 2-column layout -->
-    <div class="report-section keep-together" style="margin-bottom: 32px;">
+    <div class="report-section keep-together" style="position:relative; margin-bottom: 32px;">
       <h2 class="report-section-title">
-        Glossary of Terms
+        ${tocAnchorHtml("glossary")}Glossary of Terms
       </h2>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
         <!-- Condition Ratings -->
@@ -1700,9 +1745,9 @@ function generateInspectionHTML(
   // Build maintenance log HTML conditionally
   const maintenanceLogHTML = config.showMaintenanceLog && maintenanceRequests && maintenanceRequests.length > 0 ? `
     <!-- Outstanding Maintenance Requests -->
-    <div class="report-section" style="margin-bottom: 32px;">
+    <div class="report-section" style="position:relative; margin-bottom: 32px;">
       <h2 class="report-section-title">
-        Outstanding Maintenance Requests
+        ${tocAnchorHtml("maintenanceLog")}Outstanding Maintenance Requests
       </h2>
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
         <thead>
@@ -1752,9 +1797,9 @@ function generateInspectionHTML(
   // Build Terms and Conditions HTML conditionally
   const termsConditionsHTML = config.showTermsConditions && config.termsConditionsText ? `
     <!-- Terms and Conditions -->
-    <div class="report-section" style="margin-bottom: 32px;">
+    <div class="report-section" style="position:relative; margin-bottom: 32px;">
       <h2 class="report-section-title">
-        Terms and Conditions
+        ${tocAnchorHtml("termsConditions")}Terms and Conditions
       </h2>
       <div style="background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
         <div style="color: #333; font-size: 14px; line-height: 1.7;">${sanitizeRichText(config.termsConditionsText)}</div>
@@ -1765,12 +1810,12 @@ function generateInspectionHTML(
   // Build Closing Section HTML conditionally
   const closingSectionHTML = config.showClosingSection && config.closingSectionText ? `
     <!-- Closing Section -->
-    <div class="report-section" style="margin-bottom: 32px;">
+    <div class="report-section" style="position:relative; margin-bottom: 32px;">
       ${config.closingSectionTitle ? `
         <h2 class="report-section-title">
-          ${escapeHtml(config.closingSectionTitle)}
+          ${tocAnchorHtml("closing")}${escapeHtml(config.closingSectionTitle)}
         </h2>
-      ` : ''}
+      ` : `${tocAnchorHtml("closing")}`}
       <div style="background: #f0fdfa; padding: 20px; border-radius: 8px; border: 1px solid #00D5CC; border-left: 4px solid #00D5CC;">
         <div style="color: #333; font-size: 14px; line-height: 1.7;">${sanitizeRichText(config.closingSectionText)}</div>
       </div>
@@ -1781,9 +1826,9 @@ function generateInspectionHTML(
     config.showTradeMarks && trademarkHtml
       ? `
     <!-- Trade Marks -->
-    <div class="report-section keep-together" style="margin-bottom: 32px;">
+    <div class="report-section keep-together" style="position:relative; margin-bottom: 32px;">
       <h2 class="report-section-title">
-        Trade Marks
+        ${tocAnchorHtml("tradeMarks")}Trade Marks
       </h2>
       <div style="display: flex; justify-content: center; padding: 16px 0;">
         ${trademarkHtml}
@@ -1795,38 +1840,52 @@ function generateInspectionHTML(
   const floorPlanSectionHTML = buildFloorPlanSectionHTML(config, floorPlanData);
   const inspectionBodyHTML = config.showInspection ? sectionsHTML : "";
 
-  const contentsEntries: string[] = [];
+  const contentsEntries: Array<{ key: string; label: string }> = [];
   for (const id of config.sectionOrder) {
     if (id === "cover" || id === "contents") continue;
     switch (id) {
       case "floorPlan":
-        if (floorPlanSectionHTML) contentsEntries.push(REPORT_SECTION_META.floorPlan.label);
+        if (floorPlanSectionHTML) {
+          contentsEntries.push({ key: "floorPlan", label: REPORT_SECTION_META.floorPlan.label });
+        }
         break;
       case "tradeMarks":
-        if (tradeMarksSectionHTML) contentsEntries.push(REPORT_SECTION_META.tradeMarks.label);
+        if (tradeMarksSectionHTML) {
+          contentsEntries.push({ key: "tradeMarks", label: REPORT_SECTION_META.tradeMarks.label });
+        }
         break;
       case "glossary":
-        if (glossaryHTML) contentsEntries.push(REPORT_SECTION_META.glossary.label);
+        if (glossaryHTML) {
+          contentsEntries.push({ key: "glossary", label: REPORT_SECTION_META.glossary.label });
+        }
         break;
       case "maintenanceLog":
-        if (maintenanceLogHTML) contentsEntries.push(REPORT_SECTION_META.maintenanceLog.label);
+        if (maintenanceLogHTML) {
+          contentsEntries.push({ key: "maintenanceLog", label: REPORT_SECTION_META.maintenanceLog.label });
+        }
         break;
       case "inspection":
         // Expand to every room/space section in the inspection (not a single "Inspection" line)
-        if (inspectionSectionTitles.length > 0) {
-          contentsEntries.push(...inspectionSectionTitles);
+        if (inspectionTocEntries.length > 0) {
+          contentsEntries.push(...inspectionTocEntries);
         } else if (inspectionBodyHTML) {
-          contentsEntries.push(REPORT_SECTION_META.inspection.label);
+          contentsEntries.push({ key: "inspection", label: REPORT_SECTION_META.inspection.label });
         }
         break;
       case "termsConditions":
-        if (termsConditionsHTML) contentsEntries.push(REPORT_SECTION_META.termsConditions.label);
+        if (termsConditionsHTML) {
+          contentsEntries.push({
+            key: "termsConditions",
+            label: REPORT_SECTION_META.termsConditions.label,
+          });
+        }
         break;
       case "closing":
         if (closingSectionHTML) {
-          contentsEntries.push(
-            config.closingSectionTitle?.trim() || REPORT_SECTION_META.closing.label,
-          );
+          contentsEntries.push({
+            key: "closing",
+            label: config.closingSectionTitle?.trim() || REPORT_SECTION_META.closing.label,
+          });
         }
         break;
       default:
@@ -1842,8 +1901,18 @@ function generateInspectionHTML(
       <h2 class="report-section-title">
         Contents
       </h2>
-      <ol style="margin: 0; padding-left: 24px; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
-        ${contentsEntries.map((label) => `<li>${escapeHtml(label)}</li>`).join("")}
+      <ol style="margin: 0; padding-left: 0; list-style: none; color: #333; font-size: 14px; line-height: 1.9; background: transparent;">
+        ${contentsEntries
+          .map(
+            (entry, index) => `
+          <li style="display:flex;align-items:baseline;gap:8px;margin:0 0 4px;">
+            <span style="flex:0 0 auto;min-width:1.6em;font-variant-numeric:tabular-nums;">${index + 1}.</span>
+            <span style="flex:0 1 auto;max-width:70%;">${pdfText(entry.label)}</span>
+            <span style="flex:1 1 auto;border-bottom:1px dotted #cbd5e1;margin:0 6px 0.35em;min-width:20px;"></span>
+            ${tocPageSlotHtml(entry.key)}
+          </li>`,
+          )
+          .join("")}
       </ol>
     </div>
   `
@@ -2086,7 +2155,7 @@ function generateInspectionHTML(
         </div>
         <div class="info-item">
           <div class="info-label">Inspection Type</div>
-          <div class="info-value">${escapeHtml(inspection.type.charAt(0).toUpperCase() + inspection.type.slice(1).replace(/_/g, " "))}</div>
+          <div class="info-value">${escapeHtml(inspectionTypeLabel)}</div>
         </div>
         <div class="info-item">
           <div class="info-label">Status</div>

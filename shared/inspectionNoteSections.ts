@@ -222,8 +222,18 @@ export function buildMaintenanceRequestDescription(opts: {
   return bodyParts.join("\n\n");
 }
 
-/** Instruction block appended to InspectAI prompts for structured notes. */
-export const INSPECTION_NOTE_STRUCTURE_PROMPT = `Structure your response EXACTLY in these three labeled sections (plain text, no markdown, no bullets, no emojis):
+/**
+ * Language rule for all inspection / comparison / maintenance AI report text.
+ * Instances are UK-based — force British English spelling and property terminology.
+ */
+export const UK_ENGLISH_REPORTING_PROMPT = `LANGUAGE (mandatory): Write all narrative text in British English (UK spelling and terminology).
+Use UK forms such as: colour/discolouration, localised, centre, favour, metre, mould (not mold), skirting board (not baseboard), tap (not faucet), communal (prefer over common area when appropriate).
+Do not use American spellings (e.g. color, discoloration, localized, center, favor, meter for length, mold for fungi, baseboard, faucet).`;
+
+/** Full three-section note prompt (includes Recommended Actions). */
+export const INSPECTION_NOTE_STRUCTURE_PROMPT = `${UK_ENGLISH_REPORTING_PROMPT}
+
+Structure your response EXACTLY in these three labeled sections (plain text, no markdown, no bullets, no emojis):
 
 DESCRIPTION:
 [Factual condition and cleanliness assessment only]
@@ -235,3 +245,63 @@ RECOMMENDED ACTIONS:
 [Brief actionable recommendations — or write None]
 
 Do not write anything outside these three sections.`;
+
+/** Two-section note prompt used when template has Recommended Actions disabled. */
+export const INSPECTION_NOTE_STRUCTURE_PROMPT_NO_RECOMMENDED = `${UK_ENGLISH_REPORTING_PROMPT}
+
+Structure your response EXACTLY in these two labeled sections (plain text, no markdown, no bullets, no emojis):
+
+DESCRIPTION:
+[Factual condition and cleanliness assessment only]
+
+MAINTENANCE ISSUES:
+[Visible damage, defects, or problems that need attention — or write None]
+
+Do NOT include a RECOMMENDED ACTIONS section, recommendations, advice, or next steps.
+Do not write anything outside these two sections.`;
+
+/** Build InspectAI note structure prompt from template setting (default: no recommended actions). */
+export function buildInspectionNoteStructurePrompt(includeRecommendedActions?: boolean | null): string {
+  return includeRecommendedActions === true
+    ? INSPECTION_NOTE_STRUCTURE_PROMPT
+    : INSPECTION_NOTE_STRUCTURE_PROMPT_NO_RECOMMENDED;
+}
+
+/** Read snapshot/template flag; missing/undefined = disabled. */
+export function resolveAiIncludeRecommendedActions(
+  source: { aiIncludeRecommendedActions?: boolean | null } | null | undefined,
+): boolean {
+  return source?.aiIncludeRecommendedActions === true;
+}
+
+/** Drop recommended-actions content from a stored note (when template setting is off). */
+export function stripRecommendedActionsFromNote(note: string | null | undefined): string {
+  const raw = (note || "").trim();
+  if (!raw) return "";
+  const sections = parseInspectionNote(raw);
+  // Persist two-section format only — no RECOMMENDED ACTIONS header.
+  const desc = sections.description.trim() || "None";
+  const maint = sections.maintenanceIssues.trim() || "None";
+  if (!sections.recommendedActions && !/recommended\s+actions?/i.test(raw)) {
+    return raw;
+  }
+  return `DESCRIPTION:\n${desc}\n\nMAINTENANCE ISSUES:\n${maint}`;
+}
+
+/**
+ * Attach AI meta flags onto a template structure snapshot so inspections keep
+ * the setting even if the live template later changes.
+ */
+export function withTemplateAiMeta(
+  structureJson: unknown,
+  template: { aiIncludeRecommendedActions?: boolean | null } | null | undefined,
+): Record<string, unknown> {
+  const base =
+    structureJson && typeof structureJson === "object" && !Array.isArray(structureJson)
+      ? { ...(structureJson as Record<string, unknown>) }
+      : { sections: [] };
+  return {
+    ...base,
+    aiIncludeRecommendedActions: resolveAiIncludeRecommendedActions(template),
+  };
+}

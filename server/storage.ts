@@ -1330,11 +1330,13 @@ export class DatabaseStorage implements IStorage {
         property: properties,
         block: blocks,
         clerk: users,
+        templateName: inspectionTemplates.name,
       })
       .from(inspections)
       .leftJoin(properties, eq(inspections.propertyId, properties.id))
       .leftJoin(blocks, eq(inspections.blockId, blocks.id))
       .leftJoin(users, eq(inspections.inspectorId, users.id))
+      .leftJoin(inspectionTemplates, eq(inspections.templateId, inspectionTemplates.id))
       .where(eq(inspections.inspectorId, inspectorId))
       .orderBy(desc(inspections.scheduledDate));
 
@@ -1344,6 +1346,7 @@ export class DatabaseStorage implements IStorage {
       property: r.property,
       block: r.block,
       clerk: r.clerk,
+      templateName: r.templateName ?? null,
     }));
   }
 
@@ -1354,10 +1357,12 @@ export class DatabaseStorage implements IStorage {
         inspection: inspections,
         property: properties,
         clerk: users,
+        templateName: inspectionTemplates.name,
       })
       .from(inspections)
       .innerJoin(properties, eq(inspections.propertyId, properties.id))
       .leftJoin(users, eq(inspections.inspectorId, users.id))
+      .leftJoin(inspectionTemplates, eq(inspections.templateId, inspectionTemplates.id))
       .where(eq(properties.organizationId, organizationId))
       .orderBy(desc(inspections.scheduledDate));
 
@@ -1367,10 +1372,12 @@ export class DatabaseStorage implements IStorage {
         inspection: inspections,
         block: blocks,
         clerk: users,
+        templateName: inspectionTemplates.name,
       })
       .from(inspections)
       .innerJoin(blocks, eq(inspections.blockId, blocks.id))
       .leftJoin(users, eq(inspections.inspectorId, users.id))
+      .leftJoin(inspectionTemplates, eq(inspections.templateId, inspectionTemplates.id))
       .where(eq(blocks.organizationId, organizationId))
       .orderBy(desc(inspections.scheduledDate));
 
@@ -1381,12 +1388,14 @@ export class DatabaseStorage implements IStorage {
         property: r.property,
         block: null,
         clerk: r.clerk,
+        templateName: r.templateName ?? null,
       })),
       ...blockResults.map(r => ({
         ...r.inspection,
         property: null,
         block: r.block,
         clerk: r.clerk,
+        templateName: r.templateName ?? null,
       })),
     ];
 

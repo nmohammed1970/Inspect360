@@ -87,6 +87,8 @@ interface FieldWidgetProps {
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[], note?: string) => void;
+  /** Template AI setting — Recommended Actions panel (default off). */
+  showRecommendedActions?: boolean;
 }
 
 export function FieldWidget({
@@ -105,6 +107,7 @@ export function FieldWidget({
   onChange,
   onMarkedForReviewChange,
   onLogMaintenance,
+  showRecommendedActions = false,
 }: FieldWidgetProps) {
   const isOnline = useOnlineStatus();
   const locale = useLocale();
@@ -2731,7 +2734,12 @@ export function FieldWidget({
                 className="mt-1"
                 data-testid={`textarea-note-${field.id}`}
               />
-              <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
+              <InspectionNoteSectionsView
+                note={localNote}
+                className="mt-3"
+                hideDescription
+                showRecommendedActions={showRecommendedActions}
+              />
             </>
           ) : (
             <>
@@ -2744,7 +2752,12 @@ export function FieldWidget({
                 className="mt-1"
                 data-testid={`textarea-note-${field.id}`}
               />
-              <InspectionNoteSectionsView note={localNote} className="mt-3" hideDescription />
+              <InspectionNoteSectionsView
+                note={localNote}
+                className="mt-3"
+                hideDescription
+                showRecommendedActions={showRecommendedActions}
+              />
             </>
           )}
         </div>

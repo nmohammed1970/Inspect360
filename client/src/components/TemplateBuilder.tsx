@@ -119,6 +119,7 @@ const templateMetaSchema = z.object({
   structureJson: z.any(),
   aiMaxWords: z.number().min(50).max(500).default(150),
   aiInstruction: z.string().optional(),
+  aiIncludeRecommendedActions: z.boolean().default(false),
   reportConfig: reportConfigSchema.optional(),
 });
 
@@ -331,6 +332,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       structureJson: initialStructure,
       aiMaxWords: template?.aiMaxWords ?? 150,
       aiInstruction: template?.aiInstruction || "",
+      aiIncludeRecommendedActions: template?.aiIncludeRecommendedActions === true,
       reportConfig: template?.reportConfig
         ? {
             ...DEFAULT_REPORT_CONFIG,
@@ -1224,6 +1226,27 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                               Custom instruction for AI analysis. Leave blank to use default. The AI will focus on condition, cleanliness, and maintenance issues.
                             </FormDescription>
                             <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="aiIncludeRecommendedActions"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                            <div className="space-y-0.5 pr-4">
+                              <FormLabel>Recommended Actions</FormLabel>
+                              <FormDescription>
+                                When enabled, InspectAI adds a Recommended Actions section to notes. Off by default.
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value === true}
+                                onCheckedChange={field.onChange}
+                                data-testid="switch-ai-recommended-actions"
+                              />
+                            </FormControl>
                           </FormItem>
                         )}
                       />

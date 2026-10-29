@@ -479,6 +479,7 @@ export default function InspectionCapture() {
   } | null;
 
   const templateSnapshot = inspection?.templateSnapshotJson as any;
+  const showRecommendedActions = templateSnapshot?.aiIncludeRecommendedActions === true;
 
   const sectionCipsFor = React.useCallback(
     (section: TemplateSection | null | undefined) =>
@@ -1776,6 +1777,7 @@ export default function InspectionCapture() {
                             sectionName={instanceName}
                             sectionRef={sectionRef}
                             autoContext={autoContext}
+                            showRecommendedActions={showRecommendedActions}
                             onChange={(value: any, note?: string, photos?: string[]) =>
                               handleScopedFieldChange(
                                 sectionRef,
@@ -2901,6 +2903,7 @@ export default function InspectionCapture() {
                             sectionName={instanceName}
                             sectionRef={sectionRef}
                             autoContext={autoContext}
+                            showRecommendedActions={showRecommendedActions}
                             onChange={(value: any, note?: string, photos?: string[]) =>
                               handleFieldChange(field.id, value, note, photos, instanceIndex)
                             }
@@ -3028,6 +3031,7 @@ export default function InspectionCapture() {
                       sectionRef={currentSection.id}
                       disabled={false}
                       autoContext={autoContext}
+                      showRecommendedActions={showRecommendedActions}
                       onChange={(value: any, note?: string, photos?: string[]) => {
                         handleFieldChange(field.id, value, note, photos);
                       }}

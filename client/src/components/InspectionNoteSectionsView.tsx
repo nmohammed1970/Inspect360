@@ -12,6 +12,11 @@ type Props = {
   className?: string;
   /** When true, hide the description block (caller already shows it). */
   hideDescription?: boolean;
+  /**
+   * When false, hide Recommended Actions even if present in the note.
+   * Default false (template setting off unless explicitly enabled).
+   */
+  showRecommendedActions?: boolean;
 };
 
 function SectionPanel({
@@ -52,13 +57,18 @@ function SectionPanel({
   );
 }
 
-export function InspectionNoteSectionsView({ note, className, hideDescription }: Props) {
+export function InspectionNoteSectionsView({
+  note,
+  className,
+  hideDescription,
+  showRecommendedActions = false,
+}: Props) {
   const sections: InspectionNoteSections = parseInspectionNote(note);
   if (!hasNoteSections(sections)) return null;
 
   const showDescription = !hideDescription && Boolean(sections.description);
   const showMaintenance = Boolean(sections.maintenanceIssues);
-  const showRecommended = Boolean(sections.recommendedActions);
+  const showRecommended = showRecommendedActions && Boolean(sections.recommendedActions);
 
   if (!showDescription && !showMaintenance && !showRecommended) return null;
 

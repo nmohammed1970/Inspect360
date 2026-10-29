@@ -538,7 +538,152 @@ type PuppeteerPageLike = {
     options?: { waitUntil?: "domcontentloaded" | "load" | "networkidle0"; timeout?: number },
   ) => Promise<void>;
   pdf: (options: Record<string, unknown>) => Promise<Uint8Array>;
-  evaluate?: (fn: () => Promise<void> | void) => Promise<unknown>;
+  evaluate?: (fn: (...args: any[]) => Promise<void> | void, ...args: any[]) => Promise<unknown>;
+};
+
+/** Stable TOC key → first page where that section starts (1-based in the PDF being scanned). */
+export const TOC_MARKER_PREFIX = "<<I360TOC:";
+export const TOC_MARKER_SUFFIX = ">>";
+/** Allow Chromium/pdf.js to insert spaces between characters when extracting. */
+const TOC_MARKER_RE = /<\s*<\s*I\s*3\s*6\s*0\s*T\s*O\s*C\s*:\s*([A-Za-z0-9_-]+)\s*>\s*>/gi;
+
+export function sanitizeTocKey(key: string): string {
+  return String(key || "")
+    .replace(/[^A-Za-z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 80) || "section";
+}
+
+/**
+ * Marker placed inside section titles (white on primary banner = invisible).
+ * Normal font size so Chromium keeps it in the PDF text layer.
+ */
+export function tocAnchorHtml(key: string): string {
+  const safe = sanitizeTocKey(key);
+  return `<span class="toc-anchor" data-toc-anchor="${safe}" aria-hidden="true" style="font-size:8px;line-height:1;color:#ffffff;font-weight:400;letter-spacing:0;margin-right:4px;">${TOC_MARKER_PREFIX}${safe}${TOC_MARKER_SUFFIX}</span>`;
+}
+
+/** Right-side Contents page slot filled after draft PDF measurement. */
+export function tocPageSlotHtml(key: string): string {
+  const safe = sanitizeTocKey(key);
+  return `<span class="toc-page" data-toc-page="${safe}" style="flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600;min-width:1.5em;text-align:right;">—</span>`;
+}
+
+export type TocContentsEntry = { key: string; label: string };
+
+/** Map first occurrence of each TOC marker to its page number (1-based). */
+export function extractTocMarkerPagesFromPageTexts(
+  pages: Array<{ num: number; text: string }>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const page of pages) {
+    const text = page.text || "";
+    TOC_MARKER_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = TOC_MARKER_RE.exec(text)) !== null) {
+      const key = match[1];
+      if (out[key] == null) out[key] = page.num;
+    }
+  }
+  return out;
+}
+
+/**
+ * Fallback when markers are stripped: find each Contents label after the Contents page
+ * (so the TOC list itself is not matched as the section start).
+ */
+export function extractTocPagesByLabels(
+  pages: Array<{ num: number; text: string }>,
+  entries: TocContentsEntry[],
+): Record<string, number> {
+  if (!entries.length) return {};
+  const normalized = pages.map((p) => ({
+    num: p.num,
+    text: (p.text || "").replace(/\s+/g, " "),
+  }));
+
+  let contentsPage = 0;
+  for (const page of normalized) {
+    const lower = page.text.toLowerCase();
+    if (!/\bcontents\b/i.test(page.text)) continue;
+    const hits = entries.filter((e) => e.label && lower.includes(e.label.toLowerCase())).length;
+    if (hits >= Math.min(2, entries.length)) {
+      contentsPage = page.num;
+      break;
+    }
+  }
+
+  const out: Record<string, number> = {};
+  for (const { key, label } of entries) {
+    const needle = (label || "").trim().toLowerCase();
+    if (!needle || !key) continue;
+    for (const page of normalized) {
+      if (page.num <= contentsPage) continue;
+      if (page.text.toLowerCase().includes(needle)) {
+        out[key] = page.num;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+async function getPdfPageTexts(
+  pdfBuffer: Buffer,
+): Promise<Array<{ num: number; text: string }>> {
+  let parser: {
+    getText: () => Promise<{ pages?: Array<{ num: number; text: string }>; text?: string; total?: number }>;
+    destroy: () => Promise<void>;
+  } | null = null;
+  try {
+    const { PDFParse } = await import("pdf-parse");
+    parser = new PDFParse({ data: pdfBuffer });
+    const result = await parser.getText();
+    if (result.pages && result.pages.length > 0) return result.pages;
+    // Some builds only populate the concatenated text — split on form feeds if present
+    const full = result.text || "";
+    if (!full) return [];
+    const chunks = full.includes("\f") ? full.split("\f") : [full];
+    return chunks.map((text, i) => ({ num: i + 1, text }));
+  } finally {
+    await parser?.destroy().catch(() => undefined);
+  }
+}
+
+export async function findTocMarkerPagesInPdf(pdfBuffer: Buffer): Promise<Record<string, number>> {
+  try {
+    const pages = await getPdfPageTexts(pdfBuffer);
+    return extractTocMarkerPagesFromPageTexts(pages);
+  } catch (err) {
+    console.warn("[PDF] TOC marker scan failed; Contents page numbers left blank:", err);
+    return {};
+  }
+}
+
+export async function resolveTocPagesFromPdf(
+  pdfBuffer: Buffer,
+  entries: TocContentsEntry[],
+): Promise<Record<string, number>> {
+  try {
+    const pages = await getPdfPageTexts(pdfBuffer);
+    const byMarker = extractTocMarkerPagesFromPageTexts(pages);
+    const missing = entries.filter((e) => byMarker[e.key] == null);
+    if (missing.length === 0) return byMarker;
+    const byLabel = extractTocPagesByLabels(pages, missing.length === entries.length ? entries : missing);
+    return { ...byLabel, ...byMarker };
+  } catch (err) {
+    console.warn("[PDF] TOC page resolve failed:", err);
+    return {};
+  }
+}
+
+export type BrandedPdfRenderOptions = {
+  /**
+   * Measure section markers from a draft body PDF, fill Contents page numbers in the
+   * live DOM, then print the body once more (cover is not regenerated).
+   */
+  fillTocPageNumbers?: boolean;
 };
 
 /**
@@ -549,8 +694,10 @@ export async function renderHtmlToBrandedPdf(
   page: PuppeteerPageLike,
   html: string,
   chromeOpts: PdfChromeOptions = {},
+  renderOpts: BrandedPdfRenderOptions = {},
 ): Promise<Buffer> {
   const hasCover = /class=["']cover-page["']/.test(html);
+  const fillToc = !!renderOpts.fillTocPageNumbers && /data-toc-page=/.test(html);
 
   const settleImages = async () => {
     if (!page.evaluate) return;
@@ -585,11 +732,58 @@ export async function renderHtmlToBrandedPdf(
     await settleImages();
   };
 
+  const fillTocSlotsFromBodyPdf = async (bodyPdf: Buffer, coverPageOffset: number) => {
+    if (!fillToc || !page.evaluate) return false;
+
+    const entries = (await page.evaluate(() => {
+      return Array.from(document.querySelectorAll("[data-toc-page]")).map((el) => {
+        const key = el.getAttribute("data-toc-page") || "";
+        const li = el.closest("li");
+        const spans = li ? Array.from(li.querySelectorAll(":scope > span")) : [];
+        // [index, label, leader, pageSlot]
+        const label = (spans[1]?.textContent || "").trim();
+        return { key, label };
+      });
+    })) as TocContentsEntry[];
+
+    const bodyPages = await resolveTocPagesFromPdf(bodyPdf, entries);
+    const keys = Object.keys(bodyPages);
+    if (keys.length === 0) {
+      console.warn(
+        "[PDF] No TOC page numbers resolved from draft body PDF; leaving Contents pages as —",
+        { entryCount: entries.length },
+      );
+      return false;
+    }
+    const finalMap: Record<string, number> = {};
+    for (const key of keys) {
+      finalMap[key] = bodyPages[key] + coverPageOffset;
+    }
+    await page.evaluate((pageMap: Record<string, number>) => {
+      for (const [key, num] of Object.entries(pageMap)) {
+        const nodes = document.querySelectorAll(`[data-toc-page="${key}"]`);
+        nodes.forEach((el) => {
+          el.textContent = String(num);
+        });
+      }
+    }, finalMap);
+    console.log(
+      `[PDF] Filled ${keys.length}/${entries.length} Contents page number(s) (cover offset ${coverPageOffset})`,
+    );
+    return true;
+  };
+
   if (!hasCover) {
     await loadHtml(html);
-    return Buffer.from(
-      await page.pdf(pdfPageOptionsWithChrome({ ...chromeOpts, displayHeaderFooter: chromeOpts.displayHeaderFooter !== false })),
-    );
+    const pdfOpts = pdfPageOptionsWithChrome({
+      ...chromeOpts,
+      displayHeaderFooter: chromeOpts.displayHeaderFooter !== false,
+    });
+    let pdf = Buffer.from(await page.pdf(pdfOpts));
+    if (await fillTocSlotsFromBodyPdf(pdf, 0)) {
+      pdf = Buffer.from(await page.pdf(pdfOpts));
+    }
+    return pdf;
   }
 
   // Pass 1: cover only, no repeating chrome
@@ -602,17 +796,20 @@ export async function renderHtmlToBrandedPdf(
       }),
     ),
   );
+  const coverPageCount = (await PDFDocument.load(coverPdf)).getPageCount();
 
   // Pass 2: body pages with header/footer
   await loadHtml(injectPdfPassStyle(html, PDF_BODY_ONLY_STYLE));
-  const bodyPdf = Buffer.from(
-    await page.pdf(
-      pdfPageOptionsWithChrome({
-        ...chromeOpts,
-        displayHeaderFooter: true,
-      }),
-    ),
-  );
+  const bodyPdfOpts = pdfPageOptionsWithChrome({
+    ...chromeOpts,
+    displayHeaderFooter: true,
+  });
+  let bodyPdf = Buffer.from(await page.pdf(bodyPdfOpts));
+
+  // Efficient TOC fill: patch live DOM, reprint body only (cover reused)
+  if (await fillTocSlotsFromBodyPdf(bodyPdf, coverPageCount)) {
+    bodyPdf = Buffer.from(await page.pdf(bodyPdfOpts));
+  }
 
   return mergePdfBuffers([coverPdf, bodyPdf]);
 }
